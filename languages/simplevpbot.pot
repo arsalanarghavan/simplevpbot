@@ -1,0 +1,1666 @@
+# Translation template for SimpleVPBot (WordPress plugin).
+# Copyright (C) ArsalanArghavan.ir
+# This file is distributed under the same license as the SimpleVPBot package.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: SimpleVPBot 1.0.2\n"
+"Report-Msgid-Bugs-To: https://github.com/simplevpbot/simplevpbot\n"
+"POT-Creation-Date: 2026-04-25 02:57+0330\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: includes/admin/class-admin-ajax.php:133
+msgid "برای ریستور باید کادر تایید را بزنید."
+msgstr ""
+
+#: includes/admin/class-admin-ajax.php:136
+msgid "فایلی ارسال نشده است."
+msgstr ""
+
+#: includes/admin/class-admin-ajax.php:139
+msgid "خطای آپلود فایل."
+msgstr ""
+
+#: includes/admin/class-admin-ajax.php:143
+#: includes/admin/services/class-service-admin-ops.php:236
+msgid "فقط فایل .zip مجاز است."
+msgstr ""
+
+#: includes/admin/class-admin-ajax.php:148
+msgid "ذخیرهٔ موقت فایل ناموفق بود."
+msgstr ""
+
+#: includes/admin/class-admin-ajax.php:155
+#: includes/admin/services/class-service-admin-ops.php:242
+msgid "ریستور انجام شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:77
+#: includes/admin/class-admin-menu.php:793
+msgid "ذخیره شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:92
+msgid "عمومی"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:93
+msgid "ربات‌ها"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:94
+msgid "تنظیمات فنی سرور"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:95
+msgid "دسته‌های خرید"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:96
+#: includes/admin/class-admin-menu.php:594
+msgid "پلن‌ها"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:97
+msgid "کارت‌ها"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:98
+msgid "سرورهای L2TP"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:99
+msgid "رسیدها"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:100
+msgid "پیام همگانی"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:101
+msgid "متن‌ها"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:102
+msgid "کاربران"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:103
+msgid "کانفیگ‌های پنل"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:104
+msgid "بکاپ"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:105
+msgid "نوتیفیکیشن"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:106
+msgid "لاگ‌ها"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:142
+#: includes/admin/class-admin-menu.php:310
+#: includes/admin/class-admin-menu.php:571
+#: includes/admin/class-admin-menu.php:588
+#: includes/admin/class-admin-menu.php:594
+#: includes/admin/class-admin-menu.php:603
+#: includes/admin/class-admin-menu.php:838
+#: includes/admin/class-admin-menu.php:887
+#: includes/frontend/class-shortcode-portal.php:96
+#: includes/frontend/class-shortcode-portal.php:180
+msgid "فعال"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:143
+msgid "اکانت تست"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:144
+msgid "آیدی ادمین‌های تلگرام (هر خط یکی)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:145
+msgid "آیدی ادمین‌های بله (هر خط یکی)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:146
+msgid "صفحه پنل کاربری (اشتراک / لینک)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:151
+msgid "— انتخاب —"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:155
+msgid ""
+"پیش‌فرض: پنل روی آدرس /info سایت است. اگر صفحه‌ای انتخاب کنید، لینک امضاشده به "
+"همان صفحه می‌رود (مثلاً اگر شورتکد سفارشی می‌خواهید)."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:170
+msgid ""
+"مستند sendInvoice و answerPreCheckout: مبلغ در API به ریال است. تست: WALLET-"
+"TEST-1111111111111111. خالی بگذارید تا دکمه «کیف پول بله» نمایش داده نشود."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:172
+msgid "Test Telegram getMe"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:173
+msgid "Set Telegram Webhook"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:174
+msgid "Set Bale Webhook"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:184
+msgid ""
+"اگر مسیر مخفی (webBasePath) دارید، آن را در انتهای URL بیاورید. مثال: "
+"https://panel.example.com:2053/abc/"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:187
+msgid "در صورت فعال بودن ورود دو مرحله‌ای یا رمز اضافی روی سرور."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:188
+msgid ""
+"پایهٔ مسیر API (معمولاً panel/api). اگر مسیر مخفی ندارید، فقط دامنه و پورت در "
+"آدرس بالا کافی است."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:190
+msgid "پیش‌نمایش endpointها"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:195
+msgid "تست اتصال پنل"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:204
+msgid "فاصله بکاپ (دقیقه)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:205
+msgid "مقصد ارسال"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:206
+msgid "ارسال به ادمین‌های تلگرام (لیست عمومی)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:207
+msgid "ارسال به ادمین‌های بله (لیست عمومی)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:208
+msgid "ارسال به چت/کانال تلگرام (در صورت تنظیم chat id زیر)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:209
+msgid "ارسال به چت/کانال بله (در صورت تنظیم chat id زیر)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:210
+msgid ""
+"اگر همه غیرفعال باشند، فایل زیپ بکاپ ساخته می‌شود اما به هیچ مقصدی ارسال "
+"نمی‌شود. فایل زیپ شامل دیتابیس پنل (در صورت موفقیت) و جداول پلاگین وردپرس است."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:212
+msgid "چت/کانال تلگرام برای بکاپ (chat id)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:213
+msgid ""
+"ربات باید در کانال یا گروه ادمین باشد. بدون تیک «ارسال به چت/کانال تلگرام» "
+"این مقدار نادیده گرفته می‌شود."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:214
+msgid "چت/کانال بله برای بکاپ (chat id)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:215
+msgid "ربات باید در آن گفتگو دسترسی ارسال فایل داشته باشد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:217
+msgid "بکاپ الان"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:221
+msgid "آخرین ارسال موفق:"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:224
+msgid "آخرین ساخت آرشیو:"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:226
+msgid "ریستور بکاپ (وردپرس)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:227
+msgid ""
+"فقط جداول پلاگین (svp_*) و تنظیمات simplevpbot_settings از فایل زیپ بازیابی "
+"می‌شوند. فایل panel.db را باید در صورت نیاز از پنل ۳x-ui به‌صورت دستی "
+"بازگردانی کنید."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:229
+msgid "تایید می‌کنم جداول فعلی پلاگین جایگزین شوند."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:230
+msgid "آپلود و ریستور"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:235
+msgid "روزهای هشدار انقضا (با کاما)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:236
+msgid "آستانه حجم کم (درصد باقیمانده)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:237
+msgid "کاربر هم‌زمان پیش‌فرض (سرویس جدید)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:237
+msgid ""
+"برای هر سرویس تازه چند نفر هم‌زمان بتوانند وصل شوند. صفر یعنی بدون سقف عددی."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:238
+msgid "قیمت هر کاربر اضافه (تومان)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:238
+msgid "اگر صفر باشد دکمه «افزایش کاربر» در ربات نشان داده نمی‌شود."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:241
+#: includes/admin/class-admin-menu.php:573
+#: includes/admin/class-admin-menu.php:702
+#: includes/admin/class-admin-menu.php:817
+#: includes/admin/class-admin-menu.php:1235
+msgid "ذخیره"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:258
+msgid "نام یا Inbound نامعتبر است. فیلدها را بررسی کنید."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:264
+msgid "پلن اضافه شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:265
+msgid "پلن به‌روزرسانی شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:266
+msgid "پلن حذف شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:267
+msgid "وضعیت فعال بودن پلن تغییر کرد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:268
+msgid "پلن ذخیره نشد: نام و شناسهٔ Inbound الزامی‌اند."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:277
+msgid ""
+"پلن‌های فعال در منوی خرید ربات (زیر هر دستهٔ فعال) دیده می‌شوند. پلن غیرفعال "
+"فروخته نمی‌شود و تمدید خودکار برای آن انجام نمی‌شود. دکمه‌های انتخاب دسته را در "
+"تب «دسته‌های خرید» تنظیم کنید."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:280
+msgid "ویرایش پلن"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:287
+msgid "ذخیرهٔ تغییرات"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:288
+#: includes/admin/class-admin-menu.php:574
+#: includes/admin/class-admin-menu.php:703
+#: includes/admin/class-admin-menu.php:818
+msgid "انصراف"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:291
+#: includes/admin/class-admin-menu.php:296
+msgid "افزودن پلن"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:298
+msgid "لیست پلن‌ها"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:300
+msgid "شناسه"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:301
+#: includes/admin/class-admin-menu.php:991
+#: includes/admin/class-admin-menu.php:1085
+msgid "نام"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:302
+msgid "دسته"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:303
+msgid "نوع"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:304
+msgid "روز"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:305
+msgid "حجم"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:306
+msgid "قیمت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:307
+#: includes/admin/class-admin-menu.php:1287
+msgid "Inbound"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:308
+msgid "کلاینت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:309
+#: includes/admin/class-admin-menu.php:569
+#: includes/admin/class-admin-menu.php:586
+#: includes/admin/class-admin-menu.php:594
+msgid "ترتیب"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:311
+#: includes/admin/class-admin-menu.php:594
+msgid "عملیات"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:317
+msgid "پویا"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:317
+msgid "ثابت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:338
+#: includes/admin/class-admin-menu.php:599
+#: includes/admin/class-admin-menu.php:715
+#: includes/admin/class-admin-menu.php:845
+msgid "ویرایش"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:342
+msgid "غیرفعال کردن"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:342
+msgid "فعال کردن"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:345
+msgid "این پلن حذف شود؟ سرویس‌های قدیمی در دیتابیس می‌مانند."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:348
+#: includes/admin/class-admin-menu.php:609
+msgid "حذف"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:443
+msgid "نوع سرویس"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:445
+msgid "Xray (3x-ui)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:446
+msgid "L2TP/IPsec (SSH)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:448
+msgid ""
+"Xray یعنی پلن روی یک inbound در 3x-ui ساخته می‌شود. L2TP یعنی کاربر روی سرور "
+"L2TP (از تب «سرورهای L2TP») ساخته می‌شود."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:450
+msgid "سرور L2TP"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:453
+msgid "هنوز سرور L2TP اضافه نشده؛ از تب «سرورهای L2TP» یکی بسازید."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:461
+#: includes/admin/class-admin-menu.php:488
+msgid "(غیرفعال)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:469
+msgid "نوع قیمت‌گذاری"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:470
+msgid "قیمت و حجم ثابت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:471
+msgid "قیمت به‌ازای هر گیگ (کاربر حجم را می‌نویسد)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:474
+msgid "نام پلن"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:478
+msgid "دسته (ربات)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:480
+msgid "هیچ دسته‌ای تعریف نشده. از تب «دسته‌های خرید» اضافه کنید."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:494
+msgid "مدیریت نام و ترتیب دکمه‌های دسته در ربات"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:497
+msgid "مدت (روز)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:500
+msgid "حجم ثابت (GB)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:502
+msgid "فقط برای پلن «ثابت». ۰ = نامحدود در پنل."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:504
+msgid "قیمت کل (تومان)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:506
+msgid "فقط برای پلن «ثابت»."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:508
+msgid "قیمت هر گیگ (تومان)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:510
+msgid "فقط برای «هر گیگ»؛ مبلغ = حجم × این عدد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:512
+msgid "حداقل حجم (GB)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:514
+msgid "حداکثر حجم (GB)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:517
+msgid "تعداد کلاینت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:520
+msgid "شناسه Inbound پنل"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:522
+msgid "فقط برای پلن Xray. برای L2TP خالی بگذارید."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:524
+msgid "ترتیب نمایش"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:528
+msgid "فعال در ربات"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:529
+msgid "اگر غیرفعال باشد در لیست خرید ربات نیست و تمدید خودکار انجام نمی‌شود."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:545
+msgid "دسته اضافه شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:546
+msgid "دسته به‌روزرسانی شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:547
+msgid "دسته حذف شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:548
+msgid "وضعیت دسته تغییر کرد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:549
+msgid "این شناسهٔ فنی (slug) قبلاً استفاده شده."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:550
+msgid ""
+"این دسته را نمی‌توان حذف کرد چون هنوز پلنی با همین slug دارد. ابتدا پلن‌ها را "
+"ویرایش یا حذف کنید."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:551
+msgid ""
+"slug و عنوان الزامی‌اند. slug فقط حروف کوچک، عدد و زیرخط، حداکثر ۳۲ کاراکتر."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:559
+msgid ""
+"این‌ها همان دکمه‌های «دسته سرویس را انتخاب کنید» در ربات هستند. slug در "
+"callback تلگرام/بله ذخیره می‌شود؛ بعد از راه‌اندازی آن را عوض نکنید مگر پلن‌های "
+"مرتبط را هم به‌روز کنید."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:562
+msgid "ویرایش دسته"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:566
+#: includes/admin/class-admin-menu.php:581
+msgid "شناسهٔ فنی (slug)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:567
+#: includes/admin/class-admin-menu.php:584
+msgid "عنوان دکمه در ربات"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:572
+msgid "دستهٔ غیرفعال در منوی خرید ربات دیده نمی‌شود."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:577
+#: includes/admin/class-admin-menu.php:590
+msgid "افزودن دسته"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:583
+msgid "فقط a-z و 0-9 و _. در callback: buy:c:slug"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:589
+msgid "از ابتدا در ربات نمایش داده شود."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:592
+msgid "لیست دسته‌ها"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:594
+#: includes/admin/class-admin-menu.php:838
+msgid "عنوان"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:603
+msgid "غیرفعال"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:606
+msgid "حذف این دسته؟"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:658
+msgid "تنظیمات کریپتو ذخیره شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:698
+msgid "ویرایش کارت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:705
+msgid "افزودن کارت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:720
+msgid "کریپتو NOWPayments (وب‌هوک خودکار)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:721
+msgid ""
+"در داشبورد NOWPayments همان IPN secret را وارد کنید و آدرس زیر را به‌عنوان "
+"Callback URL ثبت کنید. order_id برابر شناسه تراکنش وردپرس (svp_transactions."
+"id) است."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:726
+msgid "NOWPayments API key"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:727
+msgid "NOWPayments IPN secret"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:728
+msgid "برای امضای هدر x-nowpayments-sig در وب‌هوک."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:729
+msgid "ارز پرداخت (pay_currency)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:731
+msgid "تومان به ازای ۱ دلار (تبدیل قیمت)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:732
+msgid "مبلغ سفارش به USD برای API از این نرخ محاسبه می‌شود."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:734
+msgid "ذخیره تنظیمات کریپتو"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:755
+msgid "شماره کارت یا آدرس ولت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:756
+msgid ""
+"برای کریپتو دستی: آدرس ولت کامل. برای کریپتو خودکار: می‌تواند «-» باشد "
+"(پرداخت از NOWPayments)."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:757
+msgid "صاحب حساب یا شبکه"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:758
+msgid "برای کریپتو دستی مثلاً USDT TRC20."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:762
+msgid "کارت به کارت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:763
+msgid "بانک مهر"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:764
+msgid "کریپتو (آدرس ثابت + رسید)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:765
+msgid "کریپتو NOWPayments (لینک پرداخت)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:766
+msgid ""
+"کریپتو دستی مثل کارت: کاربر رسید می‌فرستد. خودکار: نیاز به API و IPN در پایین "
+"همین صفحه."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:775
+msgid "افزودن"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:788
+msgid "سرور اضافه شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:797
+msgid "سرور حذف شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:803
+msgid ""
+"هیچ کلاینت SSH در دسترس نیست (phpseclib3 یا اکستنشن ssh2). کامپوزر پلاگین "
+"نصب شده؟"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:805
+#, php-format
+msgid "درایور SSH فعال: %s"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:812
+msgid "ویرایش سرور L2TP"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:819
+msgid "تست اتصال"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:822
+msgid "حذف این سرور؟"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:825
+msgid "حذف سرور"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:829
+msgid "افزودن سرور L2TP"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:837
+msgid "لیست سرورها"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:869
+msgid "عنوان (نمایشی)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:870
+msgid "SSH host"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:871
+msgid "SSH port"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:872
+msgid "SSH user"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:873
+msgid "نوع احراز هویت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:874
+msgid "کلید خصوصی"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:875
+#: includes/frontend/class-shortcode-portal.php:194
+msgid "رمز عبور"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:877
+msgid "کلید خصوصی (PEM)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:877
+#: includes/admin/class-admin-menu.php:878
+#: includes/admin/class-admin-menu.php:879
+#: includes/admin/class-admin-menu.php:881
+msgid "خالی بگذارید تا تغییر نکند"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:878
+msgid "پسورد کلید (اختیاری)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:879
+msgid "پسورد SSH (اگر key نیست)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:880
+msgid "L2TP host (نمایش به کاربر)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:881
+msgid "IPsec PSK"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:882
+msgid "مسیر chap-secrets"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:883
+msgid "دستور Reload"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:884
+msgid "دستور خواندن مصرف (اختیاری)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:885
+msgid ""
+"برای هر کاربر باید یک عدد بایت چاپ کند. جایگزین {username} به‌صورت خودکار "
+"escape می‌شود."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:886
+msgid "یادداشت راهنمای اپ"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:900
+msgid "متن‌ها ذخیره شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:908
+msgid "متن‌ها به پیش‌فرض برگردانده شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:919
+msgid "ذخیره متن‌ها"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:922
+msgid "متن‌ها به مقدار پیش‌فرض برمی‌گردد. ادامه می‌دهید؟"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:925
+msgid "بازگرداندن به پیش‌فرض"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:965
+msgid "عضویت کاربر تایید شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:967
+msgid "تایید عضویت انجام نشد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:972
+msgid "عضویت کاربر رد شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:974
+msgid "رد عضویت انجام نشد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:982
+msgid ""
+"کاربرانی که همان شناسه تلگرام یا بله را داشته باشند با به‌روزرسانی افزونه "
+"ادغام می‌شوند؛ ردیف تکراری برای یک chat id ساخته نمی‌شود."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:986
+msgid "عضویت در انتظار تایید"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:988
+msgid "کاربر معلقی برای تایید عضویت نیست."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:991
+#: includes/admin/class-admin-menu.php:1086
+#: includes/frontend/class-shortcode-portal.php:193
+msgid "نام کاربری"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:992
+msgid "زمان ثبت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:992
+msgid "اقدام"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1012
+msgid "تایید عضویت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1014
+msgid "رد عضویت این کاربر؟"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1017
+msgid "رد عضویت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1055
+msgid "فهرست کاربران"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1056
+msgid "فیلترها مانند بخش اتصال اینباند: وضعیت حساب و وجود سرویس."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1060
+msgid "وضعیت:"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1063
+msgid "همه وضعیت‌ها"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1064
+msgid "در انتظار تایید"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1065
+#: includes/admin/class-admin-menu.php:1227
+msgid "تایید شده"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1066
+#: includes/admin/class-admin-menu.php:1228
+msgid "رد شده"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1067
+msgid "مسدود"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1073
+msgid "سرویس:"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1075
+msgid "همه"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1076
+msgid "دارای سرویس"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1077
+msgid "بدون سرویس"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1079
+msgid "اعمال"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1081
+#, php-format
+msgid "تعداد در این نما: %d"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1087
+msgid "شماره"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1089
+#: includes/frontend/class-shortcode-portal.php:121
+#: includes/frontend/class-shortcode-portal.php:190
+msgid "وضعیت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1090
+msgid "سرویس‌ها"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1091
+msgid "موجودی"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1092
+#: includes/admin/class-admin-menu.php:1205
+msgid "ثبت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1093
+msgid "عضویت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1125
+msgid "تایید"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1127
+msgid "رد شود؟"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1130
+msgid "رد"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1140
+msgid "انتقال سرویس"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1141
+msgid ""
+"برای انتقال مالکیت یک سرویس به کاربر دیگر، شناسه سرویس و شناسه مقصد را وارد "
+"کنید. مقصد می‌تواند svp_users.id، نام کاربری (با @) یا شناسه عددی تلگرام/بله "
+"باشد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1143
+msgid "شناسه سرویس"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1144
+msgid "مقصد"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1146
+msgid "اجرای انتقال"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1148
+msgid "ادغام کاربران تکراری"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1149
+msgid ""
+"کاربر «keep» باقی می‌ماند، اطلاعات کاربر «drop» (سرویس‌ها، تراکنش‌ها، رسیدها "
+"و ...) به keep منتقل و ردیف drop حذف می‌شود. قبل از اجرا پیش‌نمایش بگیرید."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1151
+msgid "keep_id"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1152
+msgid "drop_id"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1154
+msgid "پیش‌نمایش"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1154
+msgid "اجرای ادغام"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1169
+msgid "وضعیت رسید به‌روز شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1171
+#: includes/admin/class-admin-menu.php:1191
+msgid "تایید انجام شد اما ساخت سرویس روی پنل ناموفق بود."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1180
+msgid "تغییر وضعیت رسید انجام نشد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1193
+msgid "رسید تایید شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1197
+msgid "رسید رد شد."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1204
+msgid ""
+"وضعیت هر رسید را می‌توانید مستقیم از فهرست زیر تغییر دهید (تایید / رد / در "
+"انتظار). برای رسید تاییدشدهٔ «شارژ»، برگرداندن به رد یا در انتظار، مبلغ از "
+"موجودی کاربر کم می‌شود. زمان‌ها به‌صورت شمسی نمایش داده می‌شوند."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1205
+msgid "تصویر"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1205
+msgid "کاربر"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1205
+msgid "کارت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1205
+msgid "مبلغ"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1205
+msgid "وضعیت فعلی"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1205
+msgid "تغییر وضعیت"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1205
+msgid "تصمیم"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1226
+msgid "در انتظار"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1241
+msgid "تایید سریع"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1242
+msgid "رد سریع"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1253
+msgid "تلاش مجدد ساخت سرویس"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1285
+msgid ""
+"فهرست کانفیگ‌های پنل 3x-ui: کامنت/یادداشت ذخیره‌شده روی پنل نیز نشان داده "
+"می‌شود. می‌توانید هر کلاینت را به یک کاربر ربات متصل کنید."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1286
+msgid "بارگذاری Inboundها"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1289
+msgid "نمایش:"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1291
+msgid "همه کانفیگ‌ها"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1292
+msgid "فقط کانفیگ‌های متصل به کاربر"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1293
+msgid "فقط کانفیگ‌های بدون کاربر"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1295
+msgid "نمایش کلاینت‌های این Inbound"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1296
+msgid "اتصال خودکار بر اساس @username / chat id"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1298
+msgid "اتصال دستی"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1299
+msgid "Inbound ID"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1301
+msgid "ایمیل کلاینت (همان email در پنل)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1303
+msgid "شناسه کاربر ربات (svp_users.id)"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1305
+#: includes/frontend/class-shortcode-portal.php:148
+msgid "اتصال"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1346
+msgid "پیام در صف ارسال قرار گرفت."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1350
+msgid "ارسال پیام همگانی"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1354
+msgid "متن پیام..."
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1355
+msgid "ارسال به همه کاربران تایید شده"
+msgstr ""
+
+#: includes/admin/class-admin-menu.php:1360
+msgid "تاریخچه"
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:34
+msgid "آدرس پنل (Panel URL) تنظیم نشده است."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:41
+msgid ""
+"ورود به پنل ناموفق بود. معمولاً یعنی یوزر/پس اشتباه است، یا webBasePath پنل "
+"در Panel URL شما نیست. در تب «لاگ‌ها» ورودی x-ui login rejected را ببینید."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:44
+msgid ""
+"اگر در 3x-ui مسیر پایه (webBasePath) ست کرده‌اید، آن را در انتهای Panel URL "
+"بیاورید؛ مثل https://example.com:2053/abc/"
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:90
+msgid "ورود موفق بود ولی هیچ endpoint آزمایشی پاسخ معتبر نداد."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:92
+#, php-format
+msgid "پیشنهاد: مقدار «API base path» را به %s تغییر دهید."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:101
+msgid ""
+"در 3x-ui اصلی (و Postman رسمی)، همهٔ API شامل server/status زیر همان پایهٔ API "
+"است؛ مثلاً /panel/api/server/status و /panel/api/inbounds/list. webBasePath "
+"فقط قبل از /panel/api می‌آید."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:109
+msgid "اتصال پنل برقرار است."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:126
+#: includes/admin/services/class-service-admin-ops.php:145
+msgid "توکن تلگرام تنظیم نشده است."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:131
+msgid "Telegram getMe ناموفق بود."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:148
+msgid "Secret مسیر Webhook تلگرام تنظیم نشده است."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:162
+msgid "ست Webhook تلگرام ناموفق بود."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:176
+msgid "توکن بله تنظیم نشده است."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:179
+msgid "Secret مسیر Webhook بله تنظیم نشده است."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:185
+msgid "ست Webhook بله ناموفق بود."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:202
+msgid "ساخت فایل بکاپ ناموفق بود. لاگ‌ها را ببینید."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:213
+msgid "بکاپ زیپ ساخته و حداقل به یک مقصد ارسال شد."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:215
+msgid ""
+"زیپ بکاپ ساخته شد؛ به هیچ مقصدی ارسال نشد یا همه ناموفق بودند (تیک‌های مقصد "
+"را بررسی کنید)."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:229
+msgid "برای ریستور باید تایید شود."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:233
+msgid "فایل در دسترس نیست."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:252
+#: includes/admin/services/class-service-admin-ops.php:285
+#: includes/admin/services/class-service-admin-ops.php:375
+#: includes/admin/services/class-service-admin-ops.php:399
+msgid "ورود پنل ناموفق."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:256
+msgid ""
+"لیست Inbound دریافت نشد. API پنل، مسیر /panel/api و تست اتصال پنل را در «پنل "
+"3x-ui» بررسی کنید."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:282
+#: includes/admin/services/class-service-admin-ops.php:393
+#: includes/admin/services/class-service-admin-ops.php:419
+msgid "شناسه نامعتبر."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:289
+#: includes/admin/services/class-service-admin-ops.php:373
+#: includes/admin/services/class-service-admin-ops.php:400
+msgid "Inbound یافت نشد."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:371
+msgid "کاربر ربات یافت نشد."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:372
+msgid "این کلاینت قبلاً وصل شده است."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:374
+msgid "ایمیل در این Inbound نیست."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:398
+msgid "پارامترها نامعتبر است."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:427
+msgid "ناموفق:"
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:433
+msgid "سرویس ساخته شد."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:451
+#: includes/admin/services/class-service-admin-ops.php:533
+msgid "پارامترها نامعتبر."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:455
+msgid "کاربر مقصد یافت نشد یا مبهم است."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:464
+msgid "انتقال انجام شد."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:482
+msgid "keep_id و drop_id معتبر و متفاوت بفرستید."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:487
+#: includes/admin/services/class-service-admin-ops.php:541
+msgid "یکی از کاربران یافت نشد."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:536
+msgid "برای اجرا تایید لازم است."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:548
+msgid "ادغام انجام شد."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:565
+msgid "سرور یافت نشد."
+msgstr ""
+
+#: includes/admin/services/class-service-admin-ops.php:569
+msgid "درایور SSH در دسترس نیست (phpseclib3/ssh2)."
+msgstr ""
+
+#: includes/class-settings.php:83
+#, php-format
+msgid "Every %d minutes (SimpleVPBot backup)"
+msgstr ""
+
+#: includes/class-settings.php:89
+msgid "Every minute (SimpleVPBot)"
+msgstr ""
+
+#: includes/frontend/class-portal-front.php:74
+msgid "صفحهٔ اشتراک"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:34
+msgid "لینک معتبر نیست یا منقضی شده است. از ربات دوباره لینک بگیرید."
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:38
+msgid "دسترسی ندارید."
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:44
+msgid "این لینک برای این اشتراک معتبر نیست."
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:51
+msgid "سرویسی ثبت نشده است."
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:56
+msgid "پنل مدیریت اشتراک شما"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:96
+#: includes/frontend/class-shortcode-portal.php:180
+msgid "منقضی شده"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:100
+msgid "اطلاعات اشتراک"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:102
+msgid "تنظیمات"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:105
+msgid "کپی شناسه اشتراک"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:108
+msgid "پنل وب"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:111
+msgid "کپی کانفیگ"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:116
+msgid "کد QR"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:120
+msgid "شناسه اشتراک"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:122
+msgid "دانلود"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:123
+msgid "آپلود"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:124
+#: includes/frontend/class-shortcode-portal.php:195
+msgid "مصرف"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:125
+#: includes/frontend/class-shortcode-portal.php:196
+msgid "حجم کل"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:126
+msgid "باقی‌مانده"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:127
+msgid "آخرین اتصال"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:128
+#: includes/frontend/class-shortcode-portal.php:197
+msgid "انقضا"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:142
+msgid "کپی"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:150
+msgid ""
+"کانفیگ‌ها از لینک اشتراک گرفته می‌شوند. روی «کپی لینک اشتراک» بزنید و داخل "
+"برنامهٔ اتصال (v2rayNG / Hiddify و غیره) وارد کنید."
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:151
+msgid "هنوز لینک اشتراک برای شما روشن نشده؛ از ادمین بخواهید بررسی کند."
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:184
+msgid "اتصال L2TP / IPsec"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:189
+msgid "نوع اتصال"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:189
+msgid "L2TP/IPsec با PSK"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:191
+msgid "سرور"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:192
+msgid "PSK"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:203
+msgid "کپی سرور"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:204
+msgid "کپی PSK"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:205
+msgid "کپی نام کاربری"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:206
+msgid "کپی رمز"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:218
+msgid "ویندوز"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:218
+msgid ""
+"تنظیمات ← شبکه و اینترنت ← VPN ← افزودن VPN، نوع را L2TP/IPsec with pre-"
+"shared key انتخاب کنید."
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:219
+#: includes/frontend/class-shortcode-portal.php:255
+msgid "آی‌اواس"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:219
+msgid "تنظیمات ← عمومی ← VPN ← افزودن پیکربندی VPN (نوع L2TP)."
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:220
+#: includes/frontend/class-shortcode-portal.php:250
+msgid "اندروید"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:220
+msgid "تنظیمات ← اتصالات ← VPN ← افزودن VPN (نوع L2TP/IPsec PSK)."
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:274
+msgid "افزودن خودکار"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:277
+msgid "دانلود اپ"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:291
+msgid "افزودن اشتراک یک‌کلیکی"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:297
+msgid "ساده، سریع"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:303
+msgid "پیشرفته"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:309
+msgid "پشتیبانی پروتکل‌های متعدد"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:323
+msgid "رایگان در App Store"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:329
+msgid "محبوب و پرکاربرد"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:335
+msgid "نصب آسان، اتصال یک‌کلیکی"
+msgstr ""
+
+#: includes/frontend/class-shortcode-portal.php:341
+msgid "رایگان"
+msgstr ""
+
+#: includes/helpers/class-backup-restore.php:28
+msgid "ZipArchive در سرور فعال نیست."
+msgstr ""
+
+#: includes/helpers/class-backup-restore.php:31
+msgid "فایل زیپ خوانا نیست."
+msgstr ""
+
+#: includes/helpers/class-backup-restore.php:35
+msgid "باز کردن زیپ ناموفق بود."
+msgstr ""
+
+#: includes/helpers/class-backup-restore.php:40
+msgid "manifest.json در زیپ یافت نشد."
+msgstr ""
+
+#: includes/helpers/class-backup-restore.php:45
+msgid "manifest نامعتبر است."
+msgstr ""
+
+#: includes/helpers/class-backup-restore.php:49
+msgid "نسخهٔ فرمت بکاپ پشتیبانی نمی‌شود."
+msgstr ""
+
+#: includes/helpers/class-backup-restore.php:55
+msgid "نام جدول غیرمجاز در manifest:"
+msgstr ""
+
+#: includes/helpers/class-backup-restore.php:61
+msgid "plugin-tables.sql در زیپ یافت نشد."
+msgstr ""
+
+#: includes/helpers/class-backup-restore.php:65
+msgid "فایل SQL بکاپ بیش از حد بزرگ است."
+msgstr ""
+
+#: includes/helpers/class-backup-restore.php:96
+msgid "خط INSERT به جدول غیرمجاز یا نامعتبر:"
+msgstr ""
+
+#: includes/helpers/class-receipt-processor.php:640
+msgid ""
+"تراکنش خرید به‌حالت قبل برگردانده شد؛ ردیف سرویس در دیتابیس ممکن است باقی "
+"مانده باشد."
+msgstr ""

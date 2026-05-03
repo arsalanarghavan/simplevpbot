@@ -1,0 +1,24 @@
+{
+	"name": "simplevpbot/plugin",
+	"type": "wordpress-plugin",
+	"require": {
+		"php": ">=7.4",
+		"chillerlan/php-qrcode": "^4.3",
+		"phpseclib/phpseclib": "~3.0"
+	},
+	"require-dev": {
+		"phpunit/phpunit": "^9.6"
+	},
+	"scripts": {
+		"test": "phpunit",
+		"smoke": "bash scripts/smoke-php.sh",
+		"make-pot": "bash scripts/make-pot.sh"
+	},
+	"suggest": {
+		"ext-dom": "Required to run PHPUnit (php-xml package on Debian/Ubuntu)."
+	},
+	"config": {
+		"optimize-autoloader": true,
+		"sort-packages": true
+	}
+}

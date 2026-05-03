@@ -1,0 +1,437 @@
+"use client"
+
+import { useMemo } from "react"
+import { useTranslation } from "react-i18next"
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
+
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Progress } from "@/components/ui/progress"
+import {
+  formatBytes,
+  formatChartDayLabel,
+  formatChartTooltipDate,
+  formatDateTime,
+  formatNumber,
+} from "@/lib/format-locale"
+import type { PaginationMeta } from "@/lib/dash-pagination"
+import { cn } from "@/lib/utils"
+import type { OverviewPayload, PanelHealth, StatsPayload } from "@/components/dashboard-overview"
+
+type PanelStatLine = NonNullable<StatsPayload["panels"]>[number]
+
+type LivePanelSnap = {
+  panelId: number
+  ok: boolean
+  error?: string
+  onlineNow: number | null
+  status?: Record<string, number | string> | null
+  checkedAt?: string
+}
+
+type ExternalHostSnap = {
+  hostId: number
+  label?: string
+  ok: boolean
+  error?: string
+  metrics?: Record<string, number | string> | null
+  checkedAt?: string
+}
+
+type OnlineDailyPoint = { date: string; totalMaxOnline: number }
+
+function num(v: unknown): number {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
+}
+
+function clampPct(p: number): number {
+  if (!Number.isFinite(p)) return 0
+  return Math.min(100, Math.max(0, p))
+}
+
+function truncateUrl(url: string, max = 40): string {
+  const u = url.trim()
+  if (!u) return "—"
+  if (u.length <= max) return u
+  return `${u.slice(0, max - 1)}…`
+}
+
+function statusEntries(status: Record<string, number | string> | null | undefined): [string, string][] {
+  if (!status || typeof status !== "object") return []
+  return Object.entries(status)
+    .slice(0, 12)
+    .map(([k, v]) => [k, typeof v === "number" ? String(v) : String(v)])
+}
+
+export function DashboardMonitoring({
+  overview,
+  panels,
+  panelsPagination,
+  monitorHosts,
+  isFa,
+  onRefreshPanelHealth,
+  onRefreshLivePanelMetrics,
+}: {
+  overview: OverviewPayload | undefined
+  panels: Record<string, unknown>[]
+  panelsPagination: PaginationMeta | null
+  monitorHosts: Record<string, unknown>[]
+  isFa: boolean
+  onRefreshPanelHealth?: () => void
+  onRefreshLivePanelMetrics?: () => void
+}) {
+  const { t } = useTranslation()
+  const host = overview?.host
+  const series: OnlineDailyPoint[] = overview?.onlineDailySeries ?? []
+  const panelHealth: PanelHealth[] = overview?.panelHealth ?? []
+  const stats: StatsPayload | undefined = overview?.stats
+  const liveSnaps = (overview?.livePanelSnapshots ?? []) as LivePanelSnap[]
+  const extSnaps = (overview?.externalHostSnapshots ?? []) as ExternalHostSnap[]
+
+  const healthById = useMemo(() => {
+    const m = new Map<number, PanelHealth>()
+    for (const h of panelHealth) {
+      m.set(h.panelId, h)
+    }
+    return m
+  }, [panelHealth])
+
+  const statsLineById = useMemo(() => {
+    const m = new Map<number, PanelStatLine>()
+    const lines = stats?.panels ?? []
+    for (const row of lines) {
+      m.set(row.panel_id, row)
+    }
+    return m
+  }, [stats])
+
+  const liveById = useMemo(() => {
+    const m = new Map<number, LivePanelSnap>()
+    for (const s of liveSnaps) {
+      if (s && typeof s.panelId === "number") m.set(s.panelId, s)
+    }
+    return m
+  }, [liveSnaps])
+
+  const chartData = useMemo(
+    () =>
+      series.map((d) => ({
+        ...d,
+        day: formatChartDayLabel(d.date, isFa),
+        tooltipDate: formatChartTooltipDate(d.date, isFa),
+      })),
+    [series, isFa]
+  )
+
+  const barOnline = useMemo(() => {
+    const rows: { name: string; online: number; pid: number }[] = []
+    for (const s of liveSnaps) {
+      if (!s || !s.ok || s.onlineNow == null) continue
+      const st = statsLineById.get(s.panelId)
+      rows.push({
+        pid: s.panelId,
+        name: st?.label ? String(st.label) : `#${s.panelId}`,
+        online: s.onlineNow,
+      })
+    }
+    return rows
+  }, [liveSnaps, statsLineById])
+
+  const memLimit = num(host?.memoryLimitBytes)
+  const memUse = num(host?.memoryBytes)
+  const memPct = memLimit > 0 ? clampPct((memUse / memLimit) * 100) : 0
+  const diskTotal = num(host?.diskTotalBytes)
+  const diskFree = num(host?.diskFreeBytes)
+  const diskUsed = diskTotal > 0 ? diskTotal - diskFree : 0
+  const diskPct = diskTotal > 0 ? clampPct((diskUsed / diskTotal) * 100) : 0
+
+  return (
+    <div className={cn("space-y-6", isFa && "text-right")}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-medium">{t("monitoringPage.title")}</h2>
+          <p className="text-sm text-muted-foreground">{t("monitoringPage.subtitle")}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {onRefreshPanelHealth ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => onRefreshPanelHealth()}>
+              {t("dashboardOverview.refreshPanelHealth")}
+            </Button>
+          ) : null}
+          {onRefreshLivePanelMetrics ? (
+            <Button type="button" variant="default" size="sm" onClick={() => onRefreshLivePanelMetrics()}>
+              {t("dashboardOverview.refreshLiveMetrics")}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("monitoringPage.siteHost")}</CardTitle>
+          <CardDescription>
+            {host?.checkedAt ? formatDateTime(host.checkedAt, isFa) : "—"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="rounded-lg border border-border bg-card/50 p-3">
+              <p className="text-xs text-muted-foreground">{t("dashboardOverview.hostLoad")}</p>
+              <p className="mt-1 font-mono text-sm tabular-nums">
+                {host?.loadAvg?.length === 3
+                  ? `${host.loadAvg[0]} / ${host.loadAvg[1]} / ${host.loadAvg[2]}`
+                  : "—"}
+              </p>
+            </div>
+            <div className="rounded-lg border border-border bg-card/50 p-3">
+              <p className="text-xs text-muted-foreground">{t("dashboardOverview.hostMem")}</p>
+              <p className="mt-1 text-sm tabular-nums">
+                {formatBytes(memUse, isFa)} / {memLimit > 0 ? formatBytes(memLimit, isFa) : "—"}
+              </p>
+              {memLimit > 0 ? <Progress className="mt-2 h-2" value={memPct} /> : null}
+            </div>
+            <div className="rounded-lg border border-border bg-card/50 p-3">
+              <p className="text-xs text-muted-foreground">{t("dashboardOverview.hostDisk")}</p>
+              <p className="mt-1 text-sm tabular-nums">
+                {diskTotal > 0
+                  ? `${formatBytes(diskUsed, isFa)} / ${formatBytes(diskTotal, isFa)}`
+                  : "—"}
+              </p>
+              {diskTotal > 0 ? <Progress className="mt-2 h-2" value={diskPct} /> : null}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {chartData.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("dashboardOverview.chartOnlineTitle")}</CardTitle>
+            <CardDescription>{t("dashboardOverview.chartOnlineSubtitle")}</CardDescription>
+          </CardHeader>
+          <CardContent className="h-[260px] w-full min-w-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="monFillOnline" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                <YAxis width={44} tick={{ fontSize: 11 }} allowDecimals={false} />
+                <RechartsTooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null
+                    const row = payload[0].payload as OnlineDailyPoint & {
+                      tooltipDate?: string
+                    }
+                    return (
+                      <div className="rounded-md border bg-background/95 px-2 py-1.5 text-xs shadow-sm">
+                        <div className="font-medium">{row.tooltipDate ?? row.date}</div>
+                        <div className="text-muted-foreground">
+                          {formatNumber(row.totalMaxOnline ?? 0, isFa)}
+                        </div>
+                      </div>
+                    )
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="totalMaxOnline"
+                  name={t("dashboardOverview.colMaxOnline")}
+                  stroke="hsl(var(--primary))"
+                  fill="url(#monFillOnline)"
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {barOnline.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("dashboardOverview.colOnlineNow")}</CardTitle>
+            <CardDescription>{t("monitoringPage.panelLive")}</CardDescription>
+          </CardHeader>
+          <CardContent className="h-[280px] w-full min-w-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={barOnline} margin={{ top: 8, right: 8, left: 0, bottom: 40 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={isFa ? 0 : -25} textAnchor={isFa ? "middle" : "end"} height={50} />
+                <YAxis width={36} tick={{ fontSize: 11 }} allowDecimals={false} />
+                <RechartsTooltip
+                  formatter={(value: number) => [formatNumber(value, isFa), t("dashboardOverview.colOnlineNow")]}
+                />
+                <Bar dataKey="online" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} maxBarSize={48} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("monitoringPage.panelLive")}</CardTitle>
+          <CardDescription>{t("dashboardOverview.panelsTable")}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {panels.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("dashboardOverview.unknown")}</p>
+          ) : (
+            panels.map((row) => {
+              const pid = Number(row.id)
+              const h = healthById.get(pid)
+              const st = statsLineById.get(pid)
+              const live = liveById.get(pid)
+              const lat = h?.latencyMs ?? null
+              const warnLat = lat != null && lat > 2500
+              const maxDay = st?.max_online_day ?? 0
+              const now = live?.onlineNow
+              const warnDrop =
+                live?.ok &&
+                now != null &&
+                maxDay > 5 &&
+                now < Math.max(0, Math.floor(maxDay * 0.25))
+              return (
+                <div
+                  key={pid}
+                  className="rounded-lg border border-border/80 bg-card/40 p-3 text-sm"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-medium">{String(row.label ?? `#${pid}`)}</p>
+                      <p className="break-all font-mono text-xs text-muted-foreground">
+                        {truncateUrl(String(row.panel_url ?? ""))}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1">
+                      {h?.ok ? (
+                        <Badge variant="secondary">{t("dashboardOverview.online")}</Badge>
+                      ) : (
+                        <Badge variant="destructive">{t("dashboardOverview.offline")}</Badge>
+                      )}
+                      {Number(row.active) ? (
+                        <Badge variant="outline">{t("dashboardOverview.badgeDbActive")}</Badge>
+                      ) : (
+                        <Badge variant="outline">{t("dashboardOverview.badgeDbInactive")}</Badge>
+                      )}
+                      {warnLat ? (
+                        <Badge variant="destructive">{t("monitoringPage.warnLatency")}</Badge>
+                      ) : null}
+                      {warnDrop ? (
+                        <Badge variant="destructive">{t("monitoringPage.warnOnlineDrop")}</Badge>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                      <span className="text-muted-foreground">{t("dashboardOverview.colLatency")}: </span>
+                      <span className="tabular-nums">{lat != null ? formatNumber(lat, isFa) : "—"}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">{t("dashboardOverview.colOnlineNow")}: </span>
+                      <span className="tabular-nums">
+                        {live?.ok && now != null ? formatNumber(now, isFa) : live?.error ? `(${live.error})` : "—"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">{t("dashboardOverview.colMaxOnline")}: </span>
+                      <span className="tabular-nums">{formatNumber(maxDay, isFa)}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">{t("dashboardOverview.colXrayActive")}: </span>
+                      <span className="tabular-nums">{formatNumber(st?.xray_active ?? 0, isFa)}</span>
+                    </div>
+                  </div>
+                  {live?.ok && live.status && Object.keys(live.status).length > 0 ? (
+                    <div className="mt-2 rounded border border-dashed border-border/80 p-2">
+                      <p className="mb-1 text-xs font-medium text-muted-foreground">
+                        {t("monitoringPage.statusSummary")}
+                      </p>
+                      <div className="grid gap-1 font-mono text-[11px] sm:grid-cols-2">
+                        {statusEntries(live.status).map(([k, v]) => (
+                          <div key={k} className="flex justify-between gap-2">
+                            <span className="truncate text-muted-foreground">{k}</span>
+                            <span className="shrink-0 tabular-nums">{v}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })
+          )}
+          {panelsPagination && panelsPagination.total > panelsPagination.perPage ? (
+            <p className="text-xs text-muted-foreground">
+              {isFa
+                ? `صفحه‌بندی: ${formatNumber(panelsPagination.total, isFa)} پنل؛ برای لیست کامل از تب پنل‌ها استفاده کنید.`
+                : `Pagination: ${panelsPagination.total} panels — open Panels tab for full list.`}
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("monitoringPage.externalHosts")}</CardTitle>
+          <CardDescription>{t("monitoringPage.extHint")}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {(!monitorHosts || monitorHosts.length === 0) && extSnaps.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("monitoringPage.externalEmpty")}</p>
+          ) : null}
+          {extSnaps.map((ex) => {
+            const entries = statusEntries(ex.metrics ?? undefined)
+            return (
+              <div key={ex.hostId} className="rounded-lg border border-border/80 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-medium">{ex.label || `Host #${ex.hostId}`}</p>
+                  {ex.ok ? (
+                    <Badge variant="secondary">OK</Badge>
+                  ) : (
+                    <Badge variant="destructive">{ex.error || "—"}</Badge>
+                  )}
+                </div>
+                {entries.length > 0 ? (
+                  <div className="mt-2 grid gap-1 font-mono text-[11px] sm:grid-cols-2">
+                    {entries.map(([k, v]) => (
+                      <div key={k} className="flex justify-between gap-2">
+                        <span className="truncate text-muted-foreground">{k}</span>
+                        <span className="shrink-0 tabular-nums">{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            )
+          })}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
