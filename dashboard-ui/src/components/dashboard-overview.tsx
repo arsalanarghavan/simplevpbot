@@ -1,7 +1,18 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, type ComponentType } from "react"
 import { useTranslation } from "react-i18next"
+import {
+  Bot,
+  CreditCard,
+  Layers,
+  Percent,
+  Radio,
+  Receipt,
+  Server,
+  Tags,
+  UsersRound,
+} from "lucide-react"
 import {
   Area,
   AreaChart,
@@ -71,7 +82,10 @@ type StatsPayload = {
 
 type PanelHealth = {
   panelId: number
+  /** @deprecated use httpOk */
   ok: boolean
+  httpOk?: boolean
+  networkReachable?: boolean
   httpStatus: number
   latencyMs: number | null
   checkedAt: string
@@ -109,6 +123,22 @@ type OverviewPayload = {
 
 export type { OverviewPayload, PanelHealth, StatsPayload }
 
+/** Derive HTTP / network flags (supports older API caches without httpOk / networkReachable). */
+export function resolvePanelHealthFlags(h: PanelHealth | undefined): {
+  httpOk: boolean
+  networkReachable: boolean
+} {
+  if (!h) {
+    return { httpOk: false, networkReachable: false }
+  }
+  const code = Number(h.httpStatus)
+  const httpOk = h.httpOk ?? h.ok ?? false
+  const networkReachable =
+    h.networkReachable ??
+    (Number.isFinite(code) && code >= 100 && code <= 599)
+  return { httpOk, networkReachable }
+}
+
 type DashRecord = Record<string, unknown>
 
 function num(v: unknown): number {
@@ -128,22 +158,61 @@ function truncateUrl(url: string, max = 36): string {
   return `${u.slice(0, max - 1)}…`
 }
 
+const RECEIPT_STATUS_ORDER = ["approved", "pending", "rejected"] as const
+
+function receiptStatusLabelKey(status: string): string {
+  const s = status.toLowerCase()
+  if (s === "approved" || s === "pending" || s === "rejected") {
+    return `dashboardOverview.receiptStatus_${s}`
+  }
+  return "dashboardOverview.receiptStatus_other"
+}
+
+function sortReceiptEntries(entries: [string, number][]): [string, number][] {
+  const seen = new Set<string>()
+  const out: [string, number][] = []
+  for (const k of RECEIPT_STATUS_ORDER) {
+    for (const [sk, v] of entries) {
+      if (sk.toLowerCase() === k) {
+        out.push([sk, v])
+        seen.add(sk)
+        break
+      }
+    }
+  }
+  for (const row of entries) {
+    if (!seen.has(row[0])) out.push(row)
+  }
+  return out
+}
+
+function receiptSegmentClass(status: string): string {
+  const s = status.toLowerCase()
+  if (s === "approved") return "bg-emerald-500"
+  if (s === "pending") return "bg-amber-400"
+  if (s === "rejected") return "bg-rose-500"
+  return "bg-muted-foreground/55"
+}
+
 function StatCard({
   title,
   value,
   sub,
   isFa,
+  className,
 }: {
   title: string
   value: number
   sub?: string
   isFa: boolean
+  className?: string
 }) {
   return (
     <div
       className={cn(
         "rounded-lg border border-border bg-card p-4 shadow-sm",
-        isFa && "text-right"
+        isFa && "text-right",
+        className
       )}
     >
       <p className="text-xs font-medium text-muted-foreground">{title}</p>
@@ -178,6 +247,37 @@ function QuickLink({
         }}
       >
         {label}
+      </a>
+    </Button>
+  )
+}
+
+function DashTabLink({
+  tabKey,
+  label,
+  base,
+  onSelectTab,
+  Icon,
+}: {
+  tabKey: string
+  label: string
+  base: string
+  onSelectTab: (k: string) => void
+  Icon: ComponentType<{ className?: string }>
+}) {
+  const root = base.replace(/\/?$/, "")
+  const href = `${root}/${encodeURIComponent(tabKey)}/`
+  return (
+    <Button variant="secondary" size="sm" className="h-9 max-w-full gap-2 ps-3 pe-3 font-normal" asChild>
+      <a
+        href={href}
+        onClick={(e) => {
+          e.preventDefault()
+          onSelectTab(tabKey)
+        }}
+      >
+        <Icon className="size-4 shrink-0 opacity-80" aria-hidden />
+        <span className="min-w-0 truncate">{label}</span>
       </a>
     </Button>
   )
@@ -239,6 +339,20 @@ export function DashboardOverview({
   }, [panels, statsByPanelId, healthById])
 
   const receiptByStatus = counts.receiptsByStatus as Record<string, number> | undefined
+
+  const receiptsTotalCount = num(
+    (counts as { receiptsTotal?: unknown }).receiptsTotal ?? counts.receiptsSample
+  )
+
+  const receiptRowsSorted = useMemo(() => {
+    if (!receiptByStatus || typeof receiptByStatus !== "object") return [] as [string, number][]
+    return sortReceiptEntries(Object.entries(receiptByStatus).map(([k, v]) => [k, num(v)]))
+  }, [receiptByStatus])
+
+  const receiptBarTotal = useMemo(
+    () => receiptRowsSorted.reduce((sum, [, v]) => sum + v, 0),
+    [receiptRowsSorted]
+  )
 
   const memPct = useMemo(() => {
     const used = host?.memoryBytes
@@ -369,96 +483,307 @@ export function DashboardOverview({
         </CardContent>
       </Card>
 
-      <section className="space-y-3">
-        <h3 className="text-sm font-medium text-foreground">{t("sidebar.sections.users")}</h3>
+      <section className="space-y-4 rounded-2xl border border-border/70 bg-gradient-to-b from-primary/[0.04] to-transparent p-4 sm:p-5">
+        <div className={cn("flex flex-wrap items-center gap-2", isFa && "flex-row-reverse")}>
+          <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <UsersRound className="size-5" aria-hidden />
+          </div>
+          <h3 className="text-base font-semibold tracking-tight">{t("sidebar.sections.users")}</h3>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard title={t("dashboardOverview.usersTotal")} value={num(u.users_total)} isFa={isFa} />
-          <StatCard title={t("dashboardOverview.usersApproved")} value={num(u.users_approved)} isFa={isFa} />
-          <StatCard title={t("dashboardOverview.usersPending")} value={num(u.users_pending)} isFa={isFa} />
-          <StatCard title={t("dashboardOverview.usersToday")} value={num(u.users_today)} isFa={isFa} />
+          <StatCard
+            className="border-border/80 bg-card/90 shadow-sm"
+            title={t("dashboardOverview.usersTotal")}
+            value={num(u.users_total)}
+            isFa={isFa}
+          />
+          <StatCard
+            className="border-border/80 bg-card/90 shadow-sm"
+            title={t("dashboardOverview.usersApproved")}
+            value={num(u.users_approved)}
+            isFa={isFa}
+          />
+          <StatCard
+            className="border-border/80 bg-card/90 shadow-sm"
+            title={t("dashboardOverview.usersPending")}
+            value={num(u.users_pending)}
+            isFa={isFa}
+          />
+          <StatCard
+            className="border-border/80 bg-card/90 shadow-sm"
+            title={t("dashboardOverview.usersToday")}
+            value={num(u.users_today)}
+            isFa={isFa}
+          />
+          <StatCard
+            className="border-emerald-500/15 bg-emerald-500/[0.04]"
+            title={t("dashboardOverview.usersTelegram")}
+            value={num(u.users_with_telegram)}
+            isFa={isFa}
+          />
+          <StatCard
+            className="border-sky-500/15 bg-sky-500/[0.04]"
+            title={t("dashboardOverview.usersBale")}
+            value={num(u.users_with_bale)}
+            isFa={isFa}
+          />
           <StatCard title={t("dashboardOverview.usersRejected")} value={num(u.users_rejected)} isFa={isFa} />
           <StatCard title={t("dashboardOverview.usersBlocked")} value={num(u.users_blocked)} isFa={isFa} />
-          <StatCard title={t("dashboardOverview.usersTelegram")} value={num(u.users_with_telegram)} isFa={isFa} />
-          <StatCard title={t("dashboardOverview.usersBale")} value={num(u.users_with_bale)} isFa={isFa} />
           <StatCard title={t("dashboardOverview.servicesTotal")} value={num(u.services_total)} isFa={isFa} />
           <StatCard title={t("dashboardOverview.servicesL2tp")} value={num(u.services_l2tp)} isFa={isFa} />
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-3">
-        <div className={cn("rounded-lg border border-border bg-card p-4", isFa && "text-right")}>
-          <h3 className="text-sm font-medium">{t("dashboardOverview.botCard")}</h3>
-          <p className="mt-2 text-sm">
-            {bot.enabled ? t("dashboardOverview.botEnabled") : t("dashboardOverview.botDisabled")}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("dashboardOverview.telegram")}: {String(bot.telegram_bot_username || "—")}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {t("dashboardOverview.bale")}: {String(bot.bale_bot_username || "—")}
-          </p>
+      <section className="grid gap-4 lg:grid-cols-2">
+        <div
+          className={cn(
+            "relative overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm",
+            isFa && "text-right"
+          )}
+        >
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-y-0 w-1 bg-gradient-to-b from-violet-500/80 to-transparent",
+              isFa ? "end-0" : "start-0"
+            )}
+          />
+          <div className={cn("flex items-start gap-3", isFa && "flex-row-reverse")}>
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-400">
+              <Bot className="size-6" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1 space-y-2">
+              <h3 className="text-sm font-semibold">{t("dashboardOverview.botCard")}</h3>
+              <p className="text-sm font-medium">
+                {bot.enabled ? t("dashboardOverview.botEnabled") : t("dashboardOverview.botDisabled")}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t("dashboardOverview.telegram")}: {String(bot.telegram_bot_username || "—")}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t("dashboardOverview.bale")}: {String(bot.bale_bot_username || "—")}
+              </p>
+            </div>
+          </div>
         </div>
-        <div className={cn("rounded-lg border border-border bg-card p-4", isFa && "text-right")}>
-          <h3 className="text-sm font-medium">{t("dashboardOverview.financeCard")}</h3>
-          <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
-            <li>
-              {t("dashboardOverview.plansCount")}: {formatNumber(num(counts.plans), isFa)}
-            </li>
-            <li>
-              {t("dashboardOverview.planCategories")}: {formatNumber(num(counts.planCategories), isFa)}
-            </li>
-            <li>
-              {t("dashboardOverview.cardsCount")}: {formatNumber(num(counts.cards), isFa)}
-            </li>
-            <li>
-              {t("dashboardOverview.receiptsSample")}: {formatNumber(num(counts.receiptsSample), isFa)}
-            </li>
-            <li>
-              {t("dashboardOverview.discountCodes")}: {formatNumber(num(counts.discountCodes), isFa)}
-            </li>
-          </ul>
-          {receiptByStatus && Object.keys(receiptByStatus).length > 0 ? (
-            <div className="mt-3 border-t border-border pt-2">
-              <p className="text-xs font-medium text-foreground">{t("dashboardOverview.receiptsByStatus")}</p>
-              <div className="mt-1 flex flex-wrap gap-1">
-                {Object.entries(receiptByStatus).map(([k, v]) => (
-                  <span
-                    key={k}
-                    className="rounded-md bg-muted px-2 py-0.5 font-mono text-xs tabular-nums"
-                  >
-                    {formatNumericString(k, isFa)}: {formatNumber(v, isFa)}
+
+        <div
+          className={cn(
+            "relative overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm",
+            isFa && "text-right"
+          )}
+        >
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-y-0 w-1 bg-gradient-to-b from-sky-500/80 to-transparent",
+              isFa ? "end-0" : "start-0"
+            )}
+          />
+          <div className={cn("flex items-start gap-3", isFa && "flex-row-reverse")}>
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
+              <Server className="size-6" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1 space-y-2">
+              <h3 className="text-sm font-semibold">{t("dashboardOverview.infraCard")}</h3>
+              <ul className="space-y-1.5 text-sm text-muted-foreground">
+                <li className="flex flex-wrap justify-between gap-2 border-b border-border/60 pb-1.5">
+                  <span>{t("dashboardOverview.panelsCount")}</span>
+                  <span className="tabular-nums font-medium text-foreground">
+                    {formatNumber(num(counts.panels), isFa)}
                   </span>
+                </li>
+                <li className="flex flex-wrap justify-between gap-2 border-b border-border/60 pb-1.5">
+                  <span>{t("dashboardOverview.l2tpServers")}</span>
+                  <span className="tabular-nums font-medium text-foreground">
+                    {formatNumber(num(counts.l2tpServers), isFa)}
+                  </span>
+                </li>
+                <li className="flex flex-wrap justify-between gap-2">
+                  <span>{t("sidebar.items.broadcast")}</span>
+                  <span className="tabular-nums font-medium text-foreground">
+                    {formatNumber(num(counts.broadcasts), isFa)}
+                  </span>
+                </li>
+              </ul>
+              <div className="pt-1">
+                <QuickLink
+                  tabKey="xui_panels"
+                  label={t("sidebar.items.xui_panels")}
+                  base={dashboardBaseUrl}
+                  onSelectTab={onSelectTab}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <Card className="overflow-hidden border-border/80 shadow-md">
+        <CardHeader className="border-b border-border/60 bg-muted/30 pb-4">
+          <div className={cn("flex flex-wrap items-start justify-between gap-3", isFa && "flex-row-reverse")}>
+            <div className={cn("space-y-1", isFa && "text-right")}>
+              <CardTitle className="text-lg">{t("dashboardOverview.financeCard")}</CardTitle>
+              <CardDescription className="max-w-2xl text-pretty">
+                {t("dashboardOverview.financeCardHint")}
+              </CardDescription>
+            </div>
+            <Radio className="size-8 shrink-0 text-amber-500/90" aria-hidden />
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6 pt-6">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div
+              className={cn(
+                "rounded-xl border border-border/80 bg-gradient-to-b from-card to-muted/20 p-4 shadow-sm",
+                isFa && "text-right"
+              )}
+            >
+              <Layers className={cn("mb-2 size-5 text-primary", isFa && "ms-auto")} aria-hidden />
+              <p className="text-xs font-medium text-muted-foreground">{t("dashboardOverview.plansCount")}</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">{formatNumber(num(counts.plans), isFa)}</p>
+            </div>
+            <div
+              className={cn(
+                "rounded-xl border border-border/80 bg-gradient-to-b from-card to-muted/20 p-4 shadow-sm",
+                isFa && "text-right"
+              )}
+            >
+              <Tags className={cn("mb-2 size-5 text-primary", isFa && "ms-auto")} aria-hidden />
+              <p className="text-xs font-medium text-muted-foreground">{t("dashboardOverview.planCategories")}</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {formatNumber(num(counts.planCategories), isFa)}
+              </p>
+            </div>
+            <div
+              className={cn(
+                "rounded-xl border border-border/80 bg-gradient-to-b from-card to-muted/20 p-4 shadow-sm",
+                isFa && "text-right"
+              )}
+            >
+              <CreditCard className={cn("mb-2 size-5 text-primary", isFa && "ms-auto")} aria-hidden />
+              <p className="text-xs font-medium text-muted-foreground">{t("dashboardOverview.cardsCount")}</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">{formatNumber(num(counts.cards), isFa)}</p>
+            </div>
+            <div
+              className={cn(
+                "rounded-xl border border-emerald-500/20 bg-gradient-to-b from-emerald-500/[0.07] to-card p-4 shadow-sm",
+                isFa && "text-right"
+              )}
+            >
+              <Receipt className={cn("mb-2 size-5 text-emerald-600 dark:text-emerald-400", isFa && "ms-auto")} aria-hidden />
+              <p className="text-xs font-medium text-muted-foreground">{t("dashboardOverview.receiptsTotal")}</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {formatNumber(receiptsTotalCount, isFa)}
+              </p>
+            </div>
+            <div
+              className={cn(
+                "rounded-xl border border-border/80 bg-gradient-to-b from-card to-muted/20 p-4 shadow-sm",
+                isFa && "text-right"
+              )}
+            >
+              <Percent className={cn("mb-2 size-5 text-primary", isFa && "ms-auto")} aria-hidden />
+              <p className="text-xs font-medium text-muted-foreground">{t("dashboardOverview.discountCodes")}</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {formatNumber(num(counts.discountCodes), isFa)}
+              </p>
+            </div>
+          </div>
+
+          {receiptRowsSorted.length > 0 && receiptBarTotal > 0 ? (
+            <div className={cn("space-y-3", isFa && "text-right")}>
+              <p className="text-sm font-medium">{t("dashboardOverview.receiptsByStatus")}</p>
+              <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                {receiptRowsSorted.map(([status, val]) => {
+                  const pct = receiptBarTotal > 0 ? clampPct((val / receiptBarTotal) * 100) : 0
+                  if (pct <= 0) return null
+                  return (
+                    <div
+                      key={status}
+                      className={cn("h-full min-w-[2px] transition-[width]", receiptSegmentClass(status))}
+                      style={{ width: `${pct}%` }}
+                      title={`${t(receiptStatusLabelKey(status))}: ${formatNumber(val, isFa)}`}
+                    />
+                  )
+                })}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {receiptRowsSorted.map(([status, val]) => (
+                  <div
+                    key={status}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-muted/25 px-3 py-2 text-sm"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={cn("size-2 shrink-0 rounded-full", receiptSegmentClass(status))}
+                        aria-hidden
+                      />
+                      <span className="truncate font-medium">{t(receiptStatusLabelKey(status))}</span>
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">{formatNumber(val, isFa)}</span>
+                  </div>
                 ))}
               </div>
             </div>
           ) : null}
-        </div>
-        <div className={cn("rounded-lg border border-border bg-card p-4", isFa && "text-right")}>
-          <h3 className="text-sm font-medium">{t("dashboardOverview.infraCard")}</h3>
-          <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
-            <li>
-              {t("dashboardOverview.panelsCount")}: {formatNumber(num(counts.panels), isFa)}
-            </li>
-            <li>
-              {t("dashboardOverview.l2tpServers")}: {formatNumber(num(counts.l2tpServers), isFa)}
-            </li>
-            <li>
-              {t("sidebar.items.broadcast")}: {formatNumber(num(counts.broadcasts), isFa)}
-            </li>
-          </ul>
-        </div>
-      </section>
 
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-medium">{t("dashboardOverview.panelCards")}</h3>
+          <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
+            <DashTabLink
+              tabKey="plans"
+              label={t("sidebar.items.plans")}
+              base={dashboardBaseUrl}
+              onSelectTab={onSelectTab}
+              Icon={Layers}
+            />
+            <DashTabLink
+              tabKey="plan_cats"
+              label={t("sidebar.items.plan_cats")}
+              base={dashboardBaseUrl}
+              onSelectTab={onSelectTab}
+              Icon={Tags}
+            />
+            <DashTabLink
+              tabKey="cards"
+              label={t("sidebar.items.cards")}
+              base={dashboardBaseUrl}
+              onSelectTab={onSelectTab}
+              Icon={CreditCard}
+            />
+            <DashTabLink
+              tabKey="receipts"
+              label={t("sidebar.items.receipts")}
+              base={dashboardBaseUrl}
+              onSelectTab={onSelectTab}
+              Icon={Receipt}
+            />
+            <DashTabLink
+              tabKey="discounts"
+              label={t("sidebar.items.discounts")}
+              base={dashboardBaseUrl}
+              onSelectTab={onSelectTab}
+              Icon={Percent}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <section className="space-y-4">
+        <div
+          className={cn(
+            "flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3",
+            isFa && "flex-row-reverse"
+          )}
+        >
+          <div className={cn("flex items-center gap-2", isFa && "flex-row-reverse")}>
+            <Radio className="size-5 text-primary" aria-hidden />
+            <h3 className="text-base font-semibold">{t("dashboardOverview.panelCards")}</h3>
+          </div>
           {onRefreshPanelHealth ? (
             <Button type="button" variant="secondary" size="sm" onClick={onRefreshPanelHealth}>
               {t("dashboardOverview.refreshPanelHealth")}
             </Button>
           ) : null}
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {rows.length === 0 ? (
             <p className="text-sm text-muted-foreground">—</p>
           ) : (
@@ -473,17 +798,25 @@ export function DashboardOverview({
 
               const urlEmpty = !url.trim()
               const hasHealth = Boolean(h)
-              const httpOk = Boolean(h?.ok)
-              const problem = urlEmpty || (hasHealth && !httpOk)
-              const healthy = hasHealth && httpOk && active && !urlEmpty
+              const { httpOk, networkReachable } = resolvePanelHealthFlags(h)
 
-              const tone = !hasHealth
-                ? "border-amber-500/50 bg-amber-500/[0.06]"
-                : healthy
-                  ? "border-emerald-600/50 bg-emerald-600/[0.06]"
-                  : problem
+              const transportDown = hasHealth && !networkReachable && !urlEmpty
+              const httpOdd = hasHealth && networkReachable && !httpOk && !urlEmpty
+              const healthyCore = hasHealth && httpOk && active && !urlEmpty
+
+              const tone = urlEmpty
+                ? "border-destructive/50 bg-destructive/[0.04]"
+                : !hasHealth
+                  ? "border-amber-500/40 bg-amber-500/[0.05]"
+                  : transportDown
                     ? "border-destructive/70 bg-destructive/[0.06]"
-                    : "border-amber-500/50 bg-amber-500/[0.06]"
+                    : httpOdd
+                      ? "border-amber-500/60 bg-amber-500/[0.08]"
+                      : healthyCore
+                        ? "border-emerald-600/50 bg-emerald-600/[0.06]"
+                        : !active
+                          ? "border-border bg-muted/15"
+                          : "border-border/80 bg-card"
 
               const httpLabel = h ? formatNumericString(String(h.httpStatus || 0), isFa) : t("dashboardOverview.unknown")
 
@@ -493,30 +826,55 @@ export function DashboardOverview({
                 <Tooltip key={id || label}>
                   <TooltipTrigger asChild>
                     <Card className={cn("transition-shadow hover:shadow-md", tone)}>
-                      <CardHeader className="gap-1 pb-2">
+                      <CardHeader className="gap-2 pb-2">
                         <div className="flex flex-wrap items-start justify-between gap-2">
-                          <CardTitle className="text-base">{label}</CardTitle>
-                          <div className="flex flex-wrap gap-1">
-                            <Badge variant={httpOk ? "secondary" : "destructive"}>
-                              HTTP {httpLabel}
-                            </Badge>
-                            <Badge variant={active ? "secondary" : "outline"}>
+                          <CardTitle className="text-base leading-snug">{label}</CardTitle>
+                          <div className={cn("flex max-w-[min(100%,14rem)] flex-wrap gap-1", isFa && "justify-end")}>
+                            <Badge variant={active ? "secondary" : "outline"} className="text-[10px]">
                               {active
                                 ? t("dashboardOverview.badgeDbActive")
                                 : t("dashboardOverview.badgeDbInactive")}
                             </Badge>
+                            {hasHealth && networkReachable ? (
+                              <Badge variant="outline" className="border-emerald-500/40 text-[10px] text-emerald-700 dark:text-emerald-400">
+                                {t("dashboardOverview.badgeNetworkOk")}
+                              </Badge>
+                            ) : hasHealth && !urlEmpty ? (
+                              <Badge variant="destructive" className="text-[10px]">
+                                {t("dashboardOverview.badgeTransportDown")}
+                              </Badge>
+                            ) : null}
+                            {httpOk ? (
+                              <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                                {t("dashboardOverview.badgeHttpOk")}
+                              </Badge>
+                            ) : networkReachable && !urlEmpty ? (
+                              <Badge variant="outline" className="border-amber-500/50 text-[10px] text-amber-800 dark:text-amber-300">
+                                {t("dashboardOverview.badgeHttpNonStandard", { code: httpLabel })}
+                              </Badge>
+                            ) : null}
                           </div>
                         </div>
                         <CardDescription className="font-mono text-xs break-all">
                           {truncateUrl(url)}
                         </CardDescription>
                       </CardHeader>
-                      <CardContent className="space-y-3 text-sm">
-                        <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
-                          <span>{t("dashboardOverview.colLatency")}</span>
-                          <span className="tabular-nums font-medium text-foreground">
+                      <CardContent className="space-y-4 text-sm">
+                        <div
+                          className={cn(
+                            "rounded-xl border border-border/80 bg-background/80 px-3 py-3",
+                            isFa && "text-right"
+                          )}
+                        >
+                          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {t("dashboardOverview.colLatency")}
+                          </p>
+                          <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-foreground">
                             {h?.latencyMs != null ? formatNumber(h.latencyMs, isFa) : "—"}
-                          </span>
+                            <span className="ms-1 text-base font-normal text-muted-foreground">ms</span>
+                          </p>
+                          <p className="mt-1 text-[11px] text-muted-foreground">{t("dashboardOverview.colReachable")}</p>
+                          <p className="tabular-nums font-mono text-sm text-foreground">HTTP {httpLabel}</p>
                         </div>
                         <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
                           <span>{t("dashboardOverview.colXrayActive")}</span>
@@ -547,11 +905,21 @@ export function DashboardOverview({
                     side={isFa ? "left" : "right"}
                     className="max-w-xs text-xs leading-relaxed"
                   >
-                    <p>{httpOk ? t("dashboardOverview.ttHttpOk") : t("dashboardOverview.ttHttpFail")}</p>
-                    <p className="mt-1">
+                    <p className="text-muted-foreground">{t("dashboardOverview.ttRttHint")}</p>
+                    {networkReachable ? (
+                      <p className="mt-2">{t("dashboardOverview.ttNetworkOk")}</p>
+                    ) : null}
+                    {httpOk ? (
+                      <p className="mt-2">{t("dashboardOverview.ttHttpOk")}</p>
+                    ) : networkReachable ? (
+                      <p className="mt-2">{t("dashboardOverview.ttHttpNonStandard")}</p>
+                    ) : (
+                      <p className="mt-2">{t("dashboardOverview.ttHttpFail")}</p>
+                    )}
+                    <p className="mt-2">
                       {active ? t("dashboardOverview.ttDbActive") : t("dashboardOverview.ttDbInactive")}
                     </p>
-                    {h?.error ? <p className="mt-1 text-destructive">{h.error}</p> : null}
+                    {h?.error ? <p className="mt-2 text-destructive">{h.error}</p> : null}
                   </TooltipContent>
                 </Tooltip>
               )

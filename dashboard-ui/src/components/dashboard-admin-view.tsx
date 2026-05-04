@@ -9,6 +9,7 @@ import { DashboardLogsAdmin } from "@/components/dashboard-logs-admin"
 import { DashboardNotificationsAdmin } from "@/components/dashboard-notifications-admin"
 import { DashboardMonitoring } from "@/components/dashboard-monitoring"
 import { DashboardOverview, type OverviewPayload } from "@/components/dashboard-overview"
+import { DashboardConfigsAdmin } from "@/components/dashboard-configs-admin"
 import { DashboardInboundLinkAdmin } from "@/components/dashboard-inbound-link-admin"
 import { DashboardPanelsAdmin } from "@/components/dashboard-panels-admin"
 import { DashboardPlanCatsAdmin } from "@/components/dashboard-plan-cats-admin"
@@ -244,6 +245,12 @@ export function DashboardAdminView({
     )
   }
 
+  if (activeTab === "configs") {
+    return (
+      <DashboardConfigsAdmin panels={panels} isFa={isFa} onMutateSuccess={onAdminMutateSuccess} />
+    )
+  }
+
   if (activeTab === "plan_cats") {
     return (
       <DashboardPlanCatsAdmin
@@ -356,6 +363,7 @@ export function DashboardAdminView({
         isFa={isFa}
         onBack={onCloseUserDetail}
         onMutateSuccess={onAdminMutateSuccess}
+        onOpenUserDetail={onOpenUserDetail}
       />
     )
   }

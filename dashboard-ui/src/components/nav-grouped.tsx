@@ -113,16 +113,19 @@ export function NavGrouped({
                         {entry.children.map((sub) => {
                           const href = subItemUrl(sub.tabKey)
                           const isActive = activeTabKey === sub.tabKey
+                          const SubIcon = sub.icon
                           return (
                             <SidebarMenuSubItem key={sub.tabKey}>
                               <SidebarMenuSubButton asChild isActive={isActive}>
                                 <a
                                   href={href}
+                                  className={cn(SubIcon && "gap-2")}
                                   onClick={(e) => {
                                     e.preventDefault()
                                     onSelectTab(sub.tabKey)
                                   }}
                                 >
+                                  {SubIcon ? <SubIcon className="size-4 shrink-0" /> : null}
                                   <span>{itemLabel(sub.tabKey)}</span>
                                 </a>
                               </SidebarMenuSubButton>

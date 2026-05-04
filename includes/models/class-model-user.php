@@ -332,6 +332,29 @@ class SimpleVPBot_Model_User {
 	}
 
 	/**
+	 * Users who registered with this referrer (newest first).
+	 *
+	 * @param int $referrer_id svp_users.id.
+	 * @param int $limit       Max rows (cap 200).
+	 * @return array<int, object>
+	 */
+	public static function list_invited_by( $referrer_id, $limit = 100 ) {
+		global $wpdb;
+		$rid = (int) $referrer_id;
+		if ( $rid < 1 ) {
+			return array();
+		}
+		$lim = max( 1, min( 200, (int) $limit ) );
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT * FROM ' . self::table() . ' WHERE invited_by = %d ORDER BY id DESC LIMIT %d',
+				$rid,
+				$lim
+			)
+		); // phpcs:ignore
+	}
+
+	/**
 	 * Approved users for admin list (paged).
 	 *
 	 * @param int $offset Offset.

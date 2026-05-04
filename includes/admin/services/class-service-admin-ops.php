@@ -623,4 +623,692 @@ class SimpleVPBot_Service_Admin_Ops {
 			'data' => array( 'message' => (string) $res['message'], 'driver' => $driver ),
 		);
 	}
+
+	/**
+	 * Parse 3x-ui onlines API payload to a flat list of client tag strings.
+	 *
+	 * @param mixed $json Decoded JSON.
+	 * @return array<int, string>
+	 */
+	private static function xui_onlines_email_list( $json ) {
+		if ( ! is_array( $json ) ) {
+			return array();
+		}
+		$arr = null;
+		if ( isset( $json['obj'] ) && is_array( $json['obj'] ) ) {
+			$arr = $json['obj'];
+		} elseif ( isset( $json['data'] ) && is_array( $json['data'] ) ) {
+			$arr = $json['data'];
+		} elseif ( array_values( $json ) === $json ) {
+			$arr = $json;
+		} else {
+			return array();
+		}
+		$out = array();
+		foreach ( $arr as $v ) {
+			if ( is_string( $v ) && '' !== trim( $v ) ) {
+				$out[] = trim( $v );
+			} elseif ( is_array( $v ) && ! empty( $v['email'] ) ) {
+				$out[] = trim( (string) $v['email'] );
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Parse client_ips API response to a short list of IP strings.
+	 *
+	 * @param string $email Client email tag.
+	 * @return array<int, string>
+	 */
+	private static function xui_client_ip_list_for_email( $email ) {
+		$em = trim( (string) $email );
+		if ( '' === $em || ! class_exists( 'SimpleVPBot_Xui_Client' ) ) {
+			return array();
+		}
+		$j   = SimpleVPBot_Xui_Client::client_ips( $em );
+		$obj = is_array( $j ) && isset( $j['obj'] ) ? $j['obj'] : null;
+		$ips = array();
+		if ( is_string( $obj ) && '' !== $obj && 'No IP Record' !== $obj ) {
+			$decoded = json_decode( $obj, true );
+			$ips     = is_array( $decoded ) ? $decoded : preg_split( '/[\s,]+/', $obj );
+		} elseif ( is_array( $obj ) ) {
+			$ips = $obj;
+		}
+		$ips = array_slice( array_filter( array_map( 'trim', array_map( 'strval', (array) $ips ) ) ), 0, 30 );
+		return $ips;
+	}
+
+	/**
+	 * Linked Xray services on a panel with DB expiry in the past (batch preview / delete).
+	 *
+	 * @param int $panel_id svp_panels.id.
+	 * @param int $limit    Max ids.
+	 * @return array<int, int> Service ids.
+	 */
+	public static function expired_linked_service_ids( $panel_id, $limit = 50 ) {
+		global $wpdb;
+		$t     = SimpleVPBot_Model_Service::table();
+		$lim   = max( 1, min( 100, (int) $limit ) );
+		$pid   = (int) $panel_id;
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$ids = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT id FROM {$t} WHERE panel_id = %d AND deleted_at IS NULL AND service_type = 'xray' AND inbound_id > 0 AND expires_at IS NOT NULL AND expires_at < UTC_TIMESTAMP() ORDER BY id ASC LIMIT %d",
+				$pid,
+				$lim
+			)
+		);
+		if ( ! is_array( $ids ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( $ids as $id ) {
+			$out[] = (int) $id;
+		}
+		return $out;
+	}
+
+	/**
+	 * Delete up to one batch of DB-expired linked Xray services (panel client + soft-delete row).
+	 *
+	 * @param int $panel_id     Panel id.
+	 * @param int $confirm_count Must equal count(ids) returned for this batch or request is rejected.
+	 * @return array{ok:bool, message?:string, data?:array<string,mixed>}
+	 */
+	public static function configs_delete_expired_linked_batch( $panel_id, $confirm_count ) {
+		$pid = (int) $panel_id;
+		if ( $pid < 1 || ! class_exists( 'SimpleVPBot_Service_Dashboard_Panel' ) ) {
+			return array( 'ok' => false, 'message' => 'bad_params' );
+		}
+		$ids = self::expired_linked_service_ids( $pid, 50 );
+		$n   = count( $ids );
+		if ( $n < 1 ) {
+			return array( 'ok' => false, 'message' => 'none' );
+		}
+		if ( (int) $confirm_count !== $n ) {
+			return array(
+				'ok'      => false,
+				'message' => 'confirm_mismatch',
+				'data'    => array( 'expected_count' => $n ),
+			);
+		}
+		$deleted = 0;
+		$failed  = array();
+		foreach ( $ids as $sid ) {
+			$r = SimpleVPBot_Service_Dashboard_Panel::xray_delete_panel_client( (int) $sid );
+			if ( empty( $r['ok'] ) ) {
+				$failed[] = array(
+					'service_id' => (int) $sid,
+					'reason'     => (string) ( $r['reason'] ?? 'failed' ),
+				);
+			} else {
+				++$deleted;
+			}
+		}
+		return array(
+			'ok'   => empty( $failed ),
+			'data' => array(
+				'deleted' => $deleted,
+				'failed'  => $failed,
+			),
+			'message' => empty( $failed ) ? 'ok' : 'partial',
+		);
+	}
+
+	/**
+	 * Dashboard snapshot: Xray plans for one panel with merged inbound clients (single panel login).
+	 *
+	 * @param int $panel_id svp_panels.id.
+	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
+	 */
+	public static function configs_snapshot( $panel_id ) {
+		$pid = (int) $panel_id;
+		if ( $pid < 1 ) {
+			return array( 'ok' => false, 'message' => __( 'شناسه پنل نامعتبر.', 'simplevpbot' ) );
+		}
+		if ( ! class_exists( 'SimpleVPBot_Model_Panel' ) || ! SimpleVPBot_Model_Panel::find( $pid ) ) {
+			return array( 'ok' => false, 'message' => __( 'پنل یافت نشد.', 'simplevpbot' ) );
+		}
+		global $wpdb;
+		$t_plans = SimpleVPBot_Model_Plan::table();
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$plan_rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT * FROM {$t_plans} WHERE panel_id = %d AND service_type = %s AND inbound_id > 0 ORDER BY sort_order ASC, id ASC",
+				$pid,
+				'xray'
+			),
+			ARRAY_A
+		);
+		if ( ! is_array( $plan_rows ) ) {
+			$plan_rows = array();
+		}
+
+		$default_svp_user_id = 0;
+		if ( class_exists( 'SimpleVPBot_Model_User' ) ) {
+			$urow = SimpleVPBot_Model_User::find_by_wp_user( (int) get_current_user_id() );
+			if ( $urow ) {
+				$default_svp_user_id = (int) $urow->id;
+			}
+		}
+
+		$expired_ids = self::expired_linked_service_ids( $pid, 50 );
+
+		$const_max_per_inbound = 500;
+		$truncated             = false;
+
+		$inner = SimpleVPBot_Xui_Client::run_with_panel(
+			$pid,
+			function () use ( $pid, $plan_rows, $const_max_per_inbound, &$truncated ) {
+				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
+					return array( 'ok' => false, 'message' => __( 'ورود پنل ناموفق.', 'simplevpbot' ) );
+				}
+				$on_raw        = SimpleVPBot_Xui_Client::onlines();
+				$online_emails = self::xui_onlines_email_list( $on_raw );
+				$online_set    = array();
+				foreach ( $online_emails as $em ) {
+					$online_set[ $em ] = true;
+				}
+
+				$inbound_cache  = array();
+				$clients_cache  = array();
+				$plans_out      = array();
+				$svc_panel      = $pid > 0 ? $pid : 1;
+
+				foreach ( $plan_rows as $prow ) {
+					$plan_arr = null;
+					$j        = wp_json_encode( $prow );
+					if ( false !== $j ) {
+						/** @var array<string, mixed>|null $dec */
+						$dec = json_decode( $j, true );
+						$plan_arr = is_array( $dec ) ? $dec : null;
+					}
+					if ( null === $plan_arr ) {
+						continue;
+					}
+					$iid = (int) ( $plan_arr['inbound_id'] ?? 0 );
+					if ( $iid < 1 ) {
+						continue;
+					}
+
+					if ( ! isset( $clients_cache[ $iid ] ) ) {
+						if ( ! isset( $inbound_cache[ $iid ] ) ) {
+							$inbound_cache[ $iid ] = SimpleVPBot_Xui_Client::inbound_get( $iid );
+						}
+						$inb = $inbound_cache[ $iid ];
+						if ( ! $inb ) {
+							$clients_cache[ $iid ] = array();
+							continue;
+						}
+						$settings   = isset( $inb['settings'] ) ? $inb['settings'] : '';
+						$dec_in     = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
+						$inb_remark = (string) ( $inb['remark'] ?? '' );
+						$list       = array();
+						if ( is_array( $dec_in ) && ! empty( $dec_in['clients'] ) && is_array( $dec_in['clients'] ) ) {
+							foreach ( $dec_in['clients'] as $c ) {
+								if ( count( $list ) >= $const_max_per_inbound ) {
+									$truncated = true;
+									break;
+								}
+								if ( ! is_array( $c ) || empty( $c['email'] ) ) {
+									continue;
+								}
+								$email_raw = (string) $c['email'];
+								$email     = trim( $email_raw );
+								if ( '' === $email ) {
+									continue;
+								}
+								$svc = SimpleVPBot_Model_Service::find_by_inbound_email( $iid, $email, $svc_panel );
+								$u   = $svc ? SimpleVPBot_Model_User::find( (int) $svc->user_id ) : null;
+
+								$tr        = SimpleVPBot_Xui_Client::get_client_traffics( $email );
+								$obj       = is_array( $tr ) && isset( $tr['obj'] ) && is_array( $tr['obj'] ) ? $tr['obj'] : array();
+								$used_bytes = (float) ( $obj['up'] ?? 0 ) + (float) ( $obj['down'] ?? 0 );
+								$api_total  = isset( $obj['total'] ) && is_numeric( $obj['total'] ) ? (int) $obj['total'] : 0;
+								$from_json  = SimpleVPBot_Inbound_Linker::totalgb_to_bytes( $c['totalGB'] ?? 0 );
+								$limit_bytes = ( $api_total > 0 )
+									? SimpleVPBot_Inbound_Linker::cap_traffic_bytes( $api_total )
+									: (int) $from_json;
+
+								$total_gb = $limit_bytes > 0 ? (int) round( $limit_bytes / 1073741824 ) : 0;
+
+								$comment_keys = array( 'comment', 'remark', 'memo', 'note', 'desc' );
+								$comment_val  = '';
+								foreach ( $comment_keys as $ck ) {
+									if ( isset( $c[ $ck ] ) && '' !== trim( (string) $c[ $ck ] ) ) {
+										$comment_val = trim( (string) $c[ $ck ] );
+										break;
+									}
+								}
+								if ( '' === $comment_val && '' !== $inb_remark ) {
+									$comment_val = $inb_remark;
+								}
+								$remark_for_link = '' !== $comment_val ? $comment_val : $email;
+
+								$linked_sid = $svc ? (int) $svc->id : 0;
+								$linked_uid = $u ? (int) $u->id : 0;
+								$sub_id     = (string) ( $c['subId'] ?? '' );
+								$exp_ms     = isset( $c['expiryTime'] ) ? (int) $c['expiryTime'] : 0;
+
+								$subscription_url = '' !== $sub_id
+									? SimpleVPBot_Config_Link::subscription_url( $sub_id, $pid )
+									: '';
+								$primary_uri = SimpleVPBot_Config_Link::build( $inb, $c, $remark_for_link, $pid );
+
+								$list[] = array(
+									'email'               => $email,
+									'id'                  => (string) ( $c['id'] ?? '' ),
+									'remark'              => (string) ( $c['remark'] ?? '' ),
+									'comment'             => $comment_val,
+									'tg_id'               => (string) ( $c['tgId'] ?? '' ),
+									'sub_id'              => $sub_id,
+									'enable'              => isset( $c['enable'] ) ? ( $c['enable'] ? 1 : 0 ) : 1,
+									'total_gb'            => (int) $total_gb,
+									'expiry_ms'           => (int) $exp_ms,
+									'linked_service_id'   => $linked_sid,
+									'linked_user_id'      => $linked_uid,
+									'linked_user_label'   => $u ? SimpleVPBot_Model_User::label( $u ) : '',
+									'is_linked'           => $linked_uid > 0 ? 1 : 0,
+									'provision_type'      => $svc ? (string) ( $svc->provision_type ?? 'plan' ) : '',
+									'used_bytes'          => (int) round( $used_bytes ),
+									'limit_bytes'         => (int) $limit_bytes,
+									'is_online'          => isset( $online_set[ $email ] ) ? 1 : 0,
+									'subscription_url'    => $subscription_url,
+									'primary_config_uri'  => $primary_uri,
+									'service_expires_at'  => $svc && ! empty( $svc->expires_at ) ? (string) $svc->expires_at : '',
+									'client_ips'          => self::xui_client_ip_list_for_email( $email ),
+								);
+							}
+						}
+						$clients_cache[ $iid ] = array(
+							'clients'      => $list,
+							'inb_remark'   => $inb_remark,
+							'protocol'     => strtolower( (string) ( $inb['protocol'] ?? '' ) ),
+							'port'         => (int) ( $inb['port'] ?? 0 ),
+						);
+					}
+
+					$pack         = $clients_cache[ $iid ];
+					$plans_out[] = array(
+						'plan'           => $plan_arr,
+						'inbound_id'     => $iid,
+						'inbound_remark' => (string) ( $pack['inb_remark'] ?? '' ),
+						'protocol'       => (string) ( $pack['protocol'] ?? '' ),
+						'port'           => (int) ( $pack['port'] ?? 0 ),
+						'clients'        => isset( $pack['clients'] ) && is_array( $pack['clients'] ) ? $pack['clients'] : array(),
+					);
+				}
+
+				return array(
+					'ok'   => true,
+					'data' => array(
+						'panel_id'  => $pid,
+						'plans'     => $plans_out,
+						'truncated' => $truncated ? 1 : 0,
+						'max_clients_per_inbound' => $const_max_per_inbound,
+					),
+				);
+			}
+		);
+
+		if ( empty( $inner['ok'] ) || ! is_array( $inner['data'] ) ) {
+			return is_array( $inner ) ? $inner : array( 'ok' => false, 'message' => 'unknown' );
+		}
+		$inner['data']['default_svp_user_id']          = $default_svp_user_id;
+		$inner['data']['expired_linked_service_ids']   = $expired_ids;
+		$inner['data']['expired_linked_batch_count']   = count( $expired_ids );
+		return $inner;
+	}
+
+	/**
+	 * Apply enable flag for one client (must run inside run_with_panel after login).
+	 *
+	 * @param int    $panel_id   svp_panels.id for service lookup.
+	 * @param int    $inbound_id Inbound id.
+	 * @param string $email      Client email tag.
+	 * @param bool   $enable     Target state.
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function configs_apply_enable_logged_in( $panel_id, $inbound_id, $email, $enable ) {
+		$pid = (int) $panel_id;
+		$iid = (int) $inbound_id;
+		$em  = trim( (string) $email );
+		$en  = (bool) $enable;
+		$inbound = SimpleVPBot_Xui_Client::inbound_get( $iid );
+		if ( ! $inbound ) {
+			return array( 'ok' => false, 'message' => __( 'Inbound یافت نشد.', 'simplevpbot' ) );
+		}
+		$settings = isset( $inbound['settings'] ) ? $inbound['settings'] : '';
+		$dec      = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
+		if ( ! is_array( $dec ) || empty( $dec['clients'] ) || ! is_array( $dec['clients'] ) ) {
+			return array( 'ok' => false, 'message' => __( 'کلاینتی یافت نشد.', 'simplevpbot' ) );
+		}
+		$updated = null;
+		foreach ( $dec['clients'] as &$cl ) {
+			if ( isset( $cl['email'] ) && (string) $cl['email'] === $em ) {
+				$cl['enable'] = $en;
+				$updated      = $cl;
+				break;
+			}
+		}
+		unset( $cl );
+		if ( ! is_array( $updated ) ) {
+			return array( 'ok' => false, 'message' => __( 'ایمیل در این Inbound نیست.', 'simplevpbot' ) );
+		}
+		$svc     = SimpleVPBot_Model_Service::find_by_inbound_email( $iid, $em, $pid > 0 ? $pid : 1 );
+		$db_xui  = $svc ? (string) ( $svc->xui_client_id ?? '' ) : '';
+		$old_key = SimpleVPBot_Xui_Client::resolve_client_key_for_update( $db_xui, $inbound, $em );
+		if ( ! $old_key ) {
+			return array( 'ok' => false, 'message' => __( 'شناسه کلاینت پنل نامشخص است.', 'simplevpbot' ) );
+		}
+		$path_ids = array( (string) $old_key );
+		if ( '' !== $em && $em !== (string) $old_key ) {
+			$path_ids[] = $em;
+		}
+		$res = SimpleVPBot_Xui_Client::update_inbound_client_sequential( $iid, $dec, $updated, $path_ids );
+		if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+			return array( 'ok' => false, 'message' => __( 'به‌روزرسانی پنل ناموفق.', 'simplevpbot' ) );
+		}
+		if ( $svc ) {
+			SimpleVPBot_Model_Service::update(
+				(int) $svc->id,
+				array(
+					'panel_client_enabled' => $en ? 1 : 0,
+				)
+			);
+		}
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * Toggle inbound client enable flag on panel.
+	 *
+	 * @param int    $panel_id   svp_panels.id.
+	 * @param int    $inbound_id Inbound id.
+	 * @param string $email      Client email tag.
+	 * @param int    $enable     1 or 0.
+	 * @return array{ok:bool, message?:string}
+	 */
+	public static function configs_panel_client_toggle_enable( $panel_id, $inbound_id, $email, $enable ) {
+		$pid = (int) $panel_id;
+		$iid = (int) $inbound_id;
+		$em  = trim( (string) $email );
+		$en  = ! empty( $enable );
+		if ( $pid < 1 || $iid < 1 || '' === $em ) {
+			return array( 'ok' => false, 'message' => __( 'پارامترها نامعتبر.', 'simplevpbot' ) );
+		}
+		$out = SimpleVPBot_Xui_Client::run_with_panel(
+			$pid,
+			function () use ( $pid, $iid, $em, $en ) {
+				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
+					return array( 'ok' => false, 'message' => __( 'ورود پنل ناموفق.', 'simplevpbot' ) );
+				}
+				return self::configs_apply_enable_logged_in( $pid, $iid, $em, $en );
+			}
+		);
+		return is_array( $out ) ? $out : array( 'ok' => false, 'message' => 'unknown' );
+	}
+
+	/**
+	 * Reset traffic counters for one inbound client.
+	 *
+	 * @param int    $panel_id   svp_panels.id.
+	 * @param int    $inbound_id Inbound id.
+	 * @param string $email      Client email tag.
+	 * @return array{ok:bool, message?:string}
+	 */
+	public static function configs_panel_client_reset_traffic( $panel_id, $inbound_id, $email ) {
+		$pid = (int) $panel_id;
+		$iid = (int) $inbound_id;
+		$em  = trim( (string) $email );
+		if ( $pid < 1 || $iid < 1 || '' === $em ) {
+			return array( 'ok' => false, 'message' => __( 'پارامترها نامعتبر.', 'simplevpbot' ) );
+		}
+		$out = SimpleVPBot_Xui_Client::run_with_panel(
+			$pid,
+			function () use ( $iid, $em ) {
+				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
+					return array( 'ok' => false, 'message' => __( 'ورود پنل ناموفق.', 'simplevpbot' ) );
+				}
+				$res = SimpleVPBot_Xui_Client::reset_client_traffic( $iid, $em );
+				if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+					return array( 'ok' => false, 'message' => __( 'ریست ترافیک ناموفق.', 'simplevpbot' ) );
+				}
+				return array( 'ok' => true );
+			}
+		);
+		return is_array( $out ) ? $out : array( 'ok' => false, 'message' => 'unknown' );
+	}
+
+	/**
+	 * Batch panel ops in one login session (max 40 rows).
+	 *
+	 * @param int                             $panel_id svp_panels.id.
+	 * @param string                          $batch_op reset_traffic|set_enable.
+	 * @param array<int, array<string, mixed>> $items    Each: inbound_id, email; set_enable also needs enable 0|1.
+	 * @return array{ok:bool, message?:string, data?:array<string,mixed>}
+	 */
+	public static function configs_clients_batch( $panel_id, $batch_op, array $items ) {
+		$pid = (int) $panel_id;
+		$op  = sanitize_key( (string) $batch_op );
+		if ( $pid < 1 || ! in_array( $op, array( 'reset_traffic', 'set_enable' ), true ) ) {
+			return array( 'ok' => false, 'message' => 'bad_params' );
+		}
+		$rows = array();
+		foreach ( $items as $raw ) {
+			if ( ! is_array( $raw ) ) {
+				continue;
+			}
+			$iid = (int) ( $raw['inbound_id'] ?? 0 );
+			$em  = trim( (string) ( $raw['email'] ?? '' ) );
+			if ( $iid < 1 || '' === $em ) {
+				continue;
+			}
+			$row = array(
+				'inbound_id' => $iid,
+				'email'       => $em,
+			);
+			if ( 'set_enable' === $op ) {
+				$row['enable'] = ! empty( $raw['enable'] ) ? 1 : 0;
+			}
+			$rows[] = $row;
+		}
+		$rows = array_slice( $rows, 0, 40 );
+		if ( empty( $rows ) ) {
+			return array( 'ok' => false, 'message' => 'empty_items' );
+		}
+		$out = SimpleVPBot_Xui_Client::run_with_panel(
+			$pid,
+			function () use ( $pid, $op, $rows ) {
+				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
+					return array( 'ok' => false, 'message' => __( 'ورود پنل ناموفق.', 'simplevpbot' ) );
+				}
+				$failed = array();
+				$okn    = 0;
+				foreach ( $rows as $row ) {
+					$iid = (int) $row['inbound_id'];
+					$em  = (string) $row['email'];
+					if ( 'reset_traffic' === $op ) {
+						$res = SimpleVPBot_Xui_Client::reset_client_traffic( $iid, $em );
+						if ( SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+							++$okn;
+						} else {
+							$failed[] = array(
+								'inbound_id' => $iid,
+								'email'      => $em,
+								'reason'     => 'reset_failed',
+							);
+						}
+					} else {
+						$want = ! empty( $row['enable'] );
+						$one  = self::configs_apply_enable_logged_in( $pid, $iid, $em, $want );
+						if ( ! empty( $one['ok'] ) ) {
+							++$okn;
+						} else {
+							$failed[] = array(
+								'inbound_id' => $iid,
+								'email'      => $em,
+								'reason'     => (string) ( $one['message'] ?? 'enable_failed' ),
+							);
+						}
+					}
+				}
+				return array(
+					'ok'      => empty( $failed ),
+					'message' => empty( $failed ) ? 'ok' : 'partial',
+					'data'    => array(
+						'succeeded' => $okn,
+						'failed'    => $failed,
+					),
+				);
+			}
+		);
+		return is_array( $out ) ? $out : array( 'ok' => false, 'message' => 'unknown' );
+	}
+
+	/**
+	 * Patch inbound client fields (expiry, traffic cap, remark) on panel.
+	 *
+	 * @param int                  $panel_id   svp_panels.id.
+	 * @param int                  $inbound_id Inbound id.
+	 * @param string               $email      Client email tag.
+	 * @param array<string, mixed> $patch      Keys: expiry_ms (int), total_gb (int display GB, 0 unlimited), client_remark (string).
+	 * @return array{ok:bool, message?:string}
+	 */
+	public static function configs_panel_client_patch( $panel_id, $inbound_id, $email, array $patch ) {
+		$pid = (int) $panel_id;
+		$iid = (int) $inbound_id;
+		$em  = trim( (string) $email );
+		if ( $pid < 1 || $iid < 1 || '' === $em || empty( $patch ) ) {
+			return array( 'ok' => false, 'message' => __( 'پارامترها نامعتبر.', 'simplevpbot' ) );
+		}
+		$out = SimpleVPBot_Xui_Client::run_with_panel(
+			$pid,
+			function () use ( $pid, $iid, $em, $patch ) {
+				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
+					return array( 'ok' => false, 'message' => __( 'ورود پنل ناموفق.', 'simplevpbot' ) );
+				}
+				$inbound = SimpleVPBot_Xui_Client::inbound_get( $iid );
+				if ( ! $inbound ) {
+					return array( 'ok' => false, 'message' => __( 'Inbound یافت نشد.', 'simplevpbot' ) );
+				}
+				$settings = isset( $inbound['settings'] ) ? $inbound['settings'] : '';
+				$dec      = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
+				if ( ! is_array( $dec ) || empty( $dec['clients'] ) || ! is_array( $dec['clients'] ) ) {
+					return array( 'ok' => false, 'message' => __( 'کلاینتی یافت نشد.', 'simplevpbot' ) );
+				}
+				$updated = null;
+				foreach ( $dec['clients'] as &$cl ) {
+					if ( isset( $cl['email'] ) && (string) $cl['email'] === $em ) {
+						$updated = $cl;
+						if ( array_key_exists( 'expiry_ms', $patch ) ) {
+							$updated['expiryTime'] = (int) $patch['expiry_ms'];
+						}
+						if ( array_key_exists( 'total_gb', $patch ) ) {
+							$gb    = (int) $patch['total_gb'];
+							$bytes = $gb > 0 ? (int) ( $gb * 1073741824 ) : 0;
+							$updated['totalGB'] = SimpleVPBot_Inbound_Linker::panel_client_totalgb_json_value( $bytes );
+						}
+						if ( array_key_exists( 'client_remark', $patch ) ) {
+							$updated['remark'] = (string) $patch['client_remark'];
+						}
+						break;
+					}
+				}
+				unset( $cl );
+				if ( ! is_array( $updated ) ) {
+					return array( 'ok' => false, 'message' => __( 'ایمیل در این Inbound نیست.', 'simplevpbot' ) );
+				}
+				foreach ( $dec['clients'] as &$cl2 ) {
+					if ( isset( $cl2['email'] ) && (string) $cl2['email'] === $em ) {
+						$cl2 = $updated;
+						break;
+					}
+				}
+				unset( $cl2 );
+				$svc     = SimpleVPBot_Model_Service::find_by_inbound_email( $iid, $em, $pid > 0 ? $pid : 1 );
+				$db_xui  = $svc ? (string) ( $svc->xui_client_id ?? '' ) : '';
+				$old_key = SimpleVPBot_Xui_Client::resolve_client_key_for_update( $db_xui, $inbound, $em );
+				if ( ! $old_key ) {
+					return array( 'ok' => false, 'message' => __( 'شناسه کلاینت پنل نامشخص است.', 'simplevpbot' ) );
+				}
+				$path_ids = array( (string) $old_key );
+				if ( '' !== $em && $em !== (string) $old_key ) {
+					$path_ids[] = $em;
+				}
+				$res = SimpleVPBot_Xui_Client::update_inbound_client_sequential( $iid, $dec, $updated, $path_ids );
+				if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+					return array( 'ok' => false, 'message' => __( 'به‌روزرسانی پنل ناموفق.', 'simplevpbot' ) );
+				}
+				return array( 'ok' => true );
+			}
+		);
+		return is_array( $out ) ? $out : array( 'ok' => false, 'message' => 'unknown' );
+	}
+
+	/**
+	 * Remove client from panel: linked row uses full delete flow; orphan uses delClient only.
+	 *
+	 * @param int    $panel_id           svp_panels.id.
+	 * @param int    $inbound_id         Inbound id.
+	 * @param string $email              Client email tag.
+	 * @param int    $linked_service_id  0 if unlinked.
+	 * @return array{ok:bool, message?:string, reason?:string}
+	 */
+	public static function configs_panel_client_delete( $panel_id, $inbound_id, $email, $linked_service_id ) {
+		$pid = (int) $panel_id;
+		$iid = (int) $inbound_id;
+		$em  = trim( (string) $email );
+		$ls  = (int) $linked_service_id;
+		if ( $pid < 1 || $iid < 1 || '' === $em ) {
+			return array( 'ok' => false, 'message' => __( 'پارامترها نامعتبر.', 'simplevpbot' ) );
+		}
+		if ( $ls > 0 ) {
+			$svc = SimpleVPBot_Model_Service::find( $ls );
+			if ( ! $svc || (int) $svc->panel_id !== $pid || (int) $svc->inbound_id !== $iid || (string) $svc->email !== $em ) {
+				return array( 'ok' => false, 'message' => __( 'سرویس با این مشخصات هم‌خوان نیست.', 'simplevpbot' ) );
+			}
+			return SimpleVPBot_Service_Dashboard_Panel::xray_delete_panel_client( $ls );
+		}
+		$chk = SimpleVPBot_Model_Service::find_by_inbound_email( $iid, $em, $pid );
+		if ( $chk ) {
+			return array( 'ok' => false, 'message' => __( 'این کلاینت هنوز به سرویس وصل است؛ ابتدا سرویس را حذف کنید.', 'simplevpbot' ) );
+		}
+		$out = SimpleVPBot_Xui_Client::run_with_panel(
+			$pid,
+			function () use ( $iid, $em ) {
+				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
+					return array( 'ok' => false, 'reason' => 'panel_login' );
+				}
+				$inbound = SimpleVPBot_Xui_Client::inbound_get( $iid );
+				if ( ! $inbound ) {
+					return array( 'ok' => false, 'reason' => 'no_inbound' );
+				}
+				$old_key = SimpleVPBot_Xui_Client::resolve_client_key_for_update( '', $inbound, $em );
+				if ( ! $old_key ) {
+					return array( 'ok' => false, 'reason' => 'no_client_key' );
+				}
+				$res = SimpleVPBot_Xui_Client::del_client( $iid, (string) $old_key );
+				if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) && '' !== $em && $em !== (string) $old_key ) {
+					$res = SimpleVPBot_Xui_Client::del_client( $iid, $em );
+				}
+				if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+					return array( 'ok' => false, 'reason' => 'del_failed' );
+				}
+				return array( 'ok' => true );
+			}
+		);
+		if ( ! is_array( $out ) ) {
+			return array( 'ok' => false, 'message' => 'unknown' );
+		}
+		if ( ! empty( $out['ok'] ) ) {
+			return array( 'ok' => true );
+		}
+		return array(
+			'ok'      => false,
+			'reason'  => (string) ( $out['reason'] ?? 'failed' ),
+			'message' => (string) ( $out['reason'] ?? 'failed' ),
+		);
+	}
 }

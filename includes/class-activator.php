@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class SimpleVPBot_Activator {
 
-	const DB_VERSION = '1.9.0';
+	const DB_VERSION = '2.0.1';
 
 	/**
 	 * Activate plugin.
@@ -217,10 +217,13 @@ class SimpleVPBot_Activator {
 		dbDelta( $sql_queue );
 		dbDelta( $sql_logs );
 		dbDelta( self::sql_user_activity( $p, $charset_collate ) );
+		dbDelta( self::sql_svp_service_ip_log( $p, $charset_collate ) );
 		dbDelta( self::sql_panels_table( $p, $charset_collate ) );
 		dbDelta( self::sql_panel_online_daily( $p, $charset_collate ) );
 		dbDelta( self::sql_monitor_hosts( $p, $charset_collate ) );
 		dbDelta( self::sql_discount_codes( $p, $charset_collate ) );
+		dbDelta( self::sql_panel_inbound_clients( $p, $charset_collate ) );
+		dbDelta( self::sql_panel_inbound_api( $p, $charset_collate ) );
 		if ( class_exists( 'SimpleVPBot_Service_Transfer' ) ) {
 			SimpleVPBot_Service_Transfer::ensure_table();
 		}
@@ -307,6 +310,27 @@ class SimpleVPBot_Activator {
 	}
 
 	/**
+	 * Per-service IP log (from panel clientIps sync).
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 * @return string
+	 */
+	public static function sql_svp_service_ip_log( $p, $charset_collate ) {
+		return "CREATE TABLE {$p}svp_service_ip_log (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			service_id bigint(20) unsigned NOT NULL,
+			ip varchar(64) NOT NULL DEFAULT '',
+			first_seen_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_seen_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			hit_count int unsigned NOT NULL DEFAULT 1,
+			PRIMARY KEY (id),
+			UNIQUE KEY svc_ip (service_id, ip),
+			KEY service_seen (service_id, last_seen_at)
+		) $charset_collate;";
+	}
+
+	/**
 	 * svp_services table DDL.
 	 *
 	 * @param string $p Prefix.
@@ -337,6 +361,8 @@ class SimpleVPBot_Activator {
 			alert_ip_fill_pct smallint DEFAULT NULL,
 			alert_schedule_json longtext NULL,
 			last_warn_sent_at datetime DEFAULT NULL,
+			panel_limit_ip int unsigned DEFAULT NULL,
+			panel_client_enabled tinyint(1) DEFAULT NULL,
 			sub_id varchar(128) DEFAULT NULL,
 			provision_type varchar(20) NOT NULL DEFAULT 'plan',
 			service_type varchar(16) NOT NULL DEFAULT 'xray',
@@ -608,7 +634,81 @@ class SimpleVPBot_Activator {
 		if ( version_compare( (string) $current, '1.9.0', '<' ) ) {
 			self::maybe_add_service_deleted_at( $p );
 		}
+		if ( version_compare( (string) $current, '2.0.0', '<' ) ) {
+			self::maybe_migrate_200( $p, $charset_collate );
+		}
+		if ( version_compare( (string) $current, '2.0.1', '<' ) ) {
+			self::maybe_migrate_201( $p, $charset_collate );
+		}
 		update_option( 'simplevpbot_db_version', self::DB_VERSION );
+	}
+
+	/**
+	 * Dashboard inbound client cache + API snapshot tables.
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Charset.
+	 */
+	public static function maybe_migrate_201( $p, $charset_collate ) {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		dbDelta( self::sql_panel_inbound_clients( $p, $charset_collate ) );
+		dbDelta( self::sql_panel_inbound_api( $p, $charset_collate ) );
+	}
+
+	/**
+	 * Cached panel inbound clients (one row per client email per inbound).
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 * @return string
+	 */
+	public static function sql_panel_inbound_clients( $p, $charset_collate ) {
+		return "CREATE TABLE {$p}svp_panel_inbound_clients (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			panel_id bigint(20) unsigned NOT NULL,
+			inbound_id int NOT NULL,
+			inbound_remark varchar(255) NOT NULL DEFAULT '',
+			protocol varchar(32) NOT NULL DEFAULT '',
+			port int NOT NULL DEFAULT 0,
+			email varchar(191) NOT NULL,
+			xui_client_id varchar(191) NOT NULL DEFAULT '',
+			remark varchar(255) NOT NULL DEFAULT '',
+			comment varchar(500) NOT NULL DEFAULT '',
+			tg_id varchar(64) NOT NULL DEFAULT '',
+			sub_id varchar(128) NOT NULL DEFAULT '',
+			enable tinyint(1) NOT NULL DEFAULT 1,
+			total_gb int NOT NULL DEFAULT 0,
+			expiry_ms bigint NOT NULL DEFAULT 0,
+			used_bytes bigint NOT NULL DEFAULT 0,
+			limit_bytes bigint NOT NULL DEFAULT 0,
+			is_online tinyint(1) NOT NULL DEFAULT 0,
+			client_ips_json longtext NULL,
+			client_json longtext NULL,
+			synced_at datetime NOT NULL,
+			PRIMARY KEY (id),
+			UNIQUE KEY p_i_e (panel_id, inbound_id, email),
+			KEY panel_i (panel_id, inbound_id),
+			KEY panel_synced (panel_id, synced_at)
+		) $charset_collate;";
+	}
+
+	/**
+	 * Full inbound JSON from X-UI per (panel, inbound) for rebuilding share URIs from cache.
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 * @return string
+	 */
+	public static function sql_panel_inbound_api( $p, $charset_collate ) {
+		return "CREATE TABLE {$p}svp_panel_inbound_api (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			panel_id bigint(20) unsigned NOT NULL,
+			inbound_id int NOT NULL,
+			inbound_json longtext NOT NULL,
+			synced_at datetime NOT NULL,
+			PRIMARY KEY (id),
+			UNIQUE KEY p_in (panel_id, inbound_id)
+		) $charset_collate;";
 	}
 
 	/**
@@ -887,6 +987,29 @@ class SimpleVPBot_Activator {
 	}
 
 	/**
+	 * Dashboard: panel client cache columns + IP log table.
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Charset.
+	 */
+	public static function maybe_migrate_200( $p, $charset_collate ) {
+		global $wpdb;
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		$t = $p . 'svp_services';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'panel_limit_ip'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN panel_limit_ip int unsigned DEFAULT NULL AFTER last_warn_sent_at" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'panel_client_enabled'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN panel_client_enabled tinyint(1) DEFAULT NULL AFTER panel_limit_ip" );
+		}
+		dbDelta( self::sql_svp_service_ip_log( $p, $charset_collate ) );
+	}
+
+	/**
 	 * Merge duplicate svp_users rows that share the same Telegram or Bale id.
 	 */
 	public static function dedupe_users_by_bot_ids() {
@@ -1091,6 +1214,16 @@ class SimpleVPBot_Activator {
 				'key_name' => 'msg.referral_bonus_wallet',
 				'category' => 'messages',
 				'value'    => "💰 مبلغ {amount_toman} تومان پورسانت معرفی از خرید «{buyer_label}» به کیف پول شما واریز شد.\n{referrer_first}",
+			),
+			array(
+				'key_name' => 'msg.dashboard_wallet_credit',
+				'category' => 'messages',
+				'value'    => "💰 به موجودی کیف پول شما {amount} تومان افزوده شد.\n➖➖➖➖➖➖➖➖\nمانده فعلی: {balance} تومان.",
+			),
+			array(
+				'key_name' => 'msg.dashboard_wallet_debit',
+				'category' => 'messages',
+				'value'    => "💰 از موجودی کیف پول شما {amount} تومان کسر شد.\n➖➖➖➖➖➖➖➖\nمانده فعلی: {balance} تومان.",
 			),
 			array(
 				'key_name' => 'msg.cron_ip_distinct_warn',

@@ -30,10 +30,16 @@ import {
   formatChartTooltipDate,
   formatDateTime,
   formatNumber,
+  formatNumericString,
 } from "@/lib/format-locale"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { cn } from "@/lib/utils"
-import type { OverviewPayload, PanelHealth, StatsPayload } from "@/components/dashboard-overview"
+import {
+  resolvePanelHealthFlags,
+  type OverviewPayload,
+  type PanelHealth,
+  type StatsPayload,
+} from "@/components/dashboard-overview"
 
 type PanelStatLine = NonNullable<StatsPayload["panels"]>[number]
 
@@ -307,6 +313,8 @@ export function DashboardMonitoring({
               const h = healthById.get(pid)
               const st = statsLineById.get(pid)
               const live = liveById.get(pid)
+              const { httpOk, networkReachable } = resolvePanelHealthFlags(h)
+              const httpLabel = h ? formatNumericString(String(h.httpStatus || 0), isFa) : "—"
               const lat = h?.latencyMs ?? null
               const warnLat = lat != null && lat > 2500
               const maxDay = st?.max_online_day ?? 0
@@ -329,8 +337,12 @@ export function DashboardMonitoring({
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-1">
-                      {h?.ok ? (
+                      {networkReachable && httpOk ? (
                         <Badge variant="secondary">{t("dashboardOverview.online")}</Badge>
+                      ) : networkReachable ? (
+                        <Badge variant="outline" className="border-amber-500/50 text-amber-800 dark:text-amber-300">
+                          {t("dashboardOverview.badgeHttpNonStandard", { code: httpLabel })}
+                        </Badge>
                       ) : (
                         <Badge variant="destructive">{t("dashboardOverview.offline")}</Badge>
                       )}

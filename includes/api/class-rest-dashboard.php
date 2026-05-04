@@ -118,6 +118,22 @@ class SimpleVPBot_Rest_Dashboard {
 		);
 		register_rest_route(
 			self::NS,
+			'/dashboard/admin/configs-snapshot',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'route_configs_snapshot' ),
+				'permission_callback' => array( __CLASS__, 'perm_manage' ),
+				'args'                => array(
+					'panel_id' => array(
+						'required'          => true,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
+				),
+			)
+		);
+		register_rest_route(
+			self::NS,
 			'/dashboard/admin/mutate',
 			array(
 				'methods'             => 'POST',
@@ -276,7 +292,28 @@ class SimpleVPBot_Rest_Dashboard {
 	}
 
 	/**
+	 * Ensure panel health arrays include httpOk / networkReachable (backward compat with older transients).
+	 *
+	 * @param array<string, mixed> $row Row.
+	 * @return array<string, mixed>
+	 */
+	private static function normalize_panel_health_row( array $row ) {
+		$code = isset( $row['httpStatus'] ) ? (int) $row['httpStatus'] : 0;
+		if ( ! isset( $row['httpOk'] ) && array_key_exists( 'ok', $row ) ) {
+			$row['httpOk'] = (bool) $row['ok'];
+		}
+		if ( ! isset( $row['networkReachable'] ) ) {
+			$row['networkReachable'] = ( $code >= 100 && $code <= 599 );
+		}
+		return $row;
+	}
+
+	/**
 	 * Lightweight HTTP reachability for a panel root URL (cached).
+	 *
+	 * `latencyMs` is round-trip time for the probe (HEAD/GET). `httpOk` means 2xx–3xx on the root URL.
+	 * `networkReachable` means any HTTP status was received (host/TLS responded), e.g. 404 on 3x-ui root.
+	 * Legacy field `ok` is kept equal to `httpOk`.
 	 *
 	 * @param int    $panel_id  Panel row id.
 	 * @param string $panel_url Panel URL.
@@ -287,17 +324,19 @@ class SimpleVPBot_Rest_Dashboard {
 		$key      = 'svp_dash_ph_' . $panel_id;
 		$cached   = get_transient( $key );
 		if ( false !== $cached && is_array( $cached ) ) {
-			return $cached;
+			return self::normalize_panel_health_row( $cached );
 		}
 		$url = trim( (string) $panel_url );
 		if ( '' === $url ) {
 			$out = array(
-				'panelId'    => $panel_id,
-				'ok'         => false,
-				'httpStatus' => 0,
-				'latencyMs'  => null,
-				'checkedAt'  => gmdate( 'c' ),
-				'error'      => 'no_url',
+				'panelId'            => $panel_id,
+				'ok'                 => false,
+				'httpOk'             => false,
+				'networkReachable'   => false,
+				'httpStatus'         => 0,
+				'latencyMs'          => null,
+				'checkedAt'          => gmdate( 'c' ),
+				'error'              => 'no_url',
 			);
 			set_transient( $key, $out, 30 );
 			return $out;
@@ -327,21 +366,26 @@ class SimpleVPBot_Rest_Dashboard {
 		$lat = (int) round( ( microtime( true ) - $t0 ) * 1000 );
 		if ( is_wp_error( $res ) ) {
 			$out = array(
-				'panelId'    => $panel_id,
-				'ok'         => false,
-				'httpStatus' => 0,
-				'latencyMs'  => $lat,
-				'checkedAt'  => gmdate( 'c' ),
-				'error'      => $res->get_error_message(),
+				'panelId'            => $panel_id,
+				'ok'                 => false,
+				'httpOk'             => false,
+				'networkReachable'   => false,
+				'httpStatus'         => 0,
+				'latencyMs'          => $lat,
+				'checkedAt'          => gmdate( 'c' ),
+				'error'              => $res->get_error_message(),
 			);
 		} else {
-			$ok  = ( $code >= 200 && $code < 400 );
-			$out = array(
-				'panelId'    => $panel_id,
-				'ok'         => $ok,
-				'httpStatus' => $code,
-				'latencyMs'  => $lat,
-				'checkedAt'  => gmdate( 'c' ),
+			$http_ok            = ( $code >= 200 && $code < 400 );
+			$network_reachable = ( $code >= 100 && $code <= 599 );
+			$out                = array(
+				'panelId'            => $panel_id,
+				'ok'                 => $http_ok,
+				'httpOk'             => $http_ok,
+				'networkReachable'   => $network_reachable,
+				'httpStatus'         => $code,
+				'latencyMs'          => $lat,
+				'checkedAt'          => gmdate( 'c' ),
 			);
 		}
 		set_transient( $key, $out, 45 );
@@ -879,7 +923,8 @@ class SimpleVPBot_Rest_Dashboard {
 				'l2tpServers'       => $tot_l2tp,
 				'panels'            => $tot_panels,
 				'pendingUsers'      => $tot_pend,
-				'receiptsSample'    => $tot_rcpt,
+				'receiptsTotal'    => $tot_rcpt,
+				'receiptsSample'   => $tot_rcpt,
 				'receiptsByStatus'  => $receipt_by_status,
 				'broadcasts'        => $tot_bc,
 				'usersTotal'        => $tot_users,
@@ -1020,8 +1065,61 @@ class SimpleVPBot_Rest_Dashboard {
 		}
 		$svcs = SimpleVPBot_Model_Service::by_user( $id );
 		$list = array();
+		$svc_ids = array();
 		foreach ( (array) $svcs as $svc ) {
-			$list[] = self::row_array( $svc );
+			$row = self::row_array( $svc );
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$sid = (int) ( $row['id'] ?? 0 );
+			if ( $sid > 0 ) {
+				$svc_ids[] = $sid;
+			}
+			$tt = isset( $row['total_traffic'] ) ? (int) $row['total_traffic'] : 0;
+			$row['quota_gb'] = $tt > 0 ? round( $tt / ( 1024 * 1024 * 1024 ), 4 ) : 0.0;
+			$ut = isset( $row['used_traffic'] ) ? (int) $row['used_traffic'] : 0;
+			$row['used_gb']   = $ut > 0 ? round( $ut / ( 1024 * 1024 * 1024 ), 4 ) : 0.0;
+			$row['subscription_state'] = self::admin_user_service_subscription_state( isset( $row['expires_at'] ) ? (string) $row['expires_at'] : '' );
+			$pid = (int) ( $row['plan_id'] ?? 0 );
+			if ( $pid > 0 && class_exists( 'SimpleVPBot_Model_Plan' ) ) {
+				$pl = SimpleVPBot_Model_Plan::find( $pid );
+				if ( $pl && is_object( $pl ) ) {
+					$row['plan_name']          = (string) ( $pl->name ?? '' );
+					$row['plan_pricing_type']  = (string) ( $pl->pricing_type ?? 'fixed' );
+					$row['plan_price']       = (float) ( $pl->price ?? 0 );
+					$row['plan_price_per_gb'] = (float) ( $pl->price_per_gb ?? 0 );
+				}
+			}
+			$list[] = $row;
+		}
+		$ip_by_svc = array();
+		if ( ! empty( $svc_ids ) && class_exists( 'SimpleVPBot_Model_Service_Ip_Log' ) ) {
+			$ip_by_svc = SimpleVPBot_Model_Service_Ip_Log::latest_for_services( $svc_ids, 20 );
+		}
+		foreach ( $list as &$lr ) {
+			$sid = (int) ( $lr['id'] ?? 0 );
+			$lr['ip_log'] = isset( $ip_by_svc[ $sid ] ) ? $ip_by_svc[ $sid ] : array();
+			if ( class_exists( 'SimpleVPBot_Portal_Link' ) && $sid > 0 ) {
+				$lr['portal_service_url'] = SimpleVPBot_Portal_Link::build_service_url( $id, $sid );
+			} else {
+				$lr['portal_service_url'] = '';
+			}
+		}
+		unset( $lr );
+		$referrals = array();
+		if ( class_exists( 'SimpleVPBot_Model_User' ) ) {
+			foreach ( SimpleVPBot_Model_User::list_invited_by( $id, 150 ) as $ref ) {
+				$ra = self::row_array( $ref );
+				if ( $ra ) {
+					$referrals[] = $ra;
+				}
+			}
+		}
+		$portal_user = '';
+		$portal_base = '';
+		if ( class_exists( 'SimpleVPBot_Portal_Link' ) ) {
+			$portal_user = SimpleVPBot_Portal_Link::build_url( $id );
+			$portal_base = SimpleVPBot_Portal_Link::base_url();
 		}
 		$page     = max( 1, (int) $req->get_param( 'activity_page' ) );
 		$per_page = (int) $req->get_param( 'activity_per_page' );
@@ -1033,11 +1131,17 @@ class SimpleVPBot_Rest_Dashboard {
 		if ( class_exists( 'SimpleVPBot_User_Activity_Log' ) ) {
 			$act = SimpleVPBot_User_Activity_Log::fetch_for_subject( $id, $page, $per_page );
 		}
+		$user_arr = self::row_array( $user );
+		if ( is_array( $user_arr ) && '' !== $portal_user ) {
+			$user_arr['portal_url'] = $portal_user;
+		}
 		return new WP_REST_Response(
 			array(
 				'ok'                 => true,
-				'user'               => self::row_array( $user ),
+				'user'               => $user_arr,
 				'services'           => $list,
+				'referrals'          => $referrals,
+				'portalBaseUrl'      => $portal_base,
 				'activity'           => isset( $act['rows'] ) ? $act['rows'] : array(),
 				'activityPagination' => array(
 					'page'    => (int) ( $act['page'] ?? $page ),
@@ -1046,6 +1150,24 @@ class SimpleVPBot_Rest_Dashboard {
 				),
 			)
 		);
+	}
+
+	/**
+	 * Active / expired label helper for admin user services.
+	 *
+	 * @param string $expires_at MySQL datetime or empty.
+	 * @return string active|expired|no_expiry
+	 */
+	private static function admin_user_service_subscription_state( $expires_at ) {
+		$s = trim( (string) $expires_at );
+		if ( '' === $s ) {
+			return 'no_expiry';
+		}
+		$ts = strtotime( $s . ' UTC' );
+		if ( false === $ts ) {
+			return 'no_expiry';
+		}
+		return $ts > time() ? 'active' : 'expired';
 	}
 
 	/**
@@ -1077,6 +1199,22 @@ class SimpleVPBot_Rest_Dashboard {
 			return new WP_REST_Response( array( 'ok' => false, 'message' => 'module_missing' ), 500 );
 		}
 		$r = SimpleVPBot_Service_Admin_Ops::inbound_clients( $inbound_id, $panel_id );
+		$code = ! empty( $r['ok'] ) ? 200 : 400;
+		return new WP_REST_Response( $r, $code );
+	}
+
+	/**
+	 * Xray plans + inbound clients snapshot for dashboard configs tab.
+	 *
+	 * @param WP_REST_Request $req Request.
+	 * @return WP_REST_Response
+	 */
+	public static function route_configs_snapshot( WP_REST_Request $req ) {
+		$panel_id = (int) $req->get_param( 'panel_id' );
+		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'module_missing' ), 500 );
+		}
+		$r    = SimpleVPBot_Service_Admin_Ops::configs_snapshot( $panel_id );
 		$code = ! empty( $r['ok'] ) ? 200 : 400;
 		return new WP_REST_Response( $r, $code );
 	}

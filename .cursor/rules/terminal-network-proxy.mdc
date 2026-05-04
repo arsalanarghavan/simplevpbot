@@ -1,0 +1,20 @@
+---
+description: Use local proxy 127.0.0.1:10808 for any terminal command that reaches the internet
+alwaysApply: true
+---
+
+# Terminal network proxy
+
+For **any** shell command in this workspace that needs outbound access to the internet (for example `curl`, `wget`, `npm install`, `npx`, `pnpm`, `yarn`, `git fetch`/`pull`/`clone` to remotes, language package managers, or downloading assets), **first** load the project proxy in that shell session:
+
+From the repository root:
+
+```bash
+source scripts/proxy-env.sh
+```
+
+Then run the network command in the **same** shell (or chain: `source scripts/proxy-env.sh && your-command`).
+
+If a one-liner is required without relying on `source`, export the same variables as in `scripts/proxy-env.sh` (`HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, `https_proxy`, and optionally `ALL_PROXY` / `all_proxy`).
+
+Do **not** skip the proxy for convenience when the command touches external hosts. Keep `NO_PROXY` as in the script so localhost stays direct.

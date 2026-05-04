@@ -3,6 +3,7 @@ import {
   Activity,
   Bot,
   LayoutDashboard,
+  Network,
   Server,
   Settings2,
   Users,
@@ -23,7 +24,7 @@ export type AdminNavCollapsible = {
   icon: LucideIcon
   /** i18n key under translation, e.g. sidebar.groups.users */
   labelKey: string
-  children: { tabKey: string }[]
+  children: { tabKey: string; icon?: LucideIcon }[]
 }
 
 export type AdminNavEntry = AdminNavLeaf | AdminNavCollapsible
@@ -105,6 +106,7 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
          children: [
           { tabKey: "xui_panels" },
           { tabKey: "panel_inbounds" },
+          { tabKey: "configs", icon: Network },
           { tabKey: "l2tp_servers" },
         ],
       },
@@ -142,6 +144,7 @@ export const ADMIN_TAB_KEYS: string[] = [
   "bots",
   "xui_panels",
   "panel_inbounds",
+  "configs",
   "l2tp_servers",
   "backup",
   "logs",

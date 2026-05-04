@@ -122,6 +122,34 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return self::op_inbound_link( $params );
 			case 'inbound_autolink':
 				return self::op_inbound_autolink( $params );
+			case 'user_admin_message':
+				return self::op_user_admin_message( $params );
+			case 'service_alerts_patch':
+				return self::op_service_alerts_patch( $params );
+			case 'service_panel_sync':
+				return self::op_service_panel_sync( $params );
+			case 'service_regen_key':
+				return self::op_service_regen_key( $params );
+			case 'service_panel_refresh':
+				return self::op_service_panel_refresh( $params );
+			case 'service_panel_delete_client':
+				return self::op_service_panel_delete_client( $params );
+			case 'user_service_add_slots':
+				return self::op_user_service_add_slots( $params );
+			case 'service_set_limit_ip':
+				return self::op_service_set_limit_ip( $params );
+			case 'configs_client_toggle_enable':
+				return self::op_configs_client_toggle_enable( $params );
+			case 'configs_client_reset_traffic':
+				return self::op_configs_client_reset_traffic( $params );
+			case 'configs_client_delete':
+				return self::op_configs_client_delete( $params );
+			case 'configs_delete_expired_linked':
+				return self::op_configs_delete_expired_linked( $params );
+			case 'configs_panel_client_patch':
+				return self::op_configs_panel_client_patch( $params );
+			case 'configs_clients_batch':
+				return self::op_configs_clients_batch( $params );
 			default:
 				return array( 'ok' => false, 'message' => 'unknown_op' );
 		}
@@ -967,7 +995,52 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				'balance_after' => $new,
 			)
 		);
+		self::notify_user_wallet_delta( $user, $delta, $new );
 		return array( 'ok' => true, 'balance' => $new );
+	}
+
+	/**
+	 * Tell the bot user their wallet changed (Telegram/Bale, best-effort).
+	 *
+	 * @param object $user          svp_users row (tg_user_id / bale_user_id).
+	 * @param float  $delta         Applied delta (positive = credit).
+	 * @param float  $new_balance   Balance after update.
+	 * @return void
+	 */
+	private static function notify_user_wallet_delta( $user, $delta, $new_balance ) {
+		if ( abs( $delta ) < 0.0000001 ) {
+			return;
+		}
+		$d_abs = abs( (float) $delta );
+		$n     = (float) $new_balance;
+		$dec_a = ( abs( $d_abs - round( $d_abs ) ) < 0.001 ) ? 0 : 2;
+		$dec_n = ( abs( $n - round( $n ) ) < 0.001 ) ? 0 : 2;
+		$amt   = number_format( $d_abs, $dec_a, '.', ',' );
+		$bal   = number_format( $n, $dec_n, '.', ',' );
+		if ( $delta > 0 ) {
+			$tpl = SimpleVPBot_Texts::get(
+				'msg.dashboard_wallet_credit',
+				"💰 به موجودی کیف پول شما {amount} تومان افزوده شد.\n➖➖➖➖➖➖➖➖\nمانده فعلی: {balance} تومان."
+			);
+		} else {
+			$tpl = SimpleVPBot_Texts::get(
+				'msg.dashboard_wallet_debit',
+				"💰 از موجودی کیف پول شما {amount} تومان کسر شد.\n➖➖➖➖➖➖➖➖\nمانده فعلی: {balance} تومان."
+			);
+		}
+		$body = SimpleVPBot_Texts::format(
+			$tpl,
+			array(
+				'amount'  => $amt,
+				'balance' => $bal,
+			)
+		);
+		if ( ! empty( $user->tg_user_id ) ) {
+			SimpleVPBot_Bot_Runtime::send_message( 'telegram', (int) $user->tg_user_id, $body );
+		}
+		if ( ! empty( $user->bale_user_id ) ) {
+			SimpleVPBot_Bot_Runtime::send_message( 'bale', (int) $user->bale_user_id, $body );
+		}
 	}
 
 	/**
@@ -1145,5 +1218,332 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		}
 		self::log_rest_user( $new_id, 'user_manual_create', array( 'tg_user_id' => $tg, 'bale_user_id' => $bl ) );
 		return array( 'ok' => true, 'user_id' => $new_id );
+	}
+
+	/**
+	 * @param array<string, mixed> $p svp_user_id, text, channel: both|telegram|bale.
+	 * @return array{ok:bool, message?:string, sent?:int}
+	 */
+	private static function op_user_admin_message( array $p ) {
+		$uid = (int) ( $p['svp_user_id'] ?? 0 );
+		$txt = isset( $p['text'] ) ? sanitize_textarea_field( (string) $p['text'] ) : '';
+		$txt = trim( preg_replace( '/\s+/u', ' ', $txt ) );
+		$ch  = sanitize_key( (string) ( $p['channel'] ?? 'both' ) );
+		if ( $uid < 1 || '' === $txt ) {
+			return array( 'ok' => false, 'message' => 'invalid' );
+		}
+		if ( strlen( $txt ) > 4000 ) {
+			$txt = substr( $txt, 0, 4000 );
+		}
+		$user = SimpleVPBot_Model_User::find( $uid );
+		if ( ! $user ) {
+			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		$sent = 0;
+		if ( ( 'both' === $ch || 'telegram' === $ch ) && ! empty( $user->tg_user_id ) ) {
+			$r = SimpleVPBot_Bot_Runtime::send_message( 'telegram', (int) $user->tg_user_id, $txt );
+			if ( null !== $r ) {
+				++$sent;
+			}
+		}
+		if ( ( 'both' === $ch || 'bale' === $ch ) && ! empty( $user->bale_user_id ) ) {
+			$r = SimpleVPBot_Bot_Runtime::send_message( 'bale', (int) $user->bale_user_id, $txt );
+			if ( null !== $r ) {
+				++$sent;
+			}
+		}
+		if ( $sent < 1 ) {
+			return array( 'ok' => false, 'message' => 'no_channel' );
+		}
+		self::log_rest_user( $uid, 'admin_message', array( 'channel' => $ch, 'length' => strlen( $txt ) ) );
+		return array( 'ok' => true, 'sent' => $sent );
+	}
+
+	/**
+	 * @param array<string, mixed> $p service_id + optional alert toggles.
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function op_service_alerts_patch( array $p ) {
+		$sid = (int) ( $p['service_id'] ?? 0 );
+		if ( $sid < 1 ) {
+			return array( 'ok' => false, 'message' => 'invalid_service' );
+		}
+		$row = SimpleVPBot_Model_Service::find( $sid );
+		if ( ! $row ) {
+			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		$uid = (int) $row->user_id;
+		$patch = array();
+		foreach ( array( 'alerts_enabled', 'alerts_volume', 'alerts_expiry', 'alerts_users' ) as $k ) {
+			if ( array_key_exists( $k, $p ) ) {
+				$v           = $p[ $k ];
+				$patch[ $k ] = ( 1 === (int) $v || true === $v || '1' === (string) $v ) ? 1 : 0;
+			}
+		}
+		if ( empty( $patch ) ) {
+			return array( 'ok' => false, 'message' => 'noop' );
+		}
+		SimpleVPBot_Model_Service::update( $sid, $patch );
+		self::log_rest_user( $uid, 'service_alerts_patch', array_merge( array( 'service_id' => $sid ), $patch ) );
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * @param array<string, mixed> $p service_id.
+	 * @return array{ok:bool, reason?:string, limit_ip?:int, panel_enabled?:int|null}
+	 */
+	private static function op_service_panel_sync( array $p ) {
+		$sid = (int) ( $p['service_id'] ?? 0 );
+		if ( $sid < 1 || ! class_exists( 'SimpleVPBot_Service_Dashboard_Panel' ) ) {
+			return array( 'ok' => false, 'message' => 'invalid' );
+		}
+		$svc = SimpleVPBot_Model_Service::find( $sid );
+		if ( ! $svc ) {
+			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		$uid = (int) $svc->user_id;
+		$r   = SimpleVPBot_Service_Dashboard_Panel::xray_sync_meta( $sid, true );
+		if ( empty( $r['ok'] ) ) {
+			return array( 'ok' => false, 'reason' => (string) ( $r['reason'] ?? 'failed' ) );
+		}
+		self::log_rest_user( $uid, 'service_panel_sync', array( 'service_id' => $sid ) );
+		return array(
+			'ok'            => true,
+			'limit_ip'      => (int) ( $r['limit_ip'] ?? 0 ),
+			'panel_enabled' => isset( $r['panel_enabled'] ) ? $r['panel_enabled'] : null,
+		);
+	}
+
+	/**
+	 * @param array<string, mixed> $p service_id.
+	 * @return array{ok:bool, reason?:string}
+	 */
+	private static function op_service_regen_key( array $p ) {
+		$sid = (int) ( $p['service_id'] ?? 0 );
+		if ( $sid < 1 || ! class_exists( 'SimpleVPBot_Service_Dashboard_Panel' ) ) {
+			return array( 'ok' => false, 'message' => 'invalid' );
+		}
+		$svc = SimpleVPBot_Model_Service::find( $sid );
+		if ( ! $svc ) {
+			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		$r = SimpleVPBot_Service_Dashboard_Panel::xray_regenerate_key( $sid );
+		if ( empty( $r['ok'] ) ) {
+			return array( 'ok' => false, 'reason' => (string) ( $r['reason'] ?? 'failed' ) );
+		}
+		self::log_rest_user( (int) $svc->user_id, 'service_regen_key', array( 'service_id' => $sid ) );
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * @param array<string, mixed> $p service_id.
+	 * @return array{ok:bool, reason?:string}
+	 */
+	private static function op_service_panel_refresh( array $p ) {
+		$sid = (int) ( $p['service_id'] ?? 0 );
+		if ( $sid < 1 || ! class_exists( 'SimpleVPBot_Service_Dashboard_Panel' ) ) {
+			return array( 'ok' => false, 'message' => 'invalid' );
+		}
+		$svc = SimpleVPBot_Model_Service::find( $sid );
+		if ( ! $svc ) {
+			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		$r = SimpleVPBot_Service_Dashboard_Panel::xray_refresh_inbound( $sid );
+		if ( empty( $r['ok'] ) ) {
+			return array( 'ok' => false, 'reason' => (string) ( $r['reason'] ?? 'failed' ) );
+		}
+		self::log_rest_user( (int) $svc->user_id, 'service_panel_refresh', array( 'service_id' => $sid ) );
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * @param array<string, mixed> $p service_id.
+	 * @return array{ok:bool, reason?:string}
+	 */
+	private static function op_service_panel_delete_client( array $p ) {
+		$sid = (int) ( $p['service_id'] ?? 0 );
+		if ( $sid < 1 || ! class_exists( 'SimpleVPBot_Service_Dashboard_Panel' ) ) {
+			return array( 'ok' => false, 'message' => 'invalid' );
+		}
+		$svc = SimpleVPBot_Model_Service::find( $sid );
+		if ( ! $svc ) {
+			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		$uid = (int) $svc->user_id;
+		$r   = SimpleVPBot_Service_Dashboard_Panel::xray_delete_panel_client( $sid );
+		if ( empty( $r['ok'] ) ) {
+			return array( 'ok' => false, 'reason' => (string) ( $r['reason'] ?? 'failed' ) );
+		}
+		self::log_rest_user( $uid, 'service_panel_delete_client', array( 'service_id' => $sid ) );
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * @param array<string, mixed> $p service_id, extra_users (1..50).
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function op_user_service_add_slots( array $p ) {
+		$sid = (int) ( $p['service_id'] ?? 0 );
+		$add = (int) ( $p['extra_users'] ?? $p['slots'] ?? 0 );
+		if ( $sid < 1 || $add < 1 || ! class_exists( 'SimpleVPBot_Service_Renew' ) ) {
+			return array( 'ok' => false, 'message' => 'invalid' );
+		}
+		$r = SimpleVPBot_Service_Renew::apply_add_user_slots_after_payment( $sid, $add );
+		$ok = ! empty( $r['ok'] );
+		if ( $ok ) {
+			$svc = SimpleVPBot_Model_Service::find( $sid );
+			if ( $svc ) {
+				self::log_rest_user( (int) $svc->user_id, 'service_add_user_slots', array( 'service_id' => $sid, 'extra_users' => $add ) );
+			}
+		}
+		if ( ! $ok ) {
+			return array(
+				'ok'      => false,
+				'message' => (string) ( $r['message'] ?? 'failed' ),
+			);
+		}
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * @param array<string, mixed> $p service_id, limit_ip.
+	 * @return array{ok:bool, reason?:string}
+	 */
+	private static function op_service_set_limit_ip( array $p ) {
+		$sid = (int) ( $p['service_id'] ?? 0 );
+		$lip = (int) ( $p['limit_ip'] ?? 0 );
+		if ( $sid < 1 || $lip < 1 || ! class_exists( 'SimpleVPBot_Service_Dashboard_Panel' ) ) {
+			return array( 'ok' => false, 'message' => 'invalid' );
+		}
+		$svc = SimpleVPBot_Model_Service::find( $sid );
+		if ( ! $svc ) {
+			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		$r = SimpleVPBot_Service_Dashboard_Panel::xray_set_limit_ip( $sid, $lip );
+		if ( empty( $r['ok'] ) ) {
+			return array( 'ok' => false, 'reason' => (string) ( $r['reason'] ?? 'failed' ) );
+		}
+		self::log_rest_user( (int) $svc->user_id, 'service_set_limit_ip', array( 'service_id' => $sid, 'limit_ip' => $lip ) );
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * @param array<string, mixed> $p panel_id, inbound_id, email, enable (0|1).
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function op_configs_client_toggle_enable( array $p ) {
+		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$pid = (int) ( $p['panel_id'] ?? 0 );
+		$iid = (int) ( $p['inbound_id'] ?? 0 );
+		$em  = isset( $p['email'] ) ? sanitize_text_field( (string) $p['email'] ) : '';
+		$en  = ! empty( $p['enable'] );
+		$r   = SimpleVPBot_Service_Admin_Ops::configs_panel_client_toggle_enable( $pid, $iid, $em, $en ? 1 : 0 );
+		return $r;
+	}
+
+	/**
+	 * @param array<string, mixed> $p panel_id, inbound_id, email.
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function op_configs_client_reset_traffic( array $p ) {
+		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$pid = (int) ( $p['panel_id'] ?? 0 );
+		$iid = (int) ( $p['inbound_id'] ?? 0 );
+		$em  = isset( $p['email'] ) ? sanitize_text_field( (string) $p['email'] ) : '';
+		return SimpleVPBot_Service_Admin_Ops::configs_panel_client_reset_traffic( $pid, $iid, $em );
+	}
+
+	/**
+	 * @param array<string, mixed> $p panel_id, inbound_id, email, linked_service_id.
+	 * @return array{ok:bool, message?:string, reason?:string}
+	 */
+	private static function op_configs_client_delete( array $p ) {
+		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$pid = (int) ( $p['panel_id'] ?? 0 );
+		$iid = (int) ( $p['inbound_id'] ?? 0 );
+		$em  = isset( $p['email'] ) ? sanitize_text_field( (string) $p['email'] ) : '';
+		$ls  = (int) ( $p['linked_service_id'] ?? 0 );
+		$r   = SimpleVPBot_Service_Admin_Ops::configs_panel_client_delete( $pid, $iid, $em, $ls );
+		if ( ! empty( $r['ok'] ) && $ls > 0 ) {
+			$svc = SimpleVPBot_Model_Service::find_any( $ls );
+			if ( $svc ) {
+				self::log_rest_user( (int) $svc->user_id, 'configs_client_delete', array( 'service_id' => $ls, 'inbound_id' => $iid, 'email' => $em ) );
+			}
+		}
+		return $r;
+	}
+
+	/**
+	 * @param array<string, mixed> $p panel_id, confirm_count.
+	 * @return array{ok:bool, message?:string, data?:mixed}
+	 */
+	private static function op_configs_delete_expired_linked( array $p ) {
+		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$pid    = (int) ( $p['panel_id'] ?? 0 );
+		$expect = (int) ( $p['confirm_count'] ?? -1 );
+		return SimpleVPBot_Service_Admin_Ops::configs_delete_expired_linked_batch( $pid, $expect );
+	}
+
+	/**
+	 * @param array<string, mixed> $p panel_id, inbound_id, email; optional expiry_ms, total_gb, client_remark (omit to skip).
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function op_configs_panel_client_patch( array $p ) {
+		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$pid = (int) ( $p['panel_id'] ?? 0 );
+		$iid = (int) ( $p['inbound_id'] ?? 0 );
+		$em  = isset( $p['email'] ) ? sanitize_text_field( (string) $p['email'] ) : '';
+		$patch = array();
+		if ( array_key_exists( 'expiry_ms', $p ) ) {
+			$patch['expiry_ms'] = (int) $p['expiry_ms'];
+		}
+		if ( array_key_exists( 'total_gb', $p ) ) {
+			$patch['total_gb'] = (int) $p['total_gb'];
+		}
+		if ( array_key_exists( 'client_remark', $p ) ) {
+			$patch['client_remark'] = sanitize_text_field( (string) $p['client_remark'] );
+		}
+		if ( empty( $patch ) ) {
+			return array( 'ok' => false, 'message' => 'no_patch_fields' );
+		}
+		return SimpleVPBot_Service_Admin_Ops::configs_panel_client_patch( $pid, $iid, $em, $patch );
+	}
+
+	/**
+	 * @param array<string, mixed> $p panel_id, batch_op (reset_traffic|set_enable), items: [{ inbound_id, email, enable? }].
+	 * @return array{ok:bool, message?:string, data?:mixed}
+	 */
+	private static function op_configs_clients_batch( array $p ) {
+		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$pid = (int) ( $p['panel_id'] ?? 0 );
+		$op  = sanitize_key( (string) ( $p['batch_op'] ?? '' ) );
+		$raw = isset( $p['items'] ) && is_array( $p['items'] ) ? $p['items'] : array();
+		$items = array();
+		foreach ( $raw as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$it = array(
+				'inbound_id' => (int) ( $row['inbound_id'] ?? 0 ),
+				'email'      => sanitize_text_field( (string) ( $row['email'] ?? '' ) ),
+			);
+			if ( array_key_exists( 'enable', $row ) ) {
+				$it['enable'] = ! empty( $row['enable'] ) ? 1 : 0;
+			}
+			$items[] = $it;
+		}
+		return SimpleVPBot_Service_Admin_Ops::configs_clients_batch( $pid, $op, $items );
 	}
 }
