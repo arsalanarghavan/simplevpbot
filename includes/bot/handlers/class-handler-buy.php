@@ -49,7 +49,12 @@ class SimpleVPBot_Handler_Buy {
 		if ( $title_line !== '' ) {
 			$lines[] = $title_line;
 		}
-		$lines[] = '🧾 سفارش #' . SimpleVPBot_Bot_Persian_Text::digits_to_fa( (string) $tid );
+		$brand = class_exists( 'SimpleVPBot_Bot_Context' ) ? trim( (string) SimpleVPBot_Bot_Context::active_brand_name() ) : '';
+		if ( '' !== $brand ) {
+			$lines[] = '🧾 سفارش ' . $brand . ' #' . SimpleVPBot_Bot_Persian_Text::digits_to_fa( (string) $tid );
+		} else {
+			$lines[] = '🧾 سفارش #' . SimpleVPBot_Bot_Persian_Text::digits_to_fa( (string) $tid );
+		}
 		if ( ! empty( $meta['discount_code'] ) ) {
 			$sub  = isset( $meta['subtotal_toman'] ) ? (float) $meta['subtotal_toman'] : $amount;
 			$disc = isset( $meta['discount_toman'] ) ? (float) $meta['discount_toman'] : 0.0;
@@ -70,7 +75,7 @@ class SimpleVPBot_Handler_Buy {
 	 * @return array<string, mixed>
 	 */
 	public static function checkout_reply_markup( $platform, $tid ) {
-		$cards            = SimpleVPBot_Model_Card::active_ordered();
+		$cards            = SimpleVPBot_Model_Card::active_for_transaction( (int) $tid );
 		$wallet_tok       = (string) SimpleVPBot_Settings::get( 'bale_wallet_provider_token', '' );
 		$show_bale_wallet = ( 'bale' === $platform && $wallet_tok !== '' );
 		$pay              = SimpleVPBot_Keyboards::inline_payment_method( $cards, (int) $tid, $show_bale_wallet );
@@ -131,7 +136,7 @@ class SimpleVPBot_Handler_Buy {
 				return (int) $tid;
 			}
 		}
-		$cards = SimpleVPBot_Model_Card::active_ordered();
+		$cards = SimpleVPBot_Model_Card::active_for_transaction( (int) $tid );
 		if ( empty( $cards ) ) {
 			SimpleVPBot_Bot_Runtime::send_message( $platform, (int) $chat_id, '⛔ کارتی ثبت نشده. ادمین را مطلع کنید.' );
 			return 0;
@@ -714,10 +719,11 @@ class SimpleVPBot_Handler_Buy {
 		$admin_msgs = array();
 		$body       = SimpleVPBot_Bot_Admin_User_Caption::receipt_new_caption( $user, $tx, (int) $rid );
 		$photo_args = array( 'reply_markup' => SimpleVPBot_Keyboards::inline_receipt( (int) $rid ) );
-		$tg_ids     = (array) SimpleVPBot_Settings::get( 'admin_telegram_ids', array() );
-		$bl_ids     = (array) SimpleVPBot_Settings::get( 'admin_bale_ids', array() );
-		$tg_tok     = (string) SimpleVPBot_Settings::get( 'telegram_token', '' );
-		$bl_tok     = (string) SimpleVPBot_Settings::get( 'bale_token', '' );
+		$admin_ids  = self::admin_ids_for_current_context();
+		$tg_ids     = $admin_ids['telegram'];
+		$bl_ids     = $admin_ids['bale'];
+		$tg_tok     = (string) SimpleVPBot_Bot_Runtime::bot_token_for_current_context( 'telegram' );
+		$bl_tok     = (string) SimpleVPBot_Bot_Runtime::bot_token_for_current_context( 'bale' );
 
 		$local_path = self::download_receipt_to_temp( $platform, $file_id );
 		if ( '' === $local_path || ! is_readable( $local_path ) ) {
@@ -835,11 +841,13 @@ class SimpleVPBot_Handler_Buy {
 		if ( '' === $path ) {
 			return '';
 		}
+		$tok = (string) SimpleVPBot_Bot_Runtime::bot_token_for_current_context( $platform );
+		if ( '' === $tok ) {
+			return '';
+		}
 		if ( 'bale' === $platform ) {
-			$tok = (string) SimpleVPBot_Settings::get( 'bale_token', '' );
 			$url = 'https://tapi.bale.ai/file/bot' . rawurlencode( $tok ) . '/' . $path;
 		} else {
-			$tok = (string) SimpleVPBot_Settings::get( 'telegram_token', '' );
 			$url = 'https://api.telegram.org/file/bot' . rawurlencode( $tok ) . '/' . $path;
 		}
 		$resp = wp_remote_get( $url, array( 'timeout' => 45, 'redirection' => 3, 'sslverify' => false ) );
@@ -873,6 +881,29 @@ class SimpleVPBot_Handler_Buy {
 			return $final;
 		}
 		return $tmp;
+	}
+
+	/**
+	 * Resolve admin chat ids for receipt moderation in current bot context.
+	 *
+	 * @return array{telegram:int[],bale:int[]}
+	 */
+	private static function admin_ids_for_current_context() {
+		$tg_ids = array_map( 'intval', (array) SimpleVPBot_Settings::get( 'admin_telegram_ids', array() ) );
+		$bl_ids = array_map( 'intval', (array) SimpleVPBot_Settings::get( 'admin_bale_ids', array() ) );
+		if ( class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot() ) {
+			$reseller = SimpleVPBot_Model_User::find( (int) SimpleVPBot_Bot_Context::reseller_svp_user_id() );
+			if ( $reseller ) {
+				$rtg = (int) ( $reseller->tg_user_id ?? 0 );
+				$rbl = (int) ( $reseller->bale_user_id ?? 0 );
+				$tg_ids = $rtg > 0 ? array( $rtg ) : array();
+				$bl_ids = $rbl > 0 ? array( $rbl ) : array();
+			}
+		}
+		return array(
+			'telegram' => array_values( array_filter( $tg_ids ) ),
+			'bale'     => array_values( array_filter( $bl_ids ) ),
+		);
 	}
 
 	/**
@@ -1130,8 +1161,12 @@ class SimpleVPBot_Handler_Buy {
 		$is_tg  = 'telegram' === $platform;
 		$amt    = SimpleVPBot_Bot_Persian_Text::format_toman_fa( (float) $amount_toman );
 		$txid_f = SimpleVPBot_Bot_Persian_Text::digits_to_fa( (string) (int) $tx->id );
+		$brand = class_exists( 'SimpleVPBot_Bot_Context' ) ? trim( (string) SimpleVPBot_Bot_Context::active_brand_name() ) : '';
 		if ( $is_tg ) {
 			$t  = "₿ پرداخت کریپتو\n";
+			if ( '' !== $brand ) {
+				$t .= '🏷 برند: ' . esc_html( $brand ) . "\n";
+			}
 			$t .= "➖➖➖➖➖➖➖➖\n";
 			$t .= '🌐 شبکه / نوع: ' . esc_html( $net ) . "\n";
 			$t .= "📍 آدرس ولت:\n<code>" . esc_html( $addr ) . "</code>\n";
@@ -1140,6 +1175,9 @@ class SimpleVPBot_Handler_Buy {
 			$t .= "⚠️ حتماً شبکه را درست انتخاب کن.\n";
 		} else {
 			$t  = "₿ پرداخت کریپتو\n";
+			if ( '' !== $brand ) {
+				$t .= '🏷 برند: ' . $brand . "\n";
+			}
 			$t .= "➖➖➖➖➖➖➖➖\n";
 			$t .= '🌐 شبکه / نوع: ' . $net . "\n";
 			$t .= "📍 آدرس ولت:\n" . $addr . "\n";
@@ -1164,8 +1202,12 @@ class SimpleVPBot_Handler_Buy {
 
 		$amt_fa = SimpleVPBot_Bot_Persian_Text::format_toman_fa( (float) $amount_toman );
 		$txid_f = SimpleVPBot_Bot_Persian_Text::digits_to_fa( (string) (int) $tx->id );
+		$brand = class_exists( 'SimpleVPBot_Bot_Context' ) ? trim( (string) SimpleVPBot_Bot_Context::active_brand_name() ) : '';
 		if ( $is_tg ) {
 			$t  = "🧾 فاکتور پرداخت\n";
+			if ( '' !== $brand ) {
+				$t .= '🏷 برند: ' . esc_html( $brand ) . "\n";
+			}
 			$t .= "➖➖➖➖➖➖➖➖\n";
 			$t .= "💳 شماره کارت:\n";
 			$t .= '<code>' . esc_html( $pan_digits ) . "</code>\n";
@@ -1174,6 +1216,9 @@ class SimpleVPBot_Handler_Buy {
 			$t .= '🆔 تراکنش: ' . esc_html( $txid_f ) . "\n";
 		} else {
 			$t  = "🧾 فاکتور پرداخت\n";
+			if ( '' !== $brand ) {
+				$t .= '🏷 برند: ' . $brand . "\n";
+			}
 			$t .= "➖➖➖➖➖➖➖➖\n";
 			$t .= "💳 شماره کارت:\n";
 			$t .= $pan_digits . "\n";

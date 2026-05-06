@@ -16,6 +16,9 @@ import { DashboardPlanCatsAdmin } from "@/components/dashboard-plan-cats-admin"
 import { DashboardPlansAdmin } from "@/components/dashboard-plans-admin"
 import { DashboardReceiptsAdmin } from "@/components/dashboard-receipts-admin"
 import { DashboardReferralAdmin } from "@/components/dashboard-referral-admin"
+import { DashboardResellerBotsAdmin, type ResellerBotProfile } from "@/components/dashboard-reseller-bots-admin"
+import { DashboardResellersAdmin } from "@/components/dashboard-resellers-admin"
+import { DashboardUsersBulkAdmin } from "@/components/dashboard-users-bulk-admin"
 import { DashboardTextsAdmin } from "@/components/dashboard-texts-admin"
 import { DashboardUsersAdmin } from "@/components/dashboard-users-admin"
 import { DashboardUserDetailAdmin } from "@/components/dashboard-user-detail-admin"
@@ -150,6 +153,15 @@ export function DashboardAdminView({
   const receipts = asRecordArray(data.receipts)
   const disc = asRecordArray(data.discountCodes)
   const broadcasts = asRecordArray(data.broadcasts)
+  const resellers = asRecordArray(data.resellers)
+  const resellerPermissionsMap =
+    data.resellerPermissionsMap && typeof data.resellerPermissionsMap === "object"
+      ? (data.resellerPermissionsMap as Record<string, Record<string, boolean>>)
+      : {}
+  const resellerPanelPricesMap =
+    data.resellerPanelPricesMap && typeof data.resellerPanelPricesMap === "object"
+      ? (data.resellerPanelPricesMap as Record<string, Array<{ panel_id?: number; price_per_gb?: number | string }>>)
+      : {}
 
   const notFound = (
     <p className="text-sm text-muted-foreground">
@@ -247,7 +259,12 @@ export function DashboardAdminView({
 
   if (activeTab === "configs") {
     return (
-      <DashboardConfigsAdmin panels={panels} isFa={isFa} onMutateSuccess={onAdminMutateSuccess} />
+      <DashboardConfigsAdmin
+        panels={panels}
+        isFa={isFa}
+        configsActive={activeTab === "configs"}
+        onMutateSuccess={onAdminMutateSuccess}
+      />
     )
   }
 
@@ -287,6 +304,7 @@ export function DashboardAdminView({
       <DashboardCardsAdmin
         cards={cards}
         pagination={pickPagination(data, "cards")}
+        settings={settings}
         isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("cards", p)}
@@ -368,6 +386,17 @@ export function DashboardAdminView({
     )
   }
 
+  if (activeTab === "users_bulk") {
+    return <DashboardUsersBulkAdmin isFa={isFa} onMutateSuccess={onAdminMutateSuccess} />
+  }
+
+  if (activeTab === "reseller_bots") {
+    const prof = data.resellerBotProfile as ResellerBotProfile | undefined
+    return (
+      <DashboardResellerBotsAdmin profile={prof} isFa={isFa} onMutateSuccess={onAdminMutateSuccess} />
+    )
+  }
+
   if (activeTab === "users") {
     return (
       <DashboardUsersAdmin
@@ -388,6 +417,23 @@ export function DashboardAdminView({
     )
   }
 
+  if (activeTab === "resellers") {
+    return (
+      <DashboardResellersAdmin
+        rows={resellers}
+        panels={panels}
+        resellerPermissionsMap={resellerPermissionsMap}
+        resellerPanelPricesMap={resellerPanelPricesMap}
+        pagination={pickPagination(data, "resellers")}
+        isFa={isFa}
+        onPageChange={(p) => setPage("resellers", p)}
+        onPerPageChange={(n) => setPer("resellers", n)}
+        onOpenUserDetail={onOpenUserDetail}
+        onMutateSuccess={onAdminMutateSuccess}
+      />
+    )
+  }
+
   if (activeTab === "backup") {
     return <DashboardBackupAdmin settings={settings} isFa={isFa} onMutateSuccess={onAdminMutateSuccess} />
   }
@@ -397,16 +443,33 @@ export function DashboardAdminView({
   }
 
   if (activeTab === "referral") {
+    const refStats =
+      data.referralStats && typeof data.referralStats === "object"
+        ? (data.referralStats as Record<string, unknown>)
+        : undefined
+    const refSummary =
+      refStats?.summary && typeof refStats.summary === "object"
+        ? (refStats.summary as Record<string, unknown>)
+        : undefined
+    const referralWindowDays = Math.max(7, Math.min(90, Number(refSummary?.windowDays ?? 30)))
     return (
       <DashboardReferralAdmin
         settings={settings}
         referralStats={data.referralStats}
         referralEvents={asRecordArray(data.referralEvents)}
         eventsPagination={pickPagination(data, "referralEvents")}
+        referralWindowDays={referralWindowDays}
         isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
         onEventsPageChange={(p) => setPage("referralEvents", p)}
         onEventsPerPageChange={(n) => setPer("referralEvents", n)}
+        onWindowDaysChange={(days) =>
+          setListQuery((q) => ({
+            ...q,
+            referral_days: String(days),
+            referralEvents_page: "1",
+          }))
+        }
       />
     )
   }

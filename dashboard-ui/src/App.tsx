@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Moon, Sun } from "lucide-react"
+import { Moon, Sun, Users } from "lucide-react"
 import { useTheme } from "next-themes"
 import { AppSidebar } from "@/components/app-sidebar"
 import { DashboardAdminView } from "@/components/dashboard-admin-view"
@@ -18,9 +18,11 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
+import { DashboardLogin } from "@/components/dashboard-login"
 import { buildAdminStateQuery } from "@/lib/dash-pagination"
 import { parseActiveDashTab, parseDashFromPath } from "@/lib/dash-tab"
 import { formatNumber } from "@/lib/format-locale"
+import { ADMIN_NAV_SECTIONS, type AdminNavSection } from "@/config/admin-nav"
 
 type DashData = {
   navTabs?: NavTab[]
@@ -32,63 +34,95 @@ function userHomeNav(isFa: boolean): NavTab[] {
   return [{ key: "home", label: isFa ? "خانه" : "Home" }]
 }
 
+const RESELLER_ALLOWED_BY_PERMISSION: Record<string, string | null> = {
+  dashboard: null,
+  monitoring: null,
+  users: "users.manage",
+  resellers: "users.manage",
+  plans: "plans.manage",
+  plan_cats: "plans.manage",
+  reseller_bots: "services.manage",
+}
+
 function App() {
   const { t, i18n } = useTranslation()
   const { theme, setTheme } = useTheme()
   const boot = useMemo(() => window.__SIMPLEVPBOT_DASH__ || {}, [])
 
   const isAdmin = Boolean(boot.isAdmin)
+  const isReseller = Boolean(boot.isReseller)
+  const isOperator = isAdmin || isReseller
   const [data, setData] = useState<DashData | null>(null)
   /** Query params for GET admin/state list pagination (e.g. users_page). */
   const [listQuery, setListQuery] = useState<Record<string, string>>({})
   const [lang, setLang] = useState<"fa" | "en">(boot.lang === "fa" ? "fa" : "en")
   const [activeTab, setActiveTab] = useState(() => {
     const b = window.__SIMPLEVPBOT_DASH__ || {}
-    if (!b.isAdmin) return "home"
+    if (!b.isAdmin && !b.isReseller) return "home"
     if (typeof window !== "undefined") return parseDashFromPath(window.location.pathname).tab
     return parseActiveDashTab(b)
   })
   const [userDetailId, setUserDetailId] = useState<number | null>(() => {
     const b = window.__SIMPLEVPBOT_DASH__ || {}
-    if (!b.isAdmin) return null
+    if (!b.isAdmin && !b.isReseller) return null
     if (typeof window !== "undefined") return parseDashFromPath(window.location.pathname).userDetailId
     return null
   })
 
   const dashboardBaseUrl = boot.dashboardUrl || `${window.location.origin}/dashboard/`
+  const allowedResellerTabs = useMemo(() => {
+    if (!isReseller) return new Set<string>()
+    const perms =
+      data?.actorPermissions && typeof data.actorPermissions === "object"
+        ? (data.actorPermissions as Record<string, boolean>)
+        : {}
+    const out = new Set<string>()
+    for (const [tab, perm] of Object.entries(RESELLER_ALLOWED_BY_PERMISSION)) {
+      if (perm == null || perms[perm] !== false) out.add(tab)
+    }
+    return out
+  }, [isReseller, data])
+  const safeResellerTab = useCallback(
+    (tab: string) => {
+      if (!isReseller) return tab
+      return allowedResellerTabs.has(tab) ? tab : "dashboard"
+    },
+    [isReseller, allowedResellerTabs]
+  )
 
   const selectTab = useCallback(
     (key: string) => {
-      if (!isAdmin) {
+      if (!isOperator) {
         if (key === "home") setActiveTab("home")
         return
       }
-      const tabKey = key === "general" ? "monitoring" : key
+      const tabKey = safeResellerTab(key === "general" ? "monitoring" : key)
       const base = dashboardBaseUrl.replace(/\/?$/, "")
       const url = `${base}/${encodeURIComponent(tabKey)}/`
       window.history.pushState({ tab: tabKey }, "", url)
       setActiveTab(tabKey)
       setUserDetailId(null)
     },
-    [isAdmin, dashboardBaseUrl]
+    [isOperator, dashboardBaseUrl, safeResellerTab]
   )
 
   const openUserDetail = useCallback(
     (id: number) => {
-      if (!isAdmin || !Number.isFinite(id) || id < 1) return
+      if (!isOperator || !Number.isFinite(id) || id < 1) return
+      if (isReseller && !allowedResellerTabs.has("users")) return
       const base = dashboardBaseUrl.replace(/\/?$/, "")
       window.history.pushState({ tab: "users", userDetailId: id }, "", `${base}/users/u/${id}/`)
       setActiveTab("users")
       setUserDetailId(id)
     },
-    [isAdmin, dashboardBaseUrl]
+    [isOperator, dashboardBaseUrl, isReseller, allowedResellerTabs]
   )
 
   const fetchDashState = useCallback(
     (opts?: { refreshPanelHealth?: boolean; refreshLivePanelMetrics?: boolean }) => {
       const restBase = (boot.restUrl || "").replace(/\/$/, "")
       if (!restBase) return
-      if (!isAdmin) {
+      if (!isOperator) {
         void fetch(`${restBase}/dashboard/me/state`, {
           headers: {
             "Content-Type": "application/json",
@@ -118,25 +152,35 @@ function App() {
         .then((json) => setData(json))
         .catch(() => setData({ ok: false }))
     },
-    [boot, isAdmin, listQuery, activeTab]
+    [boot, isOperator, listQuery, activeTab]
   )
 
   useEffect(() => {
-    if (!isAdmin) return
+    if (!isOperator) return
     const path = window.location.pathname.replace(/\/+$/, "") || "/"
     if (path.endsWith("/dashboard/general") || /\/dashboard\/general$/i.test(path)) {
       const base = dashboardBaseUrl.replace(/\/?$/, "")
       window.history.replaceState({ tab: "monitoring" }, "", `${base}/monitoring/`)
       setActiveTab("monitoring")
     }
-  }, [isAdmin, dashboardBaseUrl])
+  }, [isOperator, dashboardBaseUrl])
 
   useEffect(() => {
     fetchDashState()
   }, [fetchDashState])
 
   useEffect(() => {
-    if (!isAdmin || (activeTab !== "dashboard" && activeTab !== "monitoring")) return
+    if (!isReseller) return
+    const safeTab = safeResellerTab(activeTab)
+    if (safeTab === activeTab) return
+    const base = dashboardBaseUrl.replace(/\/?$/, "")
+    window.history.replaceState({ tab: safeTab }, "", `${base}/${encodeURIComponent(safeTab)}/`)
+    setActiveTab(safeTab)
+    setUserDetailId(null)
+  }, [isReseller, activeTab, safeResellerTab, dashboardBaseUrl])
+
+  useEffect(() => {
+    if (!isOperator || (activeTab !== "dashboard" && activeTab !== "monitoring")) return
     const ms = 25000
     const id = window.setInterval(() => {
       if (document.visibilityState === "hidden") return
@@ -150,44 +194,70 @@ function App() {
       window.clearInterval(id)
       document.removeEventListener("visibilitychange", onVis)
     }
-  }, [isAdmin, activeTab, fetchDashState])
+  }, [isOperator, activeTab, fetchDashState])
 
   useEffect(() => {
     const isFa = lang === "fa"
     void i18n.changeLanguage(lang)
     document.documentElement.lang = isFa ? "fa" : "en"
-    // Keep html dir=ltr: shadcn Sidebar flex order (Inset then right Sidebar) assumes LTR.
-    // Persian reading direction is applied only inside the scrollable content region.
-    document.documentElement.dir = "ltr"
+    document.documentElement.dir = isFa ? "rtl" : "ltr"
+    document.body.dir = isFa ? "rtl" : "ltr"
   }, [i18n, lang])
 
   useEffect(() => {
     const onPop = () => {
-      if (!isAdmin) {
+      if (!isOperator) {
         setActiveTab("home")
         return
       }
       const loc = parseDashFromPath(window.location.pathname)
-      setActiveTab(loc.tab)
+      setActiveTab(safeResellerTab(loc.tab))
       setUserDetailId(loc.userDetailId)
     }
     window.addEventListener("popstate", onPop)
     return () => window.removeEventListener("popstate", onPop)
-  }, [isAdmin])
+  }, [isOperator, safeResellerTab])
 
   const isFa = lang === "fa"
   const sidebarSide: "left" | "right" = isFa ? "right" : "left"
-  const navTabs: NavTab[] = isAdmin ? [] : userHomeNav(isFa)
+  const navTabs: NavTab[] = isOperator ? [] : userHomeNav(isFa)
+  const resellerSections: AdminNavSection[] = useMemo(() => {
+    if (!isReseller) return ADMIN_NAV_SECTIONS
+    const overview = ADMIN_NAV_SECTIONS.find((s) => s.id === "overview")
+    if (!overview) return ADMIN_NAV_SECTIONS
+    return [
+      overview,
+      {
+        id: "users",
+        hintKey: "sidebar.sections.users",
+        entries: [
+          {
+            kind: "collapsible",
+            id: "reseller_workspace",
+            icon: Users,
+            labelKey: "sidebar.groups.resellerWorkspace",
+            children: [
+              { tabKey: "users" },
+              { tabKey: "resellers" },
+              { tabKey: "plans" },
+              { tabKey: "plan_cats" },
+              { tabKey: "reseller_bots" },
+            ],
+          },
+        ],
+      },
+    ]
+  }, [isReseller])
 
   const currentSectionLabel = useMemo(() => {
-    if (!isAdmin) {
+    if (!isOperator) {
       return userHomeNav(isFa)[0].label
     }
     if (activeTab === "users" && userDetailId != null && userDetailId > 0) {
       return isFa ? `کاربر #${userDetailId}` : `User #${userDetailId}`
     }
     return t(`sidebar.items.${activeTab}`, { defaultValue: activeTab })
-  }, [isAdmin, isFa, activeTab, userDetailId, t, i18n.language])
+  }, [isOperator, isFa, activeTab, userDetailId, t])
 
   const user = {
     name: data?.user?.label || `#${formatNumber(boot.svpUserId || 0, isFa)}`,
@@ -196,12 +266,12 @@ function App() {
     logoutUrl: boot.logoutUrl || "/wp-login.php?action=logout",
   }
   const langLabel = isFa ? "فارسی 🇮🇷" : "English 🇺🇸"
-  const effectiveActiveTab = isAdmin ? activeTab : "home"
+  const effectiveActiveTab = isAdmin || isReseller ? activeTab : "home"
 
   const sidebarEl = (
     <AppSidebar
       side={sidebarSide}
-      variant={isAdmin ? "admin" : "user"}
+      variant={isAdmin ? "admin" : isReseller ? "reseller" : "user"}
       navTabs={navTabs}
       user={user}
       activeTabKey={effectiveActiveTab}
@@ -209,17 +279,17 @@ function App() {
       dashboardBaseUrl={dashboardBaseUrl}
       siteName={String(boot.siteName ?? "")}
       siteIconUrl={boot.siteIconUrl}
-      onOpenUserDetail={isAdmin ? openUserDetail : undefined}
-      userSearchRestUrl={isAdmin ? String(boot.restUrl ?? "") : undefined}
-      userSearchNonce={isAdmin ? String(boot.nonce ?? "") : undefined}
+      onOpenUserDetail={isOperator ? openUserDetail : undefined}
+      userSearchRestUrl={isOperator ? String(boot.restUrl ?? "") : undefined}
+      userSearchNonce={isOperator ? String(boot.nonce ?? "") : undefined}
+      adminSections={resellerSections}
     />
   )
 
   const insetEl = (
     <SidebarInset className="flex min-h-0 flex-1 flex-col">
-      {/* LTR chrome: matches shadcn sidebar-14 so flex order stays [inset|sidebar] visually */}
       <header
-        dir="ltr"
+        dir={isFa ? "rtl" : "ltr"}
         className="flex h-16 w-full shrink-0 items-center gap-2 border-b px-4"
       >
         {!isFa ? (
@@ -247,7 +317,7 @@ function App() {
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbPage>
-                {isAdmin ? currentSectionLabel : t("myPanel")}
+                {isOperator ? currentSectionLabel : t("myPanel")}
               </BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
@@ -278,7 +348,7 @@ function App() {
       >
         {!data ? (
           <p className="text-sm text-muted-foreground">{t("loading")}</p>
-        ) : isAdmin ? (
+        ) : isOperator ? (
           <DashboardAdminView
             data={data}
             activeTab={effectiveActiveTab}
@@ -322,8 +392,12 @@ function App() {
     </SidebarInset>
   )
 
+  if (boot.isLoggedIn === false) {
+    return <DashboardLogin isFa={boot.lang === "fa"} />
+  }
+
   return (
-    <SidebarProvider dir="ltr">
+    <SidebarProvider dir={isFa ? "rtl" : "ltr"}>
       {isFa ? (
         <>
           {insetEl}

@@ -38,11 +38,20 @@ class SimpleVPBot_Rest_Dashboard {
 		);
 		register_rest_route(
 			self::NS,
+			'/dashboard/login',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'route_dashboard_login' ),
+				'permission_callback' => '__return_true',
+			)
+		);
+		register_rest_route(
+			self::NS,
 			'/dashboard/admin/state',
 			array(
 				'methods'             => 'GET',
 				'callback'            => array( __CLASS__, 'route_admin_state' ),
-				'permission_callback' => array( __CLASS__, 'perm_manage' ),
+				'permission_callback' => array( __CLASS__, 'perm_admin_or_reseller' ),
 			)
 		);
 		register_rest_route(
@@ -60,7 +69,7 @@ class SimpleVPBot_Rest_Dashboard {
 			array(
 				'methods'             => 'GET',
 				'callback'            => array( __CLASS__, 'route_admin_user' ),
-				'permission_callback' => array( __CLASS__, 'perm_manage' ),
+				'permission_callback' => array( __CLASS__, 'perm_admin_or_reseller' ),
 			)
 		);
 		register_rest_route(
@@ -69,7 +78,7 @@ class SimpleVPBot_Rest_Dashboard {
 			array(
 				'methods'             => 'GET',
 				'callback'            => array( __CLASS__, 'route_admin_user_search' ),
-				'permission_callback' => array( __CLASS__, 'perm_manage' ),
+				'permission_callback' => array( __CLASS__, 'perm_admin_or_reseller' ),
 				'args'                => array(
 					'q' => array(
 						'type'              => 'string',
@@ -134,11 +143,27 @@ class SimpleVPBot_Rest_Dashboard {
 		);
 		register_rest_route(
 			self::NS,
+			'/dashboard/admin/configs-sync',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'route_configs_sync' ),
+				'permission_callback' => array( __CLASS__, 'perm_manage' ),
+				'args'                => array(
+					'panel_id' => array(
+						'required'          => true,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
+				),
+			)
+		);
+		register_rest_route(
+			self::NS,
 			'/dashboard/admin/mutate',
 			array(
 				'methods'             => 'POST',
 				'callback'            => array( __CLASS__, 'route_admin_mutate' ),
-				'permission_callback' => array( __CLASS__, 'perm_manage' ),
+				'permission_callback' => array( __CLASS__, 'perm_admin_or_reseller' ),
 				'args'                => array(),
 			)
 		);
@@ -177,6 +202,24 @@ class SimpleVPBot_Rest_Dashboard {
 				),
 			)
 		);
+		register_rest_route(
+			self::NS,
+			'/dashboard/admin/users-bulk-jobs',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'route_admin_users_bulk_jobs' ),
+				'permission_callback' => array( __CLASS__, 'perm_manage' ),
+			)
+		);
+		register_rest_route(
+			self::NS,
+			'/dashboard/admin/users-bulk-job-items',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'route_admin_users_bulk_job_items' ),
+				'permission_callback' => array( __CLASS__, 'perm_manage' ),
+			)
+		);
 	}
 
 	/**
@@ -194,18 +237,51 @@ class SimpleVPBot_Rest_Dashboard {
 	}
 
 	/**
+	 * Admin or linked reseller (dashboard role).
+	 *
+	 * @return bool
+	 */
+	public static function perm_admin_or_reseller() {
+		if ( current_user_can( 'manage_options' ) ) {
+			return true;
+		}
+		$ctx = self::dashboard_actor_context();
+		return ! empty( $ctx['isReseller'] );
+	}
+
+	/**
+	 * Resolve current dashboard actor context.
+	 *
+	 * @return array{isAdmin:bool,isReseller:bool,actorUserId:int,actorRow:object|null}
+	 */
+	private static function dashboard_actor_context() {
+		$is_admin = current_user_can( 'manage_options' );
+		$row      = null;
+		$uid      = 0;
+		$is_reseller = false;
+		if ( class_exists( 'SimpleVPBot_Model_User' ) ) {
+			$row = SimpleVPBot_Model_User::find_by_wp_user( get_current_user_id() );
+			if ( $row ) {
+				$uid         = (int) ( $row->id ?? 0 );
+				$is_reseller = SimpleVPBot_Model_User::is_reseller_row( $row );
+			}
+		}
+		return array(
+			'isAdmin'    => (bool) $is_admin,
+			'isReseller' => (bool) ( ! $is_admin && $is_reseller ),
+			'actorUserId'=> $uid,
+			'actorRow'   => $row,
+		);
+	}
+
+	/**
 	 * @return WP_REST_Response
 	 */
 	public static function route_bootstrap() {
 		$user     = wp_get_current_user();
-		$is_admin = current_user_can( 'manage_options' );
-		$svp_uid  = 0;
-		if ( class_exists( 'SimpleVPBot_Model_User' ) ) {
-			$row = SimpleVPBot_Model_User::find_by_wp_user( (int) $user->ID );
-			if ( $row ) {
-				$svp_uid = (int) $row->id;
-			}
-		}
+		$ctx      = self::dashboard_actor_context();
+		$is_admin = ! empty( $ctx['isAdmin'] );
+		$svp_uid  = (int) ( $ctx['actorUserId'] ?? 0 );
 		$locale = determine_locale();
 		$lang   = ( 0 === strpos( $locale, 'fa' ) ) ? 'fa' : 'en';
 		$tz = function_exists( 'wp_timezone_string' ) ? wp_timezone_string() : '';
@@ -216,10 +292,13 @@ class SimpleVPBot_Rest_Dashboard {
 				'locale'         => $locale,
 				'lang'           => $lang,
 				'isRtl'          => ( 'fa' === $lang ),
+				'isLoggedIn'     => true,
 				'isAdmin'        => $is_admin,
+				'isReseller'     => ! empty( $ctx['isReseller'] ),
 				'svpUserId'      => $svp_uid,
 				'loginUrl'       => wp_login_url( home_url( '/dashboard/' ) ),
 				'dashboardUrl'   => home_url( '/dashboard/' ),
+				'dashboardLoginUrl' => trailingslashit( home_url( '/dashboard/login' ) ),
 				'logoutUrl'      => wp_logout_url( home_url( '/dashboard/' ) ),
 				'siteName'       => get_bloginfo( 'name' ),
 				'pluginUrl'      => SIMPLEVPBOT_PLUGIN_URL,
@@ -227,6 +306,86 @@ class SimpleVPBot_Rest_Dashboard {
 				'adminAjaxNonce' => wp_create_nonce( 'simplevpbot_admin' ),
 				'siteTimeZone'   => is_string( $tz ) ? $tz : '',
 			)
+		);
+	}
+
+	/**
+	 * SPA dashboard login (sets auth cookies for same-origin fetch with credentials).
+	 *
+	 * @param WP_REST_Request $req Request.
+	 * @return WP_REST_Response
+	 */
+	public static function route_dashboard_login( WP_REST_Request $req ) {
+		$ip = '';
+		if ( function_exists( 'rest_get_ip_address' ) ) {
+			$ip = (string) rest_get_ip_address();
+		}
+		if ( '' === $ip && ! empty( $_SERVER['REMOTE_ADDR'] ) ) {
+			$ip = sanitize_text_field( wp_unslash( (string) $_SERVER['REMOTE_ADDR'] ) );
+		}
+		$rl_key = 'svp_dashlogin_rl_' . md5( $ip ? $ip : 'unknown' );
+		$hits   = (int) get_transient( $rl_key );
+		if ( $hits >= 5 ) {
+			return new WP_REST_Response(
+				array(
+					'ok'   => false,
+					'code' => 'rate_limited',
+				),
+				429
+			);
+		}
+
+		$params = $req->get_json_params();
+		if ( ! is_array( $params ) ) {
+			$params = array();
+		}
+		$nonce = isset( $params['login_nonce'] ) ? (string) $params['login_nonce'] : '';
+		if ( ! wp_verify_nonce( $nonce, 'simplevpbot_dash_login' ) ) {
+			return new WP_REST_Response(
+				array(
+					'ok'   => false,
+					'code' => 'invalid_credentials',
+				),
+				401
+			);
+		}
+		$log      = isset( $params['log'] ) ? (string) $params['log'] : '';
+		$pwd      = isset( $params['pwd'] ) ? (string) $params['pwd'] : '';
+		$remember = ! empty( $params['remember'] );
+		if ( '' === trim( $log ) || '' === $pwd ) {
+			return new WP_REST_Response(
+				array(
+					'ok'   => false,
+					'code' => 'invalid_credentials',
+				),
+				401
+			);
+		}
+		$creds = array(
+			'user_login'    => $log,
+			'user_password' => $pwd,
+			'remember'      => $remember,
+		);
+		$user = wp_signon( $creds, false );
+		if ( is_wp_error( $user ) ) {
+			set_transient( $rl_key, $hits + 1, 15 * MINUTE_IN_SECONDS );
+			return new WP_REST_Response(
+				array(
+					'ok'   => false,
+					'code' => 'invalid_credentials',
+				),
+				401
+			);
+		}
+		delete_transient( $rl_key );
+		$redirect_raw = isset( $params['redirect_to'] ) ? (string) $params['redirect_to'] : '';
+		$redirect      = wp_validate_redirect( $redirect_raw, home_url( '/dashboard/' ) );
+		return new WP_REST_Response(
+			array(
+				'ok'       => true,
+				'redirect' => $redirect,
+			),
+			200
 		);
 	}
 
@@ -429,6 +588,76 @@ class SimpleVPBot_Rest_Dashboard {
 	}
 
 	/**
+	 * Minimal dashboard settings for reseller view (no sensitive/global internals).
+	 *
+	 * @param array<string,mixed> $settings Raw global settings.
+	 * @return array<string,mixed>
+	 */
+	private static function reseller_safe_settings( array $settings ) {
+		$allow = array(
+			'site_name',
+			'site_url',
+			'support_url',
+			'support_username',
+			'brand_default',
+			'enabled',
+			'lang',
+			'timezone',
+			'currency',
+			'dashboard_title',
+		);
+		$out = array();
+		foreach ( $allow as $k ) {
+			if ( array_key_exists( $k, $settings ) ) {
+				$out[ $k ] = $settings[ $k ];
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Permission needed for each reseller-allowed mutate op.
+	 *
+	 * @param string $op Operation.
+	 * @return string Empty means no extra permission gate.
+	 */
+	private static function reseller_permission_for_op( $op ) {
+		$map = array(
+			'membership'               => 'users.manage',
+			'user_status'              => 'users.manage',
+			'user_balance_delta'       => 'users.manage',
+			'user_manual_create'       => 'users.manage',
+			'user_merge'               => 'users.merge',
+			'user_merge_preview'       => 'users.merge',
+			'users_bulk_wallet'        => 'users.bulk',
+			'users_bulk_volume'        => 'users.bulk',
+			'users_bulk_extend'        => 'users.bulk',
+			'users_bulk_alerts'        => 'users.bulk',
+			'broadcast_send'           => 'broadcast.send',
+			'receipt_action'           => 'receipts.review',
+			'receipt_set_status'       => 'receipts.review',
+			'plan'                     => 'plans.manage',
+			'user_create_service'      => 'services.manage',
+			'user_renew_service'       => 'services.manage',
+			'user_add_volume'          => 'services.manage',
+			'user_service_transfer'    => 'services.manage',
+			'service_delete'           => 'services.manage',
+			'user_admin_message'       => 'services.manage',
+			'service_alerts_patch'     => 'services.manage',
+			'service_panel_sync'       => 'services.manage',
+			'service_regen_key'        => 'services.manage',
+			'service_panel_refresh'    => 'services.manage',
+			'service_panel_delete_client' => 'services.manage',
+			'user_service_add_slots'   => 'services.manage',
+			'service_set_limit_ip'     => 'services.manage',
+			'reseller_bot_tokens_save' => 'services.manage',
+			'reseller_bot_webhook_set' => 'services.manage',
+			'reseller_bot_secret_rotate' => 'services.manage',
+		);
+		return isset( $map[ $op ] ) ? (string) $map[ $op ] : '';
+	}
+
+	/**
 	 * @param WP_REST_Request $req Request.
 	 * @return WP_REST_Response|WP_Error
 	 */
@@ -446,6 +675,7 @@ class SimpleVPBot_Rest_Dashboard {
 		$p_disc   = self::dash_list_pagination( $req, 'discounts', 30 );
 		$p_users  = self::dash_list_pagination( $req, 'users', 50 );
 		$p_pend   = self::dash_list_pagination( $req, 'pendingUsers', 30 );
+		$p_res    = self::dash_list_pagination( $req, 'resellers', 30 );
 		$p_rcpt   = self::dash_list_pagination( $req, 'receipts', 40 );
 		$p_bc     = self::dash_list_pagination( $req, 'broadcasts', 20 );
 		$p_ref_ev = self::dash_list_pagination( $req, 'referralEvents', 20 );
@@ -467,6 +697,194 @@ class SimpleVPBot_Rest_Dashboard {
 			$users_q = substr( $users_q, 0, 128 );
 		}
 		$user_filter = SimpleVPBot_Model_User::admin_search_users_clause( $users_q );
+		$ctx         = self::dashboard_actor_context();
+		$is_reseller = ! empty( $ctx['isReseller'] );
+		$actor_uid   = (int) ( $ctx['actorUserId'] ?? 0 );
+		$actor_permissions = $is_reseller ? SimpleVPBot_Model_User::reseller_permissions( $actor_uid ) : SimpleVPBot_Model_User::default_reseller_permissions();
+		$daily_online_series = array();
+		if ( class_exists( 'SimpleVPBot_Model_Panel_Online_Daily' ) ) {
+			$daily_online_series = (array) SimpleVPBot_Model_Panel_Online_Daily::daily_totals_last_days( 7 );
+		}
+		if ( empty( $daily_online_series ) ) {
+			try {
+				$today = new DateTimeImmutable( 'today', wp_timezone() );
+			} catch ( \Exception $e ) {
+				$today = new DateTimeImmutable( 'today' );
+			}
+			for ( $i = 6; $i >= 0; $i-- ) {
+				$daily_online_series[] = array(
+					'date'           => $today->modify( '-' . $i . ' days' )->format( 'Y-m-d' ),
+					'totalMaxOnline' => 0,
+				);
+			}
+		}
+
+		if ( $is_reseller ) {
+			$scope = SimpleVPBot_Model_User::reseller_scope_clause( $actor_uid, 'u' );
+			$reseller_settings = self::reseller_safe_settings( $settings );
+			if ( ! $scope ) {
+				return new WP_REST_Response(
+					array(
+						'settings'     => $reseller_settings,
+						'usersList'    => array(),
+						'pendingUsers' => array(),
+						'resellers'    => array(),
+						'pagination'   => array(
+							'usersList'    => self::dash_pagination_meta( 1, $p_users['per_page'], 0 ),
+							'pendingUsers' => self::dash_pagination_meta( 1, $p_pend['per_page'], 0 ),
+							'resellers'    => self::dash_pagination_meta( 1, $p_res['per_page'], 0 ),
+						),
+					)
+				);
+			}
+			$where_sql    = ' WHERE 1=1' . $scope['sql'];
+			$where_values = $scope['values'];
+			if ( $user_filter ) {
+				$where_sql .= $user_filter['sql'];
+				if ( ! empty( $user_filter['values'] ) ) {
+					$where_values = array_merge( $where_values, $user_filter['values'] );
+				}
+			}
+			$tot_users_list = (int) $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(*) FROM {$u_tbl} u {$where_sql}",
+					$where_values
+				)
+			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$tot_pend_list = (int) $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(*) FROM {$u_tbl} u {$where_sql} AND u.status = %s",
+					array_merge( $where_values, array( 'pending' ) )
+				)
+			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$tot_res_list = (int) $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(*) FROM {$u_tbl} u {$where_sql} AND u.role = %s",
+					array_merge( $where_values, array( 'reseller' ) )
+				)
+			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+			$users_list = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT u.*, COALESCE(s.svc_count, 0) AS svc_count
+					FROM {$u_tbl} u
+					LEFT JOIN (SELECT user_id, COUNT(*) AS svc_count FROM {$s_tbl} WHERE deleted_at IS NULL GROUP BY user_id) s ON s.user_id = u.id
+					{$where_sql}
+					ORDER BY u.id DESC LIMIT %d OFFSET %d",
+					array_merge( $where_values, array( $p_users['per_page'], $p_users['offset'] ) )
+				)
+			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$pending_users = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT u.* FROM {$u_tbl} u {$where_sql} AND u.status = %s ORDER BY u.id DESC LIMIT %d OFFSET %d",
+					array_merge( $where_values, array( 'pending', $p_pend['per_page'], $p_pend['offset'] ) )
+				)
+			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$resellers = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT u.*, COALESCE(s.svc_count, 0) AS svc_count
+					FROM {$u_tbl} u
+					LEFT JOIN (SELECT user_id, COUNT(*) AS svc_count FROM {$s_tbl} WHERE deleted_at IS NULL GROUP BY user_id) s ON s.user_id = u.id
+					{$where_sql} AND u.role = %s
+					ORDER BY u.id DESC LIMIT %d OFFSET %d",
+					array_merge( $where_values, array( 'reseller', $p_res['per_page'], $p_res['offset'] ) )
+				)
+			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+			$tot_plans_res = (int) $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(*) FROM {$t_plans} WHERE owner_svp_user_id = %d",
+					$actor_uid
+				)
+			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$plans_res = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$t_plans} WHERE owner_svp_user_id = %d ORDER BY sort_order ASC, id ASC LIMIT %d OFFSET %d",
+					$actor_uid,
+					$p_plans['per_page'],
+					$p_plans['offset']
+				)
+			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$tot_pc_all = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_pc}" ); // phpcs:ignore
+			$plan_cats_res = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$t_pc} ORDER BY panel_id ASC, sort_order ASC, id ASC LIMIT %d OFFSET %d",
+					$p_pc['per_page'],
+					$p_pc['offset']
+				)
+			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$tot_panels_all = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_panels}" ); // phpcs:ignore
+			$panels_res = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT id, label, active, sort_order FROM {$t_panels} ORDER BY sort_order ASC, id ASC LIMIT %d OFFSET %d",
+					$p_panels['per_page'],
+					$p_panels['offset']
+				)
+			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$reseller_prices = array();
+			if ( class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
+				$reseller_prices = array_map(
+					array( __CLASS__, 'row_array' ),
+					(array) SimpleVPBot_Model_Reseller_Panel_Price::list_for_reseller( $actor_uid )
+				);
+			}
+			$bot_prof = null;
+			if ( class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+				$bp   = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $actor_uid );
+				$wsec = $bp ? trim( (string) ( $bp->webhook_secret ?? '' ) ) : '';
+				$base = SimpleVPBot_Settings::public_site_url() . '/wp-json/simplevpbot/v1/webhook';
+				$bot_prof = array(
+					'has_telegram_token'  => $bp ? strlen( (string) ( $bp->telegram_token ?? '' ) ) > 0 : false,
+					'has_bale_token'      => $bp ? strlen( (string) ( $bp->bale_token ?? '' ) ) > 0 : false,
+					'brand_name'          => $bp ? (string) ( $bp->brand_name ?? '' ) : '',
+					'has_webhook_secret'  => '' !== $wsec,
+					'webhook_telegram_url' => ( '' !== $wsec )
+						? $base . '/telegram/reseller/' . (int) $actor_uid . '/' . rawurlencode( $wsec )
+						: '',
+					'webhook_bale_url'    => ( '' !== $wsec )
+						? $base . '/bale/reseller/' . (int) $actor_uid . '/' . rawurlencode( $wsec )
+						: '',
+				);
+			}
+
+			return new WP_REST_Response(
+				array(
+					'settings'              => $reseller_settings,
+					'usersList'             => array_map( array( __CLASS__, 'row_array' ), (array) $users_list ),
+					'pendingUsers'          => array_map( array( __CLASS__, 'row_array' ), (array) $pending_users ),
+					'resellers'             => array_map( array( __CLASS__, 'row_array' ), (array) $resellers ),
+					'plans'                 => array_map( array( __CLASS__, 'row_array' ), (array) $plans_res ),
+					'planCategories'        => array_map( array( __CLASS__, 'row_array' ), (array) $plan_cats_res ),
+					'panels'                => array_map( array( __CLASS__, 'row_array' ), (array) $panels_res ),
+					'resellerPanelPrices'   => $reseller_prices,
+					'resellerBotProfile'    => $bot_prof,
+					'actorPermissions'      => $actor_permissions,
+					'l2tpServers'           => array(),
+					'overview'              => array(
+						'counts' => array(
+							'usersTotal'     => $tot_users_list,
+							'pendingUsers'   => $tot_pend_list,
+							'resellers'      => $tot_res_list,
+							'resellerPlans'  => $tot_plans_res,
+						),
+						'host'                  => self::overview_host_metrics(),
+						'onlineDailySeries'     => $daily_online_series,
+						'panelHealth'           => array(),
+						'livePanelSnapshots'    => array(),
+						'externalHostSnapshots' => array(),
+					),
+					'monitorHosts'          => array(),
+					'pagination'            => array(
+						'usersList'       => self::dash_pagination_meta( $p_users['page'], $p_users['per_page'], $tot_users_list ),
+						'pendingUsers'    => self::dash_pagination_meta( $p_pend['page'], $p_pend['per_page'], $tot_pend_list ),
+						'resellers'       => self::dash_pagination_meta( $p_res['page'], $p_res['per_page'], $tot_res_list ),
+						'plans'           => self::dash_pagination_meta( $p_plans['page'], $p_plans['per_page'], $tot_plans_res ),
+						'planCategories'  => self::dash_pagination_meta( $p_pc['page'], $p_pc['per_page'], $tot_pc_all ),
+						'panels'          => self::dash_pagination_meta( $p_panels['page'], $p_panels['per_page'], $tot_panels_all ),
+					),
+				)
+			);
+		}
 
 		$tot_panels = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_panels}" ); // phpcs:ignore
 		$tot_plans  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_plans}" ); // phpcs:ignore
@@ -477,6 +895,8 @@ class SimpleVPBot_Rest_Dashboard {
 		$tot_disc   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_disc}" ); // phpcs:ignore
 		$tot_users  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$u_tbl}" ); // phpcs:ignore
 		$tot_pend   = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$u_tbl} WHERE status = %s", 'pending' ) ); // phpcs:ignore
+		$tot_resellers = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$u_tbl} WHERE role = %s", 'reseller' ) ); // phpcs:ignore
+		$tot_resellers = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$u_tbl} WHERE role = %s", 'reseller' ) ); // phpcs:ignore
 
 		if ( $user_filter ) {
 			$cnt_users_sql = "SELECT COUNT(*) FROM {$u_tbl} u WHERE 1=1" . $user_filter['sql'];
@@ -584,6 +1004,26 @@ class SimpleVPBot_Rest_Dashboard {
 		} else {
 			$users_list = $wpdb->get_results(
 				$wpdb->prepare( $users_sql, $p_users['per_page'], $p_users['offset'] )
+			);
+		}
+		$res_sql = "SELECT u.*, COALESCE(s.svc_count, 0) AS svc_count
+				FROM {$u_tbl} u
+				LEFT JOIN (SELECT user_id, COUNT(*) AS svc_count FROM {$s_tbl} WHERE deleted_at IS NULL GROUP BY user_id) s ON s.user_id = u.id
+				WHERE u.role = 'reseller'";
+		if ( $user_filter ) {
+			$res_sql .= $user_filter['sql'];
+		}
+		$res_sql .= ' ORDER BY u.id DESC LIMIT %d OFFSET %d';
+		if ( $user_filter && ! empty( $user_filter['values'] ) ) {
+			$resellers = $wpdb->get_results(
+				$wpdb->prepare(
+					$res_sql,
+					array_merge( $user_filter['values'], array( $p_res['per_page'], $p_res['offset'] ) )
+				)
+			);
+		} else {
+			$resellers = $wpdb->get_results(
+				$wpdb->prepare( $res_sql, $p_res['per_page'], $p_res['offset'] )
 			);
 		}
 		$receipts = $wpdb->get_results(
@@ -731,6 +1171,27 @@ class SimpleVPBot_Rest_Dashboard {
 				);
 			}
 		}
+		$receipt_rows = array();
+		foreach ( (array) $receipts as $rr ) {
+			$ra = self::row_array( $rr );
+			if ( ! $ra ) {
+				continue;
+			}
+			$rid = isset( $ra['id'] ) ? (int) $ra['id'] : 0;
+			if ( $rid > 0 ) {
+				$ra['imageUrl'] = add_query_arg(
+					array(
+						'action' => 'simplevpbot_receipt_image',
+						'rid'    => $rid,
+						'nonce'  => wp_create_nonce( 'svp_recimg_' . $rid ),
+					),
+					admin_url( 'admin-ajax.php' )
+				);
+			} else {
+				$ra['imageUrl'] = '';
+			}
+			$receipt_rows[] = $ra;
+		}
 
 		$pages        = get_pages( array( 'sort_column' => 'post_title' ) );
 		$page_choices = array_map(
@@ -776,14 +1237,103 @@ class SimpleVPBot_Rest_Dashboard {
 		$tot_referral_ev    = 0;
 		if ( 'referral' === $active_tab && class_exists( 'SimpleVPBot_Model_Referral_Event' ) ) {
 			$t_tx             = SimpleVPBot_Model_Transaction::table();
+			$ref_days         = max( 7, min( 90, (int) $req->get_param( 'referral_days' ) ?: 30 ) );
 			$tot_referral_ev = SimpleVPBot_Model_Referral_Event::count_all();
-			$since_ts    = strtotime( '-30 days', (int) current_time( 'timestamp' ) );
+			$since_ts    = strtotime( '-' . $ref_days . ' days', (int) current_time( 'timestamp' ) );
 			$since_mysql = wp_date( 'Y-m-d H:i:s', $since_ts );
 
 			$events_last_30 = SimpleVPBot_Model_Referral_Event::count_since( $since_mysql );
 			$invited_users  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$u_tbl} WHERE invited_by IS NOT NULL AND invited_by > 0" ); // phpcs:ignore
 			$commission_sum = (float) $wpdb->get_var( "SELECT COALESCE(SUM(amount),0) FROM {$t_tx} WHERE type = 'referral_commission' AND status = 'approved'" ); // phpcs:ignore
 			$ref_amt_sum    = (float) $wpdb->get_var( "SELECT COALESCE(SUM(referral_amount),0) FROM {$t_tx} WHERE type IN ('purchase','renew') AND status = 'approved'" ); // phpcs:ignore
+			$converted_last_window = (int) $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(*) FROM " . SimpleVPBot_Model_Referral_Event::table() . " WHERE created_at >= %s AND resulting_svp_user_id IS NOT NULL AND resulting_svp_user_id > 0",
+					$since_mysql
+				)
+			); // phpcs:ignore
+			$window_conversion_rate = $events_last_30 > 0 ? round( ( $converted_last_window * 100 ) / $events_last_30, 2 ) : 0.0;
+
+			$platform_rows = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT platform, COUNT(*) AS cnt
+					FROM " . SimpleVPBot_Model_Referral_Event::table() . "
+					WHERE created_at >= %s
+					GROUP BY platform
+					ORDER BY cnt DESC",
+					$since_mysql
+				),
+				ARRAY_A
+			);
+			$platform_breakdown = array();
+			if ( is_array( $platform_rows ) ) {
+				foreach ( $platform_rows as $pr ) {
+					if ( ! is_array( $pr ) ) {
+						continue;
+					}
+					$platform_breakdown[] = array(
+						'platform' => (string) ( $pr['platform'] ?? '' ),
+						'count'    => (int) ( $pr['cnt'] ?? 0 ),
+					);
+				}
+			}
+
+			$outcome_rows = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT outcome, COUNT(*) AS cnt
+					FROM " . SimpleVPBot_Model_Referral_Event::table() . "
+					WHERE created_at >= %s
+					GROUP BY outcome
+					ORDER BY cnt DESC",
+					$since_mysql
+				),
+				ARRAY_A
+			);
+			$outcome_breakdown = array();
+			if ( is_array( $outcome_rows ) ) {
+				foreach ( $outcome_rows as $orow ) {
+					if ( ! is_array( $orow ) ) {
+						continue;
+					}
+					$outcome_breakdown[] = array(
+						'outcome' => (string) ( $orow['outcome'] ?? '' ),
+						'count'   => (int) ( $orow['cnt'] ?? 0 ),
+					);
+				}
+			}
+
+			$trend_rows = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT DATE(created_at) AS d, COUNT(*) AS cnt
+					FROM " . SimpleVPBot_Model_Referral_Event::table() . "
+					WHERE created_at >= %s
+					GROUP BY DATE(created_at)
+					ORDER BY d ASC",
+					$since_mysql
+				),
+				ARRAY_A
+			);
+			$trend_map = array();
+			if ( is_array( $trend_rows ) ) {
+				foreach ( $trend_rows as $trn ) {
+					if ( ! is_array( $trn ) ) {
+						continue;
+					}
+					$key = (string) ( $trn['d'] ?? '' );
+					if ( '' === $key ) {
+						continue;
+					}
+					$trend_map[ $key ] = (int) ( $trn['cnt'] ?? 0 );
+				}
+			}
+			$trend_series = array();
+			for ( $i = $ref_days - 1; $i >= 0; $i-- ) {
+				$d = wp_date( 'Y-m-d', strtotime( '-' . $i . ' days', (int) current_time( 'timestamp' ) ) );
+				$trend_series[] = array(
+					'date'  => $d,
+					'count' => isset( $trend_map[ $d ] ) ? (int) $trend_map[ $d ] : 0,
+				);
+			}
 
 			$top_rows = $wpdb->get_results(
 				"SELECT t.user_id AS referrer_id,
@@ -830,8 +1380,14 @@ class SimpleVPBot_Rest_Dashboard {
 					'invitedUsersWithReferrer'      => $invited_users,
 					'totalCommissionPaid'           => $commission_sum,
 					'totalReferralAmountOnPurchases' => $ref_amt_sum,
+					'windowDays'                    => $ref_days,
+					'convertedEventsInWindow'       => $converted_last_window,
+					'conversionRateInWindow'        => $window_conversion_rate,
 				),
-				'topReferrers' => $top_referrers,
+				'topReferrers'        => $top_referrers,
+				'platformBreakdown'   => $platform_breakdown,
+				'outcomeBreakdown'    => $outcome_breakdown,
+				'dailyTrend'          => $trend_series,
 			);
 		}
 
@@ -912,6 +1468,11 @@ class SimpleVPBot_Rest_Dashboard {
 			}
 		}
 
+		// Live snapshots upsert today's max_online; refresh stats + chart series for this response.
+		if ( $want_live_metrics && class_exists( 'SimpleVPBot_Admin_Dashboard_Stats' ) ) {
+			$stats_payload = SimpleVPBot_Admin_Dashboard_Stats::build_payload( 0 );
+		}
+
 		$overview = array(
 			'stats'         => $stats_payload,
 			'counts'        => array(
@@ -928,6 +1489,7 @@ class SimpleVPBot_Rest_Dashboard {
 				'receiptsByStatus'  => $receipt_by_status,
 				'broadcasts'        => $tot_bc,
 				'usersTotal'        => $tot_users,
+			'resellers'         => $tot_resellers,
 			),
 			'bot'           => array(
 				'enabled'               => ! empty( $settings['enabled'] ),
@@ -935,9 +1497,7 @@ class SimpleVPBot_Rest_Dashboard {
 				'bale_bot_username'     => (string) ( $settings['bale_bot_username'] ?? '' ),
 			),
 			'host'          => self::overview_host_metrics(),
-			'onlineDailySeries' => class_exists( 'SimpleVPBot_Model_Panel_Online_Daily' )
-				? SimpleVPBot_Model_Panel_Online_Daily::daily_totals_last_days( 7 )
-				: array(),
+			'onlineDailySeries' => $daily_online_series,
 			'panelHealth'   => $panel_health,
 			'livePanelSnapshots' => $live_snapshots,
 			'externalHostSnapshots' => $external_snaps,
@@ -953,10 +1513,26 @@ class SimpleVPBot_Rest_Dashboard {
 			'discountCodes'  => self::dash_pagination_meta( $p_disc['page'], $p_disc['per_page'], $tot_disc ),
 			'usersList'      => self::dash_pagination_meta( $p_users['page'], $p_users['per_page'], $tot_users_list ),
 			'pendingUsers'   => self::dash_pagination_meta( $p_pend['page'], $p_pend['per_page'], $tot_pend_list ),
+			'resellers'      => self::dash_pagination_meta( $p_res['page'], $p_res['per_page'], $tot_resellers ),
 			'receipts'       => self::dash_pagination_meta( $p_rcpt['page'], $p_rcpt['per_page'], $tot_rcpt ),
 			'broadcasts'     => self::dash_pagination_meta( $p_bc['page'], $p_bc['per_page'], $tot_bc ),
 			'referralEvents' => self::dash_pagination_meta( $p_ref_ev['page'], $p_ref_ev['per_page'], $tot_referral_ev ),
 		);
+
+		$reseller_permissions_map = array();
+		$reseller_panel_prices_map = array();
+		foreach ( (array) $resellers as $r ) {
+			if ( is_object( $r ) && isset( $r->id ) ) {
+				$rid = (int) $r->id;
+				$reseller_permissions_map[ $rid ] = SimpleVPBot_Model_User::reseller_permissions( $rid );
+				if ( class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
+					$reseller_panel_prices_map[ $rid ] = array_map(
+						array( __CLASS__, 'row_array' ),
+						(array) SimpleVPBot_Model_Reseller_Panel_Price::list_for_reseller( $rid )
+					);
+				}
+			}
+		}
 
 		return new WP_REST_Response(
 			array(
@@ -973,7 +1549,11 @@ class SimpleVPBot_Rest_Dashboard {
 				'discountCodes'            => $discounts,
 				'pendingUsers'             => array_map( array( __CLASS__, 'row_array' ), (array) $pending_users ),
 				'usersList'                => array_map( array( __CLASS__, 'row_array' ), (array) $users_list ),
-				'receipts'                 => array_map( array( __CLASS__, 'row_array' ), (array) $receipts ),
+				'resellers'                => array_map( array( __CLASS__, 'row_array' ), (array) $resellers ),
+				'resellerPermissionsMap'   => $reseller_permissions_map,
+				'resellerPanelPricesMap'   => $reseller_panel_prices_map,
+				'actorPermissions'         => $actor_permissions,
+				'receipts'                 => $receipt_rows,
 				'receiptAggregates'        => $receipt_aggregates,
 				'broadcasts'               => array_map( array( __CLASS__, 'row_array' ), (array) $broadcasts ),
 				'broadcastQueueAggregates' => $broadcast_queue_aggregates,
@@ -1027,11 +1607,24 @@ class SimpleVPBot_Rest_Dashboard {
 	 * @return WP_REST_Response
 	 */
 	public static function route_admin_user_search( WP_REST_Request $req ) {
+		$ctx = self::dashboard_actor_context();
 		$q = trim( (string) $req->get_param( 'q' ) );
 		if ( strlen( $q ) > 128 ) {
 			$q = substr( $q, 0, 128 );
 		}
 		$rows  = SimpleVPBot_Model_User::search( $q, 20 );
+		if ( ! empty( $ctx['isReseller'] ) ) {
+			$scope_ids = SimpleVPBot_Model_User::reseller_scope_user_ids( (int) $ctx['actorUserId'] );
+			$rows      = array_values(
+				array_filter(
+					(array) $rows,
+					function ( $row ) use ( $scope_ids ) {
+						$rid = (int) ( is_object( $row ) ? ( $row->id ?? 0 ) : 0 );
+						return $rid > 0 && in_array( $rid, $scope_ids, true );
+					}
+				)
+			);
+		}
 		$users = array();
 		foreach ( (array) $rows as $r ) {
 			$ra = self::row_array( $r );
@@ -1055,6 +1648,7 @@ class SimpleVPBot_Rest_Dashboard {
 	 * @return WP_REST_Response|WP_Error
 	 */
 	public static function route_admin_user( WP_REST_Request $req ) {
+		$ctx = self::dashboard_actor_context();
 		$id = (int) $req->get_param( 'id' );
 		if ( $id < 1 ) {
 			return new WP_Error( 'bad_request', 'invalid id', array( 'status' => 400 ) );
@@ -1062,6 +1656,9 @@ class SimpleVPBot_Rest_Dashboard {
 		$user = SimpleVPBot_Model_User::find( $id );
 		if ( ! $user ) {
 			return new WP_REST_Response( array( 'ok' => false, 'message' => 'not_found' ), 404 );
+		}
+		if ( ! empty( $ctx['isReseller'] ) && ! SimpleVPBot_Model_User::reseller_can_access_user( (int) $ctx['actorUserId'], $id ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'forbidden' ), 403 );
 		}
 		$svcs = SimpleVPBot_Model_Service::by_user( $id );
 		$list = array();
@@ -1220,6 +1817,29 @@ class SimpleVPBot_Rest_Dashboard {
 	}
 
 	/**
+	 * Force sync inbound client cache from X-UI panel to DB.
+	 *
+	 * @param WP_REST_Request $req Request (JSON body: panel_id).
+	 * @return WP_REST_Response
+	 */
+	public static function route_configs_sync( WP_REST_Request $req ) {
+		$params   = $req->get_json_params();
+		$panel_id = 0;
+		if ( is_array( $params ) && isset( $params['panel_id'] ) ) {
+			$panel_id = absint( $params['panel_id'] );
+		}
+		if ( $panel_id < 1 ) {
+			$panel_id = (int) $req->get_param( 'panel_id' );
+		}
+		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'module_missing' ), 500 );
+		}
+		$r    = SimpleVPBot_Service_Admin_Ops::configs_sync_panel_to_db( $panel_id, true );
+		$code = ! empty( $r['ok'] ) ? 200 : 400;
+		return new WP_REST_Response( $r, $code );
+	}
+
+	/**
 	 * Paginated broadcast queue recipients (per user, all bot rows).
 	 *
 	 * @param WP_REST_Request $req Request.
@@ -1256,11 +1876,55 @@ class SimpleVPBot_Rest_Dashboard {
 		);
 	}
 
+	public static function route_admin_users_bulk_jobs( WP_REST_Request $req ) {
+		$page = max( 1, (int) $req->get_param( 'page' ) );
+		$per  = max( 1, min( 50, (int) $req->get_param( 'per_page' ) ?: 20 ) );
+		$offset = ( $page - 1 ) * $per;
+		$rows = SimpleVPBot_Model_Users_Bulk_Job::list_jobs( $per, $offset );
+		$total = SimpleVPBot_Model_Users_Bulk_Job::count_jobs();
+		return new WP_REST_Response(
+			array(
+				'ok' => true,
+				'jobs' => $rows,
+				'pagination' => array(
+					'page'    => $page,
+					'perPage' => $per,
+					'total'   => $total,
+				),
+			),
+			200
+		);
+	}
+
+	public static function route_admin_users_bulk_job_items( WP_REST_Request $req ) {
+		$job_id = (int) $req->get_param( 'job_id' );
+		if ( $job_id < 1 ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'invalid_job' ), 400 );
+		}
+		$page = max( 1, (int) $req->get_param( 'page' ) );
+		$per  = max( 1, min( 100, (int) $req->get_param( 'per_page' ) ?: 25 ) );
+		$status = sanitize_key( (string) $req->get_param( 'status' ) );
+		$list = SimpleVPBot_Model_Users_Bulk_Job::list_job_items( $job_id, $page, $per, $status );
+		return new WP_REST_Response(
+			array(
+				'ok' => true,
+				'rows' => $list['rows'],
+				'pagination' => array(
+					'page'    => $list['page'],
+					'perPage' => $list['perPage'],
+					'total'   => $list['total'],
+				),
+			),
+			200
+		);
+	}
+
 	/**
 	 * @param WP_REST_Request $req Request.
 	 * @return WP_REST_Response|WP_Error
 	 */
 	public static function route_admin_mutate( WP_REST_Request $req ) {
+		$ctx = self::dashboard_actor_context();
 		$params = $req->get_json_params();
 		if ( ! is_array( $params ) ) {
 			$params = array();
@@ -1268,6 +1932,73 @@ class SimpleVPBot_Rest_Dashboard {
 		$op = isset( $params['op'] ) ? sanitize_key( (string) $params['op'] ) : '';
 		if ( '' === $op ) {
 			return new WP_Error( 'bad_request', 'missing op', array( 'status' => 400 ) );
+		}
+		if ( ! empty( $ctx['isReseller'] ) ) {
+			$perms = SimpleVPBot_Model_User::reseller_permissions( (int) $ctx['actorUserId'] );
+			$allow = array(
+				'membership',
+				'user_status',
+				'user_balance_delta',
+				'user_create_service',
+				'user_renew_service',
+				'user_add_volume',
+				'user_service_transfer',
+				'service_delete',
+				'user_admin_message',
+				'service_alerts_patch',
+				'service_panel_sync',
+				'service_regen_key',
+				'service_panel_refresh',
+				'service_panel_delete_client',
+				'user_service_add_slots',
+				'service_set_limit_ip',
+				'user_manual_create',
+				'plan',
+				'reseller_bot_tokens_save',
+				'reseller_bot_webhook_set',
+				'reseller_bot_secret_rotate',
+			);
+			if ( ! in_array( $op, $allow, true ) ) {
+				return new WP_REST_Response( array( 'ok' => false, 'message' => 'forbidden_op' ), 403 );
+			}
+			$needed_perm = self::reseller_permission_for_op( $op );
+			if ( '' !== $needed_perm && empty( $perms[ $needed_perm ] ) ) {
+				return new WP_REST_Response( array( 'ok' => false, 'message' => 'forbidden_permission' ), 403 );
+			}
+			$target_uid = 0;
+			if ( isset( $params['svp_user_id'] ) ) {
+				$target_uid = (int) $params['svp_user_id'];
+			} elseif ( isset( $params['target_user_id'] ) ) {
+				$target_uid = (int) $params['target_user_id'];
+			} elseif ( isset( $params['membership_user_id'] ) ) {
+				$target_uid = (int) $params['membership_user_id'];
+			}
+			if ( $target_uid > 0 && ! SimpleVPBot_Model_User::reseller_can_access_user( (int) $ctx['actorUserId'], $target_uid ) ) {
+				return new WP_REST_Response( array( 'ok' => false, 'message' => 'forbidden_scope' ), 403 );
+			}
+			$service_id = isset( $params['service_id'] ) ? (int) $params['service_id'] : 0;
+			if ( $service_id > 0 ) {
+				$svc = SimpleVPBot_Model_Service::find_any( $service_id );
+				$svc_uid = $svc ? (int) ( $svc->user_id ?? 0 ) : 0;
+				if ( $svc_uid < 1 || ! SimpleVPBot_Model_User::reseller_can_access_user( (int) $ctx['actorUserId'], $svc_uid ) ) {
+					return new WP_REST_Response( array( 'ok' => false, 'message' => 'forbidden_scope' ), 403 );
+				}
+			}
+			if ( 'user_manual_create' === $op ) {
+				$params['invited_by'] = (int) $ctx['actorUserId'];
+			}
+			if ( 'plan' === $op ) {
+				$pact = isset( $params['plan_action'] ) ? sanitize_key( (string) $params['plan_action'] ) : '';
+				$pid  = isset( $params['plan_id'] ) ? absint( $params['plan_id'] ) : 0;
+				if ( $pid > 0 && in_array( $pact, array( 'update', 'toggle', 'delete' ), true ) ) {
+					$pl = SimpleVPBot_Model_Plan::find( $pid );
+					$own = $pl ? (int) ( $pl->owner_svp_user_id ?? 0 ) : 0;
+					if ( $own !== (int) $ctx['actorUserId'] ) {
+						return new WP_REST_Response( array( 'ok' => false, 'message' => 'forbidden_scope' ), 403 );
+					}
+				}
+			}
+			$params['__actor_svp_user_id'] = (int) $ctx['actorUserId'];
 		}
 		unset( $params['op'] );
 		$res = SimpleVPBot_Dashboard_Admin_Mutations::apply( $op, $params );

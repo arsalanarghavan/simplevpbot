@@ -21,12 +21,43 @@ class SimpleVPBot_Bot_Runtime {
 	 * @return SimpleVPBot_Bot_Client|null
 	 */
 	public static function client( $platform ) {
-		if ( 'bale' === $platform ) {
-			$t = (string) SimpleVPBot_Settings::get( 'bale_token', '' );
-			return $t ? new SimpleVPBot_Bale_Client( $t ) : null;
+		$t = self::bot_token_for_current_context( $platform );
+		if ( '' === $t ) {
+			return null;
 		}
-		$t = (string) SimpleVPBot_Settings::get( 'telegram_token', '' );
-		return $t ? new SimpleVPBot_Telegram_Client( $t ) : null;
+		if ( 'bale' === $platform ) {
+			return new SimpleVPBot_Bale_Client( $t );
+		}
+		return new SimpleVPBot_Telegram_Client( $t );
+	}
+
+	/**
+	 * Active bot token: reseller webhook context overrides site defaults.
+	 *
+	 * @param string $platform telegram|bale.
+	 * @return string Empty if unset.
+	 */
+	public static function bot_token_for_current_context( $platform ) {
+		$plat = ( 'bale' === $platform ) ? 'bale' : 'telegram';
+		if ( class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot() ) {
+			$prof = SimpleVPBot_Bot_Context::reseller_profile();
+			if ( $prof ) {
+				if ( 'bale' === $plat ) {
+					$t = trim( (string) ( $prof->bale_token ?? '' ) );
+				} else {
+					$t = trim( (string) ( $prof->telegram_token ?? '' ) );
+				}
+				if ( '' !== $t ) {
+					return $t;
+				}
+			}
+			// In reseller webhook context, never fall back to global bot token.
+			return '';
+		}
+		if ( 'bale' === $plat ) {
+			return (string) SimpleVPBot_Settings::get( 'bale_token', '' );
+		}
+		return (string) SimpleVPBot_Settings::get( 'telegram_token', '' );
 	}
 
 	/**
@@ -273,9 +304,7 @@ class SimpleVPBot_Bot_Runtime {
 			return new WP_Error( 'svp_getfile', is_array( $gf ) ? wp_json_encode( $gf ) : 'getFile failed' );
 		}
 		$rel = (string) $gf['result']['file_path'];
-		$tok = 'bale' === $platform
-			? (string) SimpleVPBot_Settings::get( 'bale_token', '' )
-			: (string) SimpleVPBot_Settings::get( 'telegram_token', '' );
+		$tok = self::bot_token_for_current_context( $platform );
 		if ( '' === $tok ) {
 			return new WP_Error( 'svp_notok', 'No token' );
 		}
@@ -311,7 +340,7 @@ class SimpleVPBot_Bot_Runtime {
 		if ( $uid < 1 ) {
 			return '';
 		}
-		$tok = (string) SimpleVPBot_Settings::get( 'telegram_token', '' );
+		$tok = self::bot_token_for_current_context( 'telegram' );
 		if ( '' === $tok ) {
 			return '';
 		}

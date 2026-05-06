@@ -289,6 +289,18 @@ class SimpleVPBot_Router {
 	 * @return bool
 	 */
 	public static function is_platform_admin( $platform, $from_id ) {
+		if ( class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot() ) {
+			$reseller_id = (int) SimpleVPBot_Bot_Context::reseller_svp_user_id();
+			if ( $reseller_id > 0 ) {
+				$reseller = SimpleVPBot_Model_User::find( $reseller_id );
+				if ( $reseller ) {
+					if ( 'bale' === $platform ) {
+						return (int) ( $reseller->bale_user_id ?? 0 ) === (int) $from_id;
+					}
+					return (int) ( $reseller->tg_user_id ?? 0 ) === (int) $from_id;
+				}
+			}
+		}
 		$ids = 'bale' === $platform
 			? (array) SimpleVPBot_Settings::get( 'admin_bale_ids', array() )
 			: (array) SimpleVPBot_Settings::get( 'admin_telegram_ids', array() );
