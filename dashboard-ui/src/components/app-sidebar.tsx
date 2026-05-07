@@ -26,6 +26,7 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
+import type { AdminNavSection } from "@/config/admin-nav"
 import { cn } from "@/lib/utils"
 
 type NavTab = {
@@ -79,9 +80,10 @@ function SidebarQuickLinks({ rtl }: { rtl: boolean }) {
   )
 }
 
-function RoleSwitcher({ isAdmin }: { isAdmin: boolean }) {
+function RoleSwitcher({ role }: { role: "admin" | "reseller" | "user" }) {
   const { t } = useTranslation()
-  const label = isAdmin ? t("sidebar.role.admin") : t("sidebar.role.user")
+  const label =
+    role === "admin" ? t("sidebar.role.admin") : role === "reseller" ? t("sidebar.role.reseller") : t("sidebar.role.user")
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -101,20 +103,24 @@ function RoleSwitcher({ isAdmin }: { isAdmin: boolean }) {
           {t("sidebar.role.switchLabel")}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem disabled={!isAdmin} className="gap-2 text-sm">
-          {isAdmin ? (
+        <DropdownMenuItem disabled={role !== "admin"} className="gap-2 text-sm">
+          {role === "admin" ? (
             <Check className="size-4 shrink-0 opacity-90" />
           ) : (
             <span className="inline-block w-4 shrink-0" aria-hidden />
           )}
           {t("sidebar.role.admin")}
         </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={isAdmin}
-          className="gap-2 text-sm"
-          title={isAdmin ? t("sidebar.role.switchHint") : undefined}
-        >
-          {!isAdmin ? (
+        <DropdownMenuItem disabled={role !== "reseller"} className="gap-2 text-sm">
+          {role === "reseller" ? (
+            <Check className="size-4 shrink-0 opacity-90" />
+          ) : (
+            <span className="inline-block w-4 shrink-0" aria-hidden />
+          )}
+          {t("sidebar.role.reseller")}
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={role !== "user"} className="gap-2 text-sm">
+          {role === "user" ? (
             <Check className="size-4 shrink-0 opacity-90" />
           ) : (
             <span className="inline-block w-4 shrink-0" aria-hidden />
@@ -139,9 +145,10 @@ export function AppSidebar({
   onOpenUserDetail,
   userSearchRestUrl,
   userSearchNonce,
+  adminSections,
 }: {
   side: "left" | "right"
-  variant: "admin" | "user"
+  variant: "admin" | "reseller" | "user"
   navTabs: NavTab[]
   user: { name: string; email: string; avatar: string; logoutUrl?: string }
   activeTabKey: string
@@ -152,6 +159,7 @@ export function AppSidebar({
   onOpenUserDetail?: (svpUserId: number) => void
   userSearchRestUrl?: string
   userSearchNonce?: string
+  adminSections?: AdminNavSection[]
 }) {
   const isFa = side === "right"
   const { t } = useTranslation()
@@ -160,6 +168,7 @@ export function AppSidebar({
 
   const displayName = siteName.trim() || t("sidebar.siteFallback")
   const isAdmin = variant === "admin"
+  const role: "admin" | "reseller" | "user" = isAdmin ? "admin" : variant === "reseller" ? "reseller" : "user"
 
   const userMainItems = [
     {
@@ -177,7 +186,7 @@ export function AppSidebar({
 
   return (
     <Sidebar side={side} collapsible="icon">
-      {variant === "admin" && (
+      {(variant === "admin" || variant === "reseller") && (
         <SidebarHeader
           className={cn(
             "gap-2 border-b border-sidebar-border pb-3",
@@ -196,7 +205,7 @@ export function AppSidebar({
               <p className="min-w-0 flex-1 truncate text-sm font-semibold leading-tight">
                 {displayName}
               </p>
-              <RoleSwitcher isAdmin={isAdmin} />
+              <RoleSwitcher role={role} />
             </div>
           ) : (
             <div className="flex items-center gap-2 px-2 pt-2">
@@ -211,28 +220,30 @@ export function AppSidebar({
                 <p className="min-w-0 flex-1 truncate text-sm font-semibold leading-tight">
                   {displayName}
                 </p>
-                <RoleSwitcher isAdmin={isAdmin} />
+                <RoleSwitcher role={role} />
               </div>
             </div>
           )}
           <div className="px-2">
             <SidebarSearch
               onSelectTab={onSelectTab}
-              onOpenUserDetail={variant === "admin" ? onOpenUserDetail : undefined}
-              restUrl={variant === "admin" ? userSearchRestUrl : undefined}
-              nonce={variant === "admin" ? userSearchNonce : undefined}
+              onOpenUserDetail={onOpenUserDetail}
+              restUrl={userSearchRestUrl}
+              nonce={userSearchNonce}
               rtl={isFa}
+              sections={adminSections}
             />
           </div>
         </SidebarHeader>
       )}
       <SidebarContent>
-        {variant === "admin" ? (
+        {variant === "admin" || variant === "reseller" ? (
           <NavGrouped
             activeTabKey={activeTabKey}
             onSelectTab={onSelectTab}
             subItemUrl={subItemUrl}
             rtl={isFa}
+            sections={adminSections}
           />
         ) : (
           <NavMain
@@ -246,8 +257,8 @@ export function AppSidebar({
         )}
       </SidebarContent>
       <SidebarFooter className="gap-0">
-        {variant === "admin" && <SidebarQuickLinks rtl={isFa} />}
-        <div className={cn(variant === "admin" && "px-0 pt-1")}>
+        {(variant === "admin" || variant === "reseller") && <SidebarQuickLinks rtl={isFa} />}
+        <div className={cn((variant === "admin" || variant === "reseller") && "px-0 pt-1")}>
           <NavUser user={user} rtl={isFa} />
         </div>
       </SidebarFooter>

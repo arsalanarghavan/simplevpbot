@@ -12,13 +12,36 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { DataPagination } from "@/components/data-pagination"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
+import type { PaginationMeta } from "@/lib/dash-pagination"
 import { formatNumber } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
+type BotRow = {
+  reseller_id?: number
+  reseller_name?: string
+  reseller_status?: string
+  brand_name?: string
+  enabled?: boolean
+  has_telegram_token?: boolean
+  has_bale_token?: boolean
+  telegram_secret_token_set?: boolean
+  webhook_telegram_url?: string
+  webhook_bale_url?: string
+  admin_telegram_ids?: number[]
+  admin_bale_ids?: number[]
+}
 
 function num(v: unknown): number {
   const n = Number(v)
@@ -27,11 +50,19 @@ function num(v: unknown): number {
 
 export function DashboardBotsAdmin({
   settings,
+  botsList = [],
+  botsPagination,
   isFa,
+  onPageChange,
+  onPerPageChange,
   onMutateSuccess,
 }: {
   settings: DashRecord | undefined
   isFa: boolean
+  botsList?: BotRow[]
+  botsPagination?: PaginationMeta | null
+  onPageChange?: (p: number) => void
+  onPerPageChange?: (n: number) => void
   onMutateSuccess?: () => void
 }) {
   const { t } = useTranslation()
@@ -43,8 +74,6 @@ export function DashboardBotsAdmin({
       ({
         telegram_token: String(s.telegram_token ?? ""),
         bale_token: String(s.bale_token ?? ""),
-        telegram_webhook_secret: String(s.telegram_webhook_secret ?? ""),
-        bale_webhook_secret: String(s.bale_webhook_secret ?? ""),
         telegram_secret_header: String(s.telegram_secret_header ?? ""),
         bale_wallet_provider_token: String(s.bale_wallet_provider_token ?? ""),
       }) satisfies BotPlatformForm,
@@ -55,9 +84,22 @@ export function DashboardBotsAdmin({
   useEffect(() => {
     setForm(initial)
   }, [initial])
+
+  const [adminTg, setAdminTg] = useState("")
+  const [adminBale, setAdminBale] = useState("")
+  useEffect(() => {
+    const tg = Array.isArray(s.admin_telegram_ids) ? (s.admin_telegram_ids as number[]).join("\n") : ""
+    const bl = Array.isArray(s.admin_bale_ids) ? (s.admin_bale_ids as number[]).join("\n") : ""
+    setAdminTg(tg)
+    setAdminBale(bl)
+  }, [s])
+
   const [saving, setSaving] = useState(false)
+  const [busyAction, setBusyAction] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
+  const [dlgOpen, setDlgOpen] = useState(false)
+  const [dlgForm, setDlgForm] = useState<Record<string, string>>({})
 
   const onSave = useCallback(async () => {
     setSaving(true)
@@ -66,7 +108,12 @@ export function DashboardBotsAdmin({
     try {
       const res = await postAdminMutate("settings_tab", {
         tab: "bots",
-        ...form,
+        telegram_token: form.telegram_token,
+        bale_token: form.bale_token,
+        telegram_secret_header: form.telegram_secret_header,
+        bale_wallet_provider_token: form.bale_wallet_provider_token,
+        admin_telegram_ids: adminTg,
+        admin_bale_ids: adminBale,
       })
       if (!res.ok) {
         setError(res.message || tp("saveError"))
@@ -77,7 +124,32 @@ export function DashboardBotsAdmin({
     } finally {
       setSaving(false)
     }
-  }, [form, onMutateSuccess, tp])
+  }, [adminBale, adminTg, form, onMutateSuccess, tp])
+
+  const runBotAction = useCallback(
+    async (op: string, payload: Record<string, unknown>): Promise<boolean> => {
+      setBusyAction(op)
+      setError(null)
+      setOkMsg(null)
+      try {
+        const res = await postAdminMutate(op, payload)
+        if (!res.ok) {
+          setError(res.message || tp("saveError"))
+          return false
+        }
+        if (op === "bot_test_telegram" || op === "bot_test_bale") {
+          setOkMsg(tp("testOk"))
+        } else {
+          setOkMsg(tp("saved"))
+        }
+        onMutateSuccess?.()
+        return true
+      } finally {
+        setBusyAction("")
+      }
+    },
+    [onMutateSuccess, tp]
+  )
 
   const fieldInput = (key: keyof BotPlatformForm, labelKey: string, type: "text" | "password" = "password") => (
     <div className="space-y-2" key={key}>
@@ -88,17 +160,48 @@ export function DashboardBotsAdmin({
         autoComplete="off"
         value={form[key]}
         onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-        placeholder={tp("placeholderSecret")}
+        placeholder={type === "password" ? tp("placeholderSecret") : ""}
       />
     </div>
   )
+
+  const mainEnabled = Boolean(s.enabled)
 
   return (
     <div className={cn("mx-auto max-w-3xl space-y-6", isFa && "text-right")}>
       <div>
         <h2 className="text-lg font-medium">{tp("title")}</h2>
         <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{tp("subtitleFuture")}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{tp("webhookSecretHint")}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={mainEnabled ? "destructive" : "default"}
+            disabled={busyAction !== ""}
+            onClick={() => void runBotAction("bot_toggle_enabled", {})}
+          >
+            {mainEnabled ? tp("btnDisableBot") : tp("btnEnableBot")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={busyAction !== ""}
+            onClick={() => void runBotAction("bot_test_telegram", {})}
+          >
+            {tp("testTelegram")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={busyAction !== ""}
+            onClick={() => void runBotAction("bot_test_bale", {})}
+          >
+            {tp("testBale")}
+          </Button>
+        </div>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span>
             {tp("enabled")}: {String(s.enabled ?? "—")}
@@ -109,12 +212,41 @@ export function DashboardBotsAdmin({
         </div>
       </div>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{tp("adminIdsCardTitle")}</CardTitle>
+          <CardDescription>{tp("adminIdsCardDesc")}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="admin_tg">{tp("adminTelegramIds")}</Label>
+            <textarea
+              id="admin_tg"
+              className="min-h-24 w-full rounded-md border bg-background p-2 text-sm"
+              value={adminTg}
+              onChange={(e) => setAdminTg(e.target.value)}
+              placeholder={tp("dlgPhAdminTgIds")}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="admin_bale">{tp("adminBaleIds")}</Label>
+            <textarea
+              id="admin_bale"
+              className="min-h-24 w-full rounded-md border bg-background p-2 text-sm"
+              value={adminBale}
+              onChange={(e) => setAdminBale(e.target.value)}
+              placeholder={tp("dlgPhAdminBaleIds")}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 lg:grid-cols-2">
         {BOT_PLATFORMS.map((plat) => (
           <Card key={plat.id}>
             <CardHeader>
               <CardTitle className="text-base">{t(plat.titleKey)}</CardTitle>
-              <CardDescription>{tp("cardDesc")}</CardDescription>
+              <CardDescription>{tp("cardDescTokens")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="text-sm">
@@ -127,8 +259,6 @@ export function DashboardBotsAdmin({
                 const labelMap: Partial<Record<keyof BotPlatformForm, string>> = {
                   telegram_token: "telegramToken",
                   bale_token: "baleToken",
-                  telegram_webhook_secret: "telegramWebhookSecret",
-                  bale_webhook_secret: "baleWebhookSecret",
                   telegram_secret_header: "telegramSecretHeader",
                   bale_wallet_provider_token: "baleWalletToken",
                 }
@@ -161,6 +291,231 @@ export function DashboardBotsAdmin({
           </Button>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{tp("resellerBots")}</CardTitle>
+          <CardDescription>{tp("resellerBotsDesc")}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full min-w-[56rem] text-sm">
+              <thead>
+                <tr className="bg-muted/40">
+                  <th className="p-2">#</th>
+                  <th className="p-2">{tp("resellerColReseller")}</th>
+                  <th className="p-2">{tp("resellerColBrand")}</th>
+                  <th className="p-2">{tp("colTgShort")}</th>
+                  <th className="p-2">{tp("colBaleShort")}</th>
+                  <th className="p-2">{tp("resellerColStatus")}</th>
+                  <th className="p-2">{tp("resellerColActions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {botsList.map((row, idx) => (
+                  <tr key={`${row.reseller_id ?? "r"}-${idx}`} className="border-t">
+                    <td className="p-2 font-mono">{row.reseller_id ?? 0}</td>
+                    <td className="p-2">{row.reseller_name || "—"}</td>
+                    <td className="p-2">{row.brand_name || "—"}</td>
+                    <td className="p-2">{row.has_telegram_token ? "✓" : "—"}</td>
+                    <td className="p-2">{row.has_bale_token ? "✓" : "—"}</td>
+                    <td className="p-2">{row.enabled ? tp("statusEnabled") : tp("statusDisabled")}</td>
+                    <td className="p-2">
+                      <div className="flex flex-wrap gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setDlgForm({
+                              reseller_svp_user_id: String(row.reseller_id ?? 0),
+                              brand_name: String(row.brand_name ?? ""),
+                              admin_telegram_ids: (row.admin_telegram_ids ?? []).join("\n"),
+                              admin_bale_ids: (row.admin_bale_ids ?? []).join("\n"),
+                              enabled: row.enabled ? "1" : "0",
+                            })
+                            setDlgOpen(true)
+                          }}
+                        >
+                          {tp("actionEdit")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={busyAction !== ""}
+                          onClick={() =>
+                            void runBotAction("bot_reseller_toggle_enabled", {
+                              reseller_svp_user_id: row.reseller_id ?? 0,
+                            })
+                          }
+                        >
+                          {tp("actionToggle")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={busyAction !== "" || !row.has_telegram_token}
+                          onClick={() =>
+                            void runBotAction("bot_test_telegram", {
+                              reseller_svp_user_id: row.reseller_id ?? 0,
+                            })
+                          }
+                        >
+                          {tp("testTelegramShort")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={busyAction !== "" || !row.has_bale_token}
+                          onClick={() =>
+                            void runBotAction("bot_test_bale", {
+                              reseller_svp_user_id: row.reseller_id ?? 0,
+                            })
+                          }
+                        >
+                          {tp("testBaleShort")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={busyAction !== ""}
+                          onClick={() =>
+                            void runBotAction("bot_set_webhook", {
+                              bot_id: row.reseller_id ?? 0,
+                              platform: "telegram",
+                            })
+                          }
+                        >
+                          {tp("actionTgHook")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={busyAction !== ""}
+                          onClick={() =>
+                            void runBotAction("bot_set_webhook", {
+                              bot_id: row.reseller_id ?? 0,
+                              platform: "bale",
+                            })
+                          }
+                        >
+                          {tp("actionBaleHook")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busyAction !== ""}
+                          onClick={() =>
+                            void runBotAction("bot_reseller_secret_rotate", {
+                              reseller_svp_user_id: row.reseller_id ?? 0,
+                            })
+                          }
+                        >
+                          {tp("actionRotateSecret")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          disabled={busyAction !== ""}
+                          onClick={() =>
+                            void runBotAction("bot_reseller_delete", { reseller_svp_user_id: row.reseller_id ?? 0 })
+                          }
+                        >
+                          {tp("actionDelete")}
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <DataPagination
+            meta={botsPagination ?? null}
+            isFa={isFa}
+            onPageChange={(p) => onPageChange?.(p)}
+            onPerPageChange={(n) => onPerPageChange?.(n)}
+          />
+        </CardContent>
+      </Card>
+
+      <Dialog open={dlgOpen} onOpenChange={setDlgOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{tp("resellerDialogTitle")}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <Input
+              placeholder={tp("resellerPlaceholderId")}
+              value={dlgForm.reseller_svp_user_id ?? ""}
+              onChange={(e) => setDlgForm((p) => ({ ...p, reseller_svp_user_id: e.target.value }))}
+              readOnly
+            />
+            <Input
+              placeholder={tp("resellerPlaceholderBrand")}
+              value={dlgForm.brand_name ?? ""}
+              onChange={(e) => setDlgForm((p) => ({ ...p, brand_name: e.target.value }))}
+            />
+            <Input
+              placeholder={tp("dlgPhTelegramToken")}
+              value={dlgForm.telegram_token ?? ""}
+              onChange={(e) => setDlgForm((p) => ({ ...p, telegram_token: e.target.value }))}
+              type="password"
+              autoComplete="off"
+            />
+            <Input
+              placeholder={tp("dlgPhBaleToken")}
+              value={dlgForm.bale_token ?? ""}
+              onChange={(e) => setDlgForm((p) => ({ ...p, bale_token: e.target.value }))}
+              type="password"
+              autoComplete="off"
+            />
+            <Input
+              placeholder={tp("dlgPhBaleWallet")}
+              value={dlgForm.bale_wallet_provider_token ?? ""}
+              onChange={(e) => setDlgForm((p) => ({ ...p, bale_wallet_provider_token: e.target.value }))}
+              type="password"
+              autoComplete="off"
+            />
+            <div className="space-y-2">
+              <Label>{tp("adminTelegramIds")}</Label>
+              <textarea
+                className="min-h-20 w-full rounded-md border p-2 text-sm"
+                placeholder={tp("dlgPhAdminTgIds")}
+                value={dlgForm.admin_telegram_ids ?? ""}
+                onChange={(e) => setDlgForm((p) => ({ ...p, admin_telegram_ids: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>{tp("adminBaleIds")}</Label>
+              <textarea
+                className="min-h-20 w-full rounded-md border p-2 text-sm"
+                placeholder={tp("dlgPhAdminBaleIds")}
+                value={dlgForm.admin_bale_ids ?? ""}
+                onChange={(e) => setDlgForm((p) => ({ ...p, admin_bale_ids: e.target.value }))}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">{tp("resellerWebhookAutoHint")}</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDlgOpen(false)}>
+              {t("a11y.close")}
+            </Button>
+            <Button
+              onClick={() => {
+                void runBotAction("bot_reseller_save", {
+                  ...dlgForm,
+                  reseller_svp_user_id: Number(dlgForm.reseller_svp_user_id || "0"),
+                  enabled: dlgForm.enabled !== "0",
+                }).then((ok) => {
+                  if (ok) setDlgOpen(false)
+                })
+              }}
+            >
+              {tp("save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

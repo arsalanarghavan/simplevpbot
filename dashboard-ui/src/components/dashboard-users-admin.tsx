@@ -15,11 +15,13 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { DataPagination } from "@/components/data-pagination"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { formatNumber, formatPlainLatinInt } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
+import { DashboardUserMergeAdmin } from "@/components/dashboard-user-merge-admin"
 
 type DashRecord = Record<string, unknown>
 
@@ -80,6 +82,7 @@ export function DashboardUsersAdmin({
   onPendingPageChange,
   onPendingPerPageChange,
   onOpenUserDetail,
+  actorPermissions,
 }: {
   users: DashRecord[]
   pending: DashRecord[]
@@ -94,6 +97,7 @@ export function DashboardUsersAdmin({
   onPendingPageChange: (page: number) => void
   onPendingPerPageChange: (perPage: number) => void
   onOpenUserDetail: (id: number) => void
+  actorPermissions?: Record<string, boolean>
 }) {
   const { t } = useTranslation()
   const tp = (k: string) => t(`usersAdmin.${k}`)
@@ -101,10 +105,11 @@ export function DashboardUsersAdmin({
 
   const [busyId, setBusyId] = useState<number | null>(null)
   const [alertText, setAlertText] = useState<string | null>(null)
+  const [mergeOpen, setMergeOpen] = useState(false)
   const [searchDraft, setSearchDraft] = useState(usersSearchQuery)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const onSearchChangeRef = useRef(onUsersSearchQueryChange)
-  onSearchChangeRef.current = onUsersSearchQueryChange
+  const canManageUsers = actorPermissions?.["users.manage"] !== false
+  const canMergeUsers = actorPermissions?.["users.merge"] !== false
 
   useEffect(() => {
     setSearchDraft(usersSearchQuery)
@@ -115,13 +120,13 @@ export function DashboardUsersAdmin({
     debounceRef.current = setTimeout(() => {
       const next = searchDraft.trim()
       if (next !== usersSearchQuery.trim()) {
-        onSearchChangeRef.current(next)
+        onUsersSearchQueryChange(next)
       }
     }, 300)
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [searchDraft, usersSearchQuery])
+  }, [searchDraft, usersSearchQuery, onUsersSearchQueryChange])
 
   const runMembership = useCallback(
     async (userId: number, action: "approve" | "reject") => {
@@ -217,7 +222,30 @@ export function DashboardUsersAdmin({
   return (
     <div className={cn("space-y-8", isFa && "text-right")}>
       <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-medium">{tp("title")}</h2>
+          {canMergeUsers ? (
+            <Dialog open={mergeOpen} onOpenChange={setMergeOpen}>
+              <DialogTrigger asChild>
+                <Button type="button" variant="outline" size="sm">
+                  {tp("mergeUsers")}
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+                <DialogHeader>
+                  <DialogTitle>{tp("mergeUsers")}</DialogTitle>
+                </DialogHeader>
+                <DashboardUserMergeAdmin
+                  isFa={isFa}
+                  onMutateSuccess={() => {
+                    onMutateSuccess?.()
+                    setMergeOpen(false)
+                  }}
+                />
+              </DialogContent>
+            </Dialog>
+          ) : null}
+        </div>
         <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
       </div>
 
@@ -237,7 +265,7 @@ export function DashboardUsersAdmin({
         ) : (
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {pending.map((u) => (
-              <li key={String(u.id ?? "")}>{renderUserCard(u, true, true)}</li>
+              <li key={String(u.id ?? "")}>{renderUserCard(u, canManageUsers, true)}</li>
             ))}
           </ul>
         )}

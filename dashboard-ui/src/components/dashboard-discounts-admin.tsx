@@ -434,7 +434,7 @@ export function DashboardDiscountsAdmin({
               <div className="space-y-2">
                 <Label>{tp("fieldValidFrom")}</Label>
                 <Input
-                  placeholder="YYYY-MM-DD HH:MM"
+                  placeholder={tp("placeholderDatetimeLocal")}
                   value={form.svpc_valid_from}
                   onChange={(e) => setForm((f) => ({ ...f, svpc_valid_from: e.target.value }))}
                 />
@@ -442,7 +442,7 @@ export function DashboardDiscountsAdmin({
               <div className="space-y-2">
                 <Label>{tp("fieldValidUntil")}</Label>
                 <Input
-                  placeholder="YYYY-MM-DD HH:MM"
+                  placeholder={tp("placeholderDatetimeLocal")}
                   value={form.svpc_valid_until}
                   onChange={(e) => setForm((f) => ({ ...f, svpc_valid_until: e.target.value }))}
                 />

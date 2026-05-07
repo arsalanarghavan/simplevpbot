@@ -13,6 +13,22 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Class SimpleVPBot_Model_Card
  */
 class SimpleVPBot_Model_Card {
+	/**
+	 * Normalize legacy method aliases.
+	 *
+	 * @param string $raw Raw method key.
+	 * @return string
+	 */
+	public static function normalize_method_key( $raw ) {
+		$key = sanitize_key( (string) $raw );
+		if ( 'mehr' === $key ) {
+			return 'c2c';
+		}
+		if ( in_array( $key, array( 'c2c', 'crypto', 'crypto_auto' ), true ) ) {
+			return $key;
+		}
+		return 'c2c';
+	}
 
 	/**
 	 * Table.
@@ -96,9 +112,9 @@ class SimpleVPBot_Model_Card {
 	 */
 	public static function method_label( $row ) {
 		$key = is_object( $row ) ? (string) ( $row->method_key ?? 'c2c' ) : (string) ( $row['method_key'] ?? 'c2c' );
+		$key = self::normalize_method_key( $key );
 		$map = array(
 			'c2c'         => 'کارت به کارت',
-			'mehr'        => 'بانک مهر',
 			'crypto'      => 'کریپتو (دستی)',
 			'crypto_auto' => 'کریپتو (NOWPayments)',
 		);
@@ -116,6 +132,7 @@ class SimpleVPBot_Model_Card {
 	 */
 	public static function is_crypto_manual( $row ) {
 		$key = is_object( $row ) ? (string) ( $row->method_key ?? '' ) : (string) ( $row['method_key'] ?? '' );
+		$key = self::normalize_method_key( $key );
 		return 'crypto' === $key;
 	}
 
@@ -127,7 +144,46 @@ class SimpleVPBot_Model_Card {
 	 */
 	public static function is_crypto_auto( $row ) {
 		$key = is_object( $row ) ? (string) ( $row->method_key ?? '' ) : (string) ( $row['method_key'] ?? '' );
+		$key = self::normalize_method_key( $key );
 		return 'crypto_auto' === $key;
+	}
+
+	/**
+	 * Active cards for one checkout transaction.
+	 * In sequential mode it returns one eligible card based on approved daily usage.
+	 *
+	 * @param int $transaction_id Transaction id.
+	 * @return array<int, object>
+	 */
+	public static function active_for_transaction( $transaction_id ) {
+		$cards = self::active_ordered();
+		if ( empty( $cards ) ) {
+			return array();
+		}
+		$mode = sanitize_key( (string) SimpleVPBot_Settings::get( 'cards_display_mode', 'list' ) );
+		if ( 'sequential' !== $mode ) {
+			return $cards;
+		}
+		$tid = (int) $transaction_id;
+		foreach ( $cards as $c ) {
+			$cid   = (int) ( $c->id ?? 0 );
+			$limit = (float) ( $c->daily_limit ?? 0 );
+			if ( $cid < 1 ) {
+				continue;
+			}
+			if ( $limit <= 0 ) {
+				return array( $c );
+			}
+			$used = 0.0;
+			if ( class_exists( 'SimpleVPBot_Model_Receipt' ) ) {
+				$used = (float) SimpleVPBot_Model_Receipt::approved_sum_for_card_today( $cid, $tid );
+			}
+			if ( $used + 0.000001 < $limit ) {
+				return array( $c );
+			}
+		}
+		// Keep flow operational if every card reached the limit.
+		return array( $cards[0] );
 	}
 
 	/**

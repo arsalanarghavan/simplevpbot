@@ -71,6 +71,8 @@ class SimpleVPBot_Settings {
 			'notify_admin_panel_down'    => true,
 			'notify_admin_panel_down_cooldown' => 30,
 			'webhook_rate_limit_per_min' => 120,
+			/** When false (default), webhook/dashboard RL uses REMOTE_ADDR only (avoid forged X-Forwarded-For). Enable behind a trusted reverse proxy. */
+			'rate_limit_trust_forwarded_for' => false,
 			'bale_wallet_provider_token' => '',
 			'referral_enabled'               => false,
 			'referral_percent'               => 0.0,
@@ -89,6 +91,10 @@ class SimpleVPBot_Settings {
 			'alert_ip_warn_min_distinct'     => 3,
 			'alert_ip_warn_hysteresis'       => true,
 			'alert_ip_warn_cooldown_minutes' => 0,
+			'crisis_mode'                    => false,
+			'suppress_bulk_user_notifications' => false,
+			'cards_display_mode'             => 'list',
+			'default_bot_locale'             => 'fa',
 		);
 	}
 

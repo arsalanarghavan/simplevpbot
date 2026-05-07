@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useState, type ChangeEvent } from "react"
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
@@ -17,11 +17,37 @@ import { ChevronDown } from "lucide-react"
 
 type TextRow = Record<string, unknown>
 
+export type TextDefaultBundle = { fa: string; en: string }
+
 const MAX_LEN = 8000
 
 /** Strip ASCII control chars (align with PHP sanitize). */
 function stripControls(s: string): string {
   return s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "")
+}
+
+function bundleDefaults(def: unknown): TextDefaultBundle {
+  if (def && typeof def === "object" && def !== null && ("fa" in def || "en" in def)) {
+    const o = def as { fa?: unknown; en?: unknown }
+    return { fa: String(o.fa ?? ""), en: String(o.en ?? "") }
+  }
+  if (typeof def === "string") {
+    return { fa: def, en: "" }
+  }
+  return { fa: "", en: "" }
+}
+
+function rowLocaleStrings(row: TextRow): TextDefaultBundle {
+  const fa = row.value_fa ?? row.valueFa
+  const en = row.value_en ?? row.valueEn
+  if (fa !== undefined || en !== undefined) {
+    return { fa: String(fa ?? ""), en: String(en ?? "") }
+  }
+  const legacy = row.value
+  if (legacy !== undefined) {
+    return { fa: String(legacy ?? ""), en: "" }
+  }
+  return { fa: "", en: "" }
 }
 
 export function DashboardTextsAdmin({
@@ -31,12 +57,21 @@ export function DashboardTextsAdmin({
   onMutateSuccess,
 }: {
   texts: TextRow[]
-  textDefaults: Record<string, string>
+  textDefaults: Record<string, TextDefaultBundle | string>
   isFa: boolean
   onMutateSuccess?: () => void
 }) {
   const { t } = useTranslation()
   const tp = (k: string) => t(`textsAdmin.${k}`)
+
+  const categoryLabel = useCallback(
+    (category: string) => {
+      const k = `textsAdmin.categories.${category}`
+      const tr = t(k)
+      return tr === k ? category : tr
+    },
+    [t],
+  )
 
   const byCategory = useMemo(() => {
     const m = new Map<string, TextRow[]>()
@@ -62,7 +97,7 @@ export function DashboardTextsAdmin({
         <Collapsible key={category} defaultOpen className="rounded-md border border-border">
           <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm font-medium hover:bg-muted/50">
             <span>
-              {tp("category")}: {category}
+              {tp("category")}: {categoryLabel(category)}
             </span>
             <ChevronDown className="size-4 shrink-0 transition-transform [[data-state=open]_&]:rotate-180" />
           </CollapsibleTrigger>
@@ -70,9 +105,9 @@ export function DashboardTextsAdmin({
             <div className="grid gap-4 border-t border-border p-3 md:grid-cols-2">
               {rows.map((row) => (
                 <TextKeyEditor
-                  key={String(row.id ?? row.key_name)}
+                  key={String(row.key_name ?? row.id)}
                   row={row}
-                  defaultSnippet={textDefaults[String(row.key_name ?? "")] ?? ""}
+                  defaultBundle={bundleDefaults(textDefaults[String(row.key_name ?? "")])}
                   isFa={isFa}
                   tp={tp}
                   onMutateSuccess={onMutateSuccess}
@@ -88,43 +123,52 @@ export function DashboardTextsAdmin({
 
 function TextKeyEditor({
   row,
-  defaultSnippet,
+  defaultBundle,
   isFa,
   tp,
   onMutateSuccess,
 }: {
   row: TextRow
-  defaultSnippet: string
+  defaultBundle: TextDefaultBundle
   isFa: boolean
   tp: (k: string) => string
   onMutateSuccess?: () => void
 }) {
   const key = String(row.key_name ?? "")
-  const initial = String(row.value ?? "")
-  const [value, setValue] = useState(initial)
+  const seed = rowLocaleStrings(row)
+  const [valueFa, setValueFa] = useState(seed.fa)
+  const [valueEn, setValueEn] = useState(seed.en)
   const [saving, setSaving] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
+  useEffect(() => {
+    const s = rowLocaleStrings(row)
+    setValueFa(s.fa)
+    setValueEn(s.en)
+  }, [key, row.value_fa, row.value_en, row.value])
+
   const onSave = useCallback(async () => {
     setSaving(true)
     setErr(null)
-    const trimmed = stripControls(value.slice(0, MAX_LEN))
+    const faTrim = stripControls(valueFa.slice(0, MAX_LEN))
+    const enTrim = stripControls(valueEn.slice(0, MAX_LEN))
     try {
-      const res = await postAdminMutate("texts_save", { texts: { [key]: trimmed } })
+      const res = await postAdminMutate("texts_save", { texts: { [key]: { fa: faTrim, en: enTrim } } })
       if (!res.ok) {
         setErr(res.message || tp("saveError"))
         return
       }
-      setValue(trimmed)
+      setValueFa(faTrim)
+      setValueEn(enTrim)
       onMutateSuccess?.()
     } finally {
       setSaving(false)
     }
-  }, [key, onMutateSuccess, tp, value])
+  }, [key, onMutateSuccess, tp, valueEn, valueFa])
 
   const onReset = useCallback(async () => {
-    if (!defaultSnippet) return
+    if (!defaultBundle.fa && !defaultBundle.en) return
     if (!window.confirm(tp("resetConfirm"))) return
     setResetting(true)
     setErr(null)
@@ -134,31 +178,50 @@ function TextKeyEditor({
         setErr(res.message === "unknown_key" ? tp("resetUnknownKey") : res.message || tp("resetError"))
         return
       }
-      setValue(defaultSnippet)
+      setValueFa(defaultBundle.fa)
+      setValueEn(defaultBundle.en)
       onMutateSuccess?.()
     } finally {
       setResetting(false)
     }
-  }, [defaultSnippet, key, onMutateSuccess, tp])
+  }, [defaultBundle.en, defaultBundle.fa, key, onMutateSuccess, tp])
+
+  const totalLen = valueFa.length + valueEn.length
 
   return (
-    <div className="space-y-2 rounded-md border border-border/80 bg-muted/20 p-3">
+    <div className="space-y-3 rounded-md border border-border/80 bg-muted/20 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Label className="font-mono text-xs">{key}</Label>
         <span className="text-xs text-muted-foreground">
-          {value.length}/{MAX_LEN}
+          {totalLen}/{MAX_LEN * 2}
         </span>
       </div>
-      <Textarea
-        dir="auto"
-        className="min-h-[8rem] font-mono text-sm"
-        value={value}
-        maxLength={MAX_LEN}
-        onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setValue(e.target.value)}
-      />
-      {defaultSnippet ? (
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">{tp("labelFa")}</Label>
+        <Textarea
+          dir="rtl"
+          className="min-h-[7rem] font-mono text-sm"
+          value={valueFa}
+          maxLength={MAX_LEN}
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setValueFa(e.target.value)}
+        />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">{tp("labelEn")}</Label>
+        <Textarea
+          dir="ltr"
+          className="min-h-[7rem] font-mono text-sm"
+          value={valueEn}
+          maxLength={MAX_LEN}
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setValueEn(e.target.value)}
+        />
+      </div>
+      {defaultBundle.fa || defaultBundle.en ? (
         <p className="text-xs text-muted-foreground">
-          {tp("defaultPreview")}: <span className="line-clamp-2">{defaultSnippet}</span>
+          {tp("defaultPreview")}:{" "}
+          <span className="line-clamp-2">
+            FA: {defaultBundle.fa || "—"} | EN: {defaultBundle.en || "—"}
+          </span>
         </p>
       ) : (
         <p className="text-xs text-amber-700 dark:text-amber-400">{tp("noDefaultHint")}</p>
@@ -172,7 +235,13 @@ function TextKeyEditor({
         <Button type="button" size="sm" disabled={saving} onClick={() => void onSave()}>
           {tp("saveOne")}
         </Button>
-        <Button type="button" size="sm" variant="outline" disabled={resetting || !defaultSnippet} onClick={() => void onReset()}>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={resetting || (!defaultBundle.fa && !defaultBundle.en)}
+          onClick={() => void onReset()}
+        >
           {tp("resetOne")}
         </Button>
       </div>

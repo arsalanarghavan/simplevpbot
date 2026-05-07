@@ -110,7 +110,11 @@ class SimpleVPBot_Service_Provisioner {
 		}
 		$subid_gen   = substr( md5( $email . microtime( true ) ), 0, 16 );
 		$wp_user     = SimpleVPBot_Model_User::find( (int) $user_id );
-		$panel_label = self::panel_client_label( (int) $user_id, $wp_user );
+		$service_remark = (string) $plan->name;
+		if ( SimpleVPBot_Model_Plan::is_per_gb( $plan ) && null !== $volume_gb ) {
+			$service_remark .= ' · ' . (int) $volume_gb . ' GB';
+		}
+		$panel_label = self::panel_client_label( (int) $user_id, $wp_user, $service_remark );
 		$def_users   = max( 0, (int) SimpleVPBot_Settings::get( 'default_concurrent_users', 2 ) );
 		$overrides   = array(
 			'id'         => (string) $uuid,
@@ -241,10 +245,7 @@ class SimpleVPBot_Service_Provisioner {
 		}
 
 		$expires_at = (int) $plan->duration_days > 0 ? gmdate( 'Y-m-d H:i:s', time() + (int) $plan->duration_days * DAY_IN_SECONDS ) : null;
-		$remark     = (string) $plan->name;
-		if ( SimpleVPBot_Model_Plan::is_per_gb( $plan ) && null !== $volume_gb ) {
-			$remark .= ' · ' . (int) $volume_gb . ' GB';
-		}
+		$remark     = $service_remark;
 		$service_id = SimpleVPBot_Model_Service::insert(
 			array(
 				'user_id'         => (int) $user_id,
@@ -276,7 +277,13 @@ class SimpleVPBot_Service_Provisioner {
 	 * @param object|null           $wp_user User row.
 	 * @return string
 	 */
-	private static function panel_client_label( $user_id, $wp_user ) {
+	private static function panel_client_label( $user_id, $wp_user, $service_remark = '' ) {
+		if ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+			$branded = SimpleVPBot_Reseller_Branding::panel_client_name_for_user( (int) $user_id, (string) $service_remark );
+			if ( '' !== trim( $branded ) ) {
+				return (string) $branded;
+			}
+		}
 		$slug = '';
 		if ( is_object( $wp_user ) ) {
 			$raw = trim( (string) ( $wp_user->username ?? '' ) );

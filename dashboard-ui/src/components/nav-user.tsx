@@ -49,7 +49,7 @@ export function NavUser({
             >
               <Avatar className="h-8 w-8 shrink-0 rounded-lg">
                 <AvatarImage src={user.avatar} alt={user.name} />
-                <AvatarFallback className="rounded-lg">WP</AvatarFallback>
+                <AvatarFallback className="rounded-lg">U</AvatarFallback>
               </Avatar>
               <div
                 className={cn(
@@ -78,7 +78,7 @@ export function NavUser({
               >
                 <Avatar className="h-8 w-8 shrink-0 rounded-lg">
                   <AvatarImage src={user.avatar} alt={user.name} />
-                  <AvatarFallback className="rounded-lg">WP</AvatarFallback>
+                  <AvatarFallback className="rounded-lg">U</AvatarFallback>
                 </Avatar>
                 <div
                   className={cn(

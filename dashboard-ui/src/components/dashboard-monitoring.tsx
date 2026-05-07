@@ -62,6 +62,7 @@ type ExternalHostSnap = {
 }
 
 type OnlineDailyPoint = { date: string; totalMaxOnline: number }
+type MonitorHostRow = { id: number; label: string; metricsUrl: string; bearerConfigured: boolean }
 
 function num(v: unknown): number {
   const n = Number(v)
@@ -111,6 +112,16 @@ export function DashboardMonitoring({
   const stats: StatsPayload | undefined = overview?.stats
   const liveSnaps = (overview?.livePanelSnapshots ?? []) as LivePanelSnap[]
   const extSnaps = (overview?.externalHostSnapshots ?? []) as ExternalHostSnap[]
+  const monitorHostRows = useMemo<MonitorHostRow[]>(
+    () =>
+      (monitorHosts ?? []).map((row) => ({
+        id: num(row.id),
+        label: String(row.label ?? "").trim(),
+        metricsUrl: String(row.metrics_url ?? "").trim(),
+        bearerConfigured: String(row.bearer_token ?? "").trim().length > 0,
+      })),
+    [monitorHosts]
+  )
 
   const healthById = useMemo(() => {
     const m = new Map<number, PanelHealth>()
@@ -160,6 +171,27 @@ export function DashboardMonitoring({
     }
     return rows
   }, [liveSnaps, statsLineById])
+  const extSnapById = useMemo(() => {
+    const m = new Map<number, ExternalHostSnap>()
+    for (const ex of extSnaps) {
+      if (ex && typeof ex.hostId === "number") m.set(ex.hostId, ex)
+    }
+    return m
+  }, [extSnaps])
+  const extHostRows = useMemo<MonitorHostRow[]>(() => {
+    const out = [...monitorHostRows]
+    const seen = new Set(out.map((x) => x.id))
+    for (const ex of extSnaps) {
+      if (!ex || seen.has(ex.hostId)) continue
+      out.push({
+        id: ex.hostId,
+        label: String(ex.label ?? "").trim(),
+        metricsUrl: "",
+        bearerConfigured: false,
+      })
+    }
+    return out
+  }, [monitorHostRows, extSnaps])
 
   const memLimit = num(host?.memoryLimitBytes)
   const memUse = num(host?.memoryBytes)
@@ -170,13 +202,13 @@ export function DashboardMonitoring({
   const diskPct = diskTotal > 0 ? clampPct((diskUsed / diskTotal) * 100) : 0
 
   return (
-    <div className={cn("space-y-6", isFa && "text-right")}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <div className={cn("space-y-6", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
+      <div className={cn("flex flex-wrap items-center justify-between gap-2", isFa && "flex-row-reverse")}>
         <div>
           <h2 className="text-lg font-medium">{t("monitoringPage.title")}</h2>
           <p className="text-sm text-muted-foreground">{t("monitoringPage.subtitle")}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
           {onRefreshPanelHealth ? (
             <Button type="button" variant="outline" size="sm" onClick={() => onRefreshPanelHealth()}>
               {t("dashboardOverview.refreshPanelHealth")}
@@ -203,7 +235,7 @@ export function DashboardMonitoring({
               <p className="text-xs text-muted-foreground">{t("dashboardOverview.hostLoad")}</p>
               <p className="mt-1 font-mono text-sm tabular-nums">
                 {host?.loadAvg?.length === 3
-                  ? `${host.loadAvg[0]} / ${host.loadAvg[1]} / ${host.loadAvg[2]}`
+                  ? `${formatNumber(host.loadAvg[0], isFa)} / ${formatNumber(host.loadAvg[1], isFa)} / ${formatNumber(host.loadAvg[2], isFa)}`
                   : "—"}
               </p>
             </div>
@@ -227,13 +259,13 @@ export function DashboardMonitoring({
         </CardContent>
       </Card>
 
-      {chartData.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("dashboardOverview.chartOnlineTitle")}</CardTitle>
-            <CardDescription>{t("dashboardOverview.chartOnlineSubtitle")}</CardDescription>
-          </CardHeader>
-          <CardContent className="h-[260px] w-full min-w-0">
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("dashboardOverview.chartOnlineTitle")}</CardTitle>
+          <CardDescription>{t("dashboardOverview.chartOnlineSubtitle")}</CardDescription>
+        </CardHeader>
+        <CardContent className="h-[260px] w-full min-w-0">
+          {chartData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <defs>
@@ -244,7 +276,12 @@ export function DashboardMonitoring({
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis dataKey="day" tick={{ fontSize: 11 }} />
-                <YAxis width={44} tick={{ fontSize: 11 }} allowDecimals={false} />
+                <YAxis
+                  width={44}
+                  tick={{ fontSize: 11 }}
+                  allowDecimals={false}
+                  tickFormatter={(v) => formatNumber(Number(v), isFa)}
+                />
                 <RechartsTooltip
                   content={({ active, payload }) => {
                     if (!active || !payload?.length) return null
@@ -273,9 +310,13 @@ export function DashboardMonitoring({
                 />
               </AreaChart>
             </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      ) : null}
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              {t("monitoringPage.chartNoAggregateData")}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {barOnline.length > 0 ? (
         <Card>
@@ -288,7 +329,12 @@ export function DashboardMonitoring({
               <BarChart data={barOnline} margin={{ top: 8, right: 8, left: 0, bottom: 40 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={isFa ? 0 : -25} textAnchor={isFa ? "middle" : "end"} height={50} />
-                <YAxis width={36} tick={{ fontSize: 11 }} allowDecimals={false} />
+                <YAxis
+                  width={36}
+                  tick={{ fontSize: 11 }}
+                  allowDecimals={false}
+                  tickFormatter={(v) => formatNumber(Number(v), isFa)}
+                />
                 <RechartsTooltip
                   formatter={(value: number) => [formatNumber(value, isFa), t("dashboardOverview.colOnlineNow")]}
                 />
@@ -386,9 +432,9 @@ export function DashboardMonitoring({
                       </p>
                       <div className="grid gap-1 font-mono text-[11px] sm:grid-cols-2">
                         {statusEntries(live.status).map(([k, v]) => (
-                          <div key={k} className="flex justify-between gap-2">
+                          <div key={k} className={cn("flex justify-between gap-2", isFa && "flex-row-reverse")}>
                             <span className="truncate text-muted-foreground">{k}</span>
-                            <span className="shrink-0 tabular-nums">{v}</span>
+                            <span className="shrink-0 tabular-nums">{formatNumericString(v, isFa)}</span>
                           </div>
                         ))}
                       </div>
@@ -400,9 +446,9 @@ export function DashboardMonitoring({
           )}
           {panelsPagination && panelsPagination.total > panelsPagination.perPage ? (
             <p className="text-xs text-muted-foreground">
-              {isFa
-                ? `صفحه‌بندی: ${formatNumber(panelsPagination.total, isFa)} پنل؛ برای لیست کامل از تب پنل‌ها استفاده کنید.`
-                : `Pagination: ${panelsPagination.total} panels — open Panels tab for full list.`}
+              {t("monitoringPage.panelsPaginationHint", {
+                total: formatNumber(panelsPagination.total, isFa),
+              })}
             </p>
           ) : null}
         </CardContent>
@@ -414,27 +460,39 @@ export function DashboardMonitoring({
           <CardDescription>{t("monitoringPage.extHint")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {(!monitorHosts || monitorHosts.length === 0) && extSnaps.length === 0 ? (
+          {extHostRows.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t("monitoringPage.externalEmpty")}</p>
           ) : null}
-          {extSnaps.map((ex) => {
-            const entries = statusEntries(ex.metrics ?? undefined)
+          {extHostRows.map((hostRow) => {
+            const ex = extSnapById.get(hostRow.id)
+            const entries = statusEntries(ex?.metrics ?? undefined)
             return (
-              <div key={ex.hostId} className="rounded-lg border border-border/80 p-3">
+              <div key={hostRow.id} className="rounded-lg border border-border/80 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-medium">{ex.label || `Host #${ex.hostId}`}</p>
-                  {ex.ok ? (
-                    <Badge variant="secondary">OK</Badge>
-                  ) : (
+                  <div className="min-w-0">
+                    <p className="font-medium">{hostRow.label || ex?.label || `Host #${hostRow.id}`}</p>
+                    <p className="break-all font-mono text-xs text-muted-foreground">
+                      {hostRow.metricsUrl ? truncateUrl(hostRow.metricsUrl) : "—"}
+                    </p>
+                  </div>
+                  {ex?.ok ? (
+                    <Badge variant="secondary">{t("monitoringPage.badgeOk")}</Badge>
+                  ) : ex ? (
                     <Badge variant="destructive">{ex.error || "—"}</Badge>
+                  ) : (
+                    <Badge variant="outline">{t("dashboardOverview.unknown")}</Badge>
                   )}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {hostRow.bearerConfigured ? t("monitoringPage.bearerYes") : t("monitoringPage.bearerNo")}
+                  {ex?.checkedAt ? ` · ${formatDateTime(ex.checkedAt, isFa)}` : ""}
                 </div>
                 {entries.length > 0 ? (
                   <div className="mt-2 grid gap-1 font-mono text-[11px] sm:grid-cols-2">
                     {entries.map(([k, v]) => (
-                      <div key={k} className="flex justify-between gap-2">
+                      <div key={k} className={cn("flex justify-between gap-2", isFa && "flex-row-reverse")}>
                         <span className="truncate text-muted-foreground">{k}</span>
-                        <span className="shrink-0 tabular-nums">{v}</span>
+                        <span className="shrink-0 tabular-nums">{formatNumericString(v, isFa)}</span>
                       </div>
                     ))}
                   </div>

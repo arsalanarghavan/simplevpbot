@@ -14,6 +14,12 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class SimpleVPBot_Service_Admin_Ops {
 
+	/** Seconds; snapshot flags cache_stale when MAX(synced_at) older than this. */
+	const CONFIGS_CACHE_STALE_AFTER = 7200;
+
+	/** Transient key prefix while a panel configs sync runs. */
+	const CONFIGS_SYNC_LOCK = 'svp_cfgsync_';
+
 	/**
 	 * Test 3x-ui panel connection.
 	 *
@@ -197,6 +203,145 @@ class SimpleVPBot_Service_Admin_Ops {
 			return array( 'ok' => false, 'message' => __( 'Secret مسیر Webhook بله تنظیم نشده است.', 'simplevpbot' ) );
 		}
 		$url = SimpleVPBot_Settings::public_site_url() . '/wp-json/simplevpbot/v1/webhook/bale/' . rawurlencode( $sec );
+		$c   = new SimpleVPBot_Bale_Client( $t );
+		$res = $c->set_webhook( array( 'url' => $url ) );
+		if ( empty( $res['ok'] ) ) {
+			return array( 'ok' => false, 'message' => __( 'ست Webhook بله ناموفق بود.', 'simplevpbot' ), 'data' => array( 'response' => $res ) );
+		}
+		return array( 'ok' => true, 'data' => array( 'url' => $url, 'response' => $res ) );
+	}
+
+	/**
+	 * Bale getMe (token test).
+	 *
+	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
+	 */
+	public static function test_bale() {
+		$t = (string) SimpleVPBot_Settings::get( 'bale_token', '' );
+		if ( ! $t ) {
+			return array( 'ok' => false, 'message' => __( 'توکن بله تنظیم نشده است.', 'simplevpbot' ) );
+		}
+		$c   = new SimpleVPBot_Bale_Client( $t );
+		$res = $c->get_me();
+		if ( empty( $res['ok'] ) ) {
+			return array( 'ok' => false, 'message' => __( 'Bale getMe ناموفق بود.', 'simplevpbot' ), 'data' => array( 'response' => $res ) );
+		}
+		return array( 'ok' => true, 'data' => $res );
+	}
+
+	/**
+	 * Telegram getMe for a reseller bot profile.
+	 *
+	 * @param int $reseller_svp_user_id svp_users.id (reseller).
+	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
+	 */
+	public static function test_telegram_for_reseller( $reseller_svp_user_id ) {
+		$r = (int) $reseller_svp_user_id;
+		if ( $r < 1 || ! class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			return array( 'ok' => false, 'message' => __( 'شناسه نماینده نامعتبر است.', 'simplevpbot' ) );
+		}
+		$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
+		$t    = $prof ? trim( (string) ( $prof->telegram_token ?? '' ) ) : '';
+		if ( '' === $t ) {
+			return array( 'ok' => false, 'message' => __( 'توکن تلگرام نماینده تنظیم نشده است.', 'simplevpbot' ) );
+		}
+		$c   = new SimpleVPBot_Telegram_Client( $t );
+		$res = $c->get_me();
+		if ( empty( $res['ok'] ) ) {
+			return array( 'ok' => false, 'message' => __( 'Telegram getMe ناموفق بود.', 'simplevpbot' ), 'data' => array( 'response' => $res ) );
+		}
+		return array( 'ok' => true, 'data' => $res );
+	}
+
+	/**
+	 * Bale getMe for a reseller bot profile.
+	 *
+	 * @param int $reseller_svp_user_id svp_users.id (reseller).
+	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
+	 */
+	public static function test_bale_for_reseller( $reseller_svp_user_id ) {
+		$r = (int) $reseller_svp_user_id;
+		if ( $r < 1 || ! class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			return array( 'ok' => false, 'message' => __( 'شناسه نماینده نامعتبر است.', 'simplevpbot' ) );
+		}
+		$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
+		$t    = $prof ? trim( (string) ( $prof->bale_token ?? '' ) ) : '';
+		if ( '' === $t ) {
+			return array( 'ok' => false, 'message' => __( 'توکن بله نماینده تنظیم نشده است.', 'simplevpbot' ) );
+		}
+		$c   = new SimpleVPBot_Bale_Client( $t );
+		$res = $c->get_me();
+		if ( empty( $res['ok'] ) ) {
+			return array( 'ok' => false, 'message' => __( 'Bale getMe ناموفق بود.', 'simplevpbot' ), 'data' => array( 'response' => $res ) );
+		}
+		return array( 'ok' => true, 'data' => $res );
+	}
+
+	/**
+	 * Set Telegram webhook for reseller bot.
+	 *
+	 * @param int $reseller_svp_user_id svp_users.id (reseller).
+	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
+	 */
+	public static function set_webhook_telegram_for_reseller( $reseller_svp_user_id ) {
+		$r = (int) $reseller_svp_user_id;
+		if ( $r < 1 || ! class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			return array( 'ok' => false, 'message' => __( 'شناسه نماینده نامعتبر است.', 'simplevpbot' ) );
+		}
+		$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
+		$t    = $prof ? trim( (string) ( $prof->telegram_token ?? '' ) ) : '';
+		$sec  = $prof ? trim( (string) ( $prof->webhook_secret ?? '' ) ) : '';
+		if ( '' === $t ) {
+			return array( 'ok' => false, 'message' => __( 'توکن تلگرام نماینده تنظیم نشده است.', 'simplevpbot' ) );
+		}
+		if ( '' === $sec ) {
+			$sec = SimpleVPBot_Model_Reseller_Bot_Profile::ensure_webhook_secret( $r );
+		}
+		if ( '' === $sec ) {
+			return array( 'ok' => false, 'message' => __( 'Secret مسیر Webhook نماینده تنظیم نشده است.', 'simplevpbot' ) );
+		}
+		$url = SimpleVPBot_Settings::public_site_url() . '/wp-json/simplevpbot/v1/webhook/telegram/reseller/' . $r . '/' . rawurlencode( $sec );
+		$c   = new SimpleVPBot_Telegram_Client( $t );
+		$hdr = $prof ? trim( (string) ( $prof->telegram_secret_token ?? '' ) ) : '';
+		$params = array(
+			'url'                  => $url,
+			'allowed_updates'      => array( 'message', 'callback_query' ),
+			'drop_pending_updates' => true,
+		);
+		if ( '' !== $hdr ) {
+			$params['secret_token'] = $hdr;
+		}
+		$res = $c->set_webhook( $params );
+		if ( empty( $res['ok'] ) ) {
+			return array( 'ok' => false, 'message' => __( 'ست Webhook تلگرام ناموفق بود.', 'simplevpbot' ), 'data' => array( 'response' => $res ) );
+		}
+		return array( 'ok' => true, 'data' => array( 'url' => $url, 'response' => $res ) );
+	}
+
+	/**
+	 * Set Bale webhook for reseller bot.
+	 *
+	 * @param int $reseller_svp_user_id svp_users.id (reseller).
+	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
+	 */
+	public static function set_webhook_bale_for_reseller( $reseller_svp_user_id ) {
+		$r = (int) $reseller_svp_user_id;
+		if ( $r < 1 || ! class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			return array( 'ok' => false, 'message' => __( 'شناسه نماینده نامعتبر است.', 'simplevpbot' ) );
+		}
+		$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
+		$t    = $prof ? trim( (string) ( $prof->bale_token ?? '' ) ) : '';
+		$sec  = $prof ? trim( (string) ( $prof->webhook_secret ?? '' ) ) : '';
+		if ( '' === $t ) {
+			return array( 'ok' => false, 'message' => __( 'توکن بله نماینده تنظیم نشده است.', 'simplevpbot' ) );
+		}
+		if ( '' === $sec ) {
+			$sec = SimpleVPBot_Model_Reseller_Bot_Profile::ensure_webhook_secret( $r );
+		}
+		if ( '' === $sec ) {
+			return array( 'ok' => false, 'message' => __( 'Secret مسیر Webhook نماینده تنظیم نشده است.', 'simplevpbot' ) );
+		}
+		$url = SimpleVPBot_Settings::public_site_url() . '/wp-json/simplevpbot/v1/webhook/bale/reseller/' . $r . '/' . rawurlencode( $sec );
 		$c   = new SimpleVPBot_Bale_Client( $t );
 		$res = $c->set_webhook( array( 'url' => $url ) );
 		if ( empty( $res['ok'] ) ) {
@@ -746,13 +891,371 @@ class SimpleVPBot_Service_Admin_Ops {
 				++$deleted;
 			}
 		}
-		return array(
+		$ret = array(
 			'ok'   => empty( $failed ),
 			'data' => array(
 				'deleted' => $deleted,
 				'failed'  => $failed,
 			),
 			'message' => empty( $failed ) ? 'ok' : 'partial',
+		);
+		if ( ! empty( $ret['ok'] ) && class_exists( 'SimpleVPBot_Model_Panel_Inbound_Client' ) ) {
+			self::configs_sync_panel_to_db( $pid, true );
+		}
+		return $ret;
+	}
+
+	/**
+	 * Xray plan rows for panel (dashboard configs scope).
+	 *
+	 * @param int $panel_id Panel id.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function configs_xray_plan_rows( $panel_id ) {
+		global $wpdb;
+		$t_plans = SimpleVPBot_Model_Plan::table();
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$plan_rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT * FROM {$t_plans} WHERE panel_id = %d AND service_type = %s AND inbound_id > 0 ORDER BY sort_order ASC, id ASC",
+				(int) $panel_id,
+				'xray'
+			),
+			ARRAY_A
+		);
+		return is_array( $plan_rows ) ? $plan_rows : array();
+	}
+
+	/**
+	 * Distinct inbound ids referenced by Xray plans on this panel.
+	 *
+	 * @param array<int, array<string, mixed>> $plan_rows Plan rows.
+	 * @return array<int, int> Sorted inbound ids.
+	 */
+	private static function configs_plan_inbound_ids( array $plan_rows ) {
+		$ids = array();
+		foreach ( $plan_rows as $prow ) {
+			$plan_arr = null;
+			$j        = wp_json_encode( $prow );
+			if ( false !== $j ) {
+				/** @var array<string, mixed>|null $dec */
+				$dec = json_decode( $j, true );
+				$plan_arr = is_array( $dec ) ? $dec : null;
+			}
+			if ( null === $plan_arr ) {
+				continue;
+			}
+			$iid = (int) ( $plan_arr['inbound_id'] ?? 0 );
+			if ( $iid > 0 ) {
+				$ids[ $iid ] = $iid;
+			}
+		}
+		$out = array_values( $ids );
+		sort( $out );
+		return $out;
+	}
+
+	/**
+	 * Sync inbound client cache from panel (caller must be inside run_with_panel after login).
+	 *
+	 * @param int        $panel_id          svp_panels.id.
+	 * @param array<int> $only_inbound_ids  Empty = all plan inbounds; else subset (filtered to plan scope).
+	 * @return array{ok:bool, message?:string, data?:array<string,mixed>}
+	 */
+	private static function configs_sync_inbounds_logged_in( $panel_id, array $only_inbound_ids ) {
+		$pid = (int) $panel_id;
+		if ( $pid < 1 || ! class_exists( 'SimpleVPBot_Model_Panel_Inbound_Client' ) || ! class_exists( 'SimpleVPBot_Model_Panel_Inbound_Api' ) ) {
+			return array( 'ok' => false, 'message' => 'no_cache_models' );
+		}
+		$plan_rows = self::configs_xray_plan_rows( $pid );
+		$allowed   = self::configs_plan_inbound_ids( $plan_rows );
+		if ( empty( $allowed ) ) {
+			return array(
+				'ok'   => true,
+				'data' => array(
+					'synced_inbounds' => 0,
+					'rows'            => 0,
+					'truncated'       => false,
+				),
+			);
+		}
+		if ( empty( $only_inbound_ids ) ) {
+			$targets = $allowed;
+		} else {
+			$want    = array_map( 'intval', $only_inbound_ids );
+			$targets = array_values( array_intersect( $want, $allowed ) );
+		}
+		if ( empty( $targets ) ) {
+			return array(
+				'ok'   => true,
+				'data' => array(
+					'synced_inbounds' => 0,
+					'rows'            => 0,
+					'truncated'       => false,
+				),
+			);
+		}
+		$on_raw        = SimpleVPBot_Xui_Client::onlines();
+		$online_emails = self::xui_onlines_email_list( $on_raw );
+		$online_set    = array();
+		foreach ( $online_emails as $em ) {
+			$online_set[ $em ] = true;
+		}
+		$const_max_per_inbound = 500;
+		$truncated             = false;
+		$row_total             = 0;
+		foreach ( $targets as $iid ) {
+			$inb = SimpleVPBot_Xui_Client::inbound_get( $iid );
+			if ( ! $inb ) {
+				SimpleVPBot_Model_Panel_Inbound_Api::delete_inbound( $pid, $iid );
+				SimpleVPBot_Model_Panel_Inbound_Client::replace_inbound_batch( $pid, $iid, '', 'tcp', 0, array() );
+				continue;
+			}
+			$inb_flags = JSON_UNESCAPED_UNICODE;
+			if ( defined( 'JSON_INVALID_UTF8_SUBSTITUTE' ) ) {
+				$inb_flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+			}
+			SimpleVPBot_Model_Panel_Inbound_Api::upsert( $pid, $iid, wp_json_encode( $inb, $inb_flags ) );
+			$settings   = isset( $inb['settings'] ) ? $inb['settings'] : '';
+			$dec_in     = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
+			$inb_remark = (string) ( $inb['remark'] ?? '' );
+			$db_rows    = array();
+			if ( is_array( $dec_in ) && ! empty( $dec_in['clients'] ) && is_array( $dec_in['clients'] ) ) {
+				foreach ( $dec_in['clients'] as $c ) {
+					if ( count( $db_rows ) >= $const_max_per_inbound ) {
+						$truncated = true;
+						break;
+					}
+					if ( ! is_array( $c ) || empty( $c['email'] ) ) {
+						continue;
+					}
+					$email_raw = (string) $c['email'];
+					$email     = trim( $email_raw );
+					if ( '' === $email ) {
+						continue;
+					}
+					$tr          = SimpleVPBot_Xui_Client::get_client_traffics( $email );
+					$obj         = is_array( $tr ) && isset( $tr['obj'] ) && is_array( $tr['obj'] ) ? $tr['obj'] : array();
+					$used_bytes  = (float) ( $obj['up'] ?? 0 ) + (float) ( $obj['down'] ?? 0 );
+					$api_total   = isset( $obj['total'] ) && is_numeric( $obj['total'] ) ? (int) $obj['total'] : 0;
+					$from_json   = SimpleVPBot_Inbound_Linker::totalgb_to_bytes( $c['totalGB'] ?? 0 );
+					$limit_bytes = ( $api_total > 0 )
+						? SimpleVPBot_Inbound_Linker::cap_traffic_bytes( $api_total )
+						: (int) $from_json;
+					$total_gb    = $limit_bytes > 0 ? (int) round( $limit_bytes / 1073741824 ) : 0;
+					$comment_keys = array( 'comment', 'remark', 'memo', 'note', 'desc' );
+					$comment_val  = '';
+					foreach ( $comment_keys as $ck ) {
+						if ( isset( $c[ $ck ] ) && '' !== trim( (string) $c[ $ck ] ) ) {
+							$comment_val = trim( (string) $c[ $ck ] );
+							break;
+						}
+					}
+					if ( '' === $comment_val && '' !== $inb_remark ) {
+						$comment_val = $inb_remark;
+					}
+					$ips = self::xui_client_ip_list_for_email( $email );
+					$db_rows[] = array(
+						'email'           => $email,
+						'xui_client_id'   => (string) ( $c['id'] ?? '' ),
+						'remark'          => (string) ( $c['remark'] ?? '' ),
+						'comment'         => $comment_val,
+						'tg_id'           => (string) ( $c['tgId'] ?? '' ),
+						'sub_id'          => (string) ( $c['subId'] ?? '' ),
+						'enable'          => isset( $c['enable'] ) ? ( $c['enable'] ? 1 : 0 ) : 1,
+						'total_gb'        => (int) $total_gb,
+						'expiry_ms'       => isset( $c['expiryTime'] ) ? (int) $c['expiryTime'] : 0,
+						'used_bytes'      => (int) round( $used_bytes ),
+						'limit_bytes'     => (int) $limit_bytes,
+						'is_online'       => isset( $online_set[ $email ] ) ? 1 : 0,
+						'client_ips_json' => wp_json_encode( $ips, JSON_UNESCAPED_UNICODE ),
+						'client_json'     => wp_json_encode( $c, $inb_flags ),
+					);
+				}
+			}
+			$row_total += count( $db_rows );
+			SimpleVPBot_Model_Panel_Inbound_Client::replace_inbound_batch(
+				$pid,
+				$iid,
+				$inb_remark,
+				strtolower( (string) ( $inb['protocol'] ?? '' ) ),
+				(int) ( $inb['port'] ?? 0 ),
+				$db_rows
+			);
+		}
+		return array(
+			'ok'   => true,
+			'data' => array(
+				'synced_inbounds' => count( $targets ),
+				'rows'            => $row_total,
+				'truncated'       => $truncated,
+			),
+		);
+	}
+
+	/**
+	 * Full panel configs cache sync (optional lock / throttle for cron).
+	 *
+	 * @param int  $panel_id svp_panels.id.
+	 * @param bool $force    Bypass lock and recent-sync skip.
+	 * @return array{ok:bool, message?:string, data?:array<string,mixed>}
+	 */
+	public static function configs_sync_panel_to_db( $panel_id, $force = false ) {
+		$pid = (int) $panel_id;
+		if ( $pid < 1 ) {
+			return array( 'ok' => false, 'message' => 'bad_params' );
+		}
+		if ( ! class_exists( 'SimpleVPBot_Model_Panel' ) || ! SimpleVPBot_Model_Panel::find( $pid ) ) {
+			return array( 'ok' => false, 'message' => __( 'پنل یافت نشد.', 'simplevpbot' ) );
+		}
+		if ( ! class_exists( 'SimpleVPBot_Model_Panel_Inbound_Client' ) ) {
+			return array( 'ok' => false, 'message' => 'no_cache_models' );
+		}
+		$lock_key = self::CONFIGS_SYNC_LOCK . $pid;
+		if ( get_transient( $lock_key ) && ! $force ) {
+			return array(
+				'ok'   => true,
+				'data' => array(
+					'skipped' => true,
+					'reason'  => 'locked',
+				),
+			);
+		}
+		if ( ! $force ) {
+			$last = (int) get_transient( 'svp_cfgsync_done_' . $pid );
+			if ( $last > 0 && ( time() - $last ) < 15 * MINUTE_IN_SECONDS ) {
+				return array(
+					'ok'   => true,
+					'data' => array(
+						'skipped' => true,
+						'reason'  => 'recent',
+					),
+				);
+			}
+		}
+		set_transient( $lock_key, time(), 10 * MINUTE_IN_SECONDS );
+		$inner = SimpleVPBot_Xui_Client::run_with_panel(
+			$pid,
+			function () use ( $pid ) {
+				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
+					return array( 'ok' => false, 'message' => __( 'ورود پنل ناموفق.', 'simplevpbot' ) );
+				}
+				return self::configs_sync_inbounds_logged_in( $pid, array() );
+			}
+		);
+		delete_transient( $lock_key );
+		if ( ! empty( $inner['ok'] ) ) {
+			set_transient( 'svp_cfgsync_done_' . $pid, time(), DAY_IN_SECONDS );
+		}
+		return is_array( $inner ) ? $inner : array( 'ok' => false, 'message' => 'unknown' );
+	}
+
+	/**
+	 * Refresh cache for specific inbounds after a mutation (best-effort).
+	 *
+	 * @param int        $panel_id     Panel id.
+	 * @param array<int> $inbound_ids  Inbound ids (may be empty = no-op).
+	 */
+	public static function configs_sync_inbounds_after_mutation( $panel_id, array $inbound_ids ) {
+		$pid = (int) $panel_id;
+		if ( $pid < 1 || empty( $inbound_ids ) || ! class_exists( 'SimpleVPBot_Model_Panel_Inbound_Client' ) ) {
+			return;
+		}
+		SimpleVPBot_Xui_Client::run_with_panel(
+			$pid,
+			function () use ( $pid, $inbound_ids ) {
+				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
+					return null;
+				}
+				self::configs_sync_inbounds_logged_in( $pid, $inbound_ids );
+				return null;
+			}
+		);
+	}
+
+	/**
+	 * Build one UI client row from DB cache + optional inbound JSON blob.
+	 *
+	 * @param int                     $panel_id Panel id.
+	 * @param int                     $inbound_id Inbound id.
+	 * @param object                  $row      DB row object.
+	 * @param array<string, mixed>    $inb      Inbound array or empty.
+	 * @return array<string, mixed>|null
+	 */
+	private static function configs_ui_client_from_cache_row( $panel_id, $inbound_id, $row, array $inb ) {
+		$pid = (int) $panel_id;
+		$iid = (int) $inbound_id;
+		$em  = trim( (string) ( $row->email ?? '' ) );
+		if ( '' === $em ) {
+			return null;
+		}
+		$c = null;
+		if ( ! empty( $row->client_json ) ) {
+			$tmp = json_decode( (string) $row->client_json, true );
+			$c   = is_array( $tmp ) ? $tmp : null;
+		}
+		if ( ! is_array( $c ) ) {
+			$c = array(
+				'email'      => $em,
+				'id'         => (string) ( $row->xui_client_id ?? '' ),
+				'remark'     => (string) ( $row->remark ?? '' ),
+				'tgId'       => (string) ( $row->tg_id ?? '' ),
+				'subId'      => (string) ( $row->sub_id ?? '' ),
+				'enable'     => ! empty( $row->enable ),
+				'totalGB'    => SimpleVPBot_Inbound_Linker::panel_client_totalgb_json_value( (int) ( $row->limit_bytes ?? 0 ) ),
+				'expiryTime' => (int) ( $row->expiry_ms ?? 0 ),
+			);
+		}
+		$svc_panel = $pid > 0 ? $pid : 1;
+		$svc       = SimpleVPBot_Model_Service::find_by_inbound_email( $iid, $em, $svc_panel );
+		$u         = $svc ? SimpleVPBot_Model_User::find( (int) $svc->user_id ) : null;
+		$comment_val = (string) ( $row->comment ?? '' );
+		$inb_remark  = (string) ( $row->inbound_remark ?? '' );
+		if ( '' === $comment_val && '' !== $inb_remark ) {
+			$comment_val = $inb_remark;
+		}
+		$remark_for_link = '' !== $comment_val ? $comment_val : $em;
+		$sub_id          = (string) ( $row->sub_id ?? '' );
+		$subscription_url = '' !== $sub_id
+			? SimpleVPBot_Config_Link::subscription_url( $sub_id, $pid )
+			: '';
+		$primary_uri = ! empty( $inb )
+			? SimpleVPBot_Config_Link::build( $inb, $c, $remark_for_link, $pid )
+			: '';
+		$ips_raw = isset( $row->client_ips_json ) ? (string) $row->client_ips_json : '';
+		$ips_dec = json_decode( $ips_raw, true );
+		$client_ips = is_array( $ips_dec ) ? $ips_dec : array();
+		$first_usage = 0;
+		foreach ( array( 'firstUsage', 'startAfterFirstUse', 'start_after_first_use' ) as $fuk ) {
+			if ( isset( $c[ $fuk ] ) ) {
+				$first_usage = ! empty( $c[ $fuk ] ) ? 1 : 0;
+				break;
+			}
+		}
+		return array(
+			'email'               => $em,
+			'id'                  => (string) ( $c['id'] ?? ( $row->xui_client_id ?? '' ) ),
+			'remark'              => (string) ( $c['remark'] ?? $row->remark ?? '' ),
+			'comment'             => $comment_val,
+			'limit_ip'            => (int) ( $c['limitIp'] ?? 0 ),
+			'first_usage'         => $first_usage,
+			'tg_id'               => (string) ( $c['tgId'] ?? $row->tg_id ?? '' ),
+			'sub_id'              => $sub_id,
+			'enable'              => ! empty( $row->enable ) ? 1 : 0,
+			'total_gb'            => (int) ( $row->total_gb ?? 0 ),
+			'expiry_ms'           => (int) ( $row->expiry_ms ?? 0 ),
+			'linked_service_id'   => $svc ? (int) $svc->id : 0,
+			'linked_user_id'      => $u ? (int) $u->id : 0,
+			'linked_user_label'   => $u ? SimpleVPBot_Model_User::label( $u ) : '',
+			'is_linked'           => $u ? 1 : 0,
+			'provision_type'      => $svc ? (string) ( $svc->provision_type ?? 'plan' ) : '',
+			'used_bytes'          => (int) ( $row->used_bytes ?? 0 ),
+			'limit_bytes'         => (int) ( $row->limit_bytes ?? 0 ),
+			'is_online'           => ! empty( $row->is_online ) ? 1 : 0,
+			'subscription_url'    => $subscription_url,
+			'primary_config_uri'  => $primary_uri,
+			'service_expires_at'  => $svc && ! empty( $svc->expires_at ) ? (string) $svc->expires_at : '',
+			'client_ips'          => $client_ips,
 		);
 	}
 
@@ -770,20 +1273,11 @@ class SimpleVPBot_Service_Admin_Ops {
 		if ( ! class_exists( 'SimpleVPBot_Model_Panel' ) || ! SimpleVPBot_Model_Panel::find( $pid ) ) {
 			return array( 'ok' => false, 'message' => __( 'پنل یافت نشد.', 'simplevpbot' ) );
 		}
-		global $wpdb;
-		$t_plans = SimpleVPBot_Model_Plan::table();
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$plan_rows = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT * FROM {$t_plans} WHERE panel_id = %d AND service_type = %s AND inbound_id > 0 ORDER BY sort_order ASC, id ASC",
-				$pid,
-				'xray'
-			),
-			ARRAY_A
-		);
-		if ( ! is_array( $plan_rows ) ) {
-			$plan_rows = array();
+		if ( ! class_exists( 'SimpleVPBot_Model_Panel_Inbound_Client' ) || ! class_exists( 'SimpleVPBot_Model_Panel_Inbound_Api' ) ) {
+			return array( 'ok' => false, 'message' => 'no_cache_models' );
 		}
+
+		$plan_rows = self::configs_xray_plan_rows( $pid );
 
 		$default_svp_user_id = 0;
 		if ( class_exists( 'SimpleVPBot_Model_User' ) ) {
@@ -795,170 +1289,108 @@ class SimpleVPBot_Service_Admin_Ops {
 
 		$expired_ids = self::expired_linked_service_ids( $pid, 50 );
 
-		$const_max_per_inbound = 500;
-		$truncated             = false;
-
-		$inner = SimpleVPBot_Xui_Client::run_with_panel(
-			$pid,
-			function () use ( $pid, $plan_rows, $const_max_per_inbound, &$truncated ) {
-				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
-					return array( 'ok' => false, 'message' => __( 'ورود پنل ناموفق.', 'simplevpbot' ) );
-				}
-				$on_raw        = SimpleVPBot_Xui_Client::onlines();
-				$online_emails = self::xui_onlines_email_list( $on_raw );
-				$online_set    = array();
-				foreach ( $online_emails as $em ) {
-					$online_set[ $em ] = true;
-				}
-
-				$inbound_cache  = array();
-				$clients_cache  = array();
-				$plans_out      = array();
-				$svc_panel      = $pid > 0 ? $pid : 1;
-
-				foreach ( $plan_rows as $prow ) {
-					$plan_arr = null;
-					$j        = wp_json_encode( $prow );
-					if ( false !== $j ) {
-						/** @var array<string, mixed>|null $dec */
-						$dec = json_decode( $j, true );
-						$plan_arr = is_array( $dec ) ? $dec : null;
-					}
-					if ( null === $plan_arr ) {
-						continue;
-					}
-					$iid = (int) ( $plan_arr['inbound_id'] ?? 0 );
-					if ( $iid < 1 ) {
-						continue;
-					}
-
-					if ( ! isset( $clients_cache[ $iid ] ) ) {
-						if ( ! isset( $inbound_cache[ $iid ] ) ) {
-							$inbound_cache[ $iid ] = SimpleVPBot_Xui_Client::inbound_get( $iid );
-						}
-						$inb = $inbound_cache[ $iid ];
-						if ( ! $inb ) {
-							$clients_cache[ $iid ] = array();
-							continue;
-						}
-						$settings   = isset( $inb['settings'] ) ? $inb['settings'] : '';
-						$dec_in     = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
-						$inb_remark = (string) ( $inb['remark'] ?? '' );
-						$list       = array();
-						if ( is_array( $dec_in ) && ! empty( $dec_in['clients'] ) && is_array( $dec_in['clients'] ) ) {
-							foreach ( $dec_in['clients'] as $c ) {
-								if ( count( $list ) >= $const_max_per_inbound ) {
-									$truncated = true;
-									break;
-								}
-								if ( ! is_array( $c ) || empty( $c['email'] ) ) {
-									continue;
-								}
-								$email_raw = (string) $c['email'];
-								$email     = trim( $email_raw );
-								if ( '' === $email ) {
-									continue;
-								}
-								$svc = SimpleVPBot_Model_Service::find_by_inbound_email( $iid, $email, $svc_panel );
-								$u   = $svc ? SimpleVPBot_Model_User::find( (int) $svc->user_id ) : null;
-
-								$tr        = SimpleVPBot_Xui_Client::get_client_traffics( $email );
-								$obj       = is_array( $tr ) && isset( $tr['obj'] ) && is_array( $tr['obj'] ) ? $tr['obj'] : array();
-								$used_bytes = (float) ( $obj['up'] ?? 0 ) + (float) ( $obj['down'] ?? 0 );
-								$api_total  = isset( $obj['total'] ) && is_numeric( $obj['total'] ) ? (int) $obj['total'] : 0;
-								$from_json  = SimpleVPBot_Inbound_Linker::totalgb_to_bytes( $c['totalGB'] ?? 0 );
-								$limit_bytes = ( $api_total > 0 )
-									? SimpleVPBot_Inbound_Linker::cap_traffic_bytes( $api_total )
-									: (int) $from_json;
-
-								$total_gb = $limit_bytes > 0 ? (int) round( $limit_bytes / 1073741824 ) : 0;
-
-								$comment_keys = array( 'comment', 'remark', 'memo', 'note', 'desc' );
-								$comment_val  = '';
-								foreach ( $comment_keys as $ck ) {
-									if ( isset( $c[ $ck ] ) && '' !== trim( (string) $c[ $ck ] ) ) {
-										$comment_val = trim( (string) $c[ $ck ] );
-										break;
-									}
-								}
-								if ( '' === $comment_val && '' !== $inb_remark ) {
-									$comment_val = $inb_remark;
-								}
-								$remark_for_link = '' !== $comment_val ? $comment_val : $email;
-
-								$linked_sid = $svc ? (int) $svc->id : 0;
-								$linked_uid = $u ? (int) $u->id : 0;
-								$sub_id     = (string) ( $c['subId'] ?? '' );
-								$exp_ms     = isset( $c['expiryTime'] ) ? (int) $c['expiryTime'] : 0;
-
-								$subscription_url = '' !== $sub_id
-									? SimpleVPBot_Config_Link::subscription_url( $sub_id, $pid )
-									: '';
-								$primary_uri = SimpleVPBot_Config_Link::build( $inb, $c, $remark_for_link, $pid );
-
-								$list[] = array(
-									'email'               => $email,
-									'id'                  => (string) ( $c['id'] ?? '' ),
-									'remark'              => (string) ( $c['remark'] ?? '' ),
-									'comment'             => $comment_val,
-									'tg_id'               => (string) ( $c['tgId'] ?? '' ),
-									'sub_id'              => $sub_id,
-									'enable'              => isset( $c['enable'] ) ? ( $c['enable'] ? 1 : 0 ) : 1,
-									'total_gb'            => (int) $total_gb,
-									'expiry_ms'           => (int) $exp_ms,
-									'linked_service_id'   => $linked_sid,
-									'linked_user_id'      => $linked_uid,
-									'linked_user_label'   => $u ? SimpleVPBot_Model_User::label( $u ) : '',
-									'is_linked'           => $linked_uid > 0 ? 1 : 0,
-									'provision_type'      => $svc ? (string) ( $svc->provision_type ?? 'plan' ) : '',
-									'used_bytes'          => (int) round( $used_bytes ),
-									'limit_bytes'         => (int) $limit_bytes,
-									'is_online'          => isset( $online_set[ $email ] ) ? 1 : 0,
-									'subscription_url'    => $subscription_url,
-									'primary_config_uri'  => $primary_uri,
-									'service_expires_at'  => $svc && ! empty( $svc->expires_at ) ? (string) $svc->expires_at : '',
-									'client_ips'          => self::xui_client_ip_list_for_email( $email ),
-								);
-							}
-						}
-						$clients_cache[ $iid ] = array(
-							'clients'      => $list,
-							'inb_remark'   => $inb_remark,
-							'protocol'     => strtolower( (string) ( $inb['protocol'] ?? '' ) ),
-							'port'         => (int) ( $inb['port'] ?? 0 ),
-						);
-					}
-
-					$pack         = $clients_cache[ $iid ];
-					$plans_out[] = array(
-						'plan'           => $plan_arr,
-						'inbound_id'     => $iid,
-						'inbound_remark' => (string) ( $pack['inb_remark'] ?? '' ),
-						'protocol'       => (string) ( $pack['protocol'] ?? '' ),
-						'port'           => (int) ( $pack['port'] ?? 0 ),
-						'clients'        => isset( $pack['clients'] ) && is_array( $pack['clients'] ) ? $pack['clients'] : array(),
-					);
-				}
-
-				return array(
-					'ok'   => true,
-					'data' => array(
-						'panel_id'  => $pid,
-						'plans'     => $plans_out,
-						'truncated' => $truncated ? 1 : 0,
-						'max_clients_per_inbound' => $const_max_per_inbound,
-					),
-				);
+		$needs_sync = false;
+		$cnt        = SimpleVPBot_Model_Panel_Inbound_Client::count_for_panel( $pid );
+		if ( $cnt < 1 ) {
+			$needs_sync = true;
+			$sz         = self::configs_sync_panel_to_db( $pid, true );
+			if ( empty( $sz['ok'] ) ) {
+				return is_array( $sz ) ? $sz : array( 'ok' => false, 'message' => 'sync_failed' );
 			}
-		);
-
-		if ( empty( $inner['ok'] ) || ! is_array( $inner['data'] ) ) {
-			return is_array( $inner ) ? $inner : array( 'ok' => false, 'message' => 'unknown' );
 		}
-		$inner['data']['default_svp_user_id']          = $default_svp_user_id;
-		$inner['data']['expired_linked_service_ids']   = $expired_ids;
-		$inner['data']['expired_linked_batch_count']   = count( $expired_ids );
-		return $inner;
+
+		$max_at = SimpleVPBot_Model_Panel_Inbound_Client::max_synced_at_for_panel( $pid );
+		$cache_ts = 0;
+		if ( is_string( $max_at ) && '' !== $max_at ) {
+			$cache_ts = (int) mysql2date( 'U', $max_at, true );
+		}
+		$now   = time();
+		$stale = ( $cache_ts < 1 ) || ( ( $now - $cache_ts ) > self::CONFIGS_CACHE_STALE_AFTER );
+
+		$inbound_map = SimpleVPBot_Model_Panel_Inbound_Api::inbound_map_for_panel( $pid );
+		$db_rows     = SimpleVPBot_Model_Panel_Inbound_Client::rows_for_panel( $pid );
+		$by_inbound  = array();
+		foreach ( $db_rows as $row ) {
+			if ( ! is_object( $row ) ) {
+				continue;
+			}
+			$iid = (int) $row->inbound_id;
+			if ( $iid < 1 ) {
+				continue;
+			}
+			if ( ! isset( $by_inbound[ $iid ] ) ) {
+				$by_inbound[ $iid ] = array();
+			}
+			$by_inbound[ $iid ][] = $row;
+		}
+
+		$const_max = 500;
+		$plans_out = array();
+		foreach ( $plan_rows as $prow ) {
+			$plan_arr = null;
+			$j        = wp_json_encode( $prow );
+			if ( false !== $j ) {
+				/** @var array<string, mixed>|null $dec */
+				$dec = json_decode( $j, true );
+				$plan_arr = is_array( $dec ) ? $dec : null;
+			}
+			if ( null === $plan_arr ) {
+				continue;
+			}
+			$iid = (int) ( $plan_arr['inbound_id'] ?? 0 );
+			if ( $iid < 1 ) {
+				continue;
+			}
+			$inb = isset( $inbound_map[ $iid ] ) && is_array( $inbound_map[ $iid ] ) ? $inbound_map[ $iid ] : array();
+			$list = array();
+			if ( isset( $by_inbound[ $iid ] ) ) {
+				foreach ( $by_inbound[ $iid ] as $row ) {
+					$item = self::configs_ui_client_from_cache_row( $pid, $iid, $row, $inb );
+					if ( is_array( $item ) ) {
+						$list[] = $item;
+					}
+				}
+			}
+			$pack_inb_remark = is_array( $inb ) ? (string) ( $inb['remark'] ?? '' ) : '';
+			$protocol        = is_array( $inb ) ? strtolower( (string) ( $inb['protocol'] ?? '' ) ) : '';
+			$port            = is_array( $inb ) ? (int) ( $inb['port'] ?? 0 ) : 0;
+			if ( isset( $by_inbound[ $iid ][0] ) && is_object( $by_inbound[ $iid ][0] ) ) {
+				$r0 = $by_inbound[ $iid ][0];
+				if ( '' === $pack_inb_remark ) {
+					$pack_inb_remark = (string) ( $r0->inbound_remark ?? '' );
+				}
+				if ( '' === $protocol ) {
+					$protocol = strtolower( (string) ( $r0->protocol ?? '' ) );
+				}
+				if ( $port < 1 ) {
+					$port = (int) ( $r0->port ?? 0 );
+				}
+			}
+			$plans_out[] = array(
+				'plan'           => $plan_arr,
+				'inbound_id'     => $iid,
+				'inbound_remark' => $pack_inb_remark,
+				'protocol'       => $protocol,
+				'port'           => $port,
+				'clients'        => $list,
+			);
+		}
+
+		return array(
+			'ok'   => true,
+			'data' => array(
+				'panel_id'                    => $pid,
+				'plans'                       => $plans_out,
+				'truncated'                   => 0,
+				'max_clients_per_inbound'     => $const_max,
+				'default_svp_user_id'       => $default_svp_user_id,
+				'expired_linked_service_ids'  => $expired_ids,
+				'expired_linked_batch_count'  => count( $expired_ids ),
+				'cache_synced_at'             => is_string( $max_at ) && '' !== $max_at ? $max_at : null,
+				'cache_stale'                 => $stale,
+				'needs_sync'                  => $needs_sync,
+			),
+		);
 	}
 
 	/**
@@ -1047,6 +1479,9 @@ class SimpleVPBot_Service_Admin_Ops {
 				return self::configs_apply_enable_logged_in( $pid, $iid, $em, $en );
 			}
 		);
+		if ( is_array( $out ) && ! empty( $out['ok'] ) ) {
+			self::configs_sync_inbounds_after_mutation( $pid, array( $iid ) );
+		}
 		return is_array( $out ) ? $out : array( 'ok' => false, 'message' => 'unknown' );
 	}
 
@@ -1078,6 +1513,9 @@ class SimpleVPBot_Service_Admin_Ops {
 				return array( 'ok' => true );
 			}
 		);
+		if ( is_array( $out ) && ! empty( $out['ok'] ) ) {
+			self::configs_sync_inbounds_after_mutation( $pid, array( $iid ) );
+		}
 		return is_array( $out ) ? $out : array( 'ok' => false, 'message' => 'unknown' );
 	}
 
@@ -1164,6 +1602,13 @@ class SimpleVPBot_Service_Admin_Ops {
 				);
 			}
 		);
+		if ( is_array( $out ) && ( ! empty( $out['ok'] ) || ( isset( $out['data']['succeeded'] ) && (int) $out['data']['succeeded'] > 0 ) ) ) {
+			$iids = array();
+			foreach ( $rows as $row ) {
+				$iids[ (int) $row['inbound_id'] ] = true;
+			}
+			self::configs_sync_inbounds_after_mutation( $pid, array_map( 'intval', array_keys( $iids ) ) );
+		}
 		return is_array( $out ) ? $out : array( 'ok' => false, 'message' => 'unknown' );
 	}
 
@@ -1173,7 +1618,7 @@ class SimpleVPBot_Service_Admin_Ops {
 	 * @param int                  $panel_id   svp_panels.id.
 	 * @param int                  $inbound_id Inbound id.
 	 * @param string               $email      Client email tag.
-	 * @param array<string, mixed> $patch      Keys: expiry_ms (int), total_gb (int display GB, 0 unlimited), client_remark (string).
+	 * @param array<string, mixed> $patch      Keys: expiry_ms, total_gb, client_remark, limit_ip, client_comment, start_after_first_use.
 	 * @return array{ok:bool, message?:string}
 	 */
 	public static function configs_panel_client_patch( $panel_id, $inbound_id, $email, array $patch ) {
@@ -1213,6 +1658,28 @@ class SimpleVPBot_Service_Admin_Ops {
 						if ( array_key_exists( 'client_remark', $patch ) ) {
 							$updated['remark'] = (string) $patch['client_remark'];
 						}
+						if ( array_key_exists( 'limit_ip', $patch ) ) {
+							$lip = (int) $patch['limit_ip'];
+							if ( $lip >= 0 ) {
+								$updated['limitIp'] = $lip;
+							}
+						}
+						if ( array_key_exists( 'client_comment', $patch ) ) {
+							$updated['comment'] = sanitize_text_field( (string) $patch['client_comment'] );
+						}
+						if ( array_key_exists( 'start_after_first_use', $patch ) ) {
+							$v       = ! empty( $patch['start_after_first_use'] );
+							$touched = false;
+							foreach ( array( 'firstUsage', 'startAfterFirstUse', 'start_after_first_use' ) as $fuk ) {
+								if ( array_key_exists( $fuk, $updated ) ) {
+									$updated[ $fuk ] = $v;
+									$touched       = true;
+								}
+							}
+							if ( ! $touched ) {
+								$updated['firstUsage'] = $v;
+							}
+						}
 						break;
 					}
 				}
@@ -1244,6 +1711,9 @@ class SimpleVPBot_Service_Admin_Ops {
 				return array( 'ok' => true );
 			}
 		);
+		if ( is_array( $out ) && ! empty( $out['ok'] ) ) {
+			self::configs_sync_inbounds_after_mutation( $pid, array( $iid ) );
+		}
 		return is_array( $out ) ? $out : array( 'ok' => false, 'message' => 'unknown' );
 	}
 
@@ -1269,7 +1739,11 @@ class SimpleVPBot_Service_Admin_Ops {
 			if ( ! $svc || (int) $svc->panel_id !== $pid || (int) $svc->inbound_id !== $iid || (string) $svc->email !== $em ) {
 				return array( 'ok' => false, 'message' => __( 'سرویس با این مشخصات هم‌خوان نیست.', 'simplevpbot' ) );
 			}
-			return SimpleVPBot_Service_Dashboard_Panel::xray_delete_panel_client( $ls );
+			$del = SimpleVPBot_Service_Dashboard_Panel::xray_delete_panel_client( $ls );
+			if ( ! empty( $del['ok'] ) ) {
+				self::configs_sync_inbounds_after_mutation( $pid, array( $iid ) );
+			}
+			return $del;
 		}
 		$chk = SimpleVPBot_Model_Service::find_by_inbound_email( $iid, $em, $pid );
 		if ( $chk ) {
@@ -1303,6 +1777,7 @@ class SimpleVPBot_Service_Admin_Ops {
 			return array( 'ok' => false, 'message' => 'unknown' );
 		}
 		if ( ! empty( $out['ok'] ) ) {
+			self::configs_sync_inbounds_after_mutation( $pid, array( $iid ) );
 			return array( 'ok' => true );
 		}
 		return array(

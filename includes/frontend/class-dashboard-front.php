@@ -29,8 +29,8 @@ class SimpleVPBot_Dashboard_Front {
 	 */
 	public static function maybe_flush_rewrite() {
 		$v = (int) get_option( 'simplevpbot_svp_dashboard_rw', 0 );
-		if ( $v < 2 ) {
-			update_option( 'simplevpbot_svp_dashboard_rw', 2 );
+		if ( $v < 3 ) {
+			update_option( 'simplevpbot_svp_dashboard_rw', 3 );
 			flush_rewrite_rules( false );
 		}
 	}
@@ -54,74 +54,132 @@ class SimpleVPBot_Dashboard_Front {
 	}
 
 	/**
+	 * Whether dash path starts with login (guest SPA shell).
+	 *
+	 * @param string $dash_path Normalized dash path.
+	 * @return bool
+	 */
+	private static function is_login_dash_path( $dash_path ) {
+		$s = trim( str_replace( '\\', '/', (string) $dash_path ), '/' );
+		if ( '' === $s ) {
+			return false;
+		}
+		$parts = explode( '/', $s );
+		return isset( $parts[0] ) && 'login' === $parts[0];
+	}
+
+	/**
 	 * Serve standalone HTML shell for the React app.
 	 */
 	public static function render_page() {
 		if ( 1 !== (int) get_query_var( 'svp_dashboard' ) ) {
 			return;
 		}
-		if ( ! is_user_logged_in() ) {
-			wp_safe_redirect( wp_login_url( home_url( '/dashboard/' ) ) );
-			exit;
-		}
 		if ( ! function_exists( 'status_header' ) ) {
 			return;
 		}
+
+		$dash_path = get_query_var( 'svp_dash_path' );
+		$dash_path = is_string( $dash_path ) ? trim( str_replace( '\\', '/', $dash_path ), '/' ) : '';
+		$is_login  = self::is_login_dash_path( $dash_path );
+
+		if ( ! is_user_logged_in() ) {
+			if ( ! $is_login ) {
+				$scheme = is_ssl() ? 'https://' : 'http://';
+				$host   = isset( $_SERVER['HTTP_HOST'] ) ? sanitize_text_field( wp_unslash( (string) $_SERVER['HTTP_HOST'] ) ) : parse_url( home_url(), PHP_URL_HOST );
+				$uri    = isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_unslash( $_SERVER['REQUEST_URI'] ) : '/dashboard/';
+				$wanted = $scheme . $host . $uri;
+				$validated = wp_validate_redirect( $wanted, home_url( '/dashboard/' ) );
+				$login_url = trailingslashit( home_url( '/dashboard/login' ) );
+				$go        = add_query_arg( array( 'redirect_to' => $validated ), $login_url );
+				wp_safe_redirect( $go );
+				exit;
+			}
+		} elseif ( $is_login ) {
+			$rt_raw = isset( $_GET['redirect_to'] ) ? wp_unslash( (string) $_GET['redirect_to'] ) : '';
+			$go     = wp_validate_redirect( $rt_raw, home_url( '/dashboard/' ) );
+			wp_safe_redirect( $go );
+			exit;
+		}
+
 		status_header( 200 );
 		nocache_headers();
-		// Defeat intermediaries and stale HTML shells; REST already uses `nocache` via the API.
 		header( 'Cache-Control: no-store, no-cache, must-revalidate, max-age=0' );
 		header( 'Pragma: no-cache' );
 		header( 'Content-Type: text/html; charset=' . get_bloginfo( 'charset' ) );
-
-		$user     = wp_get_current_user();
-		$is_admin = current_user_can( 'manage_options' );
-		$svp_uid  = 0;
-		if ( class_exists( 'SimpleVPBot_Model_User' ) ) {
-			$row = SimpleVPBot_Model_User::find_by_wp_user( (int) $user->ID );
-			if ( $row ) {
-				$svp_uid = (int) $row->id;
-			}
-		}
 
 		$locale = determine_locale();
 		$lang   = ( 0 === strpos( $locale, 'fa' ) ) ? 'fa' : 'en';
 		$rtl    = ( 'fa' === $lang );
 
 		$rest = esc_url_raw( rest_url( 'simplevpbot/v1' ) );
-		$dash_path = get_query_var( 'svp_dash_path' );
-		$dash_path = is_string( $dash_path ) ? trim( str_replace( '\\', '/', $dash_path ), '/' ) : '';
-		$tz = function_exists( 'wp_timezone_string' ) ? wp_timezone_string() : '';
-		$boot = array(
-			'restUrl'       => $rest,
-			'nonce'         => wp_create_nonce( 'wp_rest' ),
-			'locale'        => $locale,
-			'lang'          => $lang,
-			'isRtl'         => $rtl,
-			'isAdmin'       => $is_admin,
-			'svpUserId'     => $svp_uid,
-			'loginUrl'      => wp_login_url( home_url( '/dashboard/' ) ),
-			'dashboardUrl'  => home_url( '/dashboard/' ),
-			'logoutUrl'     => wp_logout_url( home_url( '/dashboard/' ) ),
-			'siteName'      => get_bloginfo( 'name' ),
-			'pluginUrl'     => SIMPLEVPBOT_PLUGIN_URL,
-			'dashPath'      => $dash_path,
-			'siteTimeZone'  => is_string( $tz ) ? $tz : '',
-		);
+		$tz   = function_exists( 'wp_timezone_string' ) ? wp_timezone_string() : '';
 
-		$base   = trailingslashit( SIMPLEVPBOT_PLUGIN_URL ) . 'assets/dashboard/dist/';
-		$js     = $base . 'assets/index.js';
-		$css    = $base . 'assets/index.css';
-		$js_file = SIMPLEVPBOT_PLUGIN_DIR . 'assets/dashboard/dist/assets/index.js';
-		$css_file = SIMPLEVPBOT_PLUGIN_DIR . 'assets/dashboard/dist/assets/index.css';
+		if ( ! is_user_logged_in() && $is_login ) {
+			$boot = array(
+				'restUrl'             => $rest,
+				'locale'              => $locale,
+				'lang'                => $lang,
+				'isRtl'               => $rtl,
+				'isLoggedIn'          => false,
+				'isAdmin'             => false,
+				'isReseller'          => false,
+				'svpUserId'           => 0,
+				'loginNonce'          => wp_create_nonce( 'simplevpbot_dash_login' ),
+				'dashboardUrl'        => home_url( '/dashboard/' ),
+				'dashboardLoginUrl'   => trailingslashit( home_url( '/dashboard/login' ) ),
+				'logoutUrl'           => wp_logout_url( home_url( '/dashboard/' ) ),
+				'siteName'            => get_bloginfo( 'name' ),
+				'pluginUrl'           => SIMPLEVPBOT_PLUGIN_URL,
+				'dashPath'            => 'login',
+				'siteTimeZone'        => is_string( $tz ) ? $tz : '',
+			);
+		} else {
+			$user     = wp_get_current_user();
+			$is_admin = current_user_can( 'manage_options' );
+			$svp_uid  = 0;
+			$is_reseller = false;
+			if ( class_exists( 'SimpleVPBot_Model_User' ) ) {
+				$row = SimpleVPBot_Model_User::find_by_wp_user( (int) $user->ID );
+				if ( $row ) {
+					$svp_uid = (int) $row->id;
+					$is_reseller = ! $is_admin && SimpleVPBot_Model_User::is_reseller_row( $row );
+				}
+			}
+			$boot = array(
+				'restUrl'             => $rest,
+				'nonce'               => wp_create_nonce( 'wp_rest' ),
+				'locale'              => $locale,
+				'lang'                => $lang,
+				'isRtl'               => $rtl,
+				'isLoggedIn'          => true,
+				'isAdmin'             => $is_admin,
+				'isReseller'          => $is_reseller,
+				'svpUserId'           => $svp_uid,
+				'loginUrl'            => wp_login_url( home_url( '/dashboard/' ) ),
+				'dashboardUrl'        => home_url( '/dashboard/' ),
+				'dashboardLoginUrl'   => trailingslashit( home_url( '/dashboard/login' ) ),
+				'logoutUrl'           => wp_logout_url( home_url( '/dashboard/' ) ),
+				'siteName'            => get_bloginfo( 'name' ),
+				'pluginUrl'           => SIMPLEVPBOT_PLUGIN_URL,
+				'dashPath'            => $dash_path,
+				'siteTimeZone'        => is_string( $tz ) ? $tz : '',
+			);
+		}
+
+		$base      = trailingslashit( SIMPLEVPBOT_PLUGIN_URL ) . 'assets/dashboard/dist/';
+		$js        = $base . 'assets/index.js';
+		$css       = $base . 'assets/index.css';
+		$js_file   = SIMPLEVPBOT_PLUGIN_DIR . 'assets/dashboard/dist/assets/index.js';
+		$css_file  = SIMPLEVPBOT_PLUGIN_DIR . 'assets/dashboard/dist/assets/index.css';
 		$font_base = trailingslashit( SIMPLEVPBOT_PLUGIN_URL ) . 'assets/fonts/yekan-bakh/';
-		$v_raw  = SIMPLEVPBOT_VERSION;
+		$v_raw     = SIMPLEVPBOT_VERSION;
 		if ( is_readable( $js_file ) && is_readable( $css_file ) ) {
 			$v_raw = (string) max( (int) @filemtime( $js_file ), (int) @filemtime( $css_file ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
-		$v      = rawurlencode( $v_raw );
+		$v       = rawurlencode( $v_raw );
 		$charset = get_bloginfo( 'charset' );
-		$title   = __( 'VIP BOT Dashboard', 'simplevpbot' ) . ' | ' . get_bloginfo( 'name' );
+		$title   = __( 'Bot dashboard', 'simplevpbot' ) . ' | ' . get_bloginfo( 'name' );
 
 		$boot_json = wp_json_encode( $boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT );
 

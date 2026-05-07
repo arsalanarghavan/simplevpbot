@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class SimpleVPBot_Activator {
 
-	const DB_VERSION = '2.0.1';
+	const DB_VERSION = '2.0.6';
 
 	/**
 	 * Activate plugin.
@@ -60,6 +60,7 @@ class SimpleVPBot_Activator {
 			admin_mode tinyint(1) NOT NULL DEFAULT 0,
 			state varchar(64) DEFAULT NULL,
 			state_data longtext NULL,
+			bot_locale varchar(5) NOT NULL DEFAULT '',
 			invited_by bigint(20) unsigned DEFAULT NULL,
 			wp_user_id bigint(20) unsigned DEFAULT NULL,
 			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -152,10 +153,11 @@ class SimpleVPBot_Activator {
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			key_name varchar(191) NOT NULL,
 			category varchar(64) NOT NULL DEFAULT 'general',
+			locale varchar(5) NOT NULL DEFAULT 'fa',
 			value longtext NOT NULL,
 			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY (id),
-			UNIQUE KEY key_name (key_name),
+			UNIQUE KEY svp_texts_key_locale (key_name, locale),
 			KEY category (category)
 		) $charset_collate;";
 
@@ -189,6 +191,31 @@ class SimpleVPBot_Activator {
 			KEY broadcast_id (broadcast_id),
 			KEY status (status)
 		) $charset_collate;";
+		$sql_users_bulk_jobs = "CREATE TABLE {$p}svp_users_bulk_jobs (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			operation varchar(32) NOT NULL,
+			scope varchar(32) NOT NULL DEFAULT 'all_approved',
+			payload_json longtext NULL,
+			status varchar(20) NOT NULL DEFAULT 'pending',
+			created_by_wp bigint(20) unsigned NOT NULL DEFAULT 0,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			finished_at datetime DEFAULT NULL,
+			PRIMARY KEY (id),
+			KEY status (status)
+		) $charset_collate;";
+		$sql_users_bulk_items = "CREATE TABLE {$p}svp_users_bulk_job_items (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			job_id bigint(20) unsigned NOT NULL,
+			user_id bigint(20) unsigned NOT NULL,
+			status varchar(20) NOT NULL DEFAULT 'pending',
+			tries int NOT NULL DEFAULT 0,
+			last_error text NULL,
+			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY job_id (job_id),
+			KEY status (status),
+			KEY job_user (job_id, user_id)
+		) $charset_collate;";
 
 		$sql_logs = "CREATE TABLE {$p}svp_logs (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -216,6 +243,8 @@ class SimpleVPBot_Activator {
 		dbDelta( $sql_broadcasts );
 		dbDelta( $sql_queue );
 		dbDelta( $sql_logs );
+		dbDelta( $sql_users_bulk_jobs );
+		dbDelta( $sql_users_bulk_items );
 		dbDelta( self::sql_user_activity( $p, $charset_collate ) );
 		dbDelta( self::sql_svp_service_ip_log( $p, $charset_collate ) );
 		dbDelta( self::sql_panels_table( $p, $charset_collate ) );
@@ -224,6 +253,8 @@ class SimpleVPBot_Activator {
 		dbDelta( self::sql_discount_codes( $p, $charset_collate ) );
 		dbDelta( self::sql_panel_inbound_clients( $p, $charset_collate ) );
 		dbDelta( self::sql_panel_inbound_api( $p, $charset_collate ) );
+		dbDelta( self::sql_reseller_panel_prices( $p, $charset_collate ) );
+		dbDelta( self::sql_reseller_bot_profiles( $p, $charset_collate ) );
 		if ( class_exists( 'SimpleVPBot_Service_Transfer' ) ) {
 			SimpleVPBot_Service_Transfer::ensure_table();
 		}
@@ -640,7 +671,204 @@ class SimpleVPBot_Activator {
 		if ( version_compare( (string) $current, '2.0.1', '<' ) ) {
 			self::maybe_migrate_201( $p, $charset_collate );
 		}
+		if ( version_compare( (string) $current, '2.0.2', '<' ) ) {
+			self::maybe_migrate_202( $p, $charset_collate );
+		}
+		if ( version_compare( (string) $current, '2.0.3', '<' ) ) {
+			self::maybe_migrate_203( $p, $charset_collate );
+		}
+		if ( version_compare( (string) $current, '2.0.4', '<' ) ) {
+			self::maybe_migrate_204( $p, $charset_collate );
+		}
+		if ( version_compare( (string) $current, '2.0.5', '<' ) ) {
+			self::maybe_migrate_205( $p, $charset_collate );
+		}
+		if ( version_compare( (string) $current, '2.0.6', '<' ) ) {
+			self::maybe_migrate_206( $p );
+		}
 		update_option( 'simplevpbot_db_version', self::DB_VERSION );
+	}
+
+	/**
+	 * Bot texts: locale column (fa/en), user bot_locale; seed English rows.
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_206( $p ) {
+		global $wpdb;
+		$t     = $p . 'svp_texts';
+		$users = $p . 'svp_users';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$has_locale = $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'locale'" );
+		if ( ! $has_locale ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} DROP INDEX key_name" );
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN locale varchar(5) NOT NULL DEFAULT 'fa' AFTER category" );
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD UNIQUE KEY svp_texts_key_locale (key_name, locale)" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$has_bot_loc = $wpdb->get_var( "SHOW COLUMNS FROM {$users} LIKE 'bot_locale'" );
+		if ( ! $has_bot_loc ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$users} ADD COLUMN bot_locale varchar(5) NOT NULL DEFAULT '' AFTER state_data" );
+		}
+		self::insert_default_text_rows_if_missing();
+	}
+
+	public static function maybe_migrate_204( $p, $charset_collate ) {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		$sql_users_bulk_jobs = "CREATE TABLE {$p}svp_users_bulk_jobs (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			operation varchar(32) NOT NULL,
+			scope varchar(32) NOT NULL DEFAULT 'all_approved',
+			payload_json longtext NULL,
+			status varchar(20) NOT NULL DEFAULT 'pending',
+			created_by_wp bigint(20) unsigned NOT NULL DEFAULT 0,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			finished_at datetime DEFAULT NULL,
+			PRIMARY KEY (id),
+			KEY status (status)
+		) $charset_collate;";
+		$sql_users_bulk_items = "CREATE TABLE {$p}svp_users_bulk_job_items (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			job_id bigint(20) unsigned NOT NULL,
+			user_id bigint(20) unsigned NOT NULL,
+			status varchar(20) NOT NULL DEFAULT 'pending',
+			tries int NOT NULL DEFAULT 0,
+			last_error text NULL,
+			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY job_id (job_id),
+			KEY status (status),
+			KEY job_user (job_id, user_id)
+		) $charset_collate;";
+		dbDelta( $sql_users_bulk_jobs );
+		dbDelta( $sql_users_bulk_items );
+	}
+
+	/**
+	 * Reseller pricing, optional bot tokens, plan ownership column.
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Charset.
+	 */
+	public static function maybe_migrate_202( $p, $charset_collate ) {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		dbDelta( self::sql_reseller_panel_prices( $p, $charset_collate ) );
+		dbDelta( self::sql_reseller_bot_profiles( $p, $charset_collate ) );
+		global $wpdb;
+		$plans = $p . 'svp_plans';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$col = $wpdb->get_var( "SHOW COLUMNS FROM {$plans} LIKE 'owner_svp_user_id'" );
+		if ( ! $col ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$plans} ADD COLUMN owner_svp_user_id bigint(20) unsigned DEFAULT NULL AFTER sort_order, ADD KEY owner_svp_user (owner_svp_user_id)" );
+		}
+	}
+
+	/**
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 * @return string
+	 */
+	public static function sql_reseller_panel_prices( $p, $charset_collate ) {
+		return "CREATE TABLE {$p}svp_reseller_panel_prices (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			reseller_svp_user_id bigint(20) unsigned NOT NULL,
+			panel_id bigint(20) unsigned NOT NULL,
+			price_per_gb decimal(15,4) NOT NULL DEFAULT 0,
+			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			UNIQUE KEY reseller_panel (reseller_svp_user_id, panel_id),
+			KEY panel_id (panel_id)
+		) $charset_collate;";
+	}
+
+	/**
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 * @return string
+	 */
+	public static function sql_reseller_bot_profiles( $p, $charset_collate ) {
+		return "CREATE TABLE {$p}svp_reseller_bot_profiles (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			reseller_svp_user_id bigint(20) unsigned NOT NULL,
+			telegram_token text NULL,
+			bale_token text NULL,
+			webhook_secret varchar(128) NOT NULL DEFAULT '',
+			brand_name varchar(255) NOT NULL DEFAULT '',
+			telegram_secret_token varchar(255) NOT NULL DEFAULT '',
+			enabled tinyint(1) NOT NULL DEFAULT 1,
+			admin_telegram_ids longtext NULL,
+			admin_bale_ids longtext NULL,
+			bale_wallet_provider_token varchar(255) NOT NULL DEFAULT '',
+			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			UNIQUE KEY reseller_one (reseller_svp_user_id)
+		) $charset_collate;";
+	}
+
+	/**
+	 * Reseller bot profiles: per-bot enable, admin id lists, Bale wallet token.
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 */
+	public static function maybe_migrate_205( $p, $charset_collate ) {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		dbDelta( self::sql_reseller_bot_profiles( $p, $charset_collate ) );
+		global $wpdb;
+		$t = $p . 'svp_reseller_bot_profiles';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'enabled'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN enabled tinyint(1) NOT NULL DEFAULT 1 AFTER telegram_secret_token" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'admin_telegram_ids'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN admin_telegram_ids longtext NULL AFTER enabled" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'admin_bale_ids'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN admin_bale_ids longtext NULL AFTER admin_telegram_ids" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'bale_wallet_provider_token'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN bale_wallet_provider_token varchar(255) NOT NULL DEFAULT '' AFTER admin_bale_ids" );
+		}
+	}
+
+	/**
+	 * Reseller bot profile: webhook secret, brand, optional Telegram secret token.
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 */
+	public static function maybe_migrate_203( $p, $charset_collate ) {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		dbDelta( self::sql_reseller_bot_profiles( $p, $charset_collate ) );
+		global $wpdb;
+		$t = $p . 'svp_reseller_bot_profiles';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'webhook_secret'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN webhook_secret varchar(128) NOT NULL DEFAULT '' AFTER bale_token" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'brand_name'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN brand_name varchar(255) NOT NULL DEFAULT '' AFTER webhook_secret" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'telegram_secret_token'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN telegram_secret_token varchar(255) NOT NULL DEFAULT '' AFTER brand_name" );
+		}
 	}
 
 	/**
@@ -1031,7 +1259,7 @@ class SimpleVPBot_Activator {
 			}
 			$keep = (int) array_shift( $ids );
 			foreach ( $ids as $drop ) {
-				SimpleVPBot_Model_User::merge_users( $keep, (int) $drop );
+				SimpleVPBot_Model_User::merge_users( $keep, (int) $drop, 'internal' );
 			}
 		}
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
@@ -1047,7 +1275,7 @@ class SimpleVPBot_Activator {
 			}
 			$keep = (int) array_shift( $ids );
 			foreach ( $ids as $drop ) {
-				SimpleVPBot_Model_User::merge_users( $keep, (int) $drop );
+				SimpleVPBot_Model_User::merge_users( $keep, (int) $drop, 'internal' );
 			}
 		}
 	}
@@ -1079,10 +1307,22 @@ class SimpleVPBot_Activator {
 	public static function migrate_subscription_panel_text() {
 		global $wpdb;
 		$t      = $wpdb->prefix . 'svp_texts';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$has_locale = $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'locale'" );
 		$legacy = "🖥 Subscription Info\n──────────\n🆔 Subscription ID : {sub_id}\n📶 Status          : {status_emoji} {status}\n⬇️ Downloaded      : {down_gb} GB\n⬆️ Uploaded        : {up_gb} GB\n📊 Usage           : {used_gb} GB\n🧮 Total quota     : {total_quota}\n🕒 Last Online     : {last_online}\n⏳ Expiry          : {expiry}\n──────────\n🚀 {remark}\n`{config_link}`";
 		$old_fa = "📊 وضعیت سرویس\n➖➖➖➖➖➖➖➖\n🏷 نام: {remark}\n🆔 شناسه: {sub_id}\n📶 وضعیت: {status_emoji} {status}\n➖➖➖➖➖➖➖➖\n⬇️ دانلود: {down_h}\n⬆️ آپلود: {up_h}\n📊 مصرف کل: {used_h}\n🧮 حجم کل: {total_quota}\n🎯 باقی‌مانده: {remained_h}\n➖➖➖➖➖➖➖➖\n🕒 آخرین اتصال: {last_online}\n⏳ انقضا: {expiry}";
 		$new    = "📊 وضعیت سرویس\n──────────\n🏷 نام: {remark}\n🆔 شناسه: {sub_id}\n📶 وضعیت: {status_emoji} {status}\n──────────\n⬇️ دانلود: {down_h}\n⬆️ آپلود: {up_h}\n📊 مصرف کل: {used_h}\n🧮 سهمیه: {total_quota}\n🎯 باقی‌مانده: {remained_h}\n──────────\n🕒 آخرین اتصال: {last_online}\n⏳ انقضا: {expiry}";
-		$cur    = $wpdb->get_var( $wpdb->prepare( "SELECT value FROM {$t} WHERE key_name = %s", 'msg.subscription_panel' ) ); // phpcs:ignore
+		if ( $has_locale ) {
+			$cur = $wpdb->get_var( $wpdb->prepare( "SELECT value FROM {$t} WHERE key_name = %s AND locale = %s", 'msg.subscription_panel', 'fa' ) ); // phpcs:ignore
+			if ( is_string( $cur ) && ( $cur === $legacy || $cur === $old_fa ) ) {
+				$wpdb->update( $t, array( 'value' => $new ), array( 'key_name' => 'msg.subscription_panel', 'locale' => 'fa' ) );
+				if ( class_exists( 'SimpleVPBot_Texts' ) ) {
+					SimpleVPBot_Texts::clear_cache();
+				}
+			}
+			return;
+		}
+		$cur = $wpdb->get_var( $wpdb->prepare( "SELECT value FROM {$t} WHERE key_name = %s", 'msg.subscription_panel' ) ); // phpcs:ignore
 		if ( is_string( $cur ) && ( $cur === $legacy || $cur === $old_fa ) ) {
 			$wpdb->update( $t, array( 'value' => $new ), array( 'key_name' => 'msg.subscription_panel' ) );
 			if ( class_exists( 'SimpleVPBot_Texts' ) ) {
@@ -1098,7 +1338,12 @@ class SimpleVPBot_Activator {
 	 */
 	public static function reset_texts_to_defaults() {
 		foreach ( self::default_text_rows() as $row ) {
-			SimpleVPBot_Model_Text::set( $row['key_name'], $row['value'], $row['category'] );
+			SimpleVPBot_Model_Text::set(
+				$row['key_name'],
+				$row['value'],
+				$row['category'],
+				(string) ( $row['locale'] ?? 'fa' )
+			);
 		}
 		if ( class_exists( 'SimpleVPBot_Texts' ) ) {
 			SimpleVPBot_Texts::clear_cache();
@@ -1113,20 +1358,51 @@ class SimpleVPBot_Activator {
 	private static function insert_default_text_rows_if_missing() {
 		global $wpdb;
 		$table = $wpdb->prefix . 'svp_texts';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$has_locale = $wpdb->get_var( "SHOW COLUMNS FROM {$table} LIKE 'locale'" );
 		foreach ( self::default_text_rows() as $row ) {
-			$exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$table} WHERE key_name = %s", $row['key_name'] ) ); // phpcs:ignore
+			$loc = (string) ( $row['locale'] ?? 'fa' );
+			if ( $has_locale ) {
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$exists = $wpdb->get_var(
+					$wpdb->prepare(
+						"SELECT id FROM {$table} WHERE key_name = %s AND locale = %s",
+						$row['key_name'],
+						$loc
+					)
+				);
+			} else {
+				// Legacy single-locale table (pre-2.0.6): only insert primary FA row per key.
+				if ( 'fa' !== $loc ) {
+					continue;
+				}
+				$exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$table} WHERE key_name = %s", $row['key_name'] ) ); // phpcs:ignore
+			}
 			if ( $exists ) {
 				continue;
 			}
-			$wpdb->insert(
-				$table,
-				array(
-					'key_name' => $row['key_name'],
-					'category' => $row['category'],
-					'value'    => $row['value'],
-				),
-				array( '%s', '%s', '%s' )
-			);
+			if ( $has_locale ) {
+				$wpdb->insert(
+					$table,
+					array(
+						'key_name' => $row['key_name'],
+						'category' => $row['category'],
+						'locale'   => $loc,
+						'value'    => $row['value'],
+					),
+					array( '%s', '%s', '%s', '%s' )
+				);
+			} else {
+				$wpdb->insert(
+					$table,
+					array(
+						'key_name' => $row['key_name'],
+						'category' => $row['category'],
+						'value'    => $row['value'],
+					),
+					array( '%s', '%s', '%s' )
+				);
+			}
 		}
 	}
 
@@ -1150,131 +1426,65 @@ class SimpleVPBot_Activator {
 	}
 
 	/**
-	 * Default text rows.
+	 * Default text rows (fa + en per logical key).
 	 *
 	 * @return array<int, array<string, string>>
 	 */
 	public static function default_text_rows() {
-		return array(
-			array( 'key_name' => 'btn.main.buy', 'category' => 'buttons', 'value' => '🛒 خرید سرویس' ),
-			array( 'key_name' => 'btn.main.manage', 'category' => 'buttons', 'value' => '🧰 مدیریت سرویس' ),
-			array( 'key_name' => 'btn.main.wallet', 'category' => 'buttons', 'value' => '💰 کیف پول' ),
-			array( 'key_name' => 'btn.main.apps', 'category' => 'buttons', 'value' => '📱 اپلیکیشن‌ها' ),
-			array( 'key_name' => 'btn.main.support', 'category' => 'buttons', 'value' => '🆘 پشتیبانی' ),
-			array( 'key_name' => 'btn.main.account', 'category' => 'buttons', 'value' => '👤 اطلاعات حساب' ),
-			array( 'key_name' => 'btn.main.referral', 'category' => 'buttons', 'value' => '💎 کسب درآمد' ),
-			array( 'key_name' => 'btn.admin.dashboard', 'category' => 'buttons', 'value' => '📊 آمار' ),
-			array( 'key_name' => 'btn.admin.users', 'category' => 'buttons', 'value' => '👥 مدیریت کاربران' ),
-			array( 'key_name' => 'btn.admin.finance', 'category' => 'buttons', 'value' => '💰 مالی' ),
-			array( 'key_name' => 'btn.admin.broadcast', 'category' => 'buttons', 'value' => '📣 پیام همگانی' ),
-			array( 'key_name' => 'btn.admin.settings', 'category' => 'buttons', 'value' => '⚙️ تنظیمات' ),
-			array( 'key_name' => 'btn.admin.advanced', 'category' => 'buttons', 'value' => '🔧 تنظیمات پیشرفته' ),
-			array( 'key_name' => 'btn.admin.users_search', 'category' => 'buttons', 'value' => '🔎 جستجوی کاربر' ),
-			array( 'key_name' => 'btn.admin.users_queue', 'category' => 'buttons', 'value' => '📋 صف ثبت‌نام' ),
-			array( 'key_name' => 'btn.admin.receipts', 'category' => 'buttons', 'value' => '🧾 تایید رسیدها' ),
-			array( 'key_name' => 'btn.admin.backup', 'category' => 'buttons', 'value' => '💾 پشتیبان‌گیری' ),
-			array( 'key_name' => 'btn.admin.full_hub', 'category' => 'buttons', 'value' => '🧩 پنل کامل' ),
-			array( 'key_name' => 'btn.admin.back_menu', 'category' => 'buttons', 'value' => '⬅️ منوی مدیریت' ),
-			array( 'key_name' => 'btn.admin.send_my_portal', 'category' => 'buttons', 'value' => '🌐 ارسال لینک پنل وب من' ),
-			array( 'key_name' => 'btn.admin.send_admin_portal', 'category' => 'buttons', 'value' => '🖥 ارسال لینک پنل ادمین وب' ),
-			array( 'key_name' => 'btn.admin.transfer', 'category' => 'buttons', 'value' => '🎁 انتقال سرویس' ),
-			array( 'key_name' => 'btn.admin.dm_user', 'category' => 'buttons', 'value' => '✉️ پیام به کاربر' ),
-			array( 'key_name' => 'btn.admin.exit', 'category' => 'buttons', 'value' => '🚪 خروج از پنل مدیریت' ),
-			array( 'key_name' => 'btn.approve', 'category' => 'buttons', 'value' => '✅ تایید' ),
-			array( 'key_name' => 'btn.reject', 'category' => 'buttons', 'value' => '❌ رد' ),
-			array( 'key_name' => 'btn.approved_by', 'category' => 'buttons', 'value' => '✅ تایید شد توسط {admin}' ),
-			array( 'key_name' => 'btn.rejected_by', 'category' => 'buttons', 'value' => '❌ رد شد توسط {admin}' ),
-			array( 'key_name' => 'btn.service.show_panel', 'category' => 'buttons', 'value' => '🖥 جزئیات سرویس' ),
-			array( 'key_name' => 'btn.wallet.topup', 'category' => 'buttons', 'value' => '➕ شارژ' ),
-			array( 'key_name' => 'btn.wallet.history', 'category' => 'buttons', 'value' => '📜 تاریخچه' ),
-			array( 'key_name' => 'btn.account.sync', 'category' => 'buttons', 'value' => '🔗 سینک با ربات دیگر' ),
-			array( 'key_name' => 'btn.support.contact', 'category' => 'buttons', 'value' => '📞 تماس با پشتیبانی' ),
-			array( 'key_name' => 'btn.support.faq', 'category' => 'buttons', 'value' => '❓ سوالات متداول' ),
-			array( 'key_name' => 'msg.welcome', 'category' => 'messages', 'value' => "👋 سلام {name}!\n➖➖➖➖➖➖➖➖\nبه ربات VIP ما خوش آمدید.\nبرای شروع از منوی زیر استفاده کنید." ),
-			array( 'key_name' => 'msg.approval_wait', 'category' => 'messages', 'value' => "⏳ درخواست شما برای ادمین ارسال شد.\n➖➖➖➖➖➖➖➖\nلطفاً تا تایید ثبت‌نام صبر کنید." ),
-			array( 'key_name' => 'msg.approval_rejected', 'category' => 'messages', 'value' => "⛔ متأسفانه ثبت‌نام شما رد شد." ),
-			array( 'key_name' => 'msg.approval_approved', 'category' => 'messages', 'value' => "✅ ثبت‌نام شما تایید شد!\n➖➖➖➖➖➖➖➖\nاز منوی زیر ادامه دهید." ),
-			array( 'key_name' => 'msg.admin_approval', 'category' => 'messages', 'value' => "متن ارسالی به ادمین برای ثبت‌نام از قالب ثابت در ربات ساخته می‌شود (نام، یوزرنیم، تلگرام، بله، شناسهٔ ربات، تأیید)." ),
-			array( 'key_name' => 'msg.admin_find_user_prompt', 'category' => 'messages', 'value' => "🔎 جستجوی کاربر\nشناسهٔ داخلی در ربات (عدد)، chat id تلگرام یا بله، @username، یا نام / بخشی از شمارهٔ تلفن را ارسال کنید." ),
-			array( 'key_name' => 'msg.subscription_panel', 'category' => 'messages', 'value' => "📊 وضعیت سرویس\n──────────\n🏷 نام: {remark}\n🆔 شناسه: {sub_id}\n📶 وضعیت: {status_emoji} {status}\n──────────\n⬇️ دانلود: {down_h}\n⬆️ آپلود: {up_h}\n📊 مصرف کل: {used_h}\n🧮 سهمیه: {total_quota}\n🎯 باقی‌مانده: {remained_h}\n──────────\n🕒 آخرین اتصال: {last_online}\n⏳ انقضا: {expiry}" ),
-			array( 'key_name' => 'app.v2rayng', 'category' => 'apps', 'value' => 'https://github.com/2dust/v2rayNG/releases' ),
-			array( 'key_name' => 'app.shadowrocket', 'category' => 'apps', 'value' => 'https://apps.apple.com/app/shadowrocket/id932747118' ),
-			array( 'key_name' => 'app.v2rayn', 'category' => 'apps', 'value' => 'https://github.com/2dust/v2rayN/releases' ),
-			array( 'key_name' => 'app.v2rayu', 'category' => 'apps', 'value' => 'https://github.com/yanue/V2rayU/releases' ),
-			array( 'key_name' => 'faq.connection', 'category' => 'faq', 'value' => "❓ مشکل اتصال\n➖➖➖➖➖➖➖➖\n📶 اینترنت پایدار داشته باشید.\n🕐 زمان دستگاه را همگام کنید.\n🔗 از لینک اشتراک تازه استفاده کنید." ),
-			array( 'key_name' => 'faq.speed', 'category' => 'faq', 'value' => "❓ سرعت پایین\n➖➖➖➖➖➖➖➖\n🖥 سرور دیگری انتخاب کنید.\n📶 از Wi‑Fi بهتر استفاده کنید." ),
-			array( 'key_name' => 'faq.install', 'category' => 'faq', 'value' => "❓ راهنمای نصب\n➖➖➖➖➖➖➖➖\n📱 از بخش اپلیکیشن‌ها کلاینت مناسب را دانلود کنید و لینک اشتراک را وارد کنید." ),
-			array( 'key_name' => 'faq.l2tp', 'category' => 'faq', 'value' => "❓ اتصال L2TP\n➖➖➖➖➖➖➖➖\n• در ویندوز: Settings → VPN → Add → نوع L2TP/IPsec with pre-shared key.\n• در iOS/اندروید: Settings → VPN → Add VPN → L2TP.\n• اگر وصل نشد اینترنت/فایروال پورت UDP 500/4500/1701 را چک کنید." ),
-			array( 'key_name' => 'msg.purchase_failed', 'category' => 'messages', 'value' => "⚠️ در آماده‌سازی سرویس مشکلی پیش آمد.\n➖➖➖➖➖➖➖➖\nلطفاً چند دقیقه دیگر دوباره تلاش کنید یا با پشتیبانی تماس بگیرید." ),
-			array( 'key_name' => 'msg.renewed', 'category' => 'messages', 'value' => "✅ تمدید خودکار سرویس «{remark}» انجام شد." ),
-			array( 'key_name' => 'msg.renew_failed_balance', 'category' => 'messages', 'value' => "❌ تمدید خودکار ناموفق بود: موجودی کیف پول کافی نیست." ),
-			array( 'key_name' => 'msg.panel_unreachable', 'category' => 'messages', 'value' => "⚠️ ارتباط با سرور برقرار نشد. لطفاً بعداً دوباره تلاش کنید." ),
-			array( 'key_name' => 'msg.rate_limited', 'category' => 'messages', 'value' => "⏳ تعداد درخواست شما زیاد شد. چند دقیقه بعد دوباره تلاش کنید." ),
-			array(
-				'key_name' => 'msg.referral_bonus_wallet',
-				'category' => 'messages',
-				'value'    => "💰 مبلغ {amount_toman} تومان پورسانت معرفی از خرید «{buyer_label}» به کیف پول شما واریز شد.\n{referrer_first}",
-			),
-			array(
-				'key_name' => 'msg.dashboard_wallet_credit',
-				'category' => 'messages',
-				'value'    => "💰 به موجودی کیف پول شما {amount} تومان افزوده شد.\n➖➖➖➖➖➖➖➖\nمانده فعلی: {balance} تومان.",
-			),
-			array(
-				'key_name' => 'msg.dashboard_wallet_debit',
-				'category' => 'messages',
-				'value'    => "💰 از موجودی کیف پول شما {amount} تومان کسر شد.\n➖➖➖➖➖➖➖➖\nمانده فعلی: {balance} تومان.",
-			),
-			array(
-				'key_name' => 'msg.cron_ip_distinct_warn',
-				'category' => 'messages',
-				'value'    => "⚠️ سرویس «{remark}»\n🧒 یعنی چی؟ تعداد آدرس/IP متفاوتی که پنل برای این اشتراک ثبت کرده بالا رفته است.\n📌 الان حدود {n_ip} IP متمایز ثبت شده است.\n📌 سقف اسلات این اشتراک {lim} است (آستانهٔ هشدار حداقل {need} IP).\n✋ اگر لازم دارید از منوی همان سرویس «افزایش کاربر» را بزنید.",
-			),
-			array(
-				'key_name' => 'btn.admin.delete_service_soft',
-				'category' => 'buttons',
-				'value'    => '🗑 حذف از لیست ربات (غیرفعال‌سازی)',
-			),
-			array(
-				'key_name' => 'msg.no_active_services',
-				'category' => 'messages',
-				'value'    => '🧰 سرویس فعالی ندارید.',
-			),
-		);
+		if ( ! class_exists( 'SimpleVPBot_Bot_Text_Defaults', false ) ) {
+			require_once SIMPLEVPBOT_PLUGIN_DIR . 'includes/class-bot-text-defaults.php';
+		}
+		return SimpleVPBot_Bot_Text_Defaults::all_rows();
 	}
 
 	/**
-	 * Map text key => default value (from default_text_rows).
+	 * Map text key => array with fa/en default snippets (from default_text_rows).
 	 *
-	 * @return array<string, string>
+	 * @return array<string, array{fa:string, en:string}>
 	 */
 	public static function default_text_values_map() {
 		$out = array();
 		foreach ( self::default_text_rows() as $row ) {
-			if ( ! empty( $row['key_name'] ) ) {
-				$out[ (string) $row['key_name'] ] = (string) ( $row['value'] ?? '' );
+			$kn = (string) ( $row['key_name'] ?? '' );
+			if ( '' === $kn ) {
+				continue;
+			}
+			if ( ! isset( $out[ $kn ] ) ) {
+				$out[ $kn ] = array(
+					'fa' => '',
+					'en' => '',
+				);
+			}
+			$loc = (string) ( $row['locale'] ?? 'fa' );
+			if ( 'en' === $loc ) {
+				$out[ $kn ]['en'] = (string) ( $row['value'] ?? '' );
+			} else {
+				$out[ $kn ]['fa'] = (string) ( $row['value'] ?? '' );
 			}
 		}
 		return $out;
 	}
 
 	/**
-	 * Default row (key, category, value) for a text key, or null.
+	 * Default row for a text key and locale, or null.
 	 *
 	 * @param string $key_name Key.
-	 * @return array{key_name:string,category:string,value:string}|null
+	 * @param string $locale   fa|en.
+	 * @return array{key_name:string,category:string,value:string,locale:string}|null
 	 */
-	public static function default_row_for_text_key( $key_name ) {
+	public static function default_row_for_text_key( $key_name, $locale = 'fa' ) {
 		$k = trim( (string) $key_name );
 		if ( '' === $k ) {
 			return null;
 		}
+		$loc = ( 'en' === (string) $locale ) ? 'en' : 'fa';
 		foreach ( self::default_text_rows() as $row ) {
-			if ( isset( $row['key_name'] ) && (string) $row['key_name'] === $k ) {
+			if ( isset( $row['key_name'] ) && (string) $row['key_name'] === $k && (string) ( $row['locale'] ?? 'fa' ) === $loc ) {
 				return array(
 					'key_name' => $k,
 					'category' => (string) ( $row['category'] ?? 'general' ),
 					'value'    => (string) ( $row['value'] ?? '' ),
+					'locale'   => $loc,
 				);
 			}
 		}

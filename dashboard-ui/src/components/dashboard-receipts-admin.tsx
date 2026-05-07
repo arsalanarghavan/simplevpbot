@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { DataPagination } from "@/components/data-pagination"
 import { postAdminMutate, type AdminMutateResult } from "@/lib/dash-admin-mutate"
 import type { PaginationMeta } from "@/lib/dash-pagination"
@@ -51,6 +52,14 @@ function receiptStatusVariant(st: string): "default" | "secondary" | "destructiv
   if (st === "approved") return "default"
   if (st === "rejected") return "destructive"
   return "secondary"
+}
+
+function receiptStatusLabel(st: string, tp: (k: string) => string): string {
+  if (st === "pending") return tp("statusPending")
+  if (st === "processing") return tp("statusProcessing")
+  if (st === "approved") return tp("statusApproved")
+  if (st === "rejected") return tp("statusRejected")
+  return st || "—"
 }
 
 function formatReceiptMutateFeedback(res: AdminMutateResult, tp: (k: string) => string): string | null {
@@ -101,7 +110,12 @@ export function DashboardReceiptsAdmin({
   }, [aggregates])
 
   const approved = aggByStatus.m.get("approved") ?? { count: 0, sum: 0 }
-  const pending = aggByStatus.m.get("pending") ?? { count: 0, sum: 0 }
+  const pendingRaw = aggByStatus.m.get("pending") ?? { count: 0, sum: 0 }
+  const processingRaw = aggByStatus.m.get("processing") ?? { count: 0, sum: 0 }
+  const pending = {
+    count: pendingRaw.count + processingRaw.count,
+    sum: pendingRaw.sum + processingRaw.sum,
+  }
   const rejected = aggByStatus.m.get("rejected") ?? { count: 0, sum: 0 }
 
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved" | "rejected">("all")
@@ -110,6 +124,12 @@ export function DashboardReceiptsAdmin({
 
   const filteredReceipts = useMemo(() => {
     if (statusFilter === "all") return receipts
+    if (statusFilter === "pending") {
+      return receipts.filter((r) => {
+        const st = String(r.status ?? "")
+        return st === "pending" || st === "processing"
+      })
+    }
     return receipts.filter((r) => String(r.status ?? "") === statusFilter)
   }, [receipts, statusFilter])
 
@@ -220,6 +240,7 @@ export function DashboardReceiptsAdmin({
             const id = num(r.id)
             const st = String(r.status ?? "")
             const pendingRow = st === "pending"
+            const processingRow = st === "processing"
             return (
               <li key={id}>
                 <Card>
@@ -233,7 +254,29 @@ export function DashboardReceiptsAdmin({
                       </CardDescription>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={receiptStatusVariant(st)}>{st || "—"}</Badge>
+                      <Badge variant={receiptStatusVariant(st)}>{receiptStatusLabel(st, tp)}</Badge>
+                      {String(r.imageUrl ?? "").trim() ? (
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button type="button" size="sm" variant="secondary">
+                              {tp("viewImage")}
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="sm:max-w-3xl">
+                            <DialogHeader>
+                              <DialogTitle>
+                                {tp("receiptImage")} #{formatNumber(id, isFa)}
+                              </DialogTitle>
+                            </DialogHeader>
+                            <img
+                              src={String(r.imageUrl)}
+                              alt={`receipt-${id}`}
+                              className="max-h-[75vh] w-full rounded-md object-contain"
+                              loading="lazy"
+                            />
+                          </DialogContent>
+                        </Dialog>
+                      ) : null}
                       {pendingRow ? (
                         <>
                           <Button
@@ -244,6 +287,19 @@ export function DashboardReceiptsAdmin({
                           >
                             {tp("approve")}
                           </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={busyId === id}
+                            onClick={() => void runReceiptAction(id, "reject")}
+                          >
+                            {tp("reject")}
+                          </Button>
+                        </>
+                      ) : processingRow ? (
+                        <>
+                          <span className="text-xs text-muted-foreground">{tp("statusProcessing")}</span>
                           <Button
                             type="button"
                             size="sm"

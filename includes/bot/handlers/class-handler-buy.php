@@ -62,6 +62,13 @@ class SimpleVPBot_Handler_Buy {
 			$lines[] = 'قبل از تخفیف: ' . SimpleVPBot_Bot_Persian_Text::format_toman_fa( $sub ) . ' تومان';
 		}
 		$lines[] = '💵 قابل پرداخت: ' . SimpleVPBot_Bot_Persian_Text::format_toman_fa( $amount ) . ' تومان';
+		$uid_bal = (int) ( $tx->user_id ?? 0 );
+		if ( $uid_bal > 0 ) {
+			$ub = SimpleVPBot_Model_User::find( $uid_bal );
+			if ( $ub ) {
+				$lines[] = '💼 موجودی کیف پول شما: ' . SimpleVPBot_Bot_Persian_Text::format_toman_fa( (float) $ub->balance ) . ' تومان';
+			}
+		}
 		$lines[] = '';
 		$lines[] = 'روش پرداخت را انتخاب کنید:';
 		return implode( "\n", $lines );
@@ -78,7 +85,18 @@ class SimpleVPBot_Handler_Buy {
 		$cards            = SimpleVPBot_Model_Card::active_for_transaction( (int) $tid );
 		$wallet_tok       = (string) SimpleVPBot_Settings::get( 'bale_wallet_provider_token', '' );
 		$show_bale_wallet = ( 'bale' === $platform && $wallet_tok !== '' );
-		$pay              = SimpleVPBot_Keyboards::inline_payment_method( $cards, (int) $tid, $show_bale_wallet );
+		$show_site_wallet = false;
+		$tx_chk           = SimpleVPBot_Model_Transaction::find( (int) $tid );
+		if ( $tx_chk && 'pending' === (string) $tx_chk->status && 'purchase' === (string) $tx_chk->type ) {
+			$need = round( (float) $tx_chk->amount, 2 );
+			if ( $need > 0 ) {
+				$u_chk = SimpleVPBot_Model_User::find( (int) $tx_chk->user_id );
+				if ( $u_chk && round( (float) $u_chk->balance, 2 ) >= $need ) {
+					$show_site_wallet = true;
+				}
+			}
+		}
+		$pay              = SimpleVPBot_Keyboards::inline_payment_method( $cards, (int) $tid, $show_bale_wallet, $show_site_wallet );
 		$rows             = isset( $pay['inline_keyboard'] ) && is_array( $pay['inline_keyboard'] ) ? $pay['inline_keyboard'] : array();
 		array_unshift(
 			$rows,
@@ -125,7 +143,8 @@ class SimpleVPBot_Handler_Buy {
 		}
 		$initiator = null !== $initiator_svp_user_id ? (int) $initiator_svp_user_id : (int) $user_id;
 		$buyer     = SimpleVPBot_Model_User::find( (int) $user_id );
-		if ( $buyer && (int) $initiator === (int) $user_id && SimpleVPBot_Router::is_svp_user_bot_admin( $buyer ) ) {
+		$is_reseller_ctx = class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot();
+		if ( ! $is_reseller_ctx && $buyer && (int) $initiator === (int) $user_id && SimpleVPBot_Router::is_svp_user_bot_admin( $buyer ) ) {
 			$ful = SimpleVPBot_Receipt_Processor::fulfill_purchase_by_transaction( (int) $tid, 'admin_self_checkout' );
 			if ( ! empty( $ful['ok'] ) ) {
 				SimpleVPBot_Bot_Runtime::send_message(
@@ -235,7 +254,7 @@ class SimpleVPBot_Handler_Buy {
 	}
 
 	/**
-	 * Inline: buy:c, buy:p, buy:cf, buy:cf:gb, buy:pm, buy:bw, buy:cd, buy:x…
+	 * Inline: buy:c, buy:p, buy:cf, buy:cf:gb, buy:pm, buy:sw, buy:bw, buy:cd, buy:x…
 	 *
 	 * @param array<string, mixed> $ctx Context.
 	 */
@@ -429,6 +448,42 @@ class SimpleVPBot_Handler_Buy {
 				$tx,
 				$card,
 			);
+			return;
+		}
+		if ( 'sw' === $act && isset( $parts[2] ) ) {
+			SimpleVPBot_State::clear( (int) $user->id );
+			$tx_id = (int) $parts[2];
+			$tx    = SimpleVPBot_Model_Transaction::find( $tx_id );
+			if ( ! $tx
+				|| (int) $tx->user_id !== (int) $user->id
+				|| 'pending' !== (string) $tx->status
+				|| 'purchase' !== (string) $tx->type ) {
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ سفارش خرید نامعتبر است.' );
+				return;
+			}
+			$need = round( (float) $tx->amount, 2 );
+			if ( $need <= 0 ) {
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ مبلغ سفارش نامعتبر است.' );
+				return;
+			}
+			if ( ! SimpleVPBot_Model_User::decrement_balance_if_sufficient( (int) $user->id, $need ) ) {
+				SimpleVPBot_Bot_Runtime::send_message(
+					$platform,
+					$chat_id,
+					'⛔ موجودی کیف پول شما برای این پرداخت کافی نیست. ابتدا حساب را شارژ کنید یا روش دیگری انتخاب کنید.'
+				);
+				return;
+			}
+			$ful = SimpleVPBot_Receipt_Processor::fulfill_purchase_by_transaction( (int) $tx->id, 'site_wallet' );
+			if ( empty( $ful['ok'] ) ) {
+				SimpleVPBot_Model_User::increment_balance( (int) $user->id, $need );
+				SimpleVPBot_Bot_Runtime::send_message(
+					$platform,
+					$chat_id,
+					'⛔ تکمیل سفارش ناموفق بود. مبلغ به کیف پول شما بازگردانده شد. با پشتیبانی تماس بگیرید.'
+				);
+				return;
+			}
 			return;
 		}
 		if ( 'bw' === $act && isset( $parts[2] ) ) {
@@ -893,12 +948,13 @@ class SimpleVPBot_Handler_Buy {
 		$bl_ids = array_map( 'intval', (array) SimpleVPBot_Settings::get( 'admin_bale_ids', array() ) );
 		if ( class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot() ) {
 			$reseller = SimpleVPBot_Model_User::find( (int) SimpleVPBot_Bot_Context::reseller_svp_user_id() );
-			if ( $reseller ) {
-				$rtg = (int) ( $reseller->tg_user_id ?? 0 );
-				$rbl = (int) ( $reseller->bale_user_id ?? 0 );
-				$tg_ids = $rtg > 0 ? array( $rtg ) : array();
-				$bl_ids = $rbl > 0 ? array( $rbl ) : array();
+			if ( ! $reseller ) {
+				return array( 'telegram' => array(), 'bale' => array() );
 			}
+			$rtg = (int) ( $reseller->tg_user_id ?? 0 );
+			$rbl = (int) ( $reseller->bale_user_id ?? 0 );
+			$tg_ids = $rtg > 0 ? array( $rtg ) : array();
+			$bl_ids = $rbl > 0 ? array( $rbl ) : array();
 		}
 		return array(
 			'telegram' => array_values( array_filter( $tg_ids ) ),

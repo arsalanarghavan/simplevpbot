@@ -8,6 +8,9 @@ export type DashLocation = {
  */
 export function parseDashFromPath(pathname: string): DashLocation {
   const path = (pathname || "").replace(/\/+$/, "") || "/"
+  if (/\/dashboard\/login(?:\/|$)/.test(path)) {
+    return { tab: "login", userDetailId: null }
+  }
   const userM = path.match(/\/dashboard\/users\/u\/(\d+)(?:\/|$)/)
   if (userM) {
     const id = Number(userM[1])
@@ -41,6 +44,7 @@ export function parseActiveDashTab(boot: { dashPath?: string } | undefined | nul
     }
     const k = parts[0]
     if (k) {
+      if (k === "login") return "login"
       if (k === "inbound_link") return "xui_panels"
       if (k === "general") return "monitoring"
       return k

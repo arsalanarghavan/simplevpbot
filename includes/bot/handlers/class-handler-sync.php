@@ -66,7 +66,7 @@ class SimpleVPBot_Handler_Sync {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, 'ℹ️ این کد متعلق به خودتان است.' );
 				return;
 			}
-			SimpleVPBot_Model_User::merge_users( $primary_id, $cur_id );
+			SimpleVPBot_Model_User::merge_users( $primary_id, $cur_id, 'internal' );
 			SimpleVPBot_Model_Sync_Code::consume( (int) $row->id );
 			SimpleVPBot_State::clear( $primary_id );
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '✅ اکانت‌ها با موفقیت سینک شدند.' );

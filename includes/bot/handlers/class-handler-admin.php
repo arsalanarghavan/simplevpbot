@@ -77,17 +77,18 @@ class SimpleVPBot_Handler_Admin {
 		$from     = isset( $ctx['from'] ) && is_array( $ctx['from'] ) ? $ctx['from'] : array();
 		$from_id  = (int) ( $from['id'] ?? 0 );
 
-		if ( '' !== $text && $text === SimpleVPBot_Texts::get( 'btn.admin.exit', '🚪 خروج از پنل مدیریت' ) ) {
+		if ( '' !== $text && $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.exit', $user ) ) {
 			SimpleVPBot_Model_User::update( (int) $user->id, array( 'admin_mode' => 0 ) );
+			$user = SimpleVPBot_Model_User::find( (int) $user->id );
 			SimpleVPBot_Bot_Runtime::send_message(
 				$platform,
 				$chat_id,
-				'👋 به منوی کاربر بازگشتید.',
-				array( 'reply_markup' => SimpleVPBot_Keyboards::user_main_reply() )
+				$user ? SimpleVPBot_Texts::get_for_user( 'msg.admin_exit_to_user_menu', $user ) : '👋',
+				array( 'reply_markup' => SimpleVPBot_Keyboards::user_main_reply( $user ) )
 			);
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.admin.dashboard', '📊 آمار' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.dashboard', $user ) ) {
 			if ( class_exists( 'SimpleVPBot_Admin_Dashboard_Stats' ) ) {
 				$body = SimpleVPBot_Admin_Dashboard_Stats::format_text( 0 );
 				$mk   = SimpleVPBot_Admin_Dashboard_Stats::inline_day_picker( 0 );
@@ -102,7 +103,7 @@ class SimpleVPBot_Handler_Admin {
 			}
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.admin.users', '👥 مدیریت کاربران' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.users', $user ) ) {
 			SimpleVPBot_State::clear( (int) $user->id );
 			SimpleVPBot_Bot_Runtime::send_message(
 				$platform,
@@ -112,7 +113,7 @@ class SimpleVPBot_Handler_Admin {
 			);
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.admin.finance', '💰 مالی' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.finance', $user ) ) {
 			SimpleVPBot_State::clear( (int) $user->id );
 			SimpleVPBot_Bot_Runtime::send_message(
 				$platform,
@@ -122,46 +123,43 @@ class SimpleVPBot_Handler_Admin {
 			);
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.admin.users_search', '🔎 جستجوی کاربر' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.users_search', $user ) ) {
 			SimpleVPBot_State::set( (int) $user->id, 'admin_find_user', array() );
-			$find_prompt = SimpleVPBot_Texts::get(
-				'msg.admin_find_user_prompt',
-				"🔎 جستجوی کاربر\nشناسهٔ داخلی در ربات (عدد)، chat id تلگرام یا بله، @username، یا نام / بخشی از شمارهٔ تلفن را ارسال کنید."
-			);
+			$find_prompt = SimpleVPBot_Texts::get_for_user( 'msg.admin_find_user_prompt', $user );
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $find_prompt );
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.admin.users_queue', '📋 صف ثبت‌نام' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.users_queue', $user ) ) {
 			SimpleVPBot_Handler_Admin_Hub::send_submenu( $platform, $chat_id, 'usr', array( 'user' => $user ) );
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.admin.full_hub', '🧩 پنل کامل' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.full_hub', $user ) ) {
 			SimpleVPBot_Handler_Admin_Hub::send_hub( $platform, $chat_id );
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.admin.transfer', '🎁 انتقال سرویس' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.transfer', $user ) ) {
 			SimpleVPBot_State::set( (int) $user->id, 'admin_find_service_to_transfer', array() );
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '🆔 شناسه سرویس (svp_services.id) را ارسال کنید:' );
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.admin.broadcast', '📣 پیام همگانی' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.broadcast', $user ) ) {
 			SimpleVPBot_State::set( (int) $user->id, 'admin_broadcast', array() );
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '📣 متن پیام همگانی را ارسال کنید:' );
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.admin.receipts', '🧾 تایید رسیدها' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.receipts', $user ) ) {
 			SimpleVPBot_Handler_Admin_Hub::send_submenu( $platform, $chat_id, 'rcp', array( 'user' => $user ) );
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.admin.backup', '💾 پشتیبان‌گیری' ) || '💾 بکاپ' === $text ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.backup', $user ) || '💾 بکاپ' === $text ) {
 			SimpleVPBot_Handler_Admin_Hub::send_backup_panel( $platform, $chat_id );
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.admin.settings', '⚙️ تنظیمات' ) || '⚙️ تنظیمات ربات' === $text ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.settings', $user ) || '⚙️ تنظیمات ربات' === $text ) {
 			SimpleVPBot_Handler_Admin_Hub::send_submenu( $platform, $chat_id, 'set', array( 'user' => $user ) );
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.admin.advanced', '🔧 تنظیمات پیشرفته' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.advanced', $user ) ) {
 			SimpleVPBot_Handler_Admin_Hub::send_submenu( $platform, $chat_id, 'adv', array( 'user' => $user ) );
 			return;
 		}

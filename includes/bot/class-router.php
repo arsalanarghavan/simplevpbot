@@ -109,22 +109,47 @@ class SimpleVPBot_Router {
 
 		if ( 'admin' === $cmd && self::is_platform_admin( $plat, $from_id ) ) {
 			SimpleVPBot_Model_User::update( (int) $user->id, array( 'admin_mode' => 1 ) );
+			$u2 = SimpleVPBot_Model_User::find( (int) $user->id );
 			SimpleVPBot_Bot_Runtime::send_message(
 				$plat,
 				$chat_id,
-				'🔐 پنل مدیریت فعال شد.',
+				$u2 ? SimpleVPBot_Texts::get_for_user( 'msg.admin_panel_enabled', $u2 ) : '🔐 Admin panel enabled.',
 				array( 'reply_markup' => SimpleVPBot_Keyboards::admin_main_reply_for_chat( $plat, $chat_id ) )
 			);
 			return;
 		}
 
+		if ( 'lang' === $cmd && $user ) {
+			$parts = preg_split( '/\s+/u', trim( (string) $text ), 2 );
+			$sub   = isset( $parts[1] ) ? strtolower( trim( (string) $parts[1] ) ) : '';
+			if ( ! in_array( $sub, array( 'fa', 'en', 'persian', 'english' ), true ) ) {
+				SimpleVPBot_Bot_Runtime::send_message(
+					$plat,
+					$chat_id,
+					SimpleVPBot_Texts::get_for_user( 'msg.lang_usage', $user )
+				);
+				return;
+			}
+			$loc = ( 'en' === $sub || 'english' === $sub ) ? 'en' : 'fa';
+			SimpleVPBot_Model_User::update( (int) $user->id, array( 'bot_locale' => $loc ) );
+			$user = SimpleVPBot_Model_User::find( (int) $user->id );
+			if ( $user ) {
+				SimpleVPBot_Bot_Runtime::send_message(
+					$plat,
+					$chat_id,
+					SimpleVPBot_Texts::get_for_user( 'msg.lang_changed', $user )
+				);
+			}
+			return;
+		}
+
 		if ( ! $user ) {
-			SimpleVPBot_Bot_Runtime::send_message( $plat, $chat_id, '⛔ ابتدا /start را بزنید.' );
+			SimpleVPBot_Bot_Runtime::send_message( $plat, $chat_id, SimpleVPBot_Texts::get( 'msg.start_first', '' ) );
 			return;
 		}
 
 		if ( 'blocked' === $user->status ) {
-			SimpleVPBot_Bot_Runtime::send_message( $plat, $chat_id, '⛔ دسترسی شما مسدود است.' );
+			SimpleVPBot_Bot_Runtime::send_message( $plat, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.blocked', $user ) );
 			return;
 		}
 		// Telegram users are auto-approved; only Bale goes through admin approval flow.
@@ -140,7 +165,7 @@ class SimpleVPBot_Router {
 			$user->status = 'approved';
 		}
 		if ( 'pending' === $user->status || 'rejected' === $user->status ) {
-			SimpleVPBot_Bot_Runtime::send_message( $plat, $chat_id, SimpleVPBot_Texts::get( 'msg.approval_wait', '⏳ در انتظار تایید ادمین.' ) );
+			SimpleVPBot_Bot_Runtime::send_message( $plat, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.approval_wait', $user ) );
 			return;
 		}
 

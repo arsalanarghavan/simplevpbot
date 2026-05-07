@@ -2,6 +2,7 @@ import { gregorianToJalali } from "@/lib/jalali"
 
 const ASCII_DIGITS = "0123456789"
 const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹"
+const AR_DIGITS = "٠١٢٣٤٥٦٧٨٩"
 
 function getSiteTimeZone(): string | undefined {
   const z = (typeof window !== "undefined" ? window.__SIMPLEVPBOT_DASH__?.siteTimeZone : undefined) as
@@ -119,7 +120,12 @@ export function digitsToLatin(str: string): string {
   let out = ""
   for (const ch of str) {
     const i = FA_DIGITS.indexOf(ch)
-    out += i >= 0 ? ASCII_DIGITS[i]! : ch
+    if (i >= 0) {
+      out += ASCII_DIGITS[i]!
+      continue
+    }
+    const ai = AR_DIGITS.indexOf(ch)
+    out += ai >= 0 ? ASCII_DIGITS[ai]! : ch
   }
   return out
 }
@@ -130,7 +136,28 @@ export function digitsToLatin(str: string): string {
  */
 export function formatNumericString(str: string, isFa: boolean): string {
   if (!str) return str
-  return isFa ? formatDigits(str, true) : digitsToLatin(str)
+  const latin = digitsToLatin(str)
+    .replace(/٫/g, ".")
+    .replace(/[٬،]/g, ",")
+  return isFa ? formatDigits(latin, true) : latin
+}
+
+/** Convert localized numeric text (FA/AR digits and separators) into Number-safe format. */
+export function normalizeLocalizedNumberString(str: string): string {
+  if (!str) return ""
+  return digitsToLatin(str)
+    .replace(/[\u200c\u200f\u202a-\u202e\s]/g, "")
+    .replace(/[٬،,](?=\d{3}\b)/g, "")
+    .replace(/[٫]/g, ".")
+}
+
+export function parseLocalizedNumber(value: string | number | null | undefined): number | null {
+  if (value == null) return null
+  if (typeof value === "number") return Number.isFinite(value) ? value : null
+  const normalized = normalizeLocalizedNumberString(String(value))
+  if (!normalized) return null
+  const n = Number(normalized)
+  return Number.isFinite(n) ? n : null
 }
 
 export function formatBytes(value: number | null | undefined, isFa: boolean): string {
@@ -214,4 +241,27 @@ export function formatChartTooltipDate(isoDate: string, isFa: boolean): string {
   const da = Number(m[3])
   const d = new Date(y, mo - 1, da, 12, 0, 0)
   return formatDateTime(d, isFa)
+}
+
+/** Human-readable uptime from seconds (e.g. panel server status). */
+export function formatUptimeSeconds(totalSec: number | null | undefined, isFa: boolean): string {
+  if (totalSec == null || !Number.isFinite(totalSec) || totalSec < 0) return "—"
+  const s = Math.floor(totalSec)
+  const days = Math.floor(s / 86400)
+  let rem = s % 86400
+  const hours = Math.floor(rem / 3600)
+  rem %= 3600
+  const mins = Math.floor(rem / 60)
+  if (isFa) {
+    const parts: string[] = []
+    if (days > 0) parts.push(`${formatNumber(days, true)} روز`)
+    if (hours > 0 || days > 0) parts.push(`${formatNumber(hours, true)} ساعت`)
+    if (days === 0 && hours === 0) parts.push(`${formatNumber(mins, true)} دقیقه`)
+    return parts.join("، ") || formatNumber(0, true)
+  }
+  const parts: string[] = []
+  if (days > 0) parts.push(`${formatNumber(days, false)}d`)
+  if (hours > 0 || days > 0) parts.push(`${formatNumber(hours, false)}h`)
+  if (days === 0 && hours === 0) parts.push(`${formatNumber(mins, false)}m`)
+  return parts.join(" ") || "0m"
 }

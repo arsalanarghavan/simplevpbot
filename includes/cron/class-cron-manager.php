@@ -22,13 +22,29 @@ class SimpleVPBot_Cron_Manager {
 		add_action( 'simplevpbot_cron_expiry', array( 'SimpleVPBot_Cron_Expiry', 'run' ) );
 		add_action( 'simplevpbot_cron_autorenew', array( 'SimpleVPBot_Cron_Autorenew', 'run' ) );
 		add_action( 'simplevpbot_cron_broadcast', array( 'SimpleVPBot_Cron_Broadcast', 'run' ) );
+		add_action( 'simplevpbot_cron_users_bulk', array( 'SimpleVPBot_Cron_Users_Bulk', 'run' ) );
 		add_action( 'simplevpbot_cron_panel_online', array( 'SimpleVPBot_Cron_Panel_Online', 'run' ) );
 		add_action( 'simplevpbot_cron_panel_service_sync', array( 'SimpleVPBot_Cron_Panel_Service_Sync', 'run' ) );
+		add_action( 'simplevpbot_cron_inbound_clients_cache', array( 'SimpleVPBot_Cron_Inbound_Clients_Cache', 'run' ) );
 		add_action( 'simplevpbot_cron_idle_offers', array( 'SimpleVPBot_Cron_Idle_Offers', 'run' ) );
 		add_action( 'simplevpbot_cron_admin_alerts', array( 'SimpleVPBot_Cron_Admin_Alerts', 'run' ) );
 		add_action( 'init', array( __CLASS__, 'ensure_panel_sync_scheduled' ), 30 );
 		add_action( 'init', array( __CLASS__, 'ensure_broadcast_cron_scheduled' ), 32 );
+		add_action( 'init', array( __CLASS__, 'ensure_users_bulk_cron_scheduled' ), 33 );
 		add_action( 'init', array( __CLASS__, 'ensure_aux_crons_scheduled' ), 35 );
+		add_action( 'init', array( __CLASS__, 'ensure_inbound_clients_cache_scheduled' ), 36 );
+	}
+
+	/**
+	 * Register inbound clients DB cache cron if missing (upgrades without re-activation).
+	 */
+	public static function ensure_inbound_clients_cache_scheduled() {
+		if ( wp_next_scheduled( 'simplevpbot_cron_inbound_clients_cache' ) ) {
+			return;
+		}
+		$schedules = wp_get_schedules();
+		$iv        = isset( $schedules['simplevpbot_10min'] ) ? 'simplevpbot_10min' : 'hourly';
+		wp_schedule_event( time() + 600, $iv, 'simplevpbot_cron_inbound_clients_cache' );
 	}
 
 	/**
@@ -55,6 +71,15 @@ class SimpleVPBot_Cron_Manager {
 		wp_schedule_event( time() + 120, $broadcast_interval, 'simplevpbot_cron_broadcast' );
 	}
 
+	public static function ensure_users_bulk_cron_scheduled() {
+		if ( wp_next_scheduled( 'simplevpbot_cron_users_bulk' ) ) {
+			return;
+		}
+		$schedules = wp_get_schedules();
+		$interval  = isset( $schedules['simplevpbot_minute'] ) ? 'simplevpbot_minute' : 'hourly';
+		wp_schedule_event( time() + 90, $interval, 'simplevpbot_cron_users_bulk' );
+	}
+
 	/**
 	 * Schedule all crons.
 	 */
@@ -77,6 +102,10 @@ class SimpleVPBot_Cron_Manager {
 			$broadcast_interval = isset( $schedules['simplevpbot_minute'] ) ? 'simplevpbot_minute' : 'hourly';
 			wp_schedule_event( time() + 120, $broadcast_interval, 'simplevpbot_cron_broadcast' );
 		}
+		if ( ! wp_next_scheduled( 'simplevpbot_cron_users_bulk' ) ) {
+			$users_bulk_interval = isset( $schedules['simplevpbot_minute'] ) ? 'simplevpbot_minute' : 'hourly';
+			wp_schedule_event( time() + 90, $users_bulk_interval, 'simplevpbot_cron_users_bulk' );
+		}
 		if ( ! wp_next_scheduled( 'simplevpbot_cron_panel_online' ) ) {
 			$po = isset( $schedules['simplevpbot_10min'] ) ? 'simplevpbot_10min' : 'hourly';
 			wp_schedule_event( time() + 420, $po, 'simplevpbot_cron_panel_online' );
@@ -92,6 +121,10 @@ class SimpleVPBot_Cron_Manager {
 			$po = isset( $schedules['simplevpbot_10min'] ) ? 'simplevpbot_10min' : 'hourly';
 			wp_schedule_event( time() + 500, $po, 'simplevpbot_cron_admin_alerts' );
 		}
+		if ( ! wp_next_scheduled( 'simplevpbot_cron_inbound_clients_cache' ) ) {
+			$iv = isset( $schedules['simplevpbot_10min'] ) ? 'simplevpbot_10min' : 'hourly';
+			wp_schedule_event( time() + 540, $iv, 'simplevpbot_cron_inbound_clients_cache' );
+		}
 	}
 
 	/**
@@ -105,6 +138,10 @@ class SimpleVPBot_Cron_Manager {
 		if ( ! wp_next_scheduled( 'simplevpbot_cron_admin_alerts' ) ) {
 			$po = isset( $schedules['simplevpbot_10min'] ) ? 'simplevpbot_10min' : 'hourly';
 			wp_schedule_event( time() + 500, $po, 'simplevpbot_cron_admin_alerts' );
+		}
+		if ( ! wp_next_scheduled( 'simplevpbot_cron_inbound_clients_cache' ) ) {
+			$iv = isset( $schedules['simplevpbot_10min'] ) ? 'simplevpbot_10min' : 'hourly';
+			wp_schedule_event( time() + 540, $iv, 'simplevpbot_cron_inbound_clients_cache' );
 		}
 	}
 

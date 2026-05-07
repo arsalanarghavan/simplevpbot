@@ -25,44 +25,44 @@ class SimpleVPBot_Handler_User_Menu {
 		$user     = $ctx['user'];
 		$text     = trim( (string) $ctx['text'] );
 
-		if ( $text === SimpleVPBot_Texts::get( 'btn.main.buy', '🛒 خرید سرویس' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.main.buy', $user ) ) {
 			SimpleVPBot_Handler_Buy::send_category_picker( $platform, $chat_id );
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.main.manage', '🧰 مدیریت سرویس' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.main.manage', $user ) ) {
 			$list = SimpleVPBot_Model_Service::by_user( (int) $user->id );
 			if ( empty( $list ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get( 'msg.no_active_services', '🧰 سرویس فعالی ندارید.' ) );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.no_active_services', $user ) );
 				return;
 			}
 			SimpleVPBot_Bot_Runtime::send_message(
 				$platform,
 				$chat_id,
-				'🧰 سرویس خود را انتخاب کنید:',
+				SimpleVPBot_Texts::get_for_user( 'msg.pick_service_inline', $user ),
 				array( 'reply_markup' => SimpleVPBot_Keyboards::inline_service_list( $list ) )
 			);
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.main.wallet', '💰 کیف پول' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.main.wallet', $user ) ) {
 			SimpleVPBot_Handler_Wallet::show( $platform, $chat_id, $user );
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.main.apps', '📱 اپلیکیشن‌ها' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.main.apps', $user ) ) {
 			SimpleVPBot_Handler_Apps::show( $platform, $chat_id );
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.main.support', '🆘 پشتیبانی' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.main.support', $user ) ) {
 			SimpleVPBot_Handler_Support::show( $platform, $chat_id );
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.main.account', '👤 اطلاعات حساب' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.main.account', $user ) ) {
 			SimpleVPBot_Handler_Account::show( $platform, $chat_id, $user );
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get( 'btn.main.referral', '💎 کسب درآمد' ) ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.main.referral', $user ) ) {
 			SimpleVPBot_Handler_Referral::show( $platform, $chat_id, $user );
 			return;
 		}
-		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, 'ℹ️ از دکمه‌های پایین استفاده کنید.' );
+		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.use_reply_buttons', $user ) );
 	}
 }

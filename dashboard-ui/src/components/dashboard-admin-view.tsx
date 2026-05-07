@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from "react"
+import { useTranslation } from "react-i18next"
 import { DashboardBackupAdmin } from "@/components/dashboard-backup-admin"
 import { DashboardBotsAdmin } from "@/components/dashboard-bots-admin"
 import { DashboardBroadcastAdmin } from "@/components/dashboard-broadcast-admin"
@@ -16,9 +17,7 @@ import { DashboardPlanCatsAdmin } from "@/components/dashboard-plan-cats-admin"
 import { DashboardPlansAdmin } from "@/components/dashboard-plans-admin"
 import { DashboardReceiptsAdmin } from "@/components/dashboard-receipts-admin"
 import { DashboardReferralAdmin } from "@/components/dashboard-referral-admin"
-import { DashboardResellerBotsAdmin, type ResellerBotProfile } from "@/components/dashboard-reseller-bots-admin"
 import { DashboardResellersAdmin } from "@/components/dashboard-resellers-admin"
-import { DashboardUsersBulkAdmin } from "@/components/dashboard-users-bulk-admin"
 import { DashboardTextsAdmin } from "@/components/dashboard-texts-admin"
 import { DashboardUsersAdmin } from "@/components/dashboard-users-admin"
 import { DashboardUserDetailAdmin } from "@/components/dashboard-user-detail-admin"
@@ -112,6 +111,7 @@ export function DashboardAdminView({
   onRefreshLivePanelMetrics,
   onAdminMutateSuccess,
 }: Props) {
+  const { t } = useTranslation()
   const setPage = useCallback(
     (key: ListQueryKey, page: number) => {
       setListQuery((q) => listQuerySetPage(q, key, page))
@@ -154,19 +154,9 @@ export function DashboardAdminView({
   const disc = asRecordArray(data.discountCodes)
   const broadcasts = asRecordArray(data.broadcasts)
   const resellers = asRecordArray(data.resellers)
-  const resellerPermissionsMap =
-    data.resellerPermissionsMap && typeof data.resellerPermissionsMap === "object"
-      ? (data.resellerPermissionsMap as Record<string, Record<string, boolean>>)
-      : {}
-  const resellerPanelPricesMap =
-    data.resellerPanelPricesMap && typeof data.resellerPanelPricesMap === "object"
-      ? (data.resellerPanelPricesMap as Record<string, Array<{ panel_id?: number; price_per_gb?: number | string }>>)
-      : {}
 
   const notFound = (
-    <p className="text-sm text-muted-foreground">
-      {isFa ? "این بخش فعلاً داده‌ای ندارد یا تب ناشناخته است." : "No data for this section or unknown tab."}
-    </p>
+    <p className="text-sm text-muted-foreground">{t("layout.adminUnknownSection")}</p>
   )
 
   if (activeTab === "dashboard") {
@@ -202,9 +192,7 @@ export function DashboardAdminView({
   if (activeTab === "site_settings") {
     return (
       <div className="space-y-4">
-        <h2 className="text-lg font-medium">
-          {isFa ? "تنظیمات سایت (مقادیر حساس مخفی‌اند)" : "Site settings (secrets hidden)"}
-        </h2>
+        <h2 className="text-lg font-medium">{t("layout.adminSiteSettingsHidden")}</h2>
         <div className="space-y-0">
           {generalSlice.map(([k, v]) => (
             <div
@@ -234,7 +222,15 @@ export function DashboardAdminView({
 
   if (activeTab === "bots") {
     return (
-      <DashboardBotsAdmin settings={settings} isFa={isFa} onMutateSuccess={onAdminMutateSuccess} />
+      <DashboardBotsAdmin
+        settings={settings}
+        botsList={asRecordArray(data.botsList)}
+        botsPagination={pickPagination(data, "botsList")}
+        isFa={isFa}
+        onMutateSuccess={onAdminMutateSuccess}
+        onPageChange={(p) => setPage("botsList", p)}
+        onPerPageChange={(n) => setPer("botsList", n)}
+      />
     )
   }
 
@@ -304,7 +300,6 @@ export function DashboardAdminView({
       <DashboardCardsAdmin
         cards={cards}
         pagination={pickPagination(data, "cards")}
-        settings={settings}
         isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("cards", p)}
@@ -361,7 +356,7 @@ export function DashboardAdminView({
     }
     const textDefaults =
       data.textDefaults && typeof data.textDefaults === "object"
-        ? (data.textDefaults as Record<string, string>)
+        ? (data.textDefaults as Record<string, { fa: string; en: string } | string>)
         : {}
     return (
       <DashboardTextsAdmin
@@ -383,17 +378,6 @@ export function DashboardAdminView({
         onMutateSuccess={onAdminMutateSuccess}
         onOpenUserDetail={onOpenUserDetail}
       />
-    )
-  }
-
-  if (activeTab === "users_bulk") {
-    return <DashboardUsersBulkAdmin isFa={isFa} onMutateSuccess={onAdminMutateSuccess} />
-  }
-
-  if (activeTab === "reseller_bots") {
-    const prof = data.resellerBotProfile as ResellerBotProfile | undefined
-    return (
-      <DashboardResellerBotsAdmin profile={prof} isFa={isFa} onMutateSuccess={onAdminMutateSuccess} />
     )
   }
 
@@ -422,8 +406,6 @@ export function DashboardAdminView({
       <DashboardResellersAdmin
         rows={resellers}
         panels={panels}
-        resellerPermissionsMap={resellerPermissionsMap}
-        resellerPanelPricesMap={resellerPanelPricesMap}
         pagination={pickPagination(data, "resellers")}
         isFa={isFa}
         onPageChange={(p) => setPage("resellers", p)}
@@ -443,33 +425,16 @@ export function DashboardAdminView({
   }
 
   if (activeTab === "referral") {
-    const refStats =
-      data.referralStats && typeof data.referralStats === "object"
-        ? (data.referralStats as Record<string, unknown>)
-        : undefined
-    const refSummary =
-      refStats?.summary && typeof refStats.summary === "object"
-        ? (refStats.summary as Record<string, unknown>)
-        : undefined
-    const referralWindowDays = Math.max(7, Math.min(90, Number(refSummary?.windowDays ?? 30)))
     return (
       <DashboardReferralAdmin
         settings={settings}
         referralStats={data.referralStats}
         referralEvents={asRecordArray(data.referralEvents)}
         eventsPagination={pickPagination(data, "referralEvents")}
-        referralWindowDays={referralWindowDays}
         isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
         onEventsPageChange={(p) => setPage("referralEvents", p)}
         onEventsPerPageChange={(n) => setPer("referralEvents", n)}
-        onWindowDaysChange={(days) =>
-          setListQuery((q) => ({
-            ...q,
-            referral_days: String(days),
-            referralEvents_page: "1",
-          }))
-        }
       />
     )
   }

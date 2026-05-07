@@ -231,7 +231,7 @@ class SimpleVPBot_User_Membership {
 	 * @param bool   $with_menu Send main reply keyboard.
 	 */
 	private static function notify_user( $user, $text, $with_menu ) {
-		$extra = $with_menu ? array( 'reply_markup' => SimpleVPBot_Keyboards::user_main_reply() ) : array();
+		$extra = $with_menu ? array( 'reply_markup' => SimpleVPBot_Keyboards::user_main_reply( $user ) ) : array();
 		if ( ! empty( $user->tg_user_id ) ) {
 			SimpleVPBot_Bot_Runtime::send_message( 'telegram', (int) $user->tg_user_id, $text, $extra );
 		}

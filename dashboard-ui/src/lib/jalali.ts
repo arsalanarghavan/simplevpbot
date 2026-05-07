@@ -44,3 +44,32 @@ export function gregorianToJalali(gy: number, gm: number, gd: number): [number, 
   const jd = jDayNo + 1
   return [jy, jm, jd]
 }
+
+/**
+ * Jalali → Gregorian using the same `gregorianToJalali` (inverse search in UTC noon space).
+ * Covers typical dashboard years (~1300–1500 شمسی) with a small fixed window.
+ */
+export function jalaliToGregorian(jy: number, jm: number, jd: number): [number, number, number] {
+  const y = Math.trunc(jy)
+  const m = Math.trunc(jm)
+  const d = Math.trunc(jd)
+  if (y < 1 || m < 1 || m > 12 || d < 1 || d > 31) {
+    return [2000, 1, 1]
+  }
+  const gyGuess = y + 621
+  const anchor = Date.UTC(gyGuess, 2, 1, 12, 0, 0)
+  for (const span of [220, 500]) {
+    for (let delta = -span; delta <= span; delta++) {
+      const t = anchor + delta * 86400000
+      const dt = new Date(t)
+      const gy = dt.getUTCFullYear()
+      const gm = dt.getUTCMonth() + 1
+      const gd = dt.getUTCDate()
+      const [jjy, jjm, jjd] = gregorianToJalali(gy, gm, gd)
+      if (jjy === y && jjm === m && jjd === d) {
+        return [gy, gm, gd]
+      }
+    }
+  }
+  return [gyGuess, 3, 1]
+}

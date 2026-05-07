@@ -130,6 +130,9 @@ class SimpleVPBot_Admin_Actions {
 				'admin_bale_ids'         => implode( "\n", array_map( 'strval', (array) ( $s['admin_bale_ids'] ?? array() ) ) ),
 				'portal_page_id'             => max( 0, (int) ( $s['portal_page_id'] ?? 0 ) ),
 				'default_service_plan_id'    => max( 0, (int) ( $s['default_service_plan_id'] ?? 0 ) ),
+				'crisis_mode'                => ! empty( $s['crisis_mode'] ),
+				'suppress_bulk_user_notifications' => ! empty( $s['suppress_bulk_user_notifications'] ),
+				'cards_display_mode'         => in_array( (string) ( $s['cards_display_mode'] ?? 'list' ), array( 'list', 'sequential' ), true ) ? (string) $s['cards_display_mode'] : 'list',
 			);
 		}
 		if ( 'bots' === $tab ) {
@@ -200,6 +203,11 @@ class SimpleVPBot_Admin_Actions {
 				'backup_max_zip_mb'               => max( 0, (int) ( $s['backup_max_zip_mb'] ?? 0 ) ),
 			);
 		}
+		if ( 'cards' === $tab ) {
+			return array(
+				'cards_display_mode' => sanitize_key( (string) ( $s['cards_display_mode'] ?? 'list' ) ),
+			);
+		}
 		return array();
 	}
 
@@ -213,7 +221,7 @@ class SimpleVPBot_Admin_Actions {
 	public static function apply_settings_merge( $tab, array $patch ) {
 		$tab  = sanitize_key( (string) $tab );
 		$base = self::settings_post_for_tab( $tab );
-		if ( empty( $base ) && ! in_array( $tab, array( 'general', 'bots', 'panel', 'notifications', 'referral', 'plans_catalog', 'backup' ), true ) ) {
+		if ( empty( $base ) && ! in_array( $tab, array( 'general', 'bots', 'panel', 'notifications', 'referral', 'plans_catalog', 'backup', 'cards' ), true ) ) {
 			return false;
 		}
 		$merged = array_merge( $base, $patch );
@@ -227,7 +235,7 @@ class SimpleVPBot_Admin_Actions {
 	/**
 	 * Merge one settings tab from POST-like array into stored settings (same rules as WP admin form).
 	 *
-	 * @param string               $tab  Tab key (general|bots|panel|backup|notifications).
+	 * @param string               $tab  Tab key (general|bots|panel|backup|notifications|cards).
 	 * @param array<string, mixed> $post Raw input; caller should wp_unslash() when from $_POST.
 	 * @return bool Whether $tab was recognized and applied.
 	 */
@@ -242,14 +250,29 @@ class SimpleVPBot_Admin_Actions {
 				$all['admin_bale_ids']       = self::parse_id_lines( isset( $post['admin_bale_ids'] ) ? (string) $post['admin_bale_ids'] : '' );
 				$all['portal_page_id']            = max( 0, (int) ( $post['portal_page_id'] ?? 0 ) );
 				$all['default_service_plan_id']   = max( 0, (int) ( $post['default_service_plan_id'] ?? 0 ) );
+				$all['crisis_mode']               = ! empty( $post['crisis_mode'] );
+				$all['suppress_bulk_user_notifications'] = ! empty( $post['suppress_bulk_user_notifications'] );
+				$mode = isset( $post['cards_display_mode'] ) ? sanitize_key( (string) $post['cards_display_mode'] ) : 'list';
+				$all['cards_display_mode'] = in_array( $mode, array( 'list', 'sequential' ), true ) ? $mode : 'list';
 				break;
 			case 'bots':
 				$all['telegram_token']           = sanitize_text_field( (string) ( $post['telegram_token'] ?? '' ) );
 				$all['bale_token']               = sanitize_text_field( (string) ( $post['bale_token'] ?? '' ) );
-				$all['telegram_webhook_secret']  = sanitize_text_field( (string) ( $post['telegram_webhook_secret'] ?? '' ) );
-				$all['bale_webhook_secret']      = sanitize_text_field( (string) ( $post['bale_webhook_secret'] ?? '' ) );
+				// Optional path secrets: dashboard omits keys so DB values stay; bot merge sends keys explicitly.
+				if ( array_key_exists( 'telegram_webhook_secret', $post ) ) {
+					$all['telegram_webhook_secret'] = sanitize_text_field( (string) $post['telegram_webhook_secret'] );
+				}
+				if ( array_key_exists( 'bale_webhook_secret', $post ) ) {
+					$all['bale_webhook_secret'] = sanitize_text_field( (string) $post['bale_webhook_secret'] );
+				}
 				$all['telegram_secret_header']   = sanitize_text_field( (string) ( $post['telegram_secret_header'] ?? '' ) );
 				$all['bale_wallet_provider_token'] = sanitize_text_field( (string) ( $post['bale_wallet_provider_token'] ?? '' ) );
+				if ( isset( $post['admin_telegram_ids'] ) ) {
+					$all['admin_telegram_ids'] = self::parse_id_lines( (string) $post['admin_telegram_ids'] );
+				}
+				if ( isset( $post['admin_bale_ids'] ) ) {
+					$all['admin_bale_ids'] = self::parse_id_lines( (string) $post['admin_bale_ids'] );
+				}
 				break;
 			case 'panel':
 				$all['panel_url']                = esc_url_raw( (string) ( $post['panel_url'] ?? '' ) );
@@ -312,6 +335,13 @@ class SimpleVPBot_Admin_Actions {
 				$all['telegram_bot_username']            = sanitize_text_field( (string) ( $post['telegram_bot_username'] ?? '' ) );
 				$all['bale_bot_username']                 = sanitize_text_field( (string) ( $post['bale_bot_username'] ?? '' ) );
 				break;
+			case 'cards':
+				$mode = sanitize_key( (string) ( $post['cards_display_mode'] ?? 'list' ) );
+				if ( 'sequential' !== $mode ) {
+					$mode = 'list';
+				}
+				$all['cards_display_mode'] = $mode;
+				break;
 			default:
 				return false;
 		}
@@ -329,6 +359,18 @@ class SimpleVPBot_Admin_Actions {
 		if ( 'backup' === $tab ) {
 			SimpleVPBot_Cron_Manager::clear_backup();
 			SimpleVPBot_Cron_Manager::schedule_all();
+		}
+		if ( 'bots' === $tab ) {
+			SimpleVPBot_Settings::ensure_secrets();
+			$s = SimpleVPBot_Settings::all();
+			if ( ! empty( $s['enabled'] ) ) {
+				if ( '' !== trim( (string) ( $s['telegram_token'] ?? '' ) ) && class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+					SimpleVPBot_Service_Admin_Ops::set_webhook_telegram();
+				}
+				if ( '' !== trim( (string) ( $s['bale_token'] ?? '' ) ) && class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+					SimpleVPBot_Service_Admin_Ops::set_webhook_bale();
+				}
+			}
 		}
 	}
 

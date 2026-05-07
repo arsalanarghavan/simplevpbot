@@ -139,7 +139,7 @@ export function DashboardNotificationsAdmin({
               id="n_days"
               value={form.notify_expiry_days}
               onChange={(e) => setForm((f) => ({ ...f, notify_expiry_days: e.target.value }))}
-              placeholder="3,1,0"
+              placeholder={tp("expiryDaysPlaceholder")}
             />
             <p className="text-xs text-muted-foreground">{tp("expiryDaysHint")}</p>
           </div>

@@ -119,31 +119,31 @@ class SimpleVPBot_Handler_Start {
 
 		if ( 'approved' === $user->status ) {
 			$msg = SimpleVPBot_Texts::format(
-				SimpleVPBot_Texts::get( 'msg.welcome', '👋 سلام {name}!' ),
+				SimpleVPBot_Texts::get_for_user( 'msg.welcome', $user ),
 				array( 'name' => $name )
 			);
 			SimpleVPBot_Bot_Runtime::send_message(
 				$platform,
 				$chat_id,
 				$msg,
-				array( 'reply_markup' => SimpleVPBot_Keyboards::user_main_reply() )
+				array( 'reply_markup' => SimpleVPBot_Keyboards::user_main_reply( $user ) )
 			);
 			return;
 		}
 
 		if ( 'rejected' === $user->status ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get( 'msg.approval_rejected', '⛔ رد شدید.' ) );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.approval_rejected', $user ) );
 			return;
 		}
 
 		// Bale: admin approval flow. Telegram never reaches here (auto-approved above).
 		$open = SimpleVPBot_Model_Pending::find_open_for_user( (int) $user->id );
 		if ( $open ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get( 'msg.approval_wait', '⏳ در انتظار تایید.' ) );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.approval_wait', $user ) );
 			return;
 		}
 
-		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get( 'msg.approval_wait', '⏳ در انتظار تایید.' ) );
+		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.approval_wait', $user ) );
 
 		$pid = SimpleVPBot_Model_Pending::insert(
 			array(

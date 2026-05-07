@@ -328,6 +328,29 @@ class SimpleVPBot_Admin_User_Ops {
 	}
 
 	/**
+	 * Reduce volume GB (free only, clamped at zero).
+	 *
+	 * @param int    $service_id Service id.
+	 * @param int    $reduce_gb  GB to reduce.
+	 * @param string $mode       free.
+	 * @return array{ok:bool, reason?:string}
+	 */
+	public static function admin_reduce_volume( $service_id, $reduce_gb, $mode = 'free' ) {
+		$sid  = (int) $service_id;
+		$g    = max( 1, (int) $reduce_gb );
+		$mode = sanitize_key( (string) $mode );
+		if ( 'free' !== $mode ) {
+			return array( 'ok' => false, 'reason' => 'bad_mode' );
+		}
+		$svc = SimpleVPBot_Model_Service::find( $sid );
+		if ( ! $svc ) {
+			return array( 'ok' => false, 'reason' => 'no_service' );
+		}
+		$rn = SimpleVPBot_Service_Renew::apply_reduce_volume_free( $sid, $g );
+		return ! empty( $rn['ok'] ) ? array( 'ok' => true ) : array( 'ok' => false, 'reason' => (string) ( $rn['message'] ?? 'reduce_vol_failed' ) );
+	}
+
+	/**
 	 * Add user slots when priced.
 	 *
 	 * @param int    $service_id Service id.
@@ -395,6 +418,29 @@ class SimpleVPBot_Admin_User_Ops {
 	}
 
 	/**
+	 * Reduce user slots (free only, clamped at zero).
+	 *
+	 * @param int    $service_id Service id.
+	 * @param int    $reduce_users Count.
+	 * @param string $mode free.
+	 * @return array{ok:bool, reason?:string}
+	 */
+	public static function admin_reduce_user_slots( $service_id, $reduce_users, $mode = 'free' ) {
+		$sid  = (int) $service_id;
+		$n    = max( 1, (int) $reduce_users );
+		$mode = sanitize_key( (string) $mode );
+		if ( 'free' !== $mode ) {
+			return array( 'ok' => false, 'reason' => 'bad_mode' );
+		}
+		$svc = SimpleVPBot_Model_Service::find( $sid );
+		if ( ! $svc ) {
+			return array( 'ok' => false, 'reason' => 'no_service' );
+		}
+		$rn = SimpleVPBot_Service_Renew::apply_reduce_user_slots_free( $sid, $n );
+		return ! empty( $rn['ok'] ) ? array( 'ok' => true ) : array( 'ok' => false, 'reason' => (string) ( $rn['message'] ?? 'slots_failed' ) );
+	}
+
+	/**
 	 * Bulk: add days to all non-L2TP services (or all if $xray_only false).
 	 *
 	 * @param int  $days       Days to add.
@@ -427,6 +473,38 @@ class SimpleVPBot_Admin_User_Ops {
 	}
 
 	/**
+	 * Bulk: reduce days from all non-L2TP services (or all if $xray_only false), floor at now.
+	 *
+	 * @param int  $days       Days to reduce.
+	 * @param bool $xray_only  Skip L2TP when true.
+	 * @param int  $max_ops    Safety cap.
+	 * @return array{ok:bool, done:int, errors:int}
+	 */
+	public static function bulk_reduce_days( $days, $xray_only = true, $max_ops = 200 ) {
+		$d        = max( 1, min( 3650, (int) $days ) );
+		$services = SimpleVPBot_Model_Service::all();
+		$done     = 0;
+		$errors   = 0;
+		$n        = 0;
+		foreach ( $services as $svc ) {
+			if ( $n >= $max_ops ) {
+				break;
+			}
+			if ( $xray_only && SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
+				continue;
+			}
+			++$n;
+			$r = SimpleVPBot_Service_Renew::apply_reduce_days_free( (int) $svc->id, $d );
+			if ( ! empty( $r['ok'] ) ) {
+				++$done;
+			} else {
+				++$errors;
+			}
+		}
+		return array( 'ok' => true, 'done' => $done, 'errors' => $errors );
+	}
+
+	/**
 	 * Bulk: add GB to all Xray services.
 	 *
 	 * @param int $extra_gb  GB per service.
@@ -448,6 +526,37 @@ class SimpleVPBot_Admin_User_Ops {
 			}
 			++$n;
 			$r = SimpleVPBot_Service_Renew::apply_add_volume_after_payment( (int) $svc->id, $g );
+			if ( ! empty( $r['ok'] ) ) {
+				++$done;
+			} else {
+				++$errors;
+			}
+		}
+		return array( 'ok' => true, 'done' => $done, 'errors' => $errors );
+	}
+
+	/**
+	 * Bulk: reduce GB from all Xray services (floor at zero).
+	 *
+	 * @param int $reduce_gb GB per service.
+	 * @param int $max_ops   Cap.
+	 * @return array{ok:bool, done:int, errors:int}
+	 */
+	public static function bulk_reduce_volume( $reduce_gb, $max_ops = 200 ) {
+		$g        = max( 1, (int) $reduce_gb );
+		$services = SimpleVPBot_Model_Service::all();
+		$done     = 0;
+		$errors   = 0;
+		$n        = 0;
+		foreach ( $services as $svc ) {
+			if ( $n >= $max_ops ) {
+				break;
+			}
+			if ( SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
+				continue;
+			}
+			++$n;
+			$r = SimpleVPBot_Service_Renew::apply_reduce_volume_free( (int) $svc->id, $g );
 			if ( ! empty( $r['ok'] ) ) {
 				++$done;
 			} else {

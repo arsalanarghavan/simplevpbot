@@ -73,3 +73,33 @@ export async function getAdminJson(path: string, query: Record<string, string | 
     return { ok: false, message: "bad_json" }
   }
 }
+
+/**
+ * POST helper for dashboard admin REST (nonce + credentials).
+ */
+export async function postAdminJson(
+  path: string,
+  body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const boot = window.__SIMPLEVPBOT_DASH__ || {}
+  const restBase = String((boot as { restUrl?: string }).restUrl || "").replace(/\/$/, "")
+  if (!restBase) {
+    return { ok: false, message: "no_rest" }
+  }
+  const nonce = String((boot as { nonce?: string }).nonce || "")
+  const p = path.startsWith("/") ? path : `/${path}`
+  const res = await fetch(`${restBase}${p}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-WP-Nonce": nonce,
+    },
+    credentials: "include",
+    body: JSON.stringify(body),
+  })
+  try {
+    return (await res.json()) as Record<string, unknown>
+  } catch {
+    return { ok: false, message: "bad_json" }
+  }
+}

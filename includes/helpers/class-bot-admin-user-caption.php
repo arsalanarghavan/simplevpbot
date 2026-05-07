@@ -17,6 +17,19 @@ class SimpleVPBot_Bot_Admin_User_Caption {
 	const LINE_SEP = "➖➖➖➖➖➖➖➖";
 
 	/**
+	 * Optional brand line for reseller bot context.
+	 *
+	 * @return string
+	 */
+	private static function brand_line() {
+		if ( ! class_exists( 'SimpleVPBot_Bot_Context' ) ) {
+			return '';
+		}
+		$brand = trim( (string) SimpleVPBot_Bot_Context::active_brand_name() );
+		return '' !== $brand ? ( '🏷 برند: ' . $brand ) : '';
+	}
+
+	/**
 	 * Display name (first + last).
 	 *
 	 * @param object $user svp_users row.
@@ -111,12 +124,13 @@ class SimpleVPBot_Bot_Admin_User_Caption {
 		$parts  = array(
 			'🧾 رسید جدید',
 			self::LINE_SEP,
+			self::brand_line(),
 			self::identity_block_lines( $user ),
 			'💰 مبلغ: ' . $amt . ' تومان',
 			'سرویس انتخابی: ' . $svc,
 			'🆔 رسید: ' . $rid_fa,
 		);
-		return implode( "\n", $parts );
+		return implode( "\n", array_values( array_filter( $parts, static function ( $x ) { return '' !== (string) $x; } ) ) );
 	}
 
 	/**
@@ -131,10 +145,11 @@ class SimpleVPBot_Bot_Admin_User_Caption {
 		$parts = array(
 			$title,
 			self::LINE_SEP,
+			self::brand_line(),
 			self::identity_block_lines( $user ),
 			self::LINE_SEP,
 			'آیا تایید می‌کنید؟',
 		);
-		return implode( "\n", $parts );
+		return implode( "\n", array_values( array_filter( $parts, static function ( $x ) { return '' !== (string) $x; } ) ) );
 	}
 }

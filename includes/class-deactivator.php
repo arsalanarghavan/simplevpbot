@@ -24,5 +24,6 @@ class SimpleVPBot_Deactivator {
 		wp_clear_scheduled_hook( 'simplevpbot_cron_broadcast' );
 		wp_clear_scheduled_hook( 'simplevpbot_cron_panel_online' );
 		wp_clear_scheduled_hook( 'simplevpbot_cron_panel_service_sync' );
+		wp_clear_scheduled_hook( 'simplevpbot_cron_inbound_clients_cache' );
 	}
 }

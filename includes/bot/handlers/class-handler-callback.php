@@ -282,7 +282,7 @@ class SimpleVPBot_Handler_Callback {
 	 * @param bool   $with_menu With main menu.
 	 */
 	private static function notify_user_status( $user, $text, $with_menu ) {
-		$extra = $with_menu ? array( 'reply_markup' => SimpleVPBot_Keyboards::user_main_reply() ) : array();
+		$extra = $with_menu ? array( 'reply_markup' => SimpleVPBot_Keyboards::user_main_reply( $user ) ) : array();
 		if ( ! empty( $user->tg_user_id ) ) {
 			SimpleVPBot_Bot_Runtime::send_message( 'telegram', (int) $user->tg_user_id, $text, $extra );
 		}

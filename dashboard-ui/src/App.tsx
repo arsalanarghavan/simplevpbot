@@ -23,16 +23,13 @@ import { buildAdminStateQuery } from "@/lib/dash-pagination"
 import { parseActiveDashTab, parseDashFromPath } from "@/lib/dash-tab"
 import { formatNumber } from "@/lib/format-locale"
 import { ADMIN_NAV_SECTIONS, type AdminNavSection } from "@/config/admin-nav"
+import { cn } from "@/lib/utils"
 
 type DashData = {
   navTabs?: NavTab[]
   user?: { label?: string }
 } & Record<string, unknown>
 type NavTab = { key: string; label: string }
-
-function userHomeNav(isFa: boolean): NavTab[] {
-  return [{ key: "home", label: isFa ? "خانه" : "Home" }]
-}
 
 const RESELLER_ALLOWED_BY_PERMISSION: Record<string, string | null> = {
   dashboard: null,
@@ -42,6 +39,9 @@ const RESELLER_ALLOWED_BY_PERMISSION: Record<string, string | null> = {
   plans: "plans.manage",
   plan_cats: "plans.manage",
   reseller_bots: "services.manage",
+  users_bulk: "users.bulk",
+  broadcast: "broadcast.send",
+  receipts: "receipts.review",
 }
 
 function App() {
@@ -72,6 +72,14 @@ function App() {
   const dashboardBaseUrl = boot.dashboardUrl || `${window.location.origin}/dashboard/`
   const allowedResellerTabs = useMemo(() => {
     if (!isReseller) return new Set<string>()
+    const server = data?.resellerAllowedTabs
+    if (server && typeof server === "object") {
+      const out = new Set<string>()
+      for (const [k, v] of Object.entries(server as Record<string, unknown>)) {
+        if (v === true) out.add(k)
+      }
+      return out
+    }
     const perms =
       data?.actorPermissions && typeof data.actorPermissions === "object"
         ? (data.actorPermissions as Record<string, boolean>)
@@ -220,11 +228,24 @@ function App() {
 
   const isFa = lang === "fa"
   const sidebarSide: "left" | "right" = isFa ? "right" : "left"
-  const navTabs: NavTab[] = isOperator ? [] : userHomeNav(isFa)
+  const navTabs: NavTab[] = useMemo(
+    () => (isOperator ? [] : [{ key: "home", label: t("layout.breadcrumbHome") }]),
+    [isOperator, t],
+  )
   const resellerSections: AdminNavSection[] = useMemo(() => {
     if (!isReseller) return ADMIN_NAV_SECTIONS
     const overview = ADMIN_NAV_SECTIONS.find((s) => s.id === "overview")
     if (!overview) return ADMIN_NAV_SECTIONS
+    const workspaceTabs = [
+      "users",
+      "users_bulk",
+      "resellers",
+      "plans",
+      "plan_cats",
+      "receipts",
+      "broadcast",
+      "reseller_bots",
+    ].filter((tabKey) => allowedResellerTabs.has(tabKey))
     return [
       overview,
       {
@@ -236,36 +257,30 @@ function App() {
             id: "reseller_workspace",
             icon: Users,
             labelKey: "sidebar.groups.resellerWorkspace",
-            children: [
-              { tabKey: "users" },
-              { tabKey: "resellers" },
-              { tabKey: "plans" },
-              { tabKey: "plan_cats" },
-              { tabKey: "reseller_bots" },
-            ],
+            children: workspaceTabs.map((tabKey) => ({ tabKey })),
           },
         ],
       },
     ]
-  }, [isReseller])
+  }, [isReseller, allowedResellerTabs])
 
   const currentSectionLabel = useMemo(() => {
     if (!isOperator) {
-      return userHomeNav(isFa)[0].label
+      return t("layout.breadcrumbHome")
     }
     if (activeTab === "users" && userDetailId != null && userDetailId > 0) {
-      return isFa ? `کاربر #${userDetailId}` : `User #${userDetailId}`
+      return t("layout.userDetailTitle", { id: userDetailId })
     }
     return t(`sidebar.items.${activeTab}`, { defaultValue: activeTab })
-  }, [isOperator, isFa, activeTab, userDetailId, t])
+  }, [isOperator, activeTab, userDetailId, t])
 
   const user = {
     name: data?.user?.label || `#${formatNumber(boot.svpUserId || 0, isFa)}`,
-    email: isAdmin ? "admin@dashboard" : "user@dashboard",
+    email: isAdmin ? t("layout.placeholderAdminEmail") : t("layout.placeholderUserEmail"),
     avatar: "",
     logoutUrl: boot.logoutUrl || "/wp-login.php?action=logout",
   }
-  const langLabel = isFa ? "فارسی 🇮🇷" : "English 🇺🇸"
+  const langLabel = isFa ? t("layout.langSwitchToEn") : t("layout.langSwitchToFa")
   const effectiveActiveTab = isAdmin || isReseller ? activeTab : "home"
 
   const sidebarEl = (
@@ -292,25 +307,8 @@ function App() {
         dir={isFa ? "rtl" : "ltr"}
         className="flex h-16 w-full shrink-0 items-center gap-2 border-b px-4"
       >
-        {!isFa ? (
-          <>
-            <SidebarTrigger className="-ms-1 shrink-0" />
-            <Separator orientation="vertical" className="me-2 h-4 shrink-0" />
-          </>
-        ) : (
-          <div className="flex shrink-0 items-center gap-2">
-            <Button variant="outline" onClick={() => setLang(isFa ? "en" : "fa")}>
-              {langLabel}
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            >
-              {theme === "dark" ? <Sun /> : <Moon />}
-            </Button>
-          </div>
-        )}
+        <SidebarTrigger className={cn("-ms-1 shrink-0", isFa && "rotate-180")} />
+        <Separator orientation="vertical" className="me-2 h-4 shrink-0" />
         <Breadcrumb className="min-w-0 flex-1" dir={isFa ? "rtl" : undefined}>
           <BreadcrumbList>
             <BreadcrumbItem>{t("dashboard")}</BreadcrumbItem>
@@ -322,25 +320,18 @@ function App() {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-        {!isFa ? (
-          <div className="ms-auto flex shrink-0 items-center gap-2">
-            <Button variant="outline" onClick={() => setLang(isFa ? "en" : "fa")}>
-              {langLabel}
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            >
-              {theme === "dark" ? <Sun /> : <Moon />}
-            </Button>
-          </div>
-        ) : (
-          <div className="flex shrink-0 items-center gap-2">
-            <Separator orientation="vertical" className="h-4 shrink-0" />
-            <SidebarTrigger className="-me-1 shrink-0 rotate-180" />
-          </div>
-        )}
+        <div className="ms-auto flex shrink-0 items-center gap-2">
+          <Button variant="outline" onClick={() => setLang(isFa ? "en" : "fa")}>
+            {langLabel}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          >
+            {theme === "dark" ? <Sun /> : <Moon />}
+          </Button>
+        </div>
       </header>
       <div
         dir={isFa ? "rtl" : "ltr"}
@@ -381,11 +372,7 @@ function App() {
           />
         ) : (
           <p className="text-sm text-muted-foreground">
-            {Number(boot.svpUserId) > 0
-              ? isFa
-                ? "پنل شما در همین بخش در آینده تکمیل می‌شود."
-                : "Your portal content will be expanded here."
-              : t("noLinkedUser")}
+            {Number(boot.svpUserId) > 0 ? t("layout.userPortalSoon") : t("noLinkedUser")}
           </p>
         )}
       </div>
@@ -398,17 +385,8 @@ function App() {
 
   return (
     <SidebarProvider dir={isFa ? "rtl" : "ltr"}>
-      {isFa ? (
-        <>
-          {insetEl}
-          {sidebarEl}
-        </>
-      ) : (
-        <>
-          {sidebarEl}
-          {insetEl}
-        </>
-      )}
+      {sidebarEl}
+      {insetEl}
     </SidebarProvider>
   )
 }

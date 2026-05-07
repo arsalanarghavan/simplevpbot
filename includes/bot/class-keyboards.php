@@ -68,25 +68,31 @@ class SimpleVPBot_Keyboards {
 	/**
 	 * Reply keyboard JSON for main user menu.
 	 *
+	 * @param object|null $user Bot user row for localized button labels.
 	 * @return array<string, mixed>
 	 */
-	public static function user_main_reply() {
+	public static function user_main_reply( $user = null ) {
+		$t = function ( $key ) use ( $user ) {
+			return ( $user && is_object( $user ) )
+				? SimpleVPBot_Texts::get_for_user( $key, $user )
+				: SimpleVPBot_Texts::get( $key, '' );
+		};
 		return array(
 			'keyboard'          => array(
 				array(
-					array( 'text' => SimpleVPBot_Texts::get( 'btn.main.buy', '🛒 خرید سرویس' ) ),
-					array( 'text' => SimpleVPBot_Texts::get( 'btn.main.manage', '🧰 مدیریت سرویس' ) ),
+					array( 'text' => $t( 'btn.main.buy' ) ),
+					array( 'text' => $t( 'btn.main.manage' ) ),
 				),
 				array(
-					array( 'text' => SimpleVPBot_Texts::get( 'btn.main.apps', '📱 اپلیکیشن‌ها' ) ),
-					array( 'text' => SimpleVPBot_Texts::get( 'btn.main.support', '🆘 پشتیبانی' ) ),
+					array( 'text' => $t( 'btn.main.apps' ) ),
+					array( 'text' => $t( 'btn.main.support' ) ),
 				),
 				array(
-					array( 'text' => SimpleVPBot_Texts::get( 'btn.main.account', '👤 اطلاعات حساب' ) ),
-					array( 'text' => SimpleVPBot_Texts::get( 'btn.main.wallet', '💰 کیف پول' ) ),
+					array( 'text' => $t( 'btn.main.account' ) ),
+					array( 'text' => $t( 'btn.main.wallet' ) ),
 				),
 				array(
-					array( 'text' => SimpleVPBot_Texts::get( 'btn.main.referral', '💎 کسب درآمد' ) ),
+					array( 'text' => $t( 'btn.main.referral' ) ),
 				),
 			),
 			'resize_keyboard'   => true,
@@ -106,10 +112,11 @@ class SimpleVPBot_Keyboards {
 	/**
 	 * Admin main reply keyboard (all hub sections on Reply; no inline hub).
 	 *
+	 * @param object|null $user Bot user row for localized labels.
 	 * @return array<string, mixed>
 	 */
-	public static function admin_main_reply() {
-		$rows = self::admin_main_keyboard_rows();
+	public static function admin_main_reply( $user = null ) {
+		$rows = self::admin_main_keyboard_rows( $user );
 		return array(
 			'keyboard'          => $rows,
 			'resize_keyboard'   => true,
@@ -120,21 +127,27 @@ class SimpleVPBot_Keyboards {
 	/**
 	 * Keyboard rows only (for merging with portal rows).
 	 *
+	 * @param object|null $user Bot user row for localized labels.
 	 * @return array<int, array<int, array<string, string>>>
 	 */
-	public static function admin_main_keyboard_rows() {
+	public static function admin_main_keyboard_rows( $user = null ) {
+		$t = function ( $key ) use ( $user ) {
+			return ( $user && is_object( $user ) )
+				? SimpleVPBot_Texts::get_for_user( $key, $user )
+				: SimpleVPBot_Texts::get( $key, '' );
+		};
 		return array(
 			array(
-				array( 'text' => SimpleVPBot_Texts::get( 'btn.admin.dashboard', '📊 آمار' ) ),
-				array( 'text' => SimpleVPBot_Texts::get( 'btn.admin.users', '👥 مدیریت کاربران' ) ),
+				array( 'text' => $t( 'btn.admin.dashboard' ) ),
+				array( 'text' => $t( 'btn.admin.users' ) ),
 			),
 			array(
-				array( 'text' => SimpleVPBot_Texts::get( 'btn.admin.finance', '💰 مالی' ) ),
-				array( 'text' => SimpleVPBot_Texts::get( 'btn.admin.settings', '⚙️ تنظیمات' ) ),
+				array( 'text' => $t( 'btn.admin.finance' ) ),
+				array( 'text' => $t( 'btn.admin.settings' ) ),
 			),
 			array(
-				array( 'text' => SimpleVPBot_Texts::get( 'btn.admin.advanced', '🔧 تنظیمات پیشرفته' ) ),
-				array( 'text' => SimpleVPBot_Texts::get( 'btn.admin.exit', '🚪 خروج از پنل مدیریت' ) ),
+				array( 'text' => $t( 'btn.admin.advanced' ) ),
+				array( 'text' => $t( 'btn.admin.exit' ) ),
 			),
 		);
 	}
@@ -154,14 +167,14 @@ class SimpleVPBot_Keyboards {
 		if ( $me && (int) $me->id > 0 ) {
 			$pu = SimpleVPBot_Portal_Link::build_url( (int) $me->id );
 			if ( '' !== $pu ) {
-				$extra[] = array( array( 'text' => SimpleVPBot_Texts::get( 'btn.admin.send_my_portal', '🌐 ارسال لینک پنل وب من' ) ) );
+				$extra[] = array( array( 'text' => SimpleVPBot_Texts::get_for_user( 'btn.admin.send_my_portal', $me ) ) );
 			}
 			$adm = SimpleVPBot_Portal_Link::build_admin_url( (int) $me->id );
 			if ( '' !== $adm ) {
-				$extra[] = array( array( 'text' => SimpleVPBot_Texts::get( 'btn.admin.send_admin_portal', '🖥 ارسال لینک پنل ادمین وب' ) ) );
+				$extra[] = array( array( 'text' => SimpleVPBot_Texts::get_for_user( 'btn.admin.send_admin_portal', $me ) ) );
 			}
 		}
-		$kb = self::admin_main_keyboard_rows();
+		$kb = self::admin_main_keyboard_rows( $me );
 		return array(
 			'keyboard'          => array_merge( $extra, $kb ),
 			'resize_keyboard'   => true,

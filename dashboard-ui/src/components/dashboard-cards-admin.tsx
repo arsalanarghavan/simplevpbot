@@ -1,7 +1,7 @@
 "use client"
 
 import { EllipsisVerticalIcon } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Badge } from "@/components/ui/badge"
@@ -46,7 +46,8 @@ import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
 
-const METHOD_KEYS = ["c2c", "mehr", "crypto", "crypto_auto"] as const
+const METHOD_KEYS = ["c2c", "crypto", "crypto_auto"] as const
+type CardsDisplayMode = "list" | "sequential"
 
 function num(v: unknown): number {
   const n = Number(v)
@@ -107,6 +108,7 @@ const selectClass =
 export function DashboardCardsAdmin({
   cards,
   pagination,
+  settings,
   isFa,
   onMutateSuccess,
   onPageChange,
@@ -114,6 +116,7 @@ export function DashboardCardsAdmin({
 }: {
   cards: DashRecord[]
   pagination: PaginationMeta | null
+  settings?: DashRecord
   isFa: boolean
   onMutateSuccess?: () => void
   onPageChange: (page: number) => void
@@ -129,6 +132,12 @@ export function DashboardCardsAdmin({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DashRecord | null>(null)
+  const [displayMode, setDisplayMode] = useState<CardsDisplayMode>(
+    String(settings?.cards_display_mode ?? "list") === "sequential" ? "sequential" : "list"
+  )
+  useEffect(() => {
+    setDisplayMode(String(settings?.cards_display_mode ?? "list") === "sequential" ? "sequential" : "list")
+  }, [settings?.cards_display_mode])
 
   const stats = useMemo(() => {
     const slice = cards.length
@@ -219,6 +228,34 @@ export function DashboardCardsAdmin({
     }
   }, [deleteTarget, onMutateSuccess, tp])
 
+  const methodLabel = useCallback(
+    (raw: unknown): string => {
+      const key = String(raw ?? "").trim() === "mehr" ? "c2c" : String(raw ?? "")
+      if (key === "crypto") return tp("method_crypto")
+      if (key === "crypto_auto") return tp("method_crypto_auto")
+      return tp("method_c2c")
+    },
+    [tp]
+  )
+
+  const saveDisplayMode = useCallback(async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await postAdminMutate("settings_tab", {
+        tab: "cards",
+        cards_display_mode: displayMode,
+      })
+      if (!res.ok) {
+        setError(res.message || tp("mutateError"))
+        return
+      }
+      onMutateSuccess?.()
+    } finally {
+      setSaving(false)
+    }
+  }, [displayMode, onMutateSuccess, tp])
+
   return (
     <div className={cn("space-y-6", isFa && "text-right")}>
       <div>
@@ -255,6 +292,29 @@ export function DashboardCardsAdmin({
           </CardHeader>
         </Card>
       </div>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">{tp("displayModeTitle")}</CardTitle>
+          <CardDescription>{tp("displayModeDesc")}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Label className="text-muted-foreground">{tp("displayModeLabel")}</Label>
+            <select
+              className={selectClass + " w-auto min-w-[13rem]"}
+              value={displayMode}
+              onChange={(e) => setDisplayMode((e.target.value as CardsDisplayMode) || "list")}
+            >
+              <option value="list">{tp("displayModeList")}</option>
+              <option value="sequential">{tp("displayModeSequential")}</option>
+            </select>
+            <Button type="button" size="sm" disabled={saving} onClick={() => void saveDisplayMode()}>
+              {tp("saveDisplayMode")}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">{tp("displayModeHint")}</p>
+        </CardContent>
+      </Card>
 
       {pagination ? <p className="text-xs text-muted-foreground">{tp("statsPageBreakdown")}</p> : null}
 
@@ -313,7 +373,7 @@ export function DashboardCardsAdmin({
                     </div>
                   </CardHeader>
                   <CardContent className="text-xs text-muted-foreground">
-                    <span>{tp("method")}: {String(c.method_key ?? "")}</span>
+                    <span>{tp("method")}: {methodLabel(c.method_key)}</span>
                     {" · "}
                     <span>{tp("dailyLimit")}: {formatNumber(num(c.daily_limit), isFa)}</span>
                     {" · "}
@@ -372,7 +432,7 @@ export function DashboardCardsAdmin({
               >
                 {METHOD_KEYS.map((k) => (
                   <option key={k} value={k}>
-                    {k}
+                    {methodLabel(k)}
                   </option>
                 ))}
               </select>

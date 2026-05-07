@@ -94,12 +94,6 @@ class SimpleVPBot_Config_Link {
 	}
 
 	/**
-	 * Subscription URL if sub_id known.
-	 *
-	 * @param string $sub_id Sub id.
-	 * @return string
-	 */
-	/**
 	 * Panel root URL for building host links (settings row or svp_panels).
 	 *
 	 * @param int|null $panel_id svp_panels.id or null for legacy settings.
@@ -226,5 +220,26 @@ class SimpleVPBot_Config_Link {
 			$out[] = $ln;
 		}
 		return $out;
+	}
+
+	/**
+	 * Replace the first URI fragment (#...) with a new display name (e.g. reseller brand).
+	 *
+	 * @param string $uri            Config or share URI.
+	 * @param string $remark_display Human-readable remark; empty = no change.
+	 * @return string
+	 */
+	public static function replace_uri_fragment( $uri, $remark_display ) {
+		$u    = (string) $uri;
+		$frag = trim( (string) $remark_display );
+		if ( '' === $frag || false === strpos( $u, '://' ) ) {
+			return $u;
+		}
+		$enc = rawurlencode( $frag );
+		$p   = strpos( $u, '#' );
+		if ( false === $p ) {
+			return $u . '#' . $enc;
+		}
+		return substr( $u, 0, $p + 1 ) . $enc;
 	}
 }

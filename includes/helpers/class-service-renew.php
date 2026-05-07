@@ -168,9 +168,14 @@ class SimpleVPBot_Service_Renew {
 				}
 
 				$updated = null;
+				$panel_remark = (string) $svc->remark;
+				if ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+					$panel_remark = SimpleVPBot_Reseller_Branding::panel_client_name_for_user( (int) $svc->user_id, (string) $svc->remark );
+				}
 				foreach ( $dec['clients'] as &$cl ) {
 					if ( isset( $cl['email'] ) && (string) $cl['email'] === (string) $svc->email ) {
 						$cl['totalGB'] = $panel_totalgb;
+						$cl['remark']  = $panel_remark;
 						$cl['enable']  = true;
 						if ( null !== $new_exp_ms ) {
 							$cl['expiryTime'] = $new_exp_ms;
@@ -277,9 +282,14 @@ class SimpleVPBot_Service_Renew {
 				}
 
 				$updated = null;
+				$panel_remark = (string) $svc->remark;
+				if ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+					$panel_remark = SimpleVPBot_Reseller_Branding::panel_client_name_for_user( (int) $svc->user_id, (string) $svc->remark );
+				}
 				foreach ( $dec['clients'] as &$cl ) {
 					if ( isset( $cl['email'] ) && (string) $cl['email'] === (string) $svc->email ) {
 						$cl['totalGB'] = $panel_totalgb;
+						$cl['remark']  = $panel_remark;
 						$cl['enable']  = true;
 						$updated       = $cl;
 						break;
@@ -324,6 +334,86 @@ class SimpleVPBot_Service_Renew {
 				return array(
 					'ok'      => true,
 					'message' => '✅ ' . $g . ' گیگ به سقف حجم سرویس اضافه شد.',
+				);
+			}
+		);
+	}
+
+	/**
+	 * Reduce traffic quota (admin) with floor at zero.
+	 *
+	 * @param int $service_id svp_services.id.
+	 * @param int $reduce_gb  Gigabytes to reduce.
+	 * @return array{ok:bool, message:string, applied_gb?:int}
+	 */
+	public static function apply_reduce_volume_free( $service_id, $reduce_gb ) {
+		$sid = (int) $service_id;
+		$g   = max( 1, (int) $reduce_gb );
+		$svc = SimpleVPBot_Model_Service::find( $sid );
+		if ( ! $svc ) {
+			return array( 'ok' => false, 'message' => '⛔ سرویس پیدا نشد.' );
+		}
+		if ( SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
+			return array( 'ok' => false, 'message' => '⛔ کاهش حجم فقط برای Xray است.' );
+		}
+		return SimpleVPBot_Xui_Client::run_with_panel(
+			self::svc_panel_id( $svc ),
+			function () use ( $sid, $svc, $g ) {
+				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
+					return array( 'ok' => false, 'message' => '⛔ ورود به پنل ناموفق است.' );
+				}
+				$reduce_bytes    = $g * self::BYTES_PER_GB;
+				$old_total_bytes = max( 0, (int) $svc->total_traffic );
+				$new_total_bytes = max( 0, $old_total_bytes - $reduce_bytes );
+				$applied_bytes   = max( 0, $old_total_bytes - $new_total_bytes );
+				$applied_gb      = (int) floor( $applied_bytes / self::BYTES_PER_GB );
+				$panel_totalgb   = SimpleVPBot_Inbound_Linker::panel_client_totalgb_json_value( $new_total_bytes );
+
+				$inbound = SimpleVPBot_Xui_Client::inbound_get( (int) $svc->inbound_id );
+				if ( ! $inbound ) {
+					return array( 'ok' => false, 'message' => '⛔ اینباند پنل یافت نشد.' );
+				}
+				$settings = isset( $inbound['settings'] ) ? $inbound['settings'] : '';
+				$dec      = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
+				if ( ! is_array( $dec ) || empty( $dec['clients'] ) || ! is_array( $dec['clients'] ) ) {
+					return array( 'ok' => false, 'message' => '⛔ فهرست کلاینت خالی است.' );
+				}
+				$updated = null;
+				$panel_remark = (string) $svc->remark;
+				if ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+					$panel_remark = SimpleVPBot_Reseller_Branding::panel_client_name_for_user( (int) $svc->user_id, (string) $svc->remark );
+				}
+				foreach ( $dec['clients'] as &$cl ) {
+					if ( isset( $cl['email'] ) && (string) $cl['email'] === (string) $svc->email ) {
+						$cl['totalGB'] = $panel_totalgb;
+						$cl['remark']  = $panel_remark;
+						$cl['enable']  = true;
+						$updated       = $cl;
+						break;
+					}
+				}
+				unset( $cl );
+				if ( ! is_array( $updated ) ) {
+					return array( 'ok' => false, 'message' => '⛔ کلاینت این سرویس روی پنل پیدا نشد.' );
+				}
+				$old_key = SimpleVPBot_Xui_Client::resolve_client_key_for_update( (string) $svc->xui_client_id, $inbound, (string) $svc->email );
+				if ( ! $old_key ) {
+					return array( 'ok' => false, 'message' => '⛔ شناسه کلاینت روی پنل پیدا نشد.' );
+				}
+				$path_ids = array( (string) $old_key );
+				$em       = (string) $svc->email;
+				if ( '' !== $em && $em !== (string) $old_key ) {
+					$path_ids[] = $em;
+				}
+				$res = SimpleVPBot_Xui_Client::update_inbound_client_sequential( (int) $svc->inbound_id, $dec, $updated, $path_ids );
+				if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+					return array( 'ok' => false, 'message' => '⛔ بروزرسانی روی پنل انجام نشد.' );
+				}
+				SimpleVPBot_Model_Service::update( $sid, array( 'total_traffic' => $new_total_bytes ) );
+				return array(
+					'ok'         => true,
+					'applied_gb' => $applied_gb,
+					'message'    => '✅ ' . $applied_gb . ' گیگ از سقف حجم سرویس کسر شد.',
 				);
 			}
 		);
@@ -376,12 +466,17 @@ class SimpleVPBot_Service_Renew {
 				}
 
 				$updated = null;
+				$panel_remark = (string) $svc->remark;
+				if ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+					$panel_remark = SimpleVPBot_Reseller_Branding::panel_client_name_for_user( (int) $svc->user_id, (string) $svc->remark );
+				}
 				foreach ( $dec['clients'] as &$cl ) {
 					if ( isset( $cl['email'] ) && (string) $cl['email'] === (string) $svc->email ) {
 						$cur = (int) ( $cl['limitIp'] ?? 0 );
 						$def = max( 1, (int) SimpleVPBot_Settings::get( 'default_concurrent_users', 2 ) );
 						$base = $cur > 0 ? $cur : $def;
 						$cl['limitIp'] = $base + $add;
+						$cl['remark']  = $panel_remark;
 						$cl['enable']  = true;
 						$updated       = $cl;
 						break;
@@ -418,6 +513,83 @@ class SimpleVPBot_Service_Renew {
 				return array(
 					'ok'      => true,
 					'message' => '✅ به محدودیت کاربر هم‌زمان، ' . $add . ' نفر اضافه شد.',
+				);
+			}
+		);
+	}
+
+	/**
+	 * Reduce client concurrent-user cap (admin) with floor at zero.
+	 *
+	 * @param int $service_id svp_services.id.
+	 * @param int $reduce_users Slots to reduce.
+	 * @return array{ok:bool, message:string, applied_users?:int}
+	 */
+	public static function apply_reduce_user_slots_free( $service_id, $reduce_users ) {
+		$sid = (int) $service_id;
+		$sub = max( 1, min( 50, (int) $reduce_users ) );
+		$svc = SimpleVPBot_Model_Service::find( $sid );
+		if ( ! $svc ) {
+			return array( 'ok' => false, 'message' => '⛔ سرویس پیدا نشد.' );
+		}
+		if ( SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
+			return array( 'ok' => false, 'message' => '⛔ این بخش فقط برای سرویس‌های اتصال معمولی است.' );
+		}
+		return SimpleVPBot_Xui_Client::run_with_panel(
+			self::svc_panel_id( $svc ),
+			function () use ( $sid, $svc, $sub ) {
+				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
+					return array( 'ok' => false, 'message' => '⛔ اتصال به سرور ناموفق بود.' );
+				}
+				$inbound = SimpleVPBot_Xui_Client::inbound_get( (int) $svc->inbound_id );
+				if ( ! $inbound ) {
+					return array( 'ok' => false, 'message' => '⛔ سرویس روی سرور پیدا نشد.' );
+				}
+				$settings = isset( $inbound['settings'] ) ? $inbound['settings'] : '';
+				$dec      = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
+				if ( ! is_array( $dec ) || empty( $dec['clients'] ) || ! is_array( $dec['clients'] ) ) {
+					return array( 'ok' => false, 'message' => '⛔ فهرست کاربران خالی است.' );
+				}
+
+				$updated = null;
+				$applied = 0;
+				$panel_remark = (string) $svc->remark;
+				if ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+					$panel_remark = SimpleVPBot_Reseller_Branding::panel_client_name_for_user( (int) $svc->user_id, (string) $svc->remark );
+				}
+				foreach ( $dec['clients'] as &$cl ) {
+					if ( isset( $cl['email'] ) && (string) $cl['email'] === (string) $svc->email ) {
+						$cur         = max( 0, (int) ( $cl['limitIp'] ?? 0 ) );
+						$next        = max( 0, $cur - $sub );
+						$applied     = $cur - $next;
+						$cl['limitIp'] = $next;
+						$cl['remark']  = $panel_remark;
+						$cl['enable']  = true;
+						$updated       = $cl;
+						break;
+					}
+				}
+				unset( $cl );
+				if ( ! is_array( $updated ) ) {
+					return array( 'ok' => false, 'message' => '⛔ این سرویس روی سرور پیدا نشد.' );
+				}
+				$old_key = SimpleVPBot_Xui_Client::resolve_client_key_for_update( (string) $svc->xui_client_id, $inbound, (string) $svc->email );
+				if ( ! $old_key ) {
+					return array( 'ok' => false, 'message' => '⛔ شناسه فنی سرویس پیدا نشد.' );
+				}
+				$path_ids = array( (string) $old_key );
+				$em       = (string) $svc->email;
+				if ( '' !== $em && $em !== (string) $old_key ) {
+					$path_ids[] = $em;
+				}
+				$res = SimpleVPBot_Xui_Client::update_inbound_client_sequential( (int) $svc->inbound_id, $dec, $updated, $path_ids );
+				if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+					return array( 'ok' => false, 'message' => '⛔ به‌روزرسانی انجام نشد.' );
+				}
+				return array(
+					'ok'            => true,
+					'applied_users' => $applied,
+					'message'       => '✅ به محدودیت کاربر هم‌زمان، ' . $applied . ' نفر کاهش داده شد.',
 				);
 			}
 		);
@@ -477,9 +649,14 @@ class SimpleVPBot_Service_Renew {
 					return array( 'ok' => false, 'message' => '⛔ فهرست کلاینت خالی است.' );
 				}
 				$updated = null;
+				$panel_remark = (string) $svc->remark;
+				if ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+					$panel_remark = SimpleVPBot_Reseller_Branding::panel_client_name_for_user( (int) $svc->user_id, (string) $svc->remark );
+				}
 				foreach ( $dec['clients'] as &$cl ) {
 					if ( isset( $cl['email'] ) && (string) $cl['email'] === (string) $svc->email ) {
 						$cl['expiryTime'] = $new_ms;
+						$cl['remark']     = $panel_remark;
 						$cl['enable']     = true;
 						$updated          = $cl;
 						break;
@@ -504,6 +681,86 @@ class SimpleVPBot_Service_Renew {
 				}
 				SimpleVPBot_Model_Service::update( $sid, array( 'expires_at' => $new_mysql ) );
 				return array( 'ok' => true, 'message' => '✅ ' . $d . ' روز به انقضا اضافه شد.' );
+			}
+		);
+	}
+
+	/**
+	 * Reduce service expiry by calendar days with floor at now.
+	 *
+	 * @param int $service_id Service id.
+	 * @param int $days       Days to reduce (1–3650).
+	 * @return array{ok:bool, message:string, applied_days?:int}
+	 */
+	public static function apply_reduce_days_free( $service_id, $days ) {
+		$sid = (int) $service_id;
+		$d   = max( 1, min( 3650, (int) $days ) );
+		$svc = SimpleVPBot_Model_Service::find( $sid );
+		if ( ! $svc ) {
+			return array( 'ok' => false, 'message' => '⛔ سرویس پیدا نشد.' );
+		}
+		$sub_sec = $d * DAY_IN_SECONDS;
+		$cur_ts  = ! empty( $svc->expires_at ) ? strtotime( (string) $svc->expires_at . ' UTC' ) : false;
+		if ( false === $cur_ts ) {
+			$cur_ts = time();
+		}
+		$now_ts     = time();
+		$new_ts     = max( $now_ts, $cur_ts - $sub_sec );
+		$applied    = (int) floor( max( 0, $cur_ts - $new_ts ) / DAY_IN_SECONDS );
+		$new_mysql  = gmdate( 'Y-m-d H:i:s', $new_ts );
+		$new_ms     = $new_ts * 1000;
+		if ( SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
+			SimpleVPBot_Model_Service::update( $sid, array( 'expires_at' => $new_mysql ) );
+			return array( 'ok' => true, 'applied_days' => $applied, 'message' => '✅ ' . $applied . ' روز از انقضا کسر شد.' );
+		}
+		return SimpleVPBot_Xui_Client::run_with_panel(
+			self::svc_panel_id( $svc ),
+			function () use ( $sid, $svc, $new_ms, $new_mysql, $applied ) {
+				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
+					return array( 'ok' => false, 'message' => '⛔ ورود به پنل ناموفق است.' );
+				}
+				$inbound = SimpleVPBot_Xui_Client::inbound_get( (int) $svc->inbound_id );
+				if ( ! $inbound ) {
+					return array( 'ok' => false, 'message' => '⛔ اینباند پنل یافت نشد.' );
+				}
+				$settings = isset( $inbound['settings'] ) ? $inbound['settings'] : '';
+				$dec      = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
+				if ( ! is_array( $dec ) || empty( $dec['clients'] ) || ! is_array( $dec['clients'] ) ) {
+					return array( 'ok' => false, 'message' => '⛔ فهرست کلاینت خالی است.' );
+				}
+				$updated = null;
+				$panel_remark = (string) $svc->remark;
+				if ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+					$panel_remark = SimpleVPBot_Reseller_Branding::panel_client_name_for_user( (int) $svc->user_id, (string) $svc->remark );
+				}
+				foreach ( $dec['clients'] as &$cl ) {
+					if ( isset( $cl['email'] ) && (string) $cl['email'] === (string) $svc->email ) {
+						$cl['expiryTime'] = $new_ms;
+						$cl['remark']     = $panel_remark;
+						$cl['enable']     = true;
+						$updated          = $cl;
+						break;
+					}
+				}
+				unset( $cl );
+				if ( ! is_array( $updated ) ) {
+					return array( 'ok' => false, 'message' => '⛔ کلاینت روی پنل پیدا نشد.' );
+				}
+				$old_key = SimpleVPBot_Xui_Client::resolve_client_key_for_update( (string) $svc->xui_client_id, $inbound, (string) $svc->email );
+				if ( ! $old_key ) {
+					return array( 'ok' => false, 'message' => '⛔ شناسه کلاینت روی پنل پیدا نشد.' );
+				}
+				$path_ids = array( (string) $old_key );
+				$em       = (string) $svc->email;
+				if ( '' !== $em && $em !== (string) $old_key ) {
+					$path_ids[] = $em;
+				}
+				$res = SimpleVPBot_Xui_Client::update_inbound_client_sequential( (int) $svc->inbound_id, $dec, $updated, $path_ids );
+				if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+					return array( 'ok' => false, 'message' => '⛔ بروزرسانی پنل انجام نشد.' );
+				}
+				SimpleVPBot_Model_Service::update( $sid, array( 'expires_at' => $new_mysql ) );
+				return array( 'ok' => true, 'applied_days' => $applied, 'message' => '✅ ' . $applied . ' روز از انقضا کسر شد.' );
 			}
 		);
 	}

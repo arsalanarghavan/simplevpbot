@@ -104,9 +104,16 @@ class SimpleVPBot_Service_Admin_Catalog {
 	public static function apply_plan_action( $action, $pid, array $post ) {
 		$action = sanitize_key( (string) $action );
 		$pid    = (int) $pid;
+		$actor  = (int) ( $post['__actor_svp_user_id'] ?? 0 );
 
 		if ( 'delete' === $action ) {
 			if ( $pid > 0 ) {
+				if ( $actor > 0 ) {
+					$ex = SimpleVPBot_Model_Plan::find( $pid );
+					if ( ! $ex || (int) ( $ex->owner_svp_user_id ?? 0 ) !== $actor ) {
+						return array( 'ok' => false, 'code' => 'forbidden' );
+					}
+				}
 				SimpleVPBot_Model_Plan::delete( $pid );
 			}
 			return array( 'ok' => true, 'code' => 'deleted' );
@@ -114,6 +121,9 @@ class SimpleVPBot_Service_Admin_Catalog {
 
 		if ( 'toggle' === $action && $pid > 0 ) {
 			$row = SimpleVPBot_Model_Plan::find( $pid );
+			if ( $actor > 0 && ( ! $row || (int) ( $row->owner_svp_user_id ?? 0 ) !== $actor ) ) {
+				return array( 'ok' => false, 'code' => 'forbidden' );
+			}
 			if ( $row ) {
 				SimpleVPBot_Model_Plan::update( $pid, array( 'active' => (int) ! (int) $row->active ) );
 			}
@@ -126,6 +136,11 @@ class SimpleVPBot_Service_Admin_Catalog {
 			if ( self::plan_row_invalid( $row_data ) ) {
 				return array( 'ok' => false, 'code' => 'invalid' );
 			}
+			$fr = self::apply_reseller_plan_rules( $actor, $row_data, null );
+			if ( ! empty( $fr['block'] ) ) {
+				return array( 'ok' => false, 'code' => (string) $fr['code'] );
+			}
+			$row_data = $fr['row'];
 			$row_data['active'] = ! empty( $post['plan_active'] ) ? 1 : 0;
 			SimpleVPBot_Model_Plan::insert( $row_data );
 			return array( 'ok' => true, 'code' => 'added' );
@@ -135,12 +150,68 @@ class SimpleVPBot_Service_Admin_Catalog {
 			if ( self::plan_row_invalid( $row_data ) ) {
 				return array( 'ok' => false, 'code' => 'invalid_update', 'plan_id' => $pid );
 			}
+			$existing = SimpleVPBot_Model_Plan::find( $pid );
+			$fr       = self::apply_reseller_plan_rules( $actor, $row_data, $existing );
+			if ( ! empty( $fr['block'] ) ) {
+				return array( 'ok' => false, 'code' => (string) $fr['code'], 'plan_id' => $pid );
+			}
+			$row_data = $fr['row'];
 			$row_data['active'] = ! empty( $post['plan_active'] ) ? 1 : 0;
 			SimpleVPBot_Model_Plan::update( $pid, $row_data );
 			return array( 'ok' => true, 'code' => 'updated' );
 		}
 
 		return null;
+	}
+
+	/**
+	 * When dashboard actor is a reseller, enforce ownership + floor price from {@see SimpleVPBot_Model_Reseller_Panel_Price}.
+	 *
+	 * @param int                     $actor    svp_users id or 0 (admin).
+	 * @param array<string, mixed>  $row_data Sanitized plan row.
+	 * @param object|null           $existing Existing row for update.
+	 * @return array{row:array<string,mixed>, block?:bool, code?:string}
+	 */
+	private static function apply_reseller_plan_rules( $actor, array $row_data, $existing ) {
+		$actor = (int) $actor;
+		if ( $actor < 1 ) {
+			if ( isset( $row_data['owner_svp_user_id'] ) ) {
+				unset( $row_data['owner_svp_user_id'] );
+			}
+			return array( 'row' => $row_data );
+		}
+		$u = SimpleVPBot_Model_User::find( $actor );
+		if ( ! $u || ! SimpleVPBot_Model_User::is_reseller_row( $u ) ) {
+			return array( 'row' => $row_data, 'block' => true, 'code' => 'bad_actor' );
+		}
+		if ( $existing ) {
+			if ( (int) ( $existing->owner_svp_user_id ?? 0 ) !== $actor ) {
+				return array( 'row' => $row_data, 'block' => true, 'code' => 'forbidden' );
+			}
+		}
+		$panel_id = (int) ( $row_data['panel_id'] ?? 1 );
+		if ( ! class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
+			return array( 'row' => $row_data, 'block' => true, 'code' => 'module_missing' );
+		}
+		$unit = SimpleVPBot_Model_Reseller_Panel_Price::get_unit_price( $actor, $panel_id );
+		if ( $unit <= 0 ) {
+			return array( 'row' => $row_data, 'block' => true, 'code' => 'reseller_price_required' );
+		}
+		$ptype = (string) ( $row_data['pricing_type'] ?? 'fixed' );
+		if ( 'per_gb' === $ptype ) {
+			$ppg = (float) ( $row_data['price_per_gb'] ?? 0 );
+			if ( $ppg + 0.000001 < $unit ) {
+				return array( 'row' => $row_data, 'block' => true, 'code' => 'below_reseller_floor' );
+			}
+		} else {
+			$gb  = max( 1, (int) ( $row_data['traffic_gb'] ?? 0 ) );
+			$min = $unit * $gb;
+			if ( (float) ( $row_data['price'] ?? 0 ) + 0.000001 < $min ) {
+				return array( 'row' => $row_data, 'block' => true, 'code' => 'below_reseller_floor' );
+			}
+		}
+		$row_data['owner_svp_user_id'] = $actor;
+		return array( 'row' => $row_data );
 	}
 
 	/**
@@ -255,6 +326,9 @@ class SimpleVPBot_Service_Admin_Catalog {
 	 */
 	public static function sanitize_card_method_key( $raw ) {
 		$k = sanitize_key( (string) $raw );
-		return in_array( $k, array( 'c2c', 'mehr', 'crypto', 'crypto_auto' ), true ) ? $k : 'c2c';
+		if ( 'mehr' === $k ) {
+			return 'c2c';
+		}
+		return in_array( $k, array( 'c2c', 'crypto', 'crypto_auto' ), true ) ? $k : 'c2c';
 	}
 }

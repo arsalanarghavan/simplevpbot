@@ -18,7 +18,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { ADMIN_NAV_SECTIONS, flattenNavForSearch } from "@/config/admin-nav"
+import { ADMIN_NAV_SECTIONS, flattenNavForSearch, type AdminNavSection } from "@/config/admin-nav"
 import { formatPlainLatinInt } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
 
@@ -54,27 +54,43 @@ export function SidebarSearch({
   restUrl,
   nonce,
   rtl = false,
+  sections = ADMIN_NAV_SECTIONS,
 }: {
   onSelectTab: (tabKey: string) => void
   onOpenUserDetail?: (id: number) => void
   restUrl?: string
   nonce?: string
   rtl?: boolean
+  sections?: AdminNavSection[]
 }) {
   const [open, setOpen] = useState(false)
   const [paletteQuery, setPaletteQuery] = useState("")
   const [userHits, setUserHits] = useState<DashRecord[]>([])
   const [userLoading, setUserLoading] = useState(false)
   const { t } = useTranslation()
-  const rows = useMemo(() => flattenNavForSearch(), [])
+  const rows = useMemo(() => {
+    if (sections === ADMIN_NAV_SECTIONS) return flattenNavForSearch()
+    const out: { tabKey: string; sectionHintKey: string; parentLabelKey?: string }[] = []
+    for (const sec of sections) {
+      for (const ent of sec.entries) {
+        if (ent.kind === "leaf") out.push({ tabKey: ent.tabKey, sectionHintKey: sec.hintKey })
+        else {
+          for (const ch of ent.children) {
+            out.push({ tabKey: ch.tabKey, sectionHintKey: sec.hintKey, parentLabelKey: ent.labelKey })
+          }
+        }
+      }
+    }
+    return out
+  }, [sections])
 
   const bySection = useMemo(() => {
     const m = new Map<string, typeof rows>()
-    for (const sec of ADMIN_NAV_SECTIONS) {
+    for (const sec of sections) {
       m.set(sec.hintKey, rows.filter((r) => r.sectionHintKey === sec.hintKey))
     }
     return m
-  }, [rows])
+  }, [rows, sections])
 
   const itemLabel = (tabKey: string) =>
     t(`sidebar.items.${tabKey}`, { defaultValue: tabKey })
@@ -204,7 +220,7 @@ export function SidebarSearch({
               )}
             </CommandGroup>
           ) : null}
-          {ADMIN_NAV_SECTIONS.map((sec) => {
+          {sections.map((sec) => {
             const secRows = bySection.get(sec.hintKey) ?? []
             if (!secRows.length) return null
             return (

@@ -13,6 +13,15 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Class SimpleVPBot_Model_User
  */
 class SimpleVPBot_Model_User {
+	const RESELLER_PERMISSION_KEYS = array(
+		'users.manage',
+		'users.merge',
+		'users.bulk',
+		'broadcast.send',
+		'receipts.review',
+		'plans.manage',
+		'services.manage',
+	);
 
 	/**
 	 * Table name.
@@ -141,6 +150,51 @@ class SimpleVPBot_Model_User {
 	public static function update( $id, array $data ) {
 		global $wpdb;
 		$wpdb->update( self::table(), $data, array( 'id' => $id ) );
+	}
+
+	/**
+	 * Atomic balance increment (avoids read-modify-write races).
+	 *
+	 * @param int   $user_id svp_users.id.
+	 * @param float $delta   Amount to add (may be negative).
+	 * @return bool True if a row was updated.
+	 */
+	public static function increment_balance( $user_id, $delta ) {
+		global $wpdb;
+		$uid = (int) $user_id;
+		$d   = (float) $delta;
+		if ( $uid < 1 ) {
+			return false;
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$wpdb->query( $wpdb->prepare( 'UPDATE ' . self::table() . ' SET balance = balance + %f WHERE id = %d', $d, $uid ) );
+		return (int) $wpdb->rows_affected > 0;
+	}
+
+	/**
+	 * Atomically subtract balance only if current balance is sufficient (purchase from wallet).
+	 *
+	 * @param int   $user_id svp_users.id.
+	 * @param float $amount  Toman (positive).
+	 * @return bool True if one row was updated.
+	 */
+	public static function decrement_balance_if_sufficient( $user_id, $amount ) {
+		global $wpdb;
+		$uid = (int) $user_id;
+		$amt = round( (float) $amount, 2 );
+		if ( $uid < 1 || $amt <= 0 ) {
+			return false;
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . self::table() . ' SET balance = balance - %f WHERE id = %d AND balance >= %f',
+				$amt,
+				$uid,
+				$amt
+			)
+		);
+		return (int) $wpdb->rows_affected > 0;
 	}
 
 	/**
@@ -457,17 +511,69 @@ class SimpleVPBot_Model_User {
 	}
 
 	/**
+	 * Whether two users may be merged without losing platform ids (Telegram/Bale).
+	 *
+	 * @param object $keep Keep row.
+	 * @param object $drop Drop row.
+	 * @param string $policy `strict` (dashboard): approved users, no reseller, no conflicting TG/Bale ids. `internal`: only block when both sides have different non-zero TG or different non-zero Bale (allows DB dedupe of duplicate rows).
+	 * @return array{ok:bool, code?:string}
+	 */
+	public static function merge_users_allowed( $keep, $drop, $policy = 'strict' ) {
+		if ( ! $keep || ! $drop || ! is_object( $keep ) || ! is_object( $drop ) ) {
+			return array( 'ok' => false, 'code' => 'missing_user' );
+		}
+		$k_tg = (int) ( $keep->tg_user_id ?? 0 );
+		$d_tg = (int) ( $drop->tg_user_id ?? 0 );
+		$k_bl = (int) ( $keep->bale_user_id ?? 0 );
+		$d_bl = (int) ( $drop->bale_user_id ?? 0 );
+		if ( $k_tg > 0 && $d_tg > 0 && $k_tg !== $d_tg ) {
+			return array( 'ok' => false, 'code' => 'both_telegram' );
+		}
+		if ( $k_bl > 0 && $d_bl > 0 && $k_bl !== $d_bl ) {
+			return array( 'ok' => false, 'code' => 'both_bale' );
+		}
+		if ( 'strict' !== $policy ) {
+			return array( 'ok' => true );
+		}
+		$rk = sanitize_key( (string) ( $keep->role ?? 'user' ) );
+		$rd = sanitize_key( (string) ( $drop->role ?? 'user' ) );
+		if ( 'reseller' === $rk || 'reseller' === $rd ) {
+			return array( 'ok' => false, 'code' => 'reseller' );
+		}
+		$sk = sanitize_key( (string) ( $keep->status ?? '' ) );
+		$sd = sanitize_key( (string) ( $drop->status ?? '' ) );
+		if ( 'approved' !== $sk || 'approved' !== $sd ) {
+			return array( 'ok' => false, 'code' => 'not_approved' );
+		}
+		return array( 'ok' => true );
+	}
+
+	/**
 	 * Merge two user rows (sync): keep $keep_id, move data from $drop_id.
 	 *
-	 * @param int $keep_id Keep user id.
-	 * @param int $drop_id Drop user id.
+	 * @param int    $keep_id Keep user id.
+	 * @param int    $drop_id Drop user id.
+	 * @param string $policy  See {@see merge_users_allowed()}.
+	 * @return bool True when merge ran; false when skipped (validation or missing rows).
 	 */
-	public static function merge_users( $keep_id, $drop_id ) {
+	public static function merge_users( $keep_id, $drop_id, $policy = 'strict' ) {
 		global $wpdb;
 		$keep = self::find( $keep_id );
 		$drop = self::find( $drop_id );
 		if ( ! $keep || ! $drop || (int) $keep_id === (int) $drop_id ) {
-			return;
+			return false;
+		}
+		$gate = self::merge_users_allowed( $keep, $drop, $policy );
+		if ( empty( $gate['ok'] ) ) {
+			SimpleVPBot_Logger::warning(
+				'merge_users blocked',
+				array(
+					'keep_id' => (int) $keep_id,
+					'drop_id' => (int) $drop_id,
+					'code'    => isset( $gate['code'] ) ? (string) $gate['code'] : '',
+				)
+			);
+			return false;
 		}
 		$wpdb->query( 'START TRANSACTION' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
 		try {
@@ -497,9 +603,177 @@ class SimpleVPBot_Model_User {
 			$wpdb->update( self::table(), array( 'invited_by' => $keep_id ), array( 'invited_by' => $drop_id ) );
 			$wpdb->delete( self::table(), array( 'id' => $drop_id ) );
 			$wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+			return true;
 		} catch ( Throwable $e ) { // phpcs:ignore
 			$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
 			SimpleVPBot_Logger::error( 'merge_users failed', array( 'err' => $e->getMessage() ) );
 		}
+		return false;
+	}
+
+	/**
+	 * Whether a user row is reseller role.
+	 *
+	 * @param object|null $row User row.
+	 * @return bool
+	 */
+	public static function is_reseller_row( $row ) {
+		if ( ! $row || ! is_object( $row ) ) {
+			return false;
+		}
+		return 'reseller' === sanitize_key( (string) ( $row->role ?? '' ) );
+	}
+
+	/**
+	 * Default reseller permissions.
+	 *
+	 * @return array<string,bool>
+	 */
+	public static function default_reseller_permissions() {
+		$out = array();
+		foreach ( self::RESELLER_PERMISSION_KEYS as $k ) {
+			$out[ $k ] = true;
+		}
+		return $out;
+	}
+
+	/**
+	 * Load reseller permissions from option storage.
+	 *
+	 * @param int $reseller_id svp_users.id.
+	 * @return array<string,bool>
+	 */
+	public static function reseller_permissions( $reseller_id ) {
+		$rid = (int) $reseller_id;
+		if ( $rid < 1 ) {
+			return self::default_reseller_permissions();
+		}
+		$raw = get_option( 'simplevpbot_reseller_perms_' . $rid, null );
+		if ( ! is_array( $raw ) ) {
+			return self::default_reseller_permissions();
+		}
+		$cur = self::default_reseller_permissions();
+		foreach ( self::RESELLER_PERMISSION_KEYS as $k ) {
+			if ( array_key_exists( $k, $raw ) ) {
+				$cur[ $k ] = (bool) $raw[ $k ];
+			}
+		}
+		return $cur;
+	}
+
+	/**
+	 * Save reseller permissions.
+	 *
+	 * @param int                  $reseller_id svp_users.id.
+	 * @param array<string,mixed>  $permissions permission map.
+	 * @return bool
+	 */
+	public static function set_reseller_permissions( $reseller_id, array $permissions ) {
+		$rid = (int) $reseller_id;
+		if ( $rid < 1 ) {
+			return false;
+		}
+		$out = self::default_reseller_permissions();
+		foreach ( self::RESELLER_PERMISSION_KEYS as $k ) {
+			if ( array_key_exists( $k, $permissions ) ) {
+				$out[ $k ] = (bool) $permissions[ $k ];
+			}
+		}
+		return (bool) update_option( 'simplevpbot_reseller_perms_' . $rid, $out, false );
+	}
+
+	/**
+	 * Direct children of one owner (invited_by = owner id).
+	 *
+	 * @param int $owner_id Owner svp_users.id.
+	 * @return array<int, object>
+	 */
+	public static function list_direct_children( $owner_id ) {
+		global $wpdb;
+		$oid = (int) $owner_id;
+		if ( $oid < 1 ) {
+			return array();
+		}
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT * FROM ' . self::table() . ' WHERE invited_by = %d ORDER BY id DESC',
+				$oid
+			)
+		); // phpcs:ignore
+	}
+
+	/**
+	 * IDs a reseller can manage in phase 1:
+	 * self + direct children + direct children of direct reseller-children.
+	 *
+	 * @param int $reseller_id Reseller svp_users.id.
+	 * @return array<int, int>
+	 */
+	public static function reseller_scope_user_ids( $reseller_id ) {
+		$rid = (int) $reseller_id;
+		if ( $rid < 1 ) {
+			return array();
+		}
+		$ids   = array( $rid );
+		$lvl1  = self::list_direct_children( $rid );
+		$rids1 = array();
+		foreach ( $lvl1 as $u ) {
+			$uid = (int) ( $u->id ?? 0 );
+			if ( $uid > 0 ) {
+				$ids[] = $uid;
+			}
+			if ( self::is_reseller_row( $u ) && $uid > 0 ) {
+				$rids1[] = $uid;
+			}
+		}
+		foreach ( $rids1 as $child_reseller_id ) {
+			$lvl2 = self::list_direct_children( $child_reseller_id );
+			foreach ( $lvl2 as $u2 ) {
+				$uid2 = (int) ( $u2->id ?? 0 );
+				if ( $uid2 > 0 ) {
+					$ids[] = $uid2;
+				}
+			}
+		}
+		$ids = array_values( array_unique( array_map( 'intval', $ids ) ) );
+		sort( $ids );
+		return $ids;
+	}
+
+	/**
+	 * SQL fragment for `u.id IN (...)` using reseller scope ids.
+	 *
+	 * @param int    $reseller_id Reseller svp_users.id.
+	 * @param string $alias       SQL alias.
+	 * @return array{sql:string,values:array<int,int|float|string>}|null
+	 */
+	public static function reseller_scope_clause( $reseller_id, $alias = 'u' ) {
+		$ids = self::reseller_scope_user_ids( $reseller_id );
+		if ( empty( $ids ) ) {
+			return null;
+		}
+		$a = preg_replace( '/[^a-zA-Z0-9_]/', '', (string) $alias );
+		$a = '' !== $a ? $a : 'u';
+		$ph = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		return array(
+			'sql'    => " AND {$a}.id IN ({$ph}) ",
+			'values' => $ids,
+		);
+	}
+
+	/**
+	 * Check if target user id is inside reseller scope.
+	 *
+	 * @param int $reseller_id Reseller svp_users.id.
+	 * @param int $target_user_id Target svp_users.id.
+	 * @return bool
+	 */
+	public static function reseller_can_access_user( $reseller_id, $target_user_id ) {
+		$tid = (int) $target_user_id;
+		if ( $tid < 1 ) {
+			return false;
+		}
+		$ids = self::reseller_scope_user_ids( $reseller_id );
+		return in_array( $tid, $ids, true );
 	}
 }

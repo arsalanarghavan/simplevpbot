@@ -31,9 +31,28 @@ class SimpleVPBot_Webhook {
 			array(
 				'methods'             => 'POST',
 				'callback'            => array( __CLASS__, 'handle' ),
-				'permission_callback' => '__return_true',
+				'permission_callback' => array( __CLASS__, 'perm_webhook' ),
 			)
 		);
+		register_rest_route(
+			'simplevpbot/v1',
+			'/webhook/(?P<platform>telegram|bale)/reseller/(?P<reseller_id>\d+)/(?P<secret>[a-zA-Z0-9_-]+)',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'handle_reseller' ),
+				'permission_callback' => array( __CLASS__, 'perm_webhook' ),
+			)
+		);
+	}
+
+	/**
+	 * Webhooks are unauthenticated; lock down to POST only (auth is path secret + optional header).
+	 *
+	 * @param WP_REST_Request $req Request.
+	 * @return bool
+	 */
+	public static function perm_webhook( WP_REST_Request $req ) {
+		return 'POST' === $req->get_method();
 	}
 
 	/**
@@ -42,6 +61,21 @@ class SimpleVPBot_Webhook {
 	 * @param string $ip IP.
 	 * @return bool True if allowed.
 	 */
+	/**
+	 * IP for rate limiting. Defaults to REMOTE_ADDR unless rate_limit_trust_forwarded_for is enabled (trusted proxy).
+	 *
+	 * @return string
+	 */
+	public static function rate_limit_client_ip() {
+		if ( SimpleVPBot_Settings::get( 'rate_limit_trust_forwarded_for', false ) ) {
+			return self::client_ip();
+		}
+		if ( ! empty( $_SERVER['REMOTE_ADDR'] ) ) {
+			return sanitize_text_field( wp_unslash( (string) $_SERVER['REMOTE_ADDR'] ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotValidated
+		}
+		return '0';
+	}
+
 	private static function rate_limit_ok( $ip ) {
 		$lim = (int) SimpleVPBot_Settings::get( 'webhook_rate_limit_per_min', 120 );
 		if ( $lim <= 0 ) {
@@ -97,7 +131,7 @@ class SimpleVPBot_Webhook {
 	public static function handle( WP_REST_Request $req ) {
 		$platform = (string) $req['platform'];
 		$secret   = (string) $req['secret'];
-		$ip       = self::client_ip();
+		$ip       = self::rate_limit_client_ip();
 
 		if ( ! self::rate_limit_ok( $ip ) ) {
 			return new WP_REST_Response( array( 'ok' => false ), 429 );
@@ -133,6 +167,77 @@ class SimpleVPBot_Webhook {
 			SimpleVPBot_Router::dispatch( $platform, $json );
 		} catch ( Throwable $e ) { // phpcs:ignore
 			SimpleVPBot_Logger::error( 'router exception', array( 'm' => $e->getMessage() ) );
+		}
+
+		return new WP_REST_Response( array( 'ok' => true ), 200 );
+	}
+
+	/**
+	 * Webhook for a reseller-owned Telegram/Bale bot (path secret + optional per-bot Telegram secret header).
+	 *
+	 * @param WP_REST_Request $req Request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public static function handle_reseller( WP_REST_Request $req ) {
+		$platform = (string) $req['platform'];
+		$secret   = (string) $req['secret'];
+		$rid      = (int) $req['reseller_id'];
+		$ip       = self::rate_limit_client_ip();
+
+		if ( ! self::rate_limit_ok( $ip ) ) {
+			return new WP_REST_Response( array( 'ok' => false ), 429 );
+		}
+
+		if ( $rid < 1 || '' === $secret ) {
+			return new WP_REST_Response( array( 'ok' => false ), 403 );
+		}
+
+		$row = class_exists( 'SimpleVPBot_Model_User' ) ? SimpleVPBot_Model_User::find( $rid ) : null;
+		if ( ! $row || ! SimpleVPBot_Model_User::is_reseller_row( $row ) ) {
+			return new WP_REST_Response( array( 'ok' => false ), 403 );
+		}
+
+		if ( ! class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			return new WP_REST_Response( array( 'ok' => false ), 403 );
+		}
+
+		$profile = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $rid );
+		if ( ! $profile || '' === trim( (string) ( $profile->webhook_secret ?? '' ) ) ) {
+			return new WP_REST_Response( array( 'ok' => false ), 403 );
+		}
+		if ( isset( $profile->enabled ) && ! (int) $profile->enabled ) {
+			return new WP_REST_Response( array( 'ok' => true, 'disabled' => true ), 200 );
+		}
+		if ( ! hash_equals( (string) $profile->webhook_secret, $secret ) ) {
+			return new WP_REST_Response( array( 'ok' => false ), 403 );
+		}
+
+		if ( 'telegram' === $platform ) {
+			$hdr = isset( $_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ) // phpcs:ignore
+				? sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ) ) // phpcs:ignore
+				: '';
+			$rtok = trim( (string) ( $profile->telegram_secret_token ?? '' ) );
+			if ( '' !== $rtok && ! hash_equals( $rtok, $hdr ) ) {
+				return new WP_REST_Response( array( 'ok' => false ), 403 );
+			}
+		}
+
+		$json = $req->get_json_params();
+		if ( ! is_array( $json ) ) {
+			$body = $req->get_body();
+			$json = json_decode( (string) $body, true );
+		}
+		if ( ! is_array( $json ) ) {
+			return new WP_REST_Response( array( 'ok' => true ), 200 );
+		}
+
+		SimpleVPBot_Bot_Context::begin_reseller( $rid, $profile );
+		try {
+			SimpleVPBot_Router::dispatch( $platform, $json );
+		} catch ( Throwable $e ) { // phpcs:ignore
+			SimpleVPBot_Logger::error( 'router exception', array( 'm' => $e->getMessage() ) );
+		} finally {
+			SimpleVPBot_Bot_Context::reset();
 		}
 
 		return new WP_REST_Response( array( 'ok' => true ), 200 );

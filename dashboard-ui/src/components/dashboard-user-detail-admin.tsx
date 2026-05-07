@@ -139,6 +139,16 @@ function formatUserActivityLine(
         gb: g("extra_gb"),
         mode: g("mode"),
       })
+    case "service_reduce_volume":
+      return t("userDetailAdmin.activity_service_reduce_volume", {
+        service: g("service_id"),
+        gb: g("reduce_gb"),
+      })
+    case "service_reduce_days":
+      return t("userDetailAdmin.activity_service_reduce_days", {
+        service: g("service_id"),
+        days: g("days"),
+      })
     case "service_transfer_out":
       return t("userDetailAdmin.activity_service_transfer_out", {
         service: g("service_id"),
@@ -171,6 +181,11 @@ function formatUserActivityLine(
       return t("userDetailAdmin.activity_service_add_user_slots", {
         service: g("service_id"),
         n: g("extra_users"),
+      })
+    case "service_reduce_user_slots":
+      return t("userDetailAdmin.activity_service_reduce_user_slots", {
+        service: g("service_id"),
+        n: g("reduce_users"),
       })
     case "service_set_limit_ip":
       return t("userDetailAdmin.activity_service_set_limit_ip", {
@@ -231,6 +246,7 @@ export function DashboardUserDetailAdmin({
   const [adminMsgChannel, setAdminMsgChannel] = useState<"both" | "telegram" | "bale">("both")
   const [slotsInput, setSlotsInput] = useState<Record<number, string>>({})
   const [limitIpInput, setLimitIpInput] = useState<Record<number, string>>({})
+  const [reduceDaysInput, setReduceDaysInput] = useState<Record<number, string>>({})
 
   const boot = useMemo(() => window.__SIMPLEVPBOT_DASH__ || {}, [])
   const restBase = String((boot as { restUrl?: string }).restUrl || "").replace(/\/$/, "")
@@ -666,7 +682,7 @@ export function DashboardUserDetailAdmin({
                   dir="ltr"
                   value={volGb}
                   onChange={(e) => setVolGb(e.target.value)}
-                  placeholder="20"
+                  placeholder={tp("volumeGbExamplePlaceholder")}
                 />
                 {createPricePreview != null ? (
                   <p className="text-xs text-muted-foreground">
@@ -933,6 +949,26 @@ export function DashboardUserDetailAdmin({
                               </TooltipTrigger>
                               <TooltipContent>{tp("tooltipAddSlots")}</TooltipContent>
                             </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="outline"
+                                  className="size-8"
+                                  disabled={busy}
+                                  aria-label={tp("tooltipReduceSlots")}
+                                  onClick={() => {
+                                    const n = parseInt(slotsInput[sid] ?? "", 10)
+                                    if (!Number.isFinite(n) || n < 1) return
+                                    void runMut("user_service_reduce_slots", { service_id: sid, reduce_users: n })
+                                  }}
+                                >
+                                  <Minus className="size-3.5" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>{tp("tooltipReduceSlots")}</TooltipContent>
+                            </Tooltip>
                           </div>
                           <div className="flex flex-wrap items-center gap-1">
                             <Input
@@ -1003,7 +1039,7 @@ export function DashboardUserDetailAdmin({
                             <Input
                               dir="ltr"
                               className="h-9 w-14 text-xs"
-                              placeholder="GB"
+                              placeholder={tp("gbUnitShort")}
                               value={addVolGb[sid] ?? ""}
                               onChange={(e) => setAddVolGb((g) => ({ ...g, [sid]: e.target.value }))}
                             />
@@ -1027,6 +1063,57 @@ export function DashboardUserDetailAdmin({
                               </TooltipTrigger>
                               <TooltipContent>
                                 <p>{tp("tooltipAddVolume")}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="outline"
+                                  className="shrink-0"
+                                  disabled={busy}
+                                  aria-label={tp("tooltipReduceVolume")}
+                                  onClick={() => {
+                                    const g = parseInt(addVolGb[sid] ?? "", 10)
+                                    if (!Number.isFinite(g) || g < 1) return
+                                    void runMut("user_reduce_volume", { service_id: sid, reduce_gb: g })
+                                  }}
+                                >
+                                  <Minus className="size-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>{tp("tooltipReduceVolume")}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                            <Input
+                              dir="ltr"
+                              className="h-9 w-14 text-xs"
+                              placeholder={tp("daysPlaceholder")}
+                              value={reduceDaysInput[sid] ?? ""}
+                              onChange={(e) => setReduceDaysInput((m) => ({ ...m, [sid]: e.target.value }))}
+                            />
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="outline"
+                                  className="shrink-0"
+                                  disabled={busy}
+                                  aria-label={tp("tooltipReduceDays")}
+                                  onClick={() => {
+                                    const d = parseInt(reduceDaysInput[sid] ?? "", 10)
+                                    if (!Number.isFinite(d) || d < 1) return
+                                    void runMut("user_reduce_days", { service_id: sid, days: d })
+                                  }}
+                                >
+                                  <Minus className="size-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>{tp("tooltipReduceDays")}</p>
                               </TooltipContent>
                             </Tooltip>
                           </div>

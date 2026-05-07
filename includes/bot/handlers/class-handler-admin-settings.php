@@ -347,7 +347,7 @@ class SimpleVPBot_Handler_Admin_Settings {
 		} elseif ( 'cd' === $code ) {
 			$st     = 'admin_w_cd';
 			$prompt = "➕ کارت — یک خط با | جدا کنید:\n"
-				. 'شماره|صاحب|بانک|روش(c2c|mehr|crypto|crypto_auto)|سقف_روزانه|اولویت[|یادداشت اختیاری]' . "\n/cancel";
+				. 'شماره|صاحب|بانک|روش(c2c|crypto|crypto_auto)|سقف_روزانه|اولویت[|یادداشت اختیاری]' . "\n/cancel";
 		} elseif ( 'l2' === $code ) {
 			$st     = 'admin_w_l2';
 			$prompt = "➕ سرور L2TP — یک خط با | (احراز رمز SSH):\n"

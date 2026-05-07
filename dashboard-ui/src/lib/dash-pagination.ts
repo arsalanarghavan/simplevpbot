@@ -1,6 +1,8 @@
 /** Matches PHP `dash_list_pagination` param prefixes in `route_admin_state`. */
 export const LIST_QUERY_PREFIX = {
   usersList: "users",
+  resellers: "resellers",
+  botsList: "bots",
   pendingUsers: "pendingUsers",
   receipts: "receipts",
   broadcasts: "broadcasts",

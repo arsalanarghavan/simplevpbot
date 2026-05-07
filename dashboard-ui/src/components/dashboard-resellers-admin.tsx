@@ -35,6 +35,7 @@ export function DashboardResellersAdmin({
   panels,
   resellerPermissionsMap,
   resellerPanelPricesMap,
+  canManageResellerControls = true,
   isFa,
   pagination,
   onPageChange,
@@ -46,6 +47,7 @@ export function DashboardResellersAdmin({
   panels: DashRecord[]
   resellerPermissionsMap?: Record<string, Record<string, boolean> | undefined>
   resellerPanelPricesMap?: Record<string, Array<{ panel_id?: number; price_per_gb?: number | string }> | undefined>
+  canManageResellerControls?: boolean
   isFa: boolean
   pagination: PaginationMeta | null
   onPageChange: (p: number) => void
@@ -61,15 +63,10 @@ export function DashboardResellersAdmin({
     first_name: "",
     last_name: "",
     username: "",
+    dashboard_password: "",
     phone: "",
     tg_user_id: "",
     bale_user_id: "",
-    wp_user_id: "",
-  })
-  const [wpForm, setWpForm] = useState({
-    wp_username: "",
-    wp_password: "",
-    email: "",
   })
   const [priceResellerId, setPriceResellerId] = useState<number | null>(null)
   const [priceRows, setPriceRows] = useState<{ panel_id: number; price_per_gb: string }[]>([])
@@ -83,6 +80,14 @@ export function DashboardResellersAdmin({
     }
     return m
   }, [rows])
+
+  const canSubmitCreate = useMemo(() => {
+    const u = form.username.trim()
+    const pw = form.dashboard_password
+    const hasDash = u.length > 0 && pw.length >= 6
+    const hasBot = n(form.tg_user_id) > 0 || n(form.bale_user_id) > 0
+    return hasDash || hasBot
+  }, [form.username, form.dashboard_password, form.tg_user_id, form.bale_user_id])
 
   function openPriceDialog(rid: number) {
     setPriceResellerId(rid)
@@ -130,57 +135,32 @@ export function DashboardResellersAdmin({
     setBusy(true)
     setErr("")
     try {
-      const res = await postAdminMutate("user_manual_create", {
+      const payload: Record<string, unknown> = {
         role: "reseller",
         status: "approved",
-        ...form,
-      })
-      if (!res.ok) {
-        setErr(res.message || tp("createError"))
-        return
-      }
-      setForm({
-        first_name: "",
-        last_name: "",
-        username: "",
-        phone: "",
-        tg_user_id: "",
-        bale_user_id: "",
-        wp_user_id: "",
-      })
-      onMutateSuccess?.()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function createWithWp() {
-    setBusy(true)
-    setErr("")
-    try {
-      const res = await postAdminMutate("reseller_wp_provision", {
-        svp_user_id: 0,
         first_name: form.first_name,
         last_name: form.last_name,
         username: form.username,
         phone: form.phone,
-        wp_username: wpForm.wp_username.trim(),
-        wp_password: wpForm.wp_password,
-        email: wpForm.email.trim(),
-      })
+        tg_user_id: form.tg_user_id,
+        bale_user_id: form.bale_user_id,
+      }
+      if (form.dashboard_password.length >= 6) {
+        payload.dashboard_password = form.dashboard_password
+      }
+      const res = await postAdminMutate("user_manual_create", payload)
       if (!res.ok) {
         setErr(res.message || tp("createError"))
         return
       }
-      setWpForm({ wp_username: "", wp_password: "", email: "" })
       setForm({
         first_name: "",
         last_name: "",
         username: "",
+        dashboard_password: "",
         phone: "",
         tg_user_id: "",
         bale_user_id: "",
-        wp_user_id: "",
       })
       onMutateSuccess?.()
     } finally {
@@ -188,15 +168,18 @@ export function DashboardResellersAdmin({
     }
   }
 
-  const permDefs = [
-    { key: "users.manage", label: isFa ? "مدیریت کاربران" : "Manage users" },
-    { key: "users.merge", label: isFa ? "ادغام کاربران" : "Merge users" },
-    { key: "users.bulk", label: isFa ? "عملیات گروهی" : "Bulk operations" },
-    { key: "broadcast.send", label: isFa ? "پیام همگانی" : "Broadcast" },
-    { key: "receipts.review", label: isFa ? "بررسی رسیدها" : "Review receipts" },
-    { key: "plans.manage", label: isFa ? "مدیریت پلن‌ها" : "Manage plans" },
-    { key: "services.manage", label: isFa ? "مدیریت سرویس‌ها" : "Manage services" },
-  ]
+  const permDefs = useMemo(
+    () => [
+      { key: "users.manage", label: tp("perm_users_manage") },
+      { key: "users.merge", label: tp("perm_users_merge") },
+      { key: "users.bulk", label: tp("perm_users_bulk") },
+      { key: "broadcast.send", label: tp("perm_broadcast_send") },
+      { key: "receipts.review", label: tp("perm_receipts_review") },
+      { key: "plans.manage", label: tp("perm_plans_manage") },
+      { key: "services.manage", label: tp("perm_services_manage") },
+    ],
+    [tp],
+  )
 
   async function savePermissions() {
     if (permResellerId == null) return
@@ -225,37 +208,32 @@ export function DashboardResellersAdmin({
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{tp("createTitle")}</CardTitle>
+          <CardDescription>{tp("createHint")}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-2 md:grid-cols-2">
           <Input placeholder={tp("firstName")} value={form.first_name} onChange={(e) => setForm((p) => ({ ...p, first_name: e.target.value }))} />
           <Input placeholder={tp("lastName")} value={form.last_name} onChange={(e) => setForm((p) => ({ ...p, last_name: e.target.value }))} />
-          <Input placeholder={tp("username")} value={form.username} onChange={(e) => setForm((p) => ({ ...p, username: e.target.value }))} />
+          <Input placeholder={tp("dashboardUsername")} dir="ltr" value={form.username} onChange={(e) => setForm((p) => ({ ...p, username: e.target.value }))} />
+          <Input
+            placeholder={tp("dashboardPassword")}
+            dir="ltr"
+            type="password"
+            autoComplete="new-password"
+            value={form.dashboard_password}
+            onChange={(e) => setForm((p) => ({ ...p, dashboard_password: e.target.value }))}
+          />
           <Input placeholder={tp("phone")} value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} />
-          <Input placeholder={tp("tgUserId")} value={form.tg_user_id} onChange={(e) => setForm((p) => ({ ...p, tg_user_id: e.target.value }))} />
-          <Input placeholder={tp("baleUserId")} value={form.bale_user_id} onChange={(e) => setForm((p) => ({ ...p, bale_user_id: e.target.value }))} />
-          <Input placeholder={tp("wpUserId")} value={form.wp_user_id} onChange={(e) => setForm((p) => ({ ...p, wp_user_id: e.target.value }))} />
+          <Input placeholder={tp("tgUserId")} dir="ltr" value={form.tg_user_id} onChange={(e) => setForm((p) => ({ ...p, tg_user_id: e.target.value }))} />
+          <Input placeholder={tp("baleUserId")} dir="ltr" value={form.bale_user_id} onChange={(e) => setForm((p) => ({ ...p, bale_user_id: e.target.value }))} />
           <div className="md:col-span-2 flex flex-wrap items-center gap-2">
-            <Button type="button" disabled={busy} onClick={() => void createReseller()}>
+            <Button
+              type="button"
+              disabled={busy || !canManageResellerControls || !canSubmitCreate}
+              onClick={() => void createReseller()}
+            >
               {tp("create")}
             </Button>
             {err ? <span className="text-sm text-destructive">{err}</span> : null}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-primary/20 bg-gradient-to-br from-primary/[0.06] to-transparent">
-        <CardHeader>
-          <CardTitle className="text-base">{tp("wpLoginTitle")}</CardTitle>
-          <CardDescription>{tp("panelPricesHint")}</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-2 md:grid-cols-2">
-          <Input placeholder={tp("wpUsername")} dir="ltr" value={wpForm.wp_username} onChange={(e) => setWpForm((p) => ({ ...p, wp_username: e.target.value }))} />
-          <Input placeholder={tp("wpPassword")} dir="ltr" type="password" value={wpForm.wp_password} onChange={(e) => setWpForm((p) => ({ ...p, wp_password: e.target.value }))} />
-          <Input placeholder={tp("email")} dir="ltr" type="email" className="md:col-span-2" value={wpForm.email} onChange={(e) => setWpForm((p) => ({ ...p, email: e.target.value }))} />
-          <div className="md:col-span-2">
-            <Button type="button" variant="default" disabled={busy} onClick={() => void createWithWp()}>
-              {tp("createWithLogin")}
-            </Button>
           </div>
         </CardContent>
       </Card>
@@ -295,7 +273,13 @@ export function DashboardResellersAdmin({
                             <Button type="button" variant="outline" size="sm" onClick={() => onOpenUserDetail(id)}>
                               {tp("manage")}
                             </Button>
-                            <Button type="button" variant="secondary" size="sm" onClick={() => openPriceDialog(id)} disabled={panels.length < 1}>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => openPriceDialog(id)}
+                              disabled={!canManageResellerControls || panels.length < 1}
+                            >
                               {tp("panelPrices")}
                             </Button>
                             <Button
@@ -306,8 +290,9 @@ export function DashboardResellersAdmin({
                                 setPermResellerId(id)
                                 setPermissions({ ...(resellerPermissionsMap?.[String(id)] ?? {}) })
                               }}
+                              disabled={!canManageResellerControls}
                             >
-                              {isFa ? "سطح دسترسی" : "Permissions"}
+                              {tp("permissionsColumn")}
                             </Button>
                           </div>
                         </td>
@@ -327,7 +312,7 @@ export function DashboardResellersAdmin({
           <DialogHeader>
             <DialogTitle>{tp("panelPricesTitle")}</DialogTitle>
             <DialogDescription>
-              #{priceResellerId} — {tp("panelPricesHint")}
+              {t("resellersAdmin.panelPricesDialogDescription", { id: priceResellerId ?? 0 })}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-2">
@@ -345,7 +330,7 @@ export function DashboardResellersAdmin({
                       const v = e.target.value
                       setPriceRows((prev) => prev.map((r, i) => (i === idx ? { ...r, price_per_gb: v } : r)))
                     }}
-                    placeholder="0"
+                    placeholder={tp("pricePlaceholder")}
                   />
                 </div>
               )
@@ -353,7 +338,7 @@ export function DashboardResellersAdmin({
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setPriceResellerId(null)}>
-              {isFa ? "بستن" : "Close"}
+              {t("a11y.close")}
             </Button>
             <Button type="button" disabled={busy} onClick={() => void savePrices()}>
               {tp("panelPricesSave")}
@@ -364,7 +349,7 @@ export function DashboardResellersAdmin({
       <Dialog open={permResellerId != null} onOpenChange={(o) => !o && setPermResellerId(null)}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{isFa ? "سطح دسترسی نماینده" : "Reseller permissions"}</DialogTitle>
+            <DialogTitle>{tp("permissionsDialogTitle")}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-2 py-2">
             {permDefs.map((p) => (
@@ -380,10 +365,10 @@ export function DashboardResellersAdmin({
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setPermResellerId(null)}>
-              {isFa ? "بستن" : "Close"}
+              {t("a11y.close")}
             </Button>
             <Button type="button" disabled={busy} onClick={() => void savePermissions()}>
-              {isFa ? "ذخیره دسترسی‌ها" : "Save permissions"}
+              {tp("permissionsSave")}
             </Button>
           </DialogFooter>
         </DialogContent>

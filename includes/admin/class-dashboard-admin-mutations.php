@@ -449,11 +449,13 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		if ( '' === $key || ! preg_match( '/^[a-zA-Z0-9._-]+$/', $key ) ) {
 			return array( 'ok' => false, 'message' => 'bad_key' );
 		}
-		$row = SimpleVPBot_Activator::default_row_for_text_key( $key );
-		if ( ! $row ) {
-			return array( 'ok' => false, 'message' => 'unknown_key' );
+		foreach ( array( 'fa', 'en' ) as $loc ) {
+			$row = SimpleVPBot_Activator::default_row_for_text_key( $key, $loc );
+			if ( ! $row ) {
+				continue;
+			}
+			SimpleVPBot_Model_Text::set( $row['key_name'], $row['value'], $row['category'], $loc );
 		}
-		SimpleVPBot_Model_Text::set( $row['key_name'], $row['value'], $row['category'] );
 		SimpleVPBot_Texts::clear_cache();
 		return array( 'ok' => true );
 	}
@@ -470,11 +472,20 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				continue;
 			}
 			$cat = 'general';
-			$def = SimpleVPBot_Activator::default_row_for_text_key( $k );
+			$def = SimpleVPBot_Activator::default_row_for_text_key( $k, 'fa' );
 			if ( $def ) {
 				$cat = $def['category'];
 			}
-			SimpleVPBot_Model_Text::set( $k, self::sanitize_bot_text_for_messages( (string) $val ), $cat );
+			if ( is_array( $val ) ) {
+				foreach ( array( 'fa', 'en' ) as $loc ) {
+					if ( ! array_key_exists( $loc, $val ) ) {
+						continue;
+					}
+					SimpleVPBot_Model_Text::set( $k, self::sanitize_bot_text_for_messages( (string) $val[ $loc ] ), $cat, $loc );
+				}
+			} else {
+				SimpleVPBot_Model_Text::set( $k, self::sanitize_bot_text_for_messages( (string) $val ), $cat, 'fa' );
+			}
 		}
 		SimpleVPBot_Texts::clear_cache();
 		return array( 'ok' => true );
@@ -1214,7 +1225,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	}
 
 	/**
-	 * Manual svp_users row (at least one of tg_user_id / bale_user_id required).
+	 * Manual svp_users row: either tg/bale id, or (admin only) reseller with dashboard_password + username for /dashboard login.
 	 *
 	 * @param array<string, mixed> $p Fields.
 	 * @return array{ok:bool, message?:string, user_id?:int}
@@ -1222,15 +1233,6 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	private static function op_user_manual_create( array $p ) {
 		$tg = isset( $p['tg_user_id'] ) ? (int) $p['tg_user_id'] : 0;
 		$bl = isset( $p['bale_user_id'] ) ? (int) $p['bale_user_id'] : 0;
-		if ( $tg < 1 && $bl < 1 ) {
-			return array( 'ok' => false, 'message' => 'need_platform_id' );
-		}
-		if ( $tg > 0 && SimpleVPBot_Model_User::find_by_telegram( $tg ) ) {
-			return array( 'ok' => false, 'message' => 'tg_taken' );
-		}
-		if ( $bl > 0 && SimpleVPBot_Model_User::find_by_bale( $bl ) ) {
-			return array( 'ok' => false, 'message' => 'bale_taken' );
-		}
 		$st = sanitize_key( (string) ( $p['status'] ?? 'pending' ) );
 		$role = sanitize_key( (string) ( $p['role'] ?? 'user' ) );
 		if ( ! in_array( $role, array( 'user', 'reseller' ), true ) ) {
@@ -1240,12 +1242,80 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		if ( $invited_by < 1 ) {
 			$invited_by = null;
 		}
+		if ( ! in_array( $st, array( 'pending', 'approved', 'rejected', 'blocked' ), true ) ) {
+			$st = 'pending';
+		}
+
+		$dash_pwd  = (string) ( $p['dashboard_password'] ?? '' );
+		$uname_raw = sanitize_text_field( (string) ( $p['username'] ?? '' ) );
+		$log       = sanitize_user( $uname_raw, true );
+
+		if ( 'reseller' === $role && strlen( $dash_pwd ) >= 6 && '' !== $log ) {
+			if ( ! current_user_can( 'manage_options' ) ) {
+				return array( 'ok' => false, 'message' => 'forbidden' );
+			}
+			if ( username_exists( $log ) ) {
+				return array( 'ok' => false, 'message' => 'username_exists' );
+			}
+			if ( $tg > 0 && SimpleVPBot_Model_User::find_by_telegram( $tg ) ) {
+				return array( 'ok' => false, 'message' => 'tg_taken' );
+			}
+			if ( $bl > 0 && SimpleVPBot_Model_User::find_by_bale( $bl ) ) {
+				return array( 'ok' => false, 'message' => 'bale_taken' );
+			}
+			$email = sanitize_email( (string) ( $p['email'] ?? '' ) );
+			$wp_id = wp_create_user( $log, $dash_pwd, $email );
+			if ( is_wp_error( $wp_id ) ) {
+				return array( 'ok' => false, 'message' => (string) $wp_id->get_error_code() );
+			}
+			$wp_id = (int) $wp_id;
+			$wpuser = new WP_User( $wp_id );
+			$wpuser->set_role( 'subscriber' );
+
+			$row = array(
+				'tg_user_id'   => $tg > 0 ? $tg : null,
+				'bale_user_id' => $bl > 0 ? $bl : null,
+				'first_name'   => sanitize_text_field( (string) ( $p['first_name'] ?? '' ) ),
+				'last_name'    => sanitize_text_field( (string) ( $p['last_name'] ?? '' ) ),
+				'username'     => $log,
+				'phone'        => sanitize_text_field( (string) ( $p['phone'] ?? '' ) ),
+				'role'         => 'reseller',
+				'balance'      => 0,
+				'status'       => $st,
+				'admin_mode'   => 0,
+				'invited_by'   => $invited_by,
+				'wp_user_id'   => $wp_id,
+			);
+			if ( 'approved' === $st ) {
+				$row['approved_by'] = (string) wp_get_current_user()->user_login;
+				$row['approved_at'] = current_time( 'mysql' );
+			}
+			$new_id = SimpleVPBot_Model_User::insert( $row );
+			if ( $new_id < 1 ) {
+				require_once ABSPATH . 'wp-admin/includes/user.php';
+				wp_delete_user( $wp_id );
+				return array( 'ok' => false, 'message' => 'insert_failed' );
+			}
+			self::log_rest_user( $new_id, 'user_manual_create', array( 'dashboard_login' => true, 'wp_user_id' => $wp_id ) );
+			return array( 'ok' => true, 'user_id' => $new_id );
+		}
+
+		if ( strlen( $dash_pwd ) >= 6 && '' !== $log && 'reseller' !== $role ) {
+			return array( 'ok' => false, 'message' => 'invalid' );
+		}
+
+		if ( $tg < 1 && $bl < 1 ) {
+			return array( 'ok' => false, 'message' => 'need_platform_id' );
+		}
+		if ( $tg > 0 && SimpleVPBot_Model_User::find_by_telegram( $tg ) ) {
+			return array( 'ok' => false, 'message' => 'tg_taken' );
+		}
+		if ( $bl > 0 && SimpleVPBot_Model_User::find_by_bale( $bl ) ) {
+			return array( 'ok' => false, 'message' => 'bale_taken' );
+		}
 		$wp_user_id = isset( $p['wp_user_id'] ) ? (int) $p['wp_user_id'] : 0;
 		if ( $wp_user_id < 1 ) {
 			$wp_user_id = null;
-		}
-		if ( ! in_array( $st, array( 'pending', 'approved', 'rejected', 'blocked' ), true ) ) {
-			$st = 'pending';
 		}
 		$row = array(
 			'tg_user_id'   => $tg > 0 ? $tg : null,

@@ -15,7 +15,7 @@ import { DataPagination } from "@/components/data-pagination"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
-import { formatNumber } from "@/lib/format-locale"
+import { formatDateTime, formatNumber } from "@/lib/format-locale"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { cn } from "@/lib/utils"
 
@@ -197,7 +197,9 @@ export function DashboardReferralAdmin({
                 <tbody>
                   {referralEvents.map((ev) => (
                     <tr key={String(ev.id ?? "")}>
-                      <td className="p-2 whitespace-nowrap">{String(ev.created_at ?? "")}</td>
+                      <td className="p-2 whitespace-nowrap">
+                        {ev.created_at ? formatDateTime(String(ev.created_at), isFa) : "—"}
+                      </td>
                       <td className="p-2 font-mono">{formatNumber(num(ev.inviter_svp_user_id), isFa)}</td>
                       <td className="p-2">{String(ev.platform ?? "")}</td>
                       <td className="p-2">{String(ev.outcome ?? "")}</td>
