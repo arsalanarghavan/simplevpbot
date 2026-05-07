@@ -99,7 +99,18 @@
     "panelsPaginationHint": "صفحه‌بندی: {{total}} پنل؛ برای لیست کامل از تب پنل‌ها استفاده کنید.",
     "bearerYes": "توکن: دارد",
     "bearerNo": "توکن: ندارد",
-    "badgeOk": "موفق"
+    "badgeOk": "موفق",
+    "metricCpu": "پردازنده",
+    "metricMem": "حافظه",
+    "metricDisk": "دیسک",
+    "metricSwap": "سواپ",
+    "metricUptime": "زمان روشن بودن",
+    "metricTcp": "اتصال TCP",
+    "metricCores": "هستهٔ فیزیکی",
+    "metricLogical": "پردازندهٔ منطقی",
+    "metricCpuMhz": "فرکانس CPU",
+    "cpuOutOfRange": "خارج از ۰–۱۰۰٪",
+    "rawDetails": "سایر فیلدها (اشکال‌زدایی)"
   },
   "plansAdmin": {
     "title": "پلن‌ها",

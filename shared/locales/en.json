@@ -99,7 +99,18 @@
     "panelsPaginationHint": "Pagination: {{total}} panels — open the Panels tab for the full list.",
     "bearerYes": "Bearer token: configured",
     "bearerNo": "Bearer token: not set",
-    "badgeOk": "OK"
+    "badgeOk": "OK",
+    "metricCpu": "CPU",
+    "metricMem": "Memory",
+    "metricDisk": "Disk",
+    "metricSwap": "Swap",
+    "metricUptime": "Uptime",
+    "metricTcp": "TCP connections",
+    "metricCores": "CPU cores",
+    "metricLogical": "Logical CPUs",
+    "metricCpuMhz": "CPU clock",
+    "cpuOutOfRange": "Outside 0–100%",
+    "rawDetails": "Other fields (debug)"
   },
   "plansAdmin": {
     "title": "Plans",

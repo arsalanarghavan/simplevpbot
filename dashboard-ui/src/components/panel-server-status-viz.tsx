@@ -58,7 +58,13 @@ function ResourceRow({
   )
 }
 
-export function PanelServerStatusViz({ status, isFa, titleKey = "monitoringPage.statusSummary", className }: Props) {
+export function PanelServerStatusViz({
+  status,
+  isFa,
+  titleKey = "monitoringPage.statusSummary",
+  hideTitle = false,
+  className,
+}: Props) {
   const { t } = useTranslation()
   const parsed = useMemo(() => parsePanelLiveStatus(status), [status])
 
@@ -95,7 +101,9 @@ export function PanelServerStatusViz({ status, isFa, titleKey = "monitoringPage.
 
   return (
     <div className={cn("mt-2 rounded border border-dashed border-border/80 p-3", className)}>
-      <p className="mb-2 text-xs font-medium text-muted-foreground">{t(titleKey)}</p>
+      {hideTitle ? null : (
+        <p className="mb-2 text-xs font-medium text-muted-foreground">{t(titleKey)}</p>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,150px)_1fr]">
         <div className="flex min-h-[112px] flex-col items-center justify-start gap-1">
@@ -116,7 +124,6 @@ export function PanelServerStatusViz({ status, isFa, titleKey = "monitoringPage.
                     <RadialBar
                       dataKey="value"
                       cornerRadius={4}
-                      fill="hsl(var(--primary))"
                       background={{ fill: "hsl(var(--muted))" }}
                       isAnimationActive={false}
                     />

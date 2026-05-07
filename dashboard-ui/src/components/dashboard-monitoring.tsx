@@ -25,6 +25,13 @@ import {
 } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import {
+  resolvePanelHealthFlags,
+  type OverviewPayload,
+  type PanelHealth,
+  type StatsPayload,
+} from "@/components/dashboard-overview"
+import { PanelServerStatusViz } from "@/components/panel-server-status-viz"
+import {
   formatBytes,
   formatChartDayLabel,
   formatChartTooltipDate,
@@ -34,12 +41,6 @@ import {
 } from "@/lib/format-locale"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { cn } from "@/lib/utils"
-import {
-  resolvePanelHealthFlags,
-  type OverviewPayload,
-  type PanelHealth,
-  type StatsPayload,
-} from "@/components/dashboard-overview"
 
 type PanelStatLine = NonNullable<StatsPayload["panels"]>[number]
 
@@ -79,13 +80,6 @@ function truncateUrl(url: string, max = 40): string {
   if (!u) return "—"
   if (u.length <= max) return u
   return `${u.slice(0, max - 1)}…`
-}
-
-function statusEntries(status: Record<string, number | string> | null | undefined): [string, string][] {
-  if (!status || typeof status !== "object") return []
-  return Object.entries(status)
-    .slice(0, 12)
-    .map(([k, v]) => [k, typeof v === "number" ? String(v) : String(v)])
 }
 
 export function DashboardMonitoring({
@@ -426,19 +420,7 @@ export function DashboardMonitoring({
                     </div>
                   </div>
                   {live?.ok && live.status && Object.keys(live.status).length > 0 ? (
-                    <div className="mt-2 rounded border border-dashed border-border/80 p-2">
-                      <p className="mb-1 text-xs font-medium text-muted-foreground">
-                        {t("monitoringPage.statusSummary")}
-                      </p>
-                      <div className="grid gap-1 font-mono text-[11px] sm:grid-cols-2">
-                        {statusEntries(live.status).map(([k, v]) => (
-                          <div key={k} className={cn("flex justify-between gap-2", isFa && "flex-row-reverse")}>
-                            <span className="truncate text-muted-foreground">{k}</span>
-                            <span className="shrink-0 tabular-nums">{formatNumericString(v, isFa)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    <PanelServerStatusViz status={live.status} isFa={isFa} />
                   ) : null}
                 </div>
               )
@@ -465,7 +447,6 @@ export function DashboardMonitoring({
           ) : null}
           {extHostRows.map((hostRow) => {
             const ex = extSnapById.get(hostRow.id)
-            const entries = statusEntries(ex?.metrics ?? undefined)
             return (
               <div key={hostRow.id} className="rounded-lg border border-border/80 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -487,15 +468,8 @@ export function DashboardMonitoring({
                   {hostRow.bearerConfigured ? t("monitoringPage.bearerYes") : t("monitoringPage.bearerNo")}
                   {ex?.checkedAt ? ` · ${formatDateTime(ex.checkedAt, isFa)}` : ""}
                 </div>
-                {entries.length > 0 ? (
-                  <div className="mt-2 grid gap-1 font-mono text-[11px] sm:grid-cols-2">
-                    {entries.map(([k, v]) => (
-                      <div key={k} className={cn("flex justify-between gap-2", isFa && "flex-row-reverse")}>
-                        <span className="truncate text-muted-foreground">{k}</span>
-                        <span className="shrink-0 tabular-nums">{formatNumericString(v, isFa)}</span>
-                      </div>
-                    ))}
-                  </div>
+                {ex?.metrics && Object.keys(ex.metrics).length > 0 ? (
+                  <PanelServerStatusViz status={ex.metrics} isFa={isFa} hideTitle />
                 ) : null}
               </div>
             )

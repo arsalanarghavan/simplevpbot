@@ -225,6 +225,17 @@ const enMonitoringPage = {
   bearerYes: "Bearer token: configured",
   bearerNo: "Bearer token: not set",
   badgeOk: "OK",
+  metricCpu: "CPU",
+  metricMem: "Memory",
+  metricDisk: "Disk",
+  metricSwap: "Swap",
+  metricUptime: "Uptime",
+  metricTcp: "TCP connections",
+  metricCores: "CPU cores",
+  metricLogical: "Logical CPUs",
+  metricCpuMhz: "CPU clock",
+  cpuOutOfRange: "Outside 0–100%",
+  rawDetails: "Other fields (debug)",
 }
 
 const enPlansAdmin = {
@@ -2279,6 +2290,17 @@ const faMonitoringPage = {
   bearerYes: "توکن: دارد",
   bearerNo: "توکن: ندارد",
   badgeOk: "موفق",
+  metricCpu: "پردازنده",
+  metricMem: "حافظه",
+  metricDisk: "دیسک",
+  metricSwap: "سواپ",
+  metricUptime: "زمان روشن بودن",
+  metricTcp: "اتصال TCP",
+  metricCores: "هستهٔ فیزیکی",
+  metricLogical: "پردازندهٔ منطقی",
+  metricCpuMhz: "فرکانس CPU",
+  cpuOutOfRange: "خارج از ۰–۱۰۰٪",
+  rawDetails: "سایر فیلدها (اشکال‌زدایی)",
 }
 
 const enUsersBulkAdmin = {
