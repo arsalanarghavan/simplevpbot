@@ -109,7 +109,7 @@ class SimpleVPBot_Handler_Admin {
 				$platform,
 				$chat_id,
 				'👥 مدیریت کاربران — یکی را انتخاب کنید:',
-				array( 'reply_markup' => SimpleVPBot_Keyboards::admin_users_submenu_reply() )
+				array( 'reply_markup' => SimpleVPBot_Keyboards::admin_users_submenu_reply( $user ) )
 			);
 			return;
 		}
@@ -163,7 +163,7 @@ class SimpleVPBot_Handler_Admin {
 			SimpleVPBot_Handler_Admin_Hub::send_submenu( $platform, $chat_id, 'adv', array( 'user' => $user ) );
 			return;
 		}
-		if ( '➕ گروهی' === $text ) {
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.bulk_short', $user ) || '➕ گروهی' === $text ) {
 			SimpleVPBot_Handler_Admin_Hub::send_submenu( $platform, $chat_id, 'blk', array( 'user' => $user ) );
 			return;
 		}
@@ -343,7 +343,7 @@ class SimpleVPBot_Handler_Admin {
 					$platform,
 					$chat_id,
 					'⛔ کاربری یافت نشد. عبارت دیگری بفرستید یا از منو دوباره جستجو کنید.',
-					array( 'reply_markup' => SimpleVPBot_Keyboards::admin_users_submenu_reply() )
+					array( 'reply_markup' => SimpleVPBot_Keyboards::admin_users_submenu_reply( $user ) )
 				);
 				return;
 			}

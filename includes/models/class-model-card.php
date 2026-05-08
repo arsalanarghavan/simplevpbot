@@ -51,6 +51,27 @@ class SimpleVPBot_Model_Card {
 	}
 
 	/**
+	 * Active cards for specific owner scope.
+	 *
+	 * @param array<int> $owner_ids Owner ids (0 = global/site).
+	 * @return array<int, object>
+	 */
+	public static function active_ordered_for_owners( array $owner_ids ) {
+		global $wpdb;
+		$owners = array_values( array_unique( array_map( 'intval', $owner_ids ) ) );
+		if ( empty( $owners ) ) {
+			return array();
+		}
+		$ph = implode( ',', array_fill( 0, count( $owners ), '%d' ) );
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT * FROM ' . self::table() . " WHERE active = 1 AND owner_svp_user_id IN ({$ph}) ORDER BY priority DESC, id ASC",
+				$owners
+			)
+		); // phpcs:ignore
+	}
+
+	/**
 	 * All.
 	 *
 	 * @return array<int, object>
@@ -58,6 +79,27 @@ class SimpleVPBot_Model_Card {
 	public static function all() {
 		global $wpdb;
 		return $wpdb->get_results( 'SELECT * FROM ' . self::table() . ' ORDER BY priority DESC, id ASC' ); // phpcs:ignore
+	}
+
+	/**
+	 * All cards for specific owner scope.
+	 *
+	 * @param array<int> $owner_ids Owner ids.
+	 * @return array<int, object>
+	 */
+	public static function all_for_owners( array $owner_ids ) {
+		global $wpdb;
+		$owners = array_values( array_unique( array_map( 'intval', $owner_ids ) ) );
+		if ( empty( $owners ) ) {
+			return array();
+		}
+		$ph = implode( ',', array_fill( 0, count( $owners ), '%d' ) );
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT * FROM ' . self::table() . " WHERE owner_svp_user_id IN ({$ph}) ORDER BY priority DESC, id ASC",
+				$owners
+			)
+		); // phpcs:ignore
 	}
 
 	/**
@@ -156,7 +198,19 @@ class SimpleVPBot_Model_Card {
 	 * @return array<int, object>
 	 */
 	public static function active_for_transaction( $transaction_id ) {
-		$cards = self::active_ordered();
+		$tid   = (int) $transaction_id;
+		$cards = array();
+		if ( class_exists( 'SimpleVPBot_Model_Transaction' ) && class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+			$tx = SimpleVPBot_Model_Transaction::find( $tid );
+			if ( $tx ) {
+				$uid = (int) ( $tx->user_id ?? 0 );
+				$rid = $uid > 0 ? (int) SimpleVPBot_Reseller_Branding::nearest_reseller_id_for_user( $uid ) : 0;
+				$cards = $rid > 0 ? self::active_ordered_for_owners( array( $rid, 0 ) ) : self::active_ordered_for_owners( array( 0 ) );
+			}
+		}
+		if ( empty( $cards ) ) {
+			$cards = self::active_ordered();
+		}
 		if ( empty( $cards ) ) {
 			return array();
 		}
@@ -164,7 +218,6 @@ class SimpleVPBot_Model_Card {
 		if ( 'sequential' !== $mode ) {
 			return $cards;
 		}
-		$tid = (int) $transaction_id;
 		foreach ( $cards as $c ) {
 			$cid   = (int) ( $c->id ?? 0 );
 			$limit = (float) ( $c->daily_limit ?? 0 );

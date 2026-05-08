@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class SimpleVPBot_Activator {
 
-	const DB_VERSION = '2.0.6';
+	const DB_VERSION = '2.0.7';
 
 	/**
 	 * Activate plugin.
@@ -75,6 +75,7 @@ class SimpleVPBot_Activator {
 
 		$sql_cards = "CREATE TABLE {$p}svp_cards (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			owner_svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			card_number varchar(32) NOT NULL,
 			holder_name varchar(191) NOT NULL,
 			bank_name varchar(64) NOT NULL DEFAULT '',
@@ -85,7 +86,8 @@ class SimpleVPBot_Activator {
 			active tinyint(1) NOT NULL DEFAULT 1,
 			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (id),
-			KEY active (active)
+			KEY active (active),
+			KEY owner_svp_user (owner_svp_user_id)
 		) $charset_collate;";
 
 		$sql_tx = "CREATE TABLE {$p}svp_transactions (
@@ -163,6 +165,7 @@ class SimpleVPBot_Activator {
 
 		$sql_broadcasts = "CREATE TABLE {$p}svp_broadcasts (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			owner_svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			type varchar(16) NOT NULL,
 			content longtext NOT NULL,
 			status varchar(20) NOT NULL DEFAULT 'draft',
@@ -172,7 +175,8 @@ class SimpleVPBot_Activator {
 			blocked_count int NOT NULL DEFAULT 0,
 			meta_json longtext NULL,
 			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (id)
+			PRIMARY KEY (id),
+			KEY owner_svp_user (owner_svp_user_id)
 		) $charset_collate;";
 
 		$sql_queue = "CREATE TABLE {$p}svp_broadcast_queue (
@@ -270,6 +274,7 @@ class SimpleVPBot_Activator {
 	public static function sql_discount_codes( $p, $charset_collate ) {
 		return "CREATE TABLE {$p}svp_discount_codes (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			owner_svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			code varchar(64) NOT NULL,
 			active tinyint(1) NOT NULL DEFAULT 1,
 			discount_type varchar(16) NOT NULL DEFAULT 'percent',
@@ -285,8 +290,9 @@ class SimpleVPBot_Activator {
 			allow_add_user_slots tinyint(1) NOT NULL DEFAULT 1,
 			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (id),
-			UNIQUE KEY code (code),
-			KEY active (active)
+			UNIQUE KEY owner_code (owner_svp_user_id, code),
+			KEY active (active),
+			KEY owner_svp_user (owner_svp_user_id)
 		) $charset_collate;";
 	}
 
@@ -686,6 +692,9 @@ class SimpleVPBot_Activator {
 		if ( version_compare( (string) $current, '2.0.6', '<' ) ) {
 			self::maybe_migrate_206( $p );
 		}
+		if ( version_compare( (string) $current, '2.0.7', '<' ) ) {
+			self::maybe_migrate_207( $p, $charset_collate );
+		}
 		update_option( 'simplevpbot_db_version', self::DB_VERSION );
 	}
 
@@ -715,6 +724,78 @@ class SimpleVPBot_Activator {
 			$wpdb->query( "ALTER TABLE {$users} ADD COLUMN bot_locale varchar(5) NOT NULL DEFAULT '' AFTER state_data" );
 		}
 		self::insert_default_text_rows_if_missing();
+	}
+
+	/**
+	 * Per-reseller ownership for cards/discounts/broadcasts; panel_access on reseller panel prices.
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 */
+	public static function maybe_migrate_207( $p, $charset_collate ) {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		global $wpdb;
+		dbDelta( self::sql_reseller_panel_prices( $p, $charset_collate ) );
+
+		$cards = $p . 'svp_cards';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$cards} LIKE 'owner_svp_user_id'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$cards} ADD COLUMN owner_svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0 AFTER id, ADD KEY owner_svp_user (owner_svp_user_id)" );
+		}
+
+		$disc = $p . 'svp_discount_codes';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$disc} LIKE 'owner_svp_user_id'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$disc} ADD COLUMN owner_svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0 AFTER id" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$idx_rows = $wpdb->get_results( "SHOW INDEX FROM {$disc}", ARRAY_A );
+		$key_names = array();
+		if ( is_array( $idx_rows ) ) {
+			foreach ( $idx_rows as $ir ) {
+				if ( is_array( $ir ) && ! empty( $ir['Key_name'] ) ) {
+					$key_names[ (string) $ir['Key_name'] ] = true;
+				}
+			}
+		}
+		if ( empty( $key_names['owner_code'] ) ) {
+			if ( ! empty( $key_names['code'] ) ) {
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$wpdb->query( "ALTER TABLE {$disc} DROP INDEX `code`" );
+			}
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$disc} ADD UNIQUE KEY owner_code (owner_svp_user_id, code)" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$idx_rows2 = $wpdb->get_results( "SHOW INDEX FROM {$disc}", ARRAY_A );
+		$key_names2 = array();
+		if ( is_array( $idx_rows2 ) ) {
+			foreach ( $idx_rows2 as $ir ) {
+				if ( is_array( $ir ) && ! empty( $ir['Key_name'] ) ) {
+					$key_names2[ (string) $ir['Key_name'] ] = true;
+				}
+			}
+		}
+		if ( empty( $key_names2['owner_svp_user'] ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$disc} ADD KEY owner_svp_user (owner_svp_user_id)" );
+		}
+
+		$bc = $p . 'svp_broadcasts';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$bc} LIKE 'owner_svp_user_id'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$bc} ADD COLUMN owner_svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0 AFTER id, ADD KEY owner_svp_user (owner_svp_user_id)" );
+		}
+
+		$rp = $p . 'svp_reseller_panel_prices';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$rp} LIKE 'panel_access'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$rp} ADD COLUMN panel_access tinyint(1) NOT NULL DEFAULT 1 AFTER price_per_gb" );
+		}
 	}
 
 	public static function maybe_migrate_204( $p, $charset_collate ) {
@@ -779,6 +860,7 @@ class SimpleVPBot_Activator {
 			reseller_svp_user_id bigint(20) unsigned NOT NULL,
 			panel_id bigint(20) unsigned NOT NULL,
 			price_per_gb decimal(15,4) NOT NULL DEFAULT 0,
+			panel_access tinyint(1) NOT NULL DEFAULT 1,
 			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY (id),
 			UNIQUE KEY reseller_panel (reseller_svp_user_id, panel_id),

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { QRCodeSVG } from "qrcode.react"
 import {
+  ArrowRightLeft,
   ChevronDown,
   Copy,
   Info,
@@ -33,7 +34,6 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -41,11 +41,26 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { DataPagination } from "@/components/data-pagination"
 import { getAdminJson, postAdminJson, postAdminMutate } from "@/lib/dash-admin-mutate"
 import { dashContentClass, dashFlexRowClass } from "@/lib/dash-locale"
+import type { PaginationMeta } from "@/lib/dash-pagination"
 import { gregorianToJalali, jalaliToGregorian } from "@/lib/jalali"
 import { formatBytes, formatDateTime, formatNumber } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 
 const CONFIGS_BATCH_MAX = 40
 const ALL_PANELS = "all" as const
@@ -102,6 +117,12 @@ type ClientRow = DashRecord & {
   linked_service_id?: number
   subscription_url?: string
   primary_config_uri?: string
+  config_uris?: string[]
+  portal_url?: string
+  primary_link?: string
+  volume_exhausted?: number
+  date_expired?: number
+  service_plan_id?: number
   comment?: string
   remark?: string
   service_expires_at?: string
@@ -115,6 +136,19 @@ function parseClientIps(row: ClientRow): string[] {
     return raw.map((x) => String(x).trim()).filter(Boolean)
   }
   return []
+}
+
+function parseConfigUris(row: ClientRow): string[] {
+  const raw = row.config_uris
+  if (!Array.isArray(raw)) return []
+  return raw.map((x) => String(x).trim()).filter(Boolean)
+}
+
+function isVolumeExhausted(row: ClientRow): boolean {
+  if (num(row.volume_exhausted) !== 0) return true
+  const lim = num(row.limit_bytes)
+  if (lim < 1) return false
+  return num(row.used_bytes) >= lim
 }
 
 function serviceExpiresMs(row: ClientRow): number {
@@ -257,6 +291,17 @@ type PlanGroup = {
   clients: ClientRow[]
 }
 
+type FlatClientItem = {
+  panel_id: number
+  panel_label: string
+  planId: number
+  planName: string
+  inbound_id: number
+  protocol: string
+  port: number
+  row: ClientRow
+}
+
 type UserPick = { id: number; label: string }
 
 type SnapshotPanelBlock = {
@@ -318,11 +363,13 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 
 export function DashboardConfigsAdmin({
   panels,
+  plans,
   isFa,
   configsActive = true,
   onMutateSuccess,
 }: {
   panels: DashRecord[]
+  plans: DashRecord[]
   isFa: boolean
   configsActive?: boolean
   onMutateSuccess?: () => void
@@ -380,8 +427,19 @@ export function DashboardConfigsAdmin({
   const [expBusy, setExpBusy] = useState(false)
 
   const [bulkSel, setBulkSel] = useState<Record<string, { panel_id: number; inbound_id: number; email: string }>>({})
+  const [clientsPage, setClientsPage] = useState(1)
+  const [clientsPerPage, setClientsPerPage] = useState(25)
   const [ipsTarget, setIpsTarget] = useState<{ panel_id: number; inbound_id: number; row: ClientRow } | null>(null)
   const [batchBusy, setBatchBusy] = useState(false)
+  const [assignPlanOpen, setAssignPlanOpen] = useState(false)
+  const [assignPlanMode, setAssignPlanMode] = useState<"single" | "bulk">("bulk")
+  const [assignPlanTarget, setAssignPlanTarget] = useState<{ panel_id: number; inbound_id: number; row: ClientRow } | null>(null)
+  const [assignPlanId, setAssignPlanId] = useState(0)
+  const [transferOpen, setTransferOpen] = useState(false)
+  const [transferMode, setTransferMode] = useState<"single" | "bulk">("single")
+  const [transferTarget, setTransferTarget] = useState<{ panel_id: number; inbound_id: number; row: ClientRow } | null>(null)
+  const [transferPanelId, setTransferPanelId] = useState(0)
+  const [transferPlanId, setTransferPlanId] = useState(0)
 
   const [linkOpen, setLinkOpen] = useState(false)
   const [linkCtx, setLinkCtx] = useState<{ panel_id: number; inbound_id: number; row: ClientRow } | null>(null)
@@ -394,6 +452,43 @@ export function DashboardConfigsAdmin({
 
   const bulkCount = useMemo(() => Object.keys(bulkSel).length, [bulkSel])
   const singlePanelMode = typeof panelScope === "number"
+
+  const allPlans = useMemo(() => plans, [plans])
+
+  /** Xray plans for current panel from configs snapshot (full list for panel); paginated `plans` prop often omits them. */
+  const activePlansForPanelFromMerged = useCallback(
+    (panelId: number): DashRecord[] => {
+      if (panelId < 1 || !merged) return []
+      const block = merged.panels.find((b) => b.panel_id === panelId)
+      if (!block || block.plans.length < 1) return []
+      const seen = new Set<number>()
+      const out: DashRecord[] = []
+      for (const pg of block.plans) {
+        const p = pg.plan
+        const id = num(p.id)
+        if (id < 1 || seen.has(id)) continue
+        if (num(p.active) === 0) continue
+        seen.add(id)
+        out.push(p)
+      }
+      return out
+    },
+    [merged]
+  )
+
+  const scopedActivePlans = useMemo(() => {
+    if (!singlePanelMode || typeof panelScope !== "number") return [] as DashRecord[]
+    const fromSnap = activePlansForPanelFromMerged(panelScope)
+    if (fromSnap.length > 0) return fromSnap
+    return allPlans.filter((p) => num(p.panel_id) === panelScope && num(p.active) !== 0)
+  }, [activePlansForPanelFromMerged, allPlans, panelScope, singlePanelMode])
+
+  const transferPanelPlans = useMemo(() => {
+    if (transferPanelId < 1) return [] as DashRecord[]
+    const fromSnap = activePlansForPanelFromMerged(transferPanelId)
+    if (fromSnap.length > 0) return fromSnap
+    return allPlans.filter((p) => num(p.panel_id) === transferPanelId && num(p.active) !== 0)
+  }, [activePlansForPanelFromMerged, allPlans, transferPanelId])
 
   const panelOptions = useMemo(() => {
     return panels.map((p) => ({
@@ -893,6 +988,7 @@ export function DashboardConfigsAdmin({
     let online = 0
     let linked = 0
     let expired = 0
+    let exhausted = 0
     const now = Date.now()
     for (const block of merged.panels) {
       for (const pg of block.plans) {
@@ -903,6 +999,7 @@ export function DashboardConfigsAdmin({
           if (num(row.is_linked) !== 0) linked++
           const ms = unifiedExpiryMs(row)
           if (ms > 0 && ms <= now) expired++
+          if (isVolumeExhausted(row)) exhausted++
         }
       }
     }
@@ -914,8 +1011,219 @@ export function DashboardConfigsAdmin({
       linked,
       unlinked: total - linked,
       expired,
+      exhausted,
     }
   }, [merged])
+
+  const flatClients = useMemo((): FlatClientItem[] => {
+    if (!merged) return []
+    const out: FlatClientItem[] = []
+    for (const block of merged.panels) {
+      for (const pg of block.plans) {
+        const plan = pg.plan
+        const planId = num(plan.id)
+        const planName = String(plan.name ?? `#${planId}`)
+        const iid = num(pg.inbound_id)
+        for (const row of pg.clients) {
+          out.push({
+            panel_id: block.panel_id,
+            panel_label: block.panel_label,
+            planId,
+            planName,
+            inbound_id: iid,
+            protocol: String(pg.protocol ?? "—"),
+            port: num(pg.port),
+            row,
+          })
+        }
+      }
+    }
+    return out
+  }, [merged])
+
+  const runAssignPlan = useCallback(async () => {
+    if (assignPlanId < 1) {
+      setErr(tl("pickPlan"))
+      return
+    }
+    const items =
+      assignPlanMode === "single" && assignPlanTarget
+        ? [
+            {
+              linked_service_id: num(assignPlanTarget.row.linked_service_id),
+              inbound_id: assignPlanTarget.inbound_id,
+              email: String(assignPlanTarget.row.email ?? ""),
+            },
+          ]
+        : Object.values(bulkSel).map((it) => {
+            const linked = flatClients.find(
+              (f) => f.panel_id === it.panel_id && f.inbound_id === it.inbound_id && String(f.row.email ?? "") === it.email
+            )
+            return {
+              linked_service_id: num(linked?.row.linked_service_id),
+              inbound_id: it.inbound_id,
+              email: it.email,
+            }
+          })
+    const filtered = items.filter((it) => it.linked_service_id > 0 && it.inbound_id > 0 && it.email)
+    if (filtered.length < 1) {
+      setErr(tl("noEligibleRows"))
+      return
+    }
+    const pid = assignPlanMode === "single" ? assignPlanTarget?.panel_id ?? 0 : (typeof panelScope === "number" ? panelScope : 0)
+    if (pid < 1) {
+      setErr(tl("pickPanel"))
+      return
+    }
+    setErr(null)
+    setBatchBusy(true)
+    try {
+      const res = await postAdminMutate("configs_assign_plan", { panel_id: pid, plan_id: assignPlanId, items: filtered })
+      if (!res.ok && res.message !== "partial") {
+        setErr(res.message ?? tl("mutateError"))
+        return
+      }
+      if (res.message === "partial") {
+        const d = res.data as { succeeded?: number; failed?: unknown[] } | undefined
+        setMsg(tl("batchPartial", { ok: num(d?.succeeded), fail: Array.isArray(d?.failed) ? d.failed.length : 0 }))
+      }
+      setAssignPlanOpen(false)
+      setAssignPlanTarget(null)
+      setBulkSel({})
+      await afterMutate()
+    } finally {
+      setBatchBusy(false)
+    }
+  }, [afterMutate, assignPlanId, assignPlanMode, assignPlanTarget, bulkSel, flatClients, panelScope, tl])
+
+  const runTransferPanel = useCallback(async () => {
+    if (transferPanelId < 1) {
+      setErr(tl("pickTargetPanel"))
+      return
+    }
+    const serviceIds =
+      transferMode === "single" && transferTarget
+        ? [num(transferTarget.row.linked_service_id)].filter((id) => id > 0)
+        : Object.values(bulkSel)
+            .map((it) => {
+              const row = flatClients.find(
+                (f) => f.panel_id === it.panel_id && f.inbound_id === it.inbound_id && String(f.row.email ?? "") === it.email
+              )
+              return num(row?.row.linked_service_id)
+            })
+            .filter((id) => id > 0)
+    if (serviceIds.length < 1) {
+      setErr(tl("noEligibleRows"))
+      return
+    }
+    setErr(null)
+    setBatchBusy(true)
+    try {
+      const res = await postAdminMutate("service_panel_transfer", {
+        service_ids: serviceIds,
+        target_panel_id: transferPanelId,
+        target_plan_id: transferPlanId > 0 ? transferPlanId : undefined,
+      })
+      if (!res.ok && res.message !== "partial") {
+        setErr(res.message ?? tl("mutateError"))
+        return
+      }
+      if (res.message === "partial") {
+        const d = res.data as { succeeded?: number; failed?: unknown[] } | undefined
+        setMsg(tl("batchPartial", { ok: num(d?.succeeded), fail: Array.isArray(d?.failed) ? d.failed.length : 0 }))
+      }
+      setTransferOpen(false)
+      setTransferTarget(null)
+      setBulkSel({})
+      await afterMutate()
+    } finally {
+      setBatchBusy(false)
+    }
+  }, [afterMutate, bulkSel, flatClients, tl, transferMode, transferPanelId, transferPlanId, transferTarget])
+
+  const useFlatPaging = flatClients.length > 0
+
+  useEffect(() => {
+    setClientsPage(1)
+  }, [panelScope, panelIdsKey])
+
+  const clientsPaginationMeta: PaginationMeta | null = useMemo(() => {
+    if (!useFlatPaging) return null
+    return { page: clientsPage, perPage: clientsPerPage, total: flatClients.length }
+  }, [clientsPage, clientsPerPage, flatClients.length, useFlatPaging])
+
+  const clientsPageSlice = useMemo(() => {
+    if (!useFlatPaging) return []
+    const start = (clientsPage - 1) * clientsPerPage
+    return flatClients.slice(start, start + clientsPerPage)
+  }, [clientsPage, clientsPerPage, flatClients, useFlatPaging])
+
+  const visibleRows = useMemo(() => {
+    if (!singlePanelMode || typeof panelScope !== "number")
+      return [] as { rk: string; panel_id: number; inbound_id: number; email: string; linked: number }[]
+    const source = useFlatPaging ? clientsPageSlice : flatClients
+    return source
+      .filter((it) => it.panel_id === panelScope)
+      .map((it) => ({
+        rk: rowKey(it.panel_id, it.inbound_id, String(it.row.email ?? "")),
+        panel_id: it.panel_id,
+        inbound_id: it.inbound_id,
+        email: String(it.row.email ?? ""),
+        linked: num(it.row.linked_service_id),
+      }))
+  }, [clientsPageSlice, flatClients, panelScope, singlePanelMode, useFlatPaging])
+
+  const panelAllSelected = useMemo(() => {
+    if (visibleRows.length < 1) return false
+    return visibleRows.every((r) => Boolean(bulkSel[r.rk]))
+  }, [bulkSel, visibleRows])
+
+  const toggleSelectAllVisible = useCallback(
+    (checked: boolean) => {
+      if (!checked) {
+        setBulkSel((prev) => {
+          const next = { ...prev }
+          for (const r of visibleRows) delete next[r.rk]
+          return next
+        })
+        return
+      }
+      setBulkSel((prev) => {
+        const next = { ...prev }
+        for (const r of visibleRows) {
+          if (Object.keys(next).length >= CONFIGS_BATCH_MAX) break
+          next[r.rk] = { panel_id: r.panel_id, inbound_id: r.inbound_id, email: r.email }
+        }
+        return next
+      })
+    },
+    [visibleRows]
+  )
+
+  useEffect(() => {
+    if (!useFlatPaging) return
+    const totalPages = Math.max(1, Math.ceil(flatClients.length / clientsPerPage))
+    if (clientsPage > totalPages) setClientsPage(totalPages)
+  }, [clientsPage, clientsPerPage, flatClients.length, useFlatPaging])
+
+  const enablePieData = useMemo(() => {
+    if (!clientStats || clientStats.total < 1) return [] as { name: string; value: number }[]
+    return [
+      { name: tl("chartEnabled"), value: clientStats.enabled },
+      { name: tl("chartDisabled"), value: clientStats.disabled },
+    ]
+  }, [clientStats, tl])
+
+  const statusBarData = useMemo(() => {
+    if (!clientStats || clientStats.total < 1) return [] as { name: string; value: number }[]
+    return [
+      { name: tl("chartOnline"), value: clientStats.online },
+      { name: tl("chartLinked"), value: clientStats.linked },
+      { name: tl("chartUnlinked"), value: clientStats.unlinked },
+      { name: tl("chartExpired"), value: clientStats.expired },
+      { name: tl("chartExhausted"), value: clientStats.exhausted },
+    ]
+  }, [clientStats, tl])
 
   const showQrCopy = (kind: "ok" | "fail") => {
     if (qrCopyTimer.current) clearTimeout(qrCopyTimer.current)
@@ -944,6 +1252,238 @@ export function DashboardConfigsAdmin({
     isFa && "text-right"
   )
 
+  function renderConfigClientRow(block: SnapshotPanelBlock, iid: number, row: ClientRow) {
+    const pid = num(row.panel_id) || block.panel_id
+    const email = String(row.email ?? "")
+    const rk = rowKey(pid, iid, email)
+    const enabled = num(row.enable) !== 0
+    const online = num(row.is_online) === 1
+    const linked = num(row.is_linked) !== 0
+    const exhausted = isVolumeExhausted(row)
+    const capLabel =
+      num(row.total_gb) < 1 && num(row.limit_bytes) < 1
+        ? tl("unlimited")
+        : `${formatNumber(num(row.total_gb), isFa)} ${tl("gbUnit")}`
+    return (
+      <div
+        key={rk}
+        className={cn(
+          "border-b border-border/40 px-3 py-3 last:border-b-0 sm:grid sm:grid-cols-[1fr_auto] sm:items-center sm:gap-3",
+          exhausted && "border-destructive/30 bg-destructive/5"
+        )}
+      >
+        <div className="min-w-0 space-y-2">
+          <div
+            dir={isFa ? "rtl" : "ltr"}
+            className="flex w-full flex-wrap items-center justify-between gap-2"
+          >
+            <span
+              className={cn("min-w-0 max-w-[min(100%,20rem)] truncate font-mono text-sm font-medium", exhausted && "text-destructive")}
+              title={configDisplayName(row)}
+            >
+              {configDisplayName(row)}
+            </span>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {singlePanelMode ? (
+                <input
+                  type="checkbox"
+                  className="size-4 shrink-0"
+                  checked={Boolean(bulkSel[rk])}
+                  disabled={batchBusy || busyRow === rk}
+                  onChange={(e) => toggleBulkRow(rk, pid, iid, email, e.target.checked)}
+                  aria-label={tl("batchSelectRow")}
+                />
+              ) : null}
+              <Switch
+                checked={enabled}
+                disabled={batchBusy || busyRow === rk}
+                aria-label={tl("enable")}
+                onCheckedChange={(v) => void onToggleEnable(pid, iid, row, v)}
+              />
+              <Badge variant={online ? "default" : "secondary"}>
+                {online ? tl("online") : tl("offline")}
+              </Badge>
+            </div>
+          </div>
+          {num(row.limit_bytes) > 0 ? (
+            <div className="dir-ltr max-w-xl" dir="ltr">
+              <div className="flex items-center gap-2">
+                <span className="w-24 shrink-0 text-xs text-muted-foreground tabular-nums sm:w-28">
+                  {formatBytes(num(row.used_bytes), isFa)}
+                </span>
+                <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className={cn("h-full transition-all", exhausted ? "bg-destructive" : "bg-primary")}
+                    style={{ width: `${progressVal(row)}%` }}
+                  />
+                </div>
+                <span className="w-24 shrink-0 text-end text-xs text-muted-foreground tabular-nums sm:w-28">
+                  {formatBytes(num(row.limit_bytes), isFa)}
+                </span>
+              </div>
+              {exhausted ? <p className="mt-1 text-center text-xs text-destructive">{tl("volumeExhausted")}</p> : null}
+              <p className="mt-1.5 text-center text-xs text-muted-foreground">
+                {tl("expiryUnified")}: {unifiedExpirySummary(row)}
+              </p>
+            </div>
+          ) : (
+            <div className="dir-ltr space-y-1 text-xs text-muted-foreground" dir="ltr">
+              <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                <span>
+                  {tl("used")}: {formatBytes(num(row.used_bytes), isFa)}
+                </span>
+                <span>
+                  {tl("cap")}: {capLabel}
+                </span>
+              </div>
+              <p className="text-center">
+                {tl("expiryUnified")}: {unifiedExpirySummary(row)}
+              </p>
+            </div>
+          )}
+        </div>
+        <div className={cn("mt-3 flex flex-wrap items-center gap-1 sm:mt-0", flexRow)}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className={cn("size-9", linked ? "text-primary" : "text-muted-foreground")}
+                disabled={batchBusy || busyRow === rk}
+                onClick={() => openLinkModal(pid, iid, row)}
+                aria-label={linked ? tl("linkStatusLinked") : tl("linkStatusUnlinked")}
+              >
+                {linked ? <UserCheck className="size-4" /> : <UserRound className="size-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{linked ? tl("linkUserEdit") : tl("linkUserAdd")}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-9"
+                onClick={() => {
+                  setInfoRow(row)
+                  setInfoOpen(true)
+                }}
+              >
+                <Info className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{tl("infoTitle")}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-9"
+                onClick={() => {
+                  setQrRow(row)
+                  setQrCopyHint(null)
+                  setQrOpen(true)
+                }}
+              >
+                <QrCode className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{tl("qrTitle")}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="button" size="icon" variant="ghost" className="size-9" onClick={() => openEdit(pid, iid, row)}>
+                <Pencil className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{tl("editTitle")}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="button" size="icon" variant="ghost" className="size-9" onClick={() => setIpsTarget({ panel_id: pid, inbound_id: iid, row })}>
+                <Network className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">{tl("ipsPlaceholder")}</TooltipContent>
+          </Tooltip>
+          {num(row.linked_service_id) > 0 && num(row.service_plan_id) < 1 ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={batchBusy || busyRow === rk}
+              onClick={() => {
+                setAssignPlanMode("single")
+                setAssignPlanTarget({ panel_id: pid, inbound_id: iid, row })
+                setAssignPlanId(0)
+                setAssignPlanOpen(true)
+              }}
+            >
+              {tl("assignPlan")}
+            </Button>
+          ) : null}
+          {num(row.linked_service_id) > 0 ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="size-9"
+                  disabled={batchBusy || busyRow === rk}
+                  onClick={() => {
+                    setTransferMode("single")
+                    setTransferTarget({ panel_id: pid, inbound_id: iid, row })
+                    setTransferPanelId(0)
+                    setTransferPlanId(0)
+                    setTransferOpen(true)
+                  }}
+                >
+                  <ArrowRightLeft className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{tl("transferPanel")}</TooltipContent>
+            </Tooltip>
+          ) : null}
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="size-9"
+            disabled={batchBusy || busyRow === rk}
+            onClick={() => {
+              setResetPanelId(pid)
+              setResetInboundId(iid)
+              setResetRow(row)
+              setResetOpen(true)
+            }}
+          >
+            <RotateCcw className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="size-9 text-destructive"
+            disabled={batchBusy || busyRow === rk}
+            onClick={() => {
+              setDelPanelId(pid)
+              setDelInboundId(iid)
+              setDelRow(row)
+              setDelOpen(true)
+            }}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={cn("space-y-6", contentClass)}>
       <div>
@@ -970,6 +1510,7 @@ export function DashboardConfigsAdmin({
               }
               setMerged(null)
               setBulkSel({})
+              setClientsPage(1)
               setErr(null)
               setMsg(null)
             }}
@@ -989,6 +1530,17 @@ export function DashboardConfigsAdmin({
         <div className="text-sm text-muted-foreground">
           {refreshing ? <span className="text-foreground">{tl("syncBusy")}</span> : <span>{tl("idleReady")}</span>}
         </div>
+        {singlePanelMode ? (
+          <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
+            <input
+              type="checkbox"
+              className="size-4"
+              checked={panelAllSelected}
+              onChange={(e) => toggleSelectAllVisible(e.target.checked)}
+            />
+            <span>{tl("selectAllInPanel")}</span>
+          </label>
+        ) : null}
       </div>
 
       {merged && clientStats ? (
@@ -1005,6 +1557,57 @@ export function DashboardConfigsAdmin({
             })}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">{tl("statsHint")}</p>
+          {useFlatPaging ? <p className="mt-1 text-xs text-muted-foreground">{tl("clientsListPagedHint")}</p> : null}
+        </div>
+      ) : null}
+
+      {merged && clientStats && clientStats.total > 0 ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-lg border border-border/60 bg-card/40 p-3">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">{tl("chartEnabled")} / {tl("chartDisabled")}</p>
+            <div className="h-[220px] w-full min-h-[200px] min-w-0" dir="ltr">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={enablePieData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={52}
+                    outerRadius={78}
+                    paddingAngle={2}
+                  >
+                    {enablePieData.map((_, i) => (
+                      <Cell key={i} fill={`hsl(var(--chart-${(i % 5) + 1}))`} />
+                    ))}
+                  </Pie>
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <RechartsTooltip formatter={(v: number) => formatNumber(v, isFa)} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          <div className="rounded-lg border border-border/60 bg-card/40 p-3">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">
+              {tl("chartOnline")} · {tl("chartLinked")} · {tl("chartUnlinked")} · {tl("chartExpired")} · {tl("chartExhausted")}
+            </p>
+            <div className="h-[220px] w-full min-h-[200px] min-w-0" dir="ltr">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={statusBarData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted/40" />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={isFa ? 0 : -12} textAnchor="end" height={56} />
+                  <YAxis tick={{ fontSize: 11 }} width={36} tickFormatter={(v) => formatNumber(Number(v), isFa)} />
+                  <RechartsTooltip formatter={(v: number) => formatNumber(v, isFa)} />
+                  <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                    {statusBarData.map((it, i) => (
+                      <Cell key={i} fill={it.name === tl("chartExhausted") ? "hsl(var(--destructive))" : `hsl(var(--chart-${(i % 5) + 1}))`} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -1071,6 +1674,58 @@ export function DashboardConfigsAdmin({
       {msg ? <p className="text-sm text-green-600 dark:text-green-400">{msg}</p> : null}
       {err ? <p className="text-sm text-destructive">{err}</p> : null}
 
+      {useFlatPaging && merged ? (
+        <div className="space-y-3 rounded-xl border border-border/60 bg-card/30 p-3 sm:p-4">
+          {clientsPageSlice.map((item) => {
+            const stubBlock: SnapshotPanelBlock = {
+              panel_id: item.panel_id,
+              panel_label: item.panel_label,
+              plans: [],
+              truncated: 0,
+              expired_linked_batch_count: 0,
+              cache_synced_at: null,
+              cache_stale: false,
+              needs_sync: false,
+            }
+            const pid = num(item.row.panel_id) || item.panel_id
+            const rk = rowKey(pid, item.inbound_id, String(item.row.email ?? ""))
+            return (
+              <div key={rk} className="overflow-hidden rounded-lg border border-border/50 bg-muted/5">
+                <div
+                  className={cn(
+                    "border-b border-border/40 bg-muted/30 px-3 py-2 text-xs text-muted-foreground",
+                    isFa ? "text-right" : "text-start"
+                  )}
+                >
+                  <span className="font-medium text-foreground">{item.planName}</span>
+                  <span className="mx-1.5">·</span>
+                  <span>
+                    {tl("planInbound", {
+                      id: item.inbound_id,
+                      protocol: item.protocol,
+                      port: item.port,
+                    })}
+                  </span>
+                  <span className="mx-1.5">·</span>
+                  <span>{tl("panelHeading", { id: item.panel_id, label: item.panel_label })}</span>
+                </div>
+                {renderConfigClientRow(stubBlock, item.inbound_id, item.row)}
+              </div>
+            )
+          })}
+          <DataPagination
+            meta={clientsPaginationMeta}
+            isFa={isFa}
+            onPageChange={setClientsPage}
+            onPerPageChange={(pp) => {
+              setClientsPerPage(pp)
+              setClientsPage(1)
+            }}
+            perPageOptions={[25, 50, 100, 150, 200]}
+          />
+        </div>
+      ) : null}
+
       {singlePanelMode && bulkCount > 0 ? (
         <div
           className={cn(
@@ -1112,6 +1767,23 @@ export function DashboardConfigsAdmin({
               onClick={() => void runClientsBatch("set_enable", false)}
             >
               {tl("batchDisable")}
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={batchBusy} onClick={() => {
+              setAssignPlanMode("bulk")
+              setAssignPlanTarget(null)
+              setAssignPlanId(0)
+              setAssignPlanOpen(true)
+            }}>
+              {tl("assignPlan")}
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={batchBusy} onClick={() => {
+              setTransferMode("bulk")
+              setTransferTarget(null)
+              setTransferPanelId(0)
+              setTransferPlanId(0)
+              setTransferOpen(true)
+            }}>
+              {tl("transferPanel")}
             </Button>
           </div>
         </div>
@@ -1171,6 +1843,24 @@ export function DashboardConfigsAdmin({
                     </button>
                   </CollapsibleTrigger>
                   <div className="flex shrink-0 items-center border-s border-border/50 px-2">
+                    {singlePanelMode ? (
+                      <input
+                        type="checkbox"
+                        className="me-2 size-4"
+                        checked={pg.clients.length > 0 && pg.clients.every((row) => {
+                          const rrk = rowKey(block.panel_id, iid, String(row.email ?? ""))
+                          return Boolean(bulkSel[rrk])
+                        })}
+                        onChange={(e) => {
+                          for (const row of pg.clients) {
+                            const em = String(row.email ?? "")
+                            const rrk = rowKey(block.panel_id, iid, em)
+                            toggleBulkRow(rrk, block.panel_id, iid, em, e.target.checked)
+                          }
+                        }}
+                        aria-label={tl("selectAllInPanel")}
+                      />
+                    ) : null}
                     <Button
                       type="button"
                       size="sm"
@@ -1195,203 +1885,10 @@ export function DashboardConfigsAdmin({
                   <div className="border-t border-border/50 bg-muted/5">
                     {pg.clients.length === 0 ? (
                       <p className="p-3 text-sm text-muted-foreground">{tl("noClientsInPlan")}</p>
+                    ) : useFlatPaging ? (
+                      <p className="p-3 text-xs text-muted-foreground">{tl("planClientsPagedAbove")}</p>
                     ) : (
-                      pg.clients.map((row) => {
-                        const pid = num(row.panel_id) || block.panel_id
-                        const email = String(row.email ?? "")
-                        const rk = rowKey(pid, iid, email)
-                        const enabled = num(row.enable) !== 0
-                        const online = num(row.is_online) === 1
-                        const linked = num(row.is_linked) !== 0
-                        const capLabel =
-                          num(row.total_gb) < 1 && num(row.limit_bytes) < 1
-                            ? tl("unlimited")
-                            : `${formatNumber(num(row.total_gb), isFa)} ${tl("gbUnit")}`
-                        return (
-                          <div
-                            key={rk}
-                            className="border-b border-border/40 px-3 py-3 last:border-b-0 sm:grid sm:grid-cols-[1fr_auto] sm:items-center sm:gap-3"
-                          >
-                            <div className="min-w-0 space-y-2">
-                              <div
-                                dir={isFa ? "rtl" : "ltr"}
-                                className="flex w-full flex-wrap items-center justify-between gap-2"
-                              >
-                                <span
-                                  className="min-w-0 max-w-[min(100%,20rem)] truncate font-mono text-sm font-medium"
-                                  title={configDisplayName(row)}
-                                >
-                                  {configDisplayName(row)}
-                                </span>
-                                <div className="flex shrink-0 flex-wrap items-center gap-2">
-                                  {singlePanelMode ? (
-                                    <input
-                                      type="checkbox"
-                                      className="size-4 shrink-0"
-                                      checked={Boolean(bulkSel[rk])}
-                                      disabled={batchBusy || busyRow === rk}
-                                      onChange={(e) => toggleBulkRow(rk, pid, iid, email, e.target.checked)}
-                                      aria-label={tl("batchSelectRow")}
-                                    />
-                                  ) : null}
-                                  <Switch
-                                    checked={enabled}
-                                    disabled={batchBusy || busyRow === rk}
-                                    aria-label={tl("enable")}
-                                    onCheckedChange={(v) => void onToggleEnable(pid, iid, row, v)}
-                                  />
-                                  <Badge variant={online ? "default" : "secondary"}>
-                                    {online ? tl("online") : tl("offline")}
-                                  </Badge>
-                                </div>
-                              </div>
-                              {num(row.limit_bytes) > 0 ? (
-                                <div className="dir-ltr max-w-xl" dir="ltr">
-                                  <div className="flex items-center gap-2">
-                                    <span className="w-24 shrink-0 text-xs text-muted-foreground tabular-nums sm:w-28">
-                                      {formatBytes(num(row.used_bytes), isFa)}
-                                    </span>
-                                    <Progress value={progressVal(row)} className="h-2 min-w-0 flex-1" />
-                                    <span className="w-24 shrink-0 text-end text-xs text-muted-foreground tabular-nums sm:w-28">
-                                      {formatBytes(num(row.limit_bytes), isFa)}
-                                    </span>
-                                  </div>
-                                  <p className="mt-1.5 text-center text-xs text-muted-foreground">
-                                    {tl("expiryUnified")}: {unifiedExpirySummary(row)}
-                                  </p>
-                                </div>
-                              ) : (
-                                <div className="dir-ltr space-y-1 text-xs text-muted-foreground" dir="ltr">
-                                  <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
-                                    <span>
-                                      {tl("used")}: {formatBytes(num(row.used_bytes), isFa)}
-                                    </span>
-                                    <span>
-                                      {tl("cap")}: {capLabel}
-                                    </span>
-                                  </div>
-                                  <p className="text-center">
-                                    {tl("expiryUnified")}: {unifiedExpirySummary(row)}
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                            <div className={cn("mt-3 flex flex-wrap items-center gap-1 sm:mt-0", flexRow)}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="ghost"
-                                    className={cn("size-9", linked ? "text-primary" : "text-muted-foreground")}
-                                    disabled={batchBusy || busyRow === rk}
-                                    onClick={() => openLinkModal(pid, iid, row)}
-                                    aria-label={linked ? tl("linkStatusLinked") : tl("linkStatusUnlinked")}
-                                  >
-                                    {linked ? <UserCheck className="size-4" /> : <UserRound className="size-4" />}
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  {linked ? tl("linkUserEdit") : tl("linkUserAdd")}
-                                </TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="ghost"
-                                    className="size-9"
-                                    onClick={() => {
-                                      setInfoRow(row)
-                                      setInfoOpen(true)
-                                    }}
-                                  >
-                                    <Info className="size-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>{tl("infoTitle")}</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="ghost"
-                                    className="size-9"
-                                    onClick={() => {
-                                      setQrRow(row)
-                                      setQrCopyHint(null)
-                                      setQrOpen(true)
-                                    }}
-                                  >
-                                    <QrCode className="size-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>{tl("qrTitle")}</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="ghost"
-                                    className="size-9"
-                                    onClick={() => openEdit(pid, iid, row)}
-                                  >
-                                    <Pencil className="size-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>{tl("editTitle")}</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="ghost"
-                                    className="size-9"
-                                    onClick={() => setIpsTarget({ panel_id: pid, inbound_id: iid, row })}
-                                  >
-                                    <Network className="size-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent className="max-w-xs">{tl("ipsPlaceholder")}</TooltipContent>
-                              </Tooltip>
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                className="size-9"
-                                disabled={batchBusy || busyRow === rk}
-                                onClick={() => {
-                                  setResetPanelId(pid)
-                                  setResetInboundId(iid)
-                                  setResetRow(row)
-                                  setResetOpen(true)
-                                }}
-                              >
-                                <RotateCcw className="size-4" />
-                              </Button>
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                className="size-9 text-destructive"
-                                disabled={batchBusy || busyRow === rk}
-                                onClick={() => {
-                                  setDelPanelId(pid)
-                                  setDelInboundId(iid)
-                                  setDelRow(row)
-                                  setDelOpen(true)
-                                }}
-                              >
-                                <Trash2 className="size-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        )
-                      })
+                      pg.clients.map((row) => renderConfigClientRow(block, iid, row))
                     )}
                   </div>
                 </CollapsibleContent>
@@ -1530,7 +2027,7 @@ export function DashboardConfigsAdmin({
             </p>
           ) : null}
           {qrRow ? (
-            <div className="grid gap-8 sm:grid-cols-2">
+            <div className="grid gap-8">
               <div className="grid justify-items-center gap-3">
                 <div className="text-sm font-medium">{tl("qrSub")}</div>
                 {String(qrRow.subscription_url ?? "").trim() ? (
@@ -1549,8 +2046,42 @@ export function DashboardConfigsAdmin({
                 )}
               </div>
               <div className="grid justify-items-center gap-3">
+                <div className="text-sm font-medium">{tl("qrPortal")}</div>
+                {String(qrRow.portal_url ?? "").trim() ? (
+                  <button
+                    type="button"
+                    className="rounded-lg border border-border/60 bg-background p-3 shadow-sm transition hover:bg-muted/50"
+                    onClick={() => void copyToClipboard(String(qrRow.portal_url)).then((ok) => showQrCopy(ok ? "ok" : "fail"))}
+                  >
+                    <QRCodeSVG value={String(qrRow.portal_url)} size={168} level="M" />
+                    <span className="mt-2 flex items-center justify-center gap-1 text-xs text-muted-foreground">
+                      <Copy className="size-3" /> {tl("copyAction")}
+                    </span>
+                  </button>
+                ) : (
+                  <p className="text-xs text-muted-foreground">{tl("none")}</p>
+                )}
+              </div>
+              <div className="grid justify-items-center gap-3">
                 <div className="text-sm font-medium">{tl("qrCfg")}</div>
-                {String(qrRow.primary_config_uri ?? "").trim() ? (
+                {parseConfigUris(qrRow).length > 0 ? (
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {parseConfigUris(qrRow).map((cfg, idx) => (
+                      <button
+                        key={`${idx}-${cfg}`}
+                        type="button"
+                        className="rounded-lg border border-border/60 bg-background p-3 shadow-sm transition hover:bg-muted/50"
+                        onClick={() => void copyToClipboard(cfg).then((ok) => showQrCopy(ok ? "ok" : "fail"))}
+                      >
+                        <div className="mb-2 text-center text-xs font-medium">{tl("qrConfigN", { n: idx + 1 })}</div>
+                        <QRCodeSVG value={cfg} size={168} level="M" />
+                        <span className="mt-2 flex items-center justify-center gap-1 text-xs text-muted-foreground">
+                          <Copy className="size-3" /> {tl("copyAction")}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : String(qrRow.primary_config_uri ?? "").trim() ? (
                   <button
                     type="button"
                     className="rounded-lg border border-border/60 bg-background p-3 shadow-sm transition hover:bg-muted/50"
@@ -1766,6 +2297,82 @@ export function DashboardConfigsAdmin({
               onClick={() => void submitLink()}
             >
               {tl("link")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={assignPlanOpen} onOpenChange={setAssignPlanOpen}>
+        <DialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
+          <DialogHeader className={dialogHeaderClass}>
+            <DialogTitle>{tl("assignPlanTitle")}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">{tl("assignPlanHint")}</p>
+          <div className="grid gap-1">
+            <Label>{tl("pickPlan")}</Label>
+            <select className={selectClass} value={assignPlanId} onChange={(e) => setAssignPlanId(parseInt(e.target.value || "0", 10) || 0)}>
+              <option value={0}>{tl("pickPlan")}</option>
+              {scopedActivePlans.map((p) => (
+                <option key={num(p.id)} value={num(p.id)}>
+                  {String(p.name ?? `#${num(p.id)}`)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <DialogFooter className={cn(isFa && "flex-row-reverse")}>
+            <Button type="button" variant="outline" onClick={() => setAssignPlanOpen(false)}>
+              {tl("cancel")}
+            </Button>
+            <Button type="button" onClick={() => void runAssignPlan()}>
+              {tl("assignPlan")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+        <DialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
+          <DialogHeader className={dialogHeaderClass}>
+            <DialogTitle>{tl("transferPanelTitle")}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid gap-1">
+              <Label>{tl("pickTargetPanel")}</Label>
+              <select
+                className={selectClass}
+                value={transferPanelId}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value || "0", 10) || 0
+                  setTransferPanelId(n)
+                  setTransferPlanId(0)
+                }}
+              >
+                <option value={0}>{tl("pickTargetPanel")}</option>
+                {panelOptions.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    #{p.id} — {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-1">
+              <Label>{tl("pickTargetPlan")}</Label>
+              <select className={selectClass} value={transferPlanId} onChange={(e) => setTransferPlanId(parseInt(e.target.value || "0", 10) || 0)}>
+                <option value={0}>{tl("transferKeepRemaining")}</option>
+                {transferPanelPlans.map((p) => (
+                  <option key={num(p.id)} value={num(p.id)}>
+                    {String(p.name ?? `#${num(p.id)}`)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <DialogFooter className={cn(isFa && "flex-row-reverse")}>
+            <Button type="button" variant="outline" onClick={() => setTransferOpen(false)}>
+              {tl("cancel")}
+            </Button>
+            <Button type="button" onClick={() => void runTransferPanel()}>
+              {tl("transferConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>

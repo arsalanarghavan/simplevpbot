@@ -25,6 +25,47 @@ class SimpleVPBot_Handler_User_Menu {
 		$user     = $ctx['user'];
 		$text     = trim( (string) $ctx['text'] );
 
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			$aid = SimpleVPBot_UI_Layout::match_user_main_action( $text, $user );
+			if ( $aid ) {
+				switch ( $aid ) {
+					case 'user.main.buy':
+						SimpleVPBot_Handler_Buy::send_category_picker( $platform, $chat_id );
+						return;
+					case 'user.main.manage':
+						$list = SimpleVPBot_Model_Service::by_user( (int) $user->id );
+						if ( empty( $list ) ) {
+							SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.no_active_services', $user ) );
+							return;
+						}
+						SimpleVPBot_Bot_Runtime::send_message(
+							$platform,
+							$chat_id,
+							SimpleVPBot_Texts::get_for_user( 'msg.pick_service_inline', $user ),
+							array( 'reply_markup' => SimpleVPBot_Keyboards::inline_service_list( $list ) )
+						);
+						return;
+					case 'user.main.wallet':
+						SimpleVPBot_Handler_Wallet::show( $platform, $chat_id, $user );
+						return;
+					case 'user.main.apps':
+						SimpleVPBot_Handler_Apps::show( $platform, $chat_id );
+						return;
+					case 'user.main.support':
+						SimpleVPBot_Handler_Support::show( $platform, $chat_id );
+						return;
+					case 'user.main.account':
+						SimpleVPBot_Handler_Account::show( $platform, $chat_id, $user );
+						return;
+					case 'user.main.referral':
+						SimpleVPBot_Handler_Referral::show( $platform, $chat_id, $user );
+						return;
+					default:
+						break;
+				}
+			}
+		}
+
 		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.main.buy', $user ) ) {
 			SimpleVPBot_Handler_Buy::send_category_picker( $platform, $chat_id );
 			return;

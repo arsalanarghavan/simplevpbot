@@ -741,7 +741,8 @@ class SimpleVPBot_Handler_Admin_Hub {
 	 * @param array<string, mixed> $ctx Optional: user for per-admin flows (e.g. text keys edit).
 	 */
 	public static function send_submenu( $platform, $chat_id, $code, $ctx = null ) {
-		$s = SimpleVPBot_Settings::all();
+		$s  = SimpleVPBot_Settings::all();
+		$tu = ( is_array( $ctx ) && ! empty( $ctx['user'] ) ) ? $ctx['user'] : null;
 		switch ( $code ) {
 			case 'gen':
 				$tg_n = is_array( $s['admin_telegram_ids'] ?? null ) ? count( (array) $s['admin_telegram_ids'] ) : 0;
@@ -750,25 +751,25 @@ class SimpleVPBot_Handler_Admin_Hub {
 				$t   .= 'فعال: ' . ( ! empty( $s['enabled'] ) ? 'بله' : 'خیر' ) . ' · تست: ' . ( ! empty( $s['test_account_enabled'] ) ? 'بله' : 'خیر' ) . "\n";
 				$dfp = (int) ( $s['default_service_plan_id'] ?? 0 );
 				$t   .= "ادمین TG: {$tg_n} · ادمین Bale: {$bl_n} · صفحه: " . (int) ( $s['portal_page_id'] ?? 0 ) . " · پلن پیش‌فرض سرویس: {$dfp}\n➖";
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_general_submenu_reply() ) );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_general_submenu_reply( $tu ) ) );
 				return;
 			case 'set':
 				$t = "⚙️ تنظیمات\nپلن، کارت، پنل ۳x-ui، L2TP، کانفیگ، کریپتو، ربات.\n➖";
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_settings_catalog_reply() ) );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_settings_catalog_reply( $tu ) ) );
 				return;
 			case 'adv':
 				$t = "🔧 تنظیمات پیشرفته\nعمومی، نوتیف، متن‌ها، لاگ، گزارش همگانی.\n➖";
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_settings_advanced_reply() ) );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_settings_advanced_reply( $tu ) ) );
 				return;
 			case 'bot':
 				$tl = strlen( (string) ( $s['telegram_token'] ?? '' ) );
 				$bl = strlen( (string) ( $s['bale_token'] ?? '' ) );
 				$t  = "🤖 ربات‌ها\nطول token TG: {$tl} · Bale: {$bl}\n➖";
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_bot_submenu_reply() ) );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_bot_submenu_reply( $tu ) ) );
 				return;
 			case 'pan':
 				$t = "🖥 پنل 3x-ui\n" . ( '' !== (string) ( $s['panel_url'] ?? '' ) ? 'URL: دارد' : 'URL: خالی' ) . "\n➖";
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_panel_submenu_reply() ) );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_panel_submenu_reply( $tu ) ) );
 				return;
 			case 'bak':
 				self::send_backup_panel( $platform, $chat_id );
@@ -777,7 +778,7 @@ class SimpleVPBot_Handler_Admin_Hub {
 				$t  = "🔔 نوتیف\n";
 				$t .= '٪ کم: ' . (int) ( $s['notify_low_traffic_percent'] ?? 10 ) . ' · هم‌زمان: ' . (int) ( $s['default_concurrent_users'] ?? 2 ) . "\n";
 				$t .= 'هشدار روز: ' . esc_html( implode( ',', (array) ( $s['notify_expiry_days'] ?? array( 3, 1 ) ) ) );
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_notif_submenu_reply() ) );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_notif_submenu_reply( $tu ) ) );
 				return;
 			case 'plc':
 				self::send_plan_categories_list( $platform, $chat_id );
@@ -809,14 +810,14 @@ class SimpleVPBot_Handler_Admin_Hub {
 				$t .= "⚠️ بار زیاد روی پنل؛ حداکثر ۲۰۰ سرویس در هر اجرا.\n➖\n";
 				$t .= "۱) از «🔎 جستجوی کاربر» در منوی مدیریت کاربران یک کاربر را باز کنید.\n";
 				$t .= "۲) دکمهٔ سریع → یک مرحلهٔ تأیید با دکمهٔ بعدی؛ یا «📝 تأیید متنی گروهی».\n";
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_bulk_submenu_reply() ) );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_bulk_submenu_reply( $tu ) ) );
 				return;
 			case 'log':
 				self::send_logs_page( $platform, $chat_id, 0 );
 				return;
 			case 'inl':
 				$t = "🔗 Inbound (پنل ۳x-ui)\nلیست → کلاینت‌ها → لینک به کاربر svp";
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_inbound_submenu_reply() ) );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_inbound_submenu_reply( $tu ) ) );
 				return;
 			case 'brd':
 				$br = SimpleVPBot_Model_Broadcast::list_recent( 5, 0 );
@@ -1079,6 +1080,26 @@ class SimpleVPBot_Handler_Admin_Hub {
 	}
 
 	/**
+	 * Public wrappers for Bot UI router (bulk confirm step 1).
+	 *
+	 * @param string $platform Platform.
+	 * @param int    $chat_id Chat id.
+	 * @param int    $days Days.
+	 */
+	public static function router_bulk_days_confirm( $platform, $chat_id, $days ) {
+		self::send_bulk_days_confirm( $platform, $chat_id, $days );
+	}
+
+	/**
+	 * @param string $platform Platform.
+	 * @param int    $chat_id Chat id.
+	 * @param int    $gb GB.
+	 */
+	public static function router_bulk_gb_confirm( $platform, $chat_id, $gb ) {
+		self::send_bulk_gb_confirm( $platform, $chat_id, $gb );
+	}
+
+	/**
 	 * Edit or send queue message body + inline keyboard.
 	 *
 	 * @param string               $platform Platform.
@@ -1278,7 +1299,7 @@ class SimpleVPBot_Handler_Admin_Hub {
 		$t  .= 'API key: ' . ( '' !== $ak ? '✓ (' . strlen( $ak ) . ')' : '—' ) . "\n";
 		$t  .= 'IPN: ' . ( '' !== $ipn ? $ipn : '—' ) . "\n";
 		$t  .= 'pay_currency: ' . (string) ( $s['crypto_nowpayments_pay_currency'] ?? '' );
-		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_crypto_submenu_reply() ) );
+		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t, array( 'reply_markup' => SimpleVPBot_Keyboards::admin_crypto_submenu_reply( null ) ) );
 	}
 
 	/**
@@ -2106,28 +2127,7 @@ class SimpleVPBot_Handler_Admin_Hub {
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ لینک پنل ادمین وب در دسترس نیست.' );
 			return true;
 		}
-		$hub = array(
-			'⚙️ عمومی'         => 'gen',
-			'🤖 ربات‌ها'        => 'bot',
-			'🖥 پنل'           => 'pan',
-			'💾 بکاپ'          => 'bak',
-			'🔔 نوتیف'         => 'not',
-			'📂 دسته پلن'      => 'plc',
-			'📋 پلن‌ها'        => 'pln',
-			'💳 کارت‌ها'       => 'crd',
-			'👥 کاربران'       => 'usr',
-			'🧾 رسیدها'        => 'rcp',
-			'📝 متن‌ها'        => 'txt',
-			'🔌 L2TP'          => 'l2p',
-			'📜 لاگ'           => 'log',
-			'🔗 کانفیگ'        => 'inl',
-			'📣 گزارش همگانی' => 'brd',
-			'₿ کریپتو'        => 'pay',
-			'➕ گروهی'         => 'blk',
-			'⚙️ تنظیمات ربات'  => 'set',
-		);
-		if ( isset( $hub[ $text ] ) ) {
-			self::send_submenu( $platform, $chat_id, $hub[ $text ], $ctx );
+		if ( class_exists( 'SimpleVPBot_UI_Reply_Router' ) && SimpleVPBot_UI_Reply_Router::try_dispatch_hub_action( $ctx ) ) {
 			return true;
 		}
 		$s  = SimpleVPBot_Settings::all();
@@ -2169,63 +2169,6 @@ class SimpleVPBot_Handler_Admin_Hub {
 		}
 		if ( '❌ لغو گروهی' === $text ) {
 			self::send_hub( $platform, $chat_id );
-			return true;
-		}
-		if ( '📝 تأیید متنی گروهی' === $text && ! empty( $user ) ) {
-			self::dispatch_reply_as_callback( $ctx, 'adm:hcb' );
-			return true;
-		}
-		if ( '🔛 ربات فعال/غیر' === $text ) {
-			SimpleVPBot_Admin_Actions::toggle_bool_setting( 'enabled' );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '✅ enabled تغییر کرد.' );
-			return true;
-		}
-		if ( '🧪 تست فعال/غیر' === $text ) {
-			SimpleVPBot_Admin_Actions::toggle_bool_setting( 'test_account_enabled' );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '✅ test_account_enabled تغییر کرد.' );
-			return true;
-		}
-		$wiz = array(
-			'📥 ادمین TG'           => array( 'gen', 'at' ),
-			'📥 ادمین Bl'           => array( 'gen', 'ab' ),
-			'📄 ID پورتال'         => array( 'gen', 'pp' ),
-			'📦 پلن پیش‌فرض سرویس' => array( 'gen', 'dp' ),
-			'tok TG'                => array( 'bot', 'tt' ),
-			'tok Bl'                => array( 'bot', 'bt' ),
-			'wh sec TG'             => array( 'bot', 'ts' ),
-			'wh sec Bl'             => array( 'bot', 'bs' ),
-			'hdr'                   => array( 'bot', 'th' ),
-			'Bale $'                => array( 'bot', 'bw' ),
-			'URL'                   => array( 'pan', 'u' ),
-			'User'                  => array( 'pan', 'n' ),
-			'Pass'                  => array( 'pan', 'p' ),
-			'API'                   => array( 'pan', 'a' ),
-			'Log sec'               => array( 'pan', 'l' ),
-			'Sub URL'               => array( 'pan', 's' ),
-			'٪ کمی'                 => array( 'not', 'l' ),
-			'روز هشدار'            => array( 'not', 'e' ),
-			'سقف کاربر'            => array( 'not', 'd' ),
-			'قیمت+کاربر'           => array( 'not', 'p' ),
-			'₿ API'                 => array( 'cry', 'ak' ),
-			'₿ IPN'                 => array( 'cry', 'in' ),
-			'₿ Cur'                 => array( 'cry', 'cu' ),
-		);
-		if ( isset( $wiz[ $text ] ) ) {
-			SimpleVPBot_Handler_Admin_Settings::start_wizard( $ctx, $wiz[ $text ][0], $wiz[ $text ][1] );
-			return true;
-		}
-		$ops = array(
-			'getMe'        => 'tg',
-			'Set WH TG'    => 'wtg',
-			'Set WH Bl'    => 'wbl',
-			'🔬 تست اتصال' => 'pan',
-		);
-		if ( isset( $ops[ $text ] ) ) {
-			SimpleVPBot_Handler_Admin_Settings::handle_op( $ctx, $ops[ $text ] );
-			return true;
-		}
-		if ( '🔄 مسیر IPN' === $text ) {
-			self::dispatch_reply_as_callback( $ctx, 'adm:crx' );
 			return true;
 		}
 		if ( '➕ دسته جدید' === $text ) {

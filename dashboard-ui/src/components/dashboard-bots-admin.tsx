@@ -434,6 +434,7 @@ export function DashboardBotsAdmin({
             isFa={isFa}
             onPageChange={(p) => onPageChange?.(p)}
             onPerPageChange={(n) => onPerPageChange?.(n)}
+            perPageOptions={[25, 50, 100, 150, 200]}
           />
         </CardContent>
       </Card>

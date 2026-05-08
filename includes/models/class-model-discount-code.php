@@ -47,13 +47,44 @@ class SimpleVPBot_Model_Discount_Code {
 	 * @param string $code Normalized or raw.
 	 * @return object|null
 	 */
-	public static function find_by_code( $code ) {
+	public static function find_by_code( $code, $owner_svp_user_id = null ) {
 		$c = self::normalize_code( $code );
 		if ( '' === $c ) {
 			return null;
 		}
 		global $wpdb;
+		if ( null !== $owner_svp_user_id ) {
+			return $wpdb->get_row(
+				$wpdb->prepare(
+					'SELECT * FROM ' . self::table() . ' WHERE code = %s AND owner_svp_user_id = %d',
+					$c,
+					(int) $owner_svp_user_id
+				)
+			); // phpcs:ignore
+		}
 		return $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE code = %s', $c ) ); // phpcs:ignore
+	}
+
+	/**
+	 * Locate code by owner priority.
+	 *
+	 * @param string     $code Normalized/raw code.
+	 * @param array<int> $owner_candidates Ordered owner ids.
+	 * @return object|null
+	 */
+	public static function find_by_code_for_owners( $code, array $owner_candidates ) {
+		$c = self::normalize_code( $code );
+		if ( '' === $c ) {
+			return null;
+		}
+		$owners = array_values( array_unique( array_map( 'intval', $owner_candidates ) ) );
+		foreach ( $owners as $oid ) {
+			$row = self::find_by_code( $c, $oid );
+			if ( $row ) {
+				return $row;
+			}
+		}
+		return null;
 	}
 
 	/**

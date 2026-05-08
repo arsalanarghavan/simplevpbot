@@ -173,15 +173,16 @@ class SimpleVPBot_Service_Admin_Ops {
 		}
 		$url = SimpleVPBot_Settings::public_site_url() . '/wp-json/simplevpbot/v1/webhook/telegram/' . rawurlencode( $sec );
 		$c   = new SimpleVPBot_Telegram_Client( $t );
-		$hdr = (string) SimpleVPBot_Settings::get( 'telegram_secret_header', '' );
-		$res = $c->set_webhook(
-			array(
-				'url'                  => $url,
-				'secret_token'         => $hdr,
-				'allowed_updates'      => array( 'message', 'callback_query' ),
-				'drop_pending_updates' => true,
-			)
+		$hdr = trim( (string) SimpleVPBot_Settings::get( 'telegram_secret_header', '' ) );
+		$params = array(
+			'url'                  => $url,
+			'allowed_updates'      => array( 'message', 'callback_query' ),
+			'drop_pending_updates' => true,
 		);
+		if ( '' !== $hdr ) {
+			$params['secret_token'] = $hdr;
+		}
+		$res = $c->set_webhook( $params );
 		if ( empty( $res['ok'] ) ) {
 			return array( 'ok' => false, 'message' => __( 'ست Webhook تلگرام ناموفق بود.', 'simplevpbot' ), 'data' => array( 'response' => $res ) );
 		}
@@ -915,9 +916,11 @@ class SimpleVPBot_Service_Admin_Ops {
 		global $wpdb;
 		$t_plans = SimpleVPBot_Model_Plan::table();
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// Match provisioner: Xray when not l2tp (includes NULL/empty service_type).
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		$plan_rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT * FROM {$t_plans} WHERE panel_id = %d AND service_type = %s AND inbound_id > 0 ORDER BY sort_order ASC, id ASC",
+				"SELECT * FROM {$t_plans} WHERE panel_id = %d AND inbound_id > 0 AND ( service_type IS NULL OR service_type = '' OR service_type = %s ) ORDER BY sort_order ASC, id ASC",
 				(int) $panel_id,
 				'xray'
 			),
@@ -1222,6 +1225,36 @@ class SimpleVPBot_Service_Admin_Ops {
 		$primary_uri = ! empty( $inb )
 			? SimpleVPBot_Config_Link::build( $inb, $c, $remark_for_link, $pid )
 			: '';
+		$config_uris       = array();
+		$portal_url        = '';
+		$primary_link      = '';
+		$limit_bytes_i     = (int) ( $row->limit_bytes ?? 0 );
+		$used_bytes_i      = (int) ( $row->used_bytes ?? 0 );
+		$volume_exhausted  = ( $limit_bytes_i > 0 && $used_bytes_i >= $limit_bytes_i ) ? 1 : 0;
+		$date_expired      = 0;
+		$service_plan_id   = $svc ? (int) ( $svc->plan_id ?? 0 ) : 0;
+		if ( $svc ) {
+			$suid = (int) ( $svc->user_id ?? 0 );
+			$sid  = (int) ( $svc->id ?? 0 );
+			if ( $suid > 0 && $sid > 0 && class_exists( 'SimpleVPBot_Portal_Link' ) ) {
+				$portal_url = (string) SimpleVPBot_Portal_Link::build_service_url( $suid, $sid );
+			}
+			if ( ! empty( $svc->expires_at ) ) {
+				$exp_ts = strtotime( (string) $svc->expires_at . ' UTC' );
+				if ( false !== $exp_ts && $exp_ts > 0 && $exp_ts < time() ) {
+					$date_expired = 1;
+				}
+			}
+		}
+		if ( '' === $primary_uri && ! empty( $config_uris[0] ) ) {
+			$primary_uri = (string) $config_uris[0];
+		}
+		if ( '' !== $primary_uri ) {
+			$config_uris = array( $primary_uri );
+		}
+		if ( '' === $primary_link ) {
+			$primary_link = '' !== $primary_uri ? (string) $primary_uri : (string) $subscription_url;
+		}
 		$ips_raw = isset( $row->client_ips_json ) ? (string) $row->client_ips_json : '';
 		$ips_dec = json_decode( $ips_raw, true );
 		$client_ips = is_array( $ips_dec ) ? $ips_dec : array();
@@ -1254,6 +1287,12 @@ class SimpleVPBot_Service_Admin_Ops {
 			'is_online'           => ! empty( $row->is_online ) ? 1 : 0,
 			'subscription_url'    => $subscription_url,
 			'primary_config_uri'  => $primary_uri,
+			'config_uris'         => $config_uris,
+			'portal_url'          => $portal_url,
+			'primary_link'        => $primary_link,
+			'volume_exhausted'    => $volume_exhausted,
+			'date_expired'        => $date_expired,
+			'service_plan_id'     => $service_plan_id,
 			'service_expires_at'  => $svc && ! empty( $svc->expires_at ) ? (string) $svc->expires_at : '',
 			'client_ips'          => $client_ips,
 		);
@@ -1610,6 +1649,86 @@ class SimpleVPBot_Service_Admin_Ops {
 			self::configs_sync_inbounds_after_mutation( $pid, array_map( 'intval', array_keys( $iids ) ) );
 		}
 		return is_array( $out ) ? $out : array( 'ok' => false, 'message' => 'unknown' );
+	}
+
+	/**
+	 * Attach plan to linked services from configs page (single panel).
+	 *
+	 * @param int                             $panel_id Panel id.
+	 * @param int                             $plan_id  Plan id to attach.
+	 * @param array<int, array<string, mixed>> $items    Rows: linked_service_id + inbound_id + email.
+	 * @return array{ok:bool, message?:string, data?:array<string,mixed>}
+	 */
+	public static function configs_assign_plan( $panel_id, $plan_id, array $items ) {
+		$pid = (int) $panel_id;
+		$plid = (int) $plan_id;
+		if ( $pid < 1 || $plid < 1 ) {
+			return array( 'ok' => false, 'message' => 'bad_params' );
+		}
+		$plan = class_exists( 'SimpleVPBot_Model_Plan' ) ? SimpleVPBot_Model_Plan::find( $plid ) : null;
+		if ( ! $plan ) {
+			return array( 'ok' => false, 'message' => 'plan_not_found' );
+		}
+		$plan_panel = (int) ( $plan->panel_id ?? 0 );
+		$plan_inb   = (int) ( $plan->inbound_id ?? 0 );
+		$plan_type  = strtolower( (string) ( $plan->service_type ?? '' ) );
+		if ( $plan_panel !== $pid || $plan_inb < 1 || ( '' !== $plan_type && 'xray' !== $plan_type ) ) {
+			return array( 'ok' => false, 'message' => 'plan_mismatch' );
+		}
+		$rows = array();
+		foreach ( $items as $raw ) {
+			if ( ! is_array( $raw ) ) {
+				continue;
+			}
+			$rows[] = array(
+				'linked_service_id' => (int) ( $raw['linked_service_id'] ?? 0 ),
+				'inbound_id'        => (int) ( $raw['inbound_id'] ?? 0 ),
+				'email'             => trim( (string) ( $raw['email'] ?? '' ) ),
+			);
+		}
+		$rows = array_slice( $rows, 0, 80 );
+		if ( empty( $rows ) ) {
+			return array( 'ok' => false, 'message' => 'empty_items' );
+		}
+		$okn = 0;
+		$failed = array();
+		foreach ( $rows as $row ) {
+			$sid = (int) $row['linked_service_id'];
+			$iid = (int) $row['inbound_id'];
+			$em  = (string) $row['email'];
+			if ( $sid < 1 || $iid < 1 || '' === $em ) {
+				$failed[] = array( 'linked_service_id' => $sid, 'inbound_id' => $iid, 'email' => $em, 'reason' => 'bad_row' );
+				continue;
+			}
+			$svc = SimpleVPBot_Model_Service::find_any( $sid );
+			if ( ! $svc ) {
+				$failed[] = array( 'linked_service_id' => $sid, 'inbound_id' => $iid, 'email' => $em, 'reason' => 'service_not_found' );
+				continue;
+			}
+			if ( (int) ( $svc->panel_id ?? 0 ) !== $pid || (int) ( $svc->inbound_id ?? 0 ) !== $iid || (string) ( $svc->email ?? '' ) !== $em ) {
+				$failed[] = array( 'linked_service_id' => $sid, 'inbound_id' => $iid, 'email' => $em, 'reason' => 'service_mismatch' );
+				continue;
+			}
+			if ( (int) ( $svc->inbound_id ?? 0 ) !== $plan_inb ) {
+				$failed[] = array( 'linked_service_id' => $sid, 'inbound_id' => $iid, 'email' => $em, 'reason' => 'plan_inbound_mismatch' );
+				continue;
+			}
+			$patch = array( 'plan_id' => $plid );
+			$prov  = strtolower( (string) ( $svc->provision_type ?? '' ) );
+			if ( in_array( $prov, array( 'linked', 'link' ), true ) ) {
+				$patch['provision_type'] = 'plan';
+			}
+			SimpleVPBot_Model_Service::update( $sid, $patch );
+			++$okn;
+		}
+		return array(
+			'ok'      => empty( $failed ),
+			'message' => empty( $failed ) ? 'ok' : 'partial',
+			'data'    => array(
+				'succeeded' => $okn,
+				'failed'    => $failed,
+			),
+		);
 	}
 
 	/**

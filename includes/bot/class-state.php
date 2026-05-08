@@ -106,12 +106,21 @@ class SimpleVPBot_State {
 	/**
 	 * Reply keyboard labels that open the main menu (must match user_main_reply / Texts).
 	 *
-	 * @param string $text Trimmed message text.
+	 * @param string      $text Trimmed message text.
+	 * @param object|null $user Optional user row for locale-aware labels.
 	 * @return bool
 	 */
-	public static function is_main_menu_reply_text( $text ) {
+	public static function is_main_menu_reply_text( $text, $user = null ) {
 		$t = trim( (string) $text );
 		if ( '' === $t ) {
+			return false;
+		}
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			foreach ( SimpleVPBot_UI_Layout::user_main_visible_labels( $user ) as $lab ) {
+				if ( $t === $lab ) {
+					return true;
+				}
+			}
 			return false;
 		}
 		$pairs = array(
@@ -141,7 +150,7 @@ class SimpleVPBot_State {
 	 * @return bool Whether state was cleared.
 	 */
 	public static function interrupt_blocking_state_on_main_menu_text( $platform, $from_id, $user, $text_trim ) {
-		if ( ! $user || ! self::is_main_menu_reply_text( $text_trim ) ) {
+		if ( ! $user || ! self::is_main_menu_reply_text( $text_trim, $user ) ) {
 			return false;
 		}
 		if ( (int) $user->admin_mode && SimpleVPBot_Router::is_platform_admin( $platform, (int) $from_id ) ) {

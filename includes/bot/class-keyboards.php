@@ -72,6 +72,9 @@ class SimpleVPBot_Keyboards {
 	 * @return array<string, mixed>
 	 */
 	public static function user_main_reply( $user = null ) {
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			return SimpleVPBot_UI_Layout::build_reply_keyboard( 'user_main', $user );
+		}
 		$t = function ( $key ) use ( $user ) {
 			return ( $user && is_object( $user ) )
 				? SimpleVPBot_Texts::get_for_user( $key, $user )
@@ -131,6 +134,10 @@ class SimpleVPBot_Keyboards {
 	 * @return array<int, array<int, array<string, string>>>
 	 */
 	public static function admin_main_keyboard_rows( $user = null ) {
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			$k = SimpleVPBot_UI_Layout::build_reply_keyboard( 'admin_main', $user );
+			return isset( $k['keyboard'] ) && is_array( $k['keyboard'] ) ? $k['keyboard'] : array();
+		}
 		$t = function ( $key ) use ( $user ) {
 			return ( $user && is_object( $user ) )
 				? SimpleVPBot_Texts::get_for_user( $key, $user )
@@ -251,9 +258,13 @@ class SimpleVPBot_Keyboards {
 	/**
 	 * Admin: زیرمنوی مدیریت کاربران (جستجو / صف ثبت‌نام).
 	 *
+	 * @param object|null $user Bot user row for localized labels.
 	 * @return array<string, mixed>
 	 */
-	public static function admin_users_submenu_reply() {
+	public static function admin_users_submenu_reply( $user = null ) {
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			return SimpleVPBot_UI_Layout::build_reply_submenu_with_back( 'admin_users_submenu', $user );
+		}
 		return self::admin_reply_wrap_rows(
 			array(
 				array(
@@ -262,7 +273,7 @@ class SimpleVPBot_Keyboards {
 				),
 				array(
 					array( 'text' => SimpleVPBot_Texts::get( 'btn.admin.transfer', '🎁 انتقال سرویس' ) ),
-					array( 'text' => '➕ گروهی' ),
+					array( 'text' => SimpleVPBot_Texts::get( 'btn.admin.bulk_short', '➕ گروهی' ) ),
 				),
 				array(
 					array( 'text' => SimpleVPBot_Texts::get( 'btn.admin.broadcast', '📣 پیام همگانی' ) ),
@@ -274,9 +285,13 @@ class SimpleVPBot_Keyboards {
 	/**
 	 * Admin: مالی (رسیدها و …).
 	 *
+	 * @param object|null $user Bot user row.
 	 * @return array<string, mixed>
 	 */
-	public static function admin_finance_submenu_reply() {
+	public static function admin_finance_submenu_reply( $user = null ) {
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			return SimpleVPBot_UI_Layout::build_reply_submenu_with_back( 'admin_finance_submenu', $user );
+		}
 		return self::admin_reply_wrap_rows(
 			array(
 				array(
@@ -289,9 +304,13 @@ class SimpleVPBot_Keyboards {
 	/**
 	 * Admin: تنظیمات — پرداخت، پنل، سرور، ربات‌ها.
 	 *
+	 * @param object|null $user Bot user row.
 	 * @return array<string, mixed>
 	 */
-	public static function admin_settings_catalog_reply() {
+	public static function admin_settings_catalog_reply( $user = null ) {
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			return SimpleVPBot_UI_Layout::build_reply_submenu_with_back( 'admin_settings_catalog', $user );
+		}
 		return self::admin_reply_wrap_rows(
 			array(
 				array(
@@ -315,9 +334,13 @@ class SimpleVPBot_Keyboards {
 	/**
 	 * Admin: تنظیمات پیشرفته — عمومی، نوتیف، متن، لاگ، گزارش همگانی.
 	 *
+	 * @param object|null $user Bot user row.
 	 * @return array<string, mixed>
 	 */
-	public static function admin_settings_advanced_reply() {
+	public static function admin_settings_advanced_reply( $user = null ) {
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			return SimpleVPBot_UI_Layout::build_reply_submenu_with_back( 'admin_settings_advanced', $user );
+		}
 		return self::admin_reply_wrap_rows(
 			array(
 				array(
@@ -341,9 +364,13 @@ class SimpleVPBot_Keyboards {
 	/**
 	 * Hub subsection: عمومی (Reply).
 	 *
+	 * @param object|null $user Bot user row.
 	 * @return array<string, mixed>
 	 */
-	public static function admin_general_submenu_reply() {
+	public static function admin_general_submenu_reply( $user = null ) {
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			return SimpleVPBot_UI_Layout::build_reply_submenu_with_back( 'admin_general_submenu', $user );
+		}
 		return self::admin_reply_wrap_rows(
 			array(
 				array(
@@ -363,9 +390,13 @@ class SimpleVPBot_Keyboards {
 	/**
 	 * Hub subsection: ربات‌ها.
 	 *
+	 * @param object|null $user Bot user row.
 	 * @return array<string, mixed>
 	 */
-	public static function admin_bot_submenu_reply() {
+	public static function admin_bot_submenu_reply( $user = null ) {
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			return SimpleVPBot_UI_Layout::build_reply_submenu_with_back( 'admin_bot_submenu', $user );
+		}
 		return self::admin_reply_wrap_rows(
 			array(
 				array(
@@ -392,9 +423,13 @@ class SimpleVPBot_Keyboards {
 	/**
 	 * Hub subsection: پنل 3x-ui.
 	 *
+	 * @param object|null $user Bot user row.
 	 * @return array<string, mixed>
 	 */
-	public static function admin_panel_submenu_reply() {
+	public static function admin_panel_submenu_reply( $user = null ) {
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			return SimpleVPBot_UI_Layout::build_reply_submenu_with_back( 'admin_panel_submenu', $user );
+		}
 		return self::admin_reply_wrap_rows(
 			array(
 				array( array( 'text' => '🔬 تست اتصال' ) ),
@@ -415,9 +450,13 @@ class SimpleVPBot_Keyboards {
 	/**
 	 * Hub subsection: نوتیف.
 	 *
+	 * @param object|null $user Bot user row.
 	 * @return array<string, mixed>
 	 */
-	public static function admin_notif_submenu_reply() {
+	public static function admin_notif_submenu_reply( $user = null ) {
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			return SimpleVPBot_UI_Layout::build_reply_submenu_with_back( 'admin_notif_submenu', $user );
+		}
 		return self::admin_reply_wrap_rows(
 			array(
 				array( array( 'text' => '٪ کمی' ) ),
@@ -431,9 +470,13 @@ class SimpleVPBot_Keyboards {
 	/**
 	 * Hub subsection: گروهی Xray.
 	 *
+	 * @param object|null $user Bot user row.
 	 * @return array<string, mixed>
 	 */
-	public static function admin_bulk_submenu_reply() {
+	public static function admin_bulk_submenu_reply( $user = null ) {
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			return SimpleVPBot_UI_Layout::build_reply_submenu_with_back( 'admin_bulk_submenu', $user );
+		}
 		return self::admin_reply_wrap_rows(
 			array(
 				array(
@@ -453,9 +496,13 @@ class SimpleVPBot_Keyboards {
 	/**
 	 * Hub subsection: کانفیگ / inbound.
 	 *
+	 * @param object|null $user Bot user row.
 	 * @return array<string, mixed>
 	 */
-	public static function admin_inbound_submenu_reply() {
+	public static function admin_inbound_submenu_reply( $user = null ) {
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			return SimpleVPBot_UI_Layout::build_reply_submenu_with_back( 'admin_inbound_submenu', $user );
+		}
 		return self::admin_reply_wrap_rows(
 			array(
 				array( array( 'text' => '📋 لیست Inbound' ) ),
@@ -466,9 +513,13 @@ class SimpleVPBot_Keyboards {
 	/**
 	 * Hub subsection: کریپتو.
 	 *
+	 * @param object|null $user Bot user row.
 	 * @return array<string, mixed>
 	 */
-	public static function admin_crypto_submenu_reply() {
+	public static function admin_crypto_submenu_reply( $user = null ) {
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			return SimpleVPBot_UI_Layout::build_reply_submenu_with_back( 'admin_crypto_submenu', $user );
+		}
 		return self::admin_reply_wrap_rows(
 			array(
 				array(
@@ -790,6 +841,9 @@ class SimpleVPBot_Keyboards {
 		$portal = ( $uid > 0 && $id > 0 ) ? SimpleVPBot_Portal_Link::build_service_url( $uid, $id ) : '';
 
 		if ( $is_l2tp ) {
+			if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+				return self::inline_service_menu_l2tp_from_layout( $id, $portal, $show_admin_soft_delete );
+			}
 			$rows = array(
 				array( array( 'text' => self::glass_button_text( '🔐 نمایش اتصال' ), 'callback_data' => 'svc:p:' . $id ) ),
 				array( array( 'text' => self::glass_button_text( '📊 نمایش مصرف' ), 'callback_data' => 'svc:us:' . $id ) ),
@@ -829,6 +883,10 @@ class SimpleVPBot_Keyboards {
 			}
 			$rows[] = array( array( 'text' => self::glass_button_text( '⬅️ بازگشت' ), 'callback_data' => 'svc:b:' . $id ) );
 			return array( 'inline_keyboard' => $rows );
+		}
+
+		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
+			return self::inline_service_menu_xray_from_layout( $id, $platform, $uid, $portal, $show_admin_soft_delete );
 		}
 
 		$rows = array(
@@ -891,6 +949,288 @@ class SimpleVPBot_Keyboards {
 			}
 		}
 		return array( 'inline_keyboard' => $rows );
+	}
+
+	/**
+	 * Xray service menu from Bot UI layout (svc_menu_xray).
+	 *
+	 * @param int         $service_id Service id.
+	 * @param string      $platform   telegram|bale.
+	 * @param int         $user_id    svp user id.
+	 * @param string      $portal_url Signed portal URL.
+	 * @param bool        $show_admin_soft_delete Soft-delete row for admins.
+	 * @return array<string, mixed>
+	 */
+	private static function inline_service_menu_xray_from_layout( $service_id, $platform, $user_id, $portal_url, $show_admin_soft_delete ) {
+		$id          = (int) $service_id;
+		$portal      = (string) $portal_url;
+		$price_slots = (float) SimpleVPBot_Settings::get( 'price_per_extra_user', 0 ) > 0;
+		$rows        = array();
+		$layout_rows = SimpleVPBot_UI_Layout::effective_rows_for_surface( 'svc_menu_xray' );
+		foreach ( $layout_rows as $line ) {
+			$rline = array();
+			foreach ( $line as $cell ) {
+				if ( empty( $cell['enabled'] ) ) {
+					continue;
+				}
+				$slot = (string) ( $cell['id'] ?? '' );
+				if ( 'svc_xray.slots' === $slot && ! $price_slots ) {
+					continue;
+				}
+				if ( 'svc_xray.del_admin' === $slot && ! $show_admin_soft_delete ) {
+					continue;
+				}
+				$b = self::svc_xray_slot_button( $slot, $id, $platform, $portal );
+				if ( array() !== $b ) {
+					$rline[] = $b;
+				}
+			}
+			if ( array() !== $rline ) {
+				$rows[] = $rline;
+			}
+		}
+		return array( 'inline_keyboard' => $rows );
+	}
+
+	/**
+	 * Single inline button for an Xray layout slot.
+	 *
+	 * @param string $slot       Slot id.
+	 * @param int    $service_id Service id.
+	 * @param string $platform   telegram|bale.
+	 * @param string $portal_url Portal URL.
+	 * @return array<string, string>
+	 */
+	private static function svc_xray_slot_button( $slot, $service_id, $platform, $portal_url ) {
+		$id = (int) $service_id;
+		$pu = (string) $portal_url;
+		switch ( $slot ) {
+			case 'svc_xray.panel':
+				return array(
+					'text'          => self::glass_button_text( SimpleVPBot_Texts::get( 'btn.service.show_panel', '🖥 جزئیات سرویس' ), 64 ),
+					'callback_data' => 'svc:p:' . $id,
+				);
+			case 'svc_xray.usage':
+				return array(
+					'text'          => self::glass_button_text( '📊 نمایش مصرف', 64 ),
+					'callback_data' => 'svc:us:' . $id,
+				);
+			case 'svc_xray.config':
+				if ( 'bale' === $platform && $pu !== '' ) {
+					return array(
+						'text' => self::glass_button_text( '🌐 پنل وب (کانفیگ)', 64 ),
+						'url'  => $pu,
+					);
+				}
+				return array(
+					'text'          => self::glass_button_text( '🔗 کانفیگ و QR', 64 ),
+					'callback_data' => 'svc:l:' . $id,
+				);
+			case 'svc_xray.regen':
+				return array(
+					'text'          => self::glass_button_text( '🔑 بازسازی کلید', 64 ),
+					'callback_data' => 'svc:k:' . $id,
+				);
+			case 'svc_xray.refresh':
+				return array(
+					'text'          => self::glass_button_text( '🔄 آپدیت سرورها', 64 ),
+					'callback_data' => 'svc:u:' . $id,
+				);
+			case 'svc_xray.renew':
+				return array(
+					'text'          => self::glass_button_text( '♻️ تمدید', 64 ),
+					'callback_data' => 'svc:r:' . $id,
+				);
+			case 'svc_xray.volume':
+				return array(
+					'text'          => self::glass_button_text( '➕ افزایش حجم', 64 ),
+					'callback_data' => 'svc:v:' . $id,
+				);
+			case 'svc_xray.slots':
+				return array(
+					'text'          => self::glass_button_text( '👥 افزایش کاربر', 64 ),
+					'callback_data' => 'svc:sl:' . $id,
+				);
+			case 'svc_xray.rename':
+				return array(
+					'text'          => self::glass_button_text( '✏️ تغییر نام', 64 ),
+					'callback_data' => 'svc:rn:' . $id,
+				);
+			case 'svc_xray.note':
+				return array(
+					'text'          => self::glass_button_text( '📝 یادداشت پنل', 64 ),
+					'callback_data' => 'svc:n:' . $id,
+				);
+			case 'svc_xray.alerts':
+				return array(
+					'text'          => self::glass_button_text( '🔔 هشدارها', 64 ),
+					'callback_data' => 'svc:al:' . $id,
+				);
+			case 'svc_xray.ip':
+				return array(
+					'text'          => self::glass_button_text( '🌐 اتصالات فعال', 64 ),
+					'callback_data' => 'svc:ip:' . $id,
+				);
+			case 'svc_xray.faq':
+				return array(
+					'text'          => self::glass_button_text( '❓ سوالات متداول', 64 ),
+					'callback_data' => 'svc:f:' . $id,
+				);
+			case 'svc_xray.transfer':
+				return array(
+					'text'          => self::glass_button_text( '🎁 انتقال سرویس', 64 ),
+					'callback_data' => 'svc:tx:' . $id,
+				);
+			case 'svc_xray.support':
+				return array(
+					'text'          => self::glass_button_text( '🆘 پشتیبانی', 64 ),
+					'callback_data' => 'svc:su:' . $id,
+				);
+			case 'svc_xray.back':
+				return array(
+					'text'          => self::glass_button_text( '⬅️ بازگشت', 64 ),
+					'callback_data' => 'svc:b:' . $id,
+				);
+			case 'svc_xray.del_admin':
+				$cb = 'adm:svc_del:' . $id;
+				if ( strlen( $cb ) > 64 ) {
+					return array();
+				}
+				return array(
+					'text'          => self::glass_button_text(
+						SimpleVPBot_Texts::get( 'btn.admin.delete_service_soft', '🗑 حذف از لیست ربات (غیرفعال‌سازی)' ),
+						64
+					),
+					'callback_data' => $cb,
+				);
+			default:
+				return array();
+		}
+	}
+
+	/**
+	 * L2TP service menu from Bot UI layout (svc_menu_l2tp).
+	 *
+	 * @param int    $service_id Service id.
+	 * @param string $portal_url Portal URL.
+	 * @param bool   $show_admin_soft_delete Admin delete row.
+	 * @return array<string, mixed>
+	 */
+	private static function inline_service_menu_l2tp_from_layout( $service_id, $portal_url, $show_admin_soft_delete ) {
+		$id          = (int) $service_id;
+		$portal      = (string) $portal_url;
+		$rows        = array();
+		$layout_rows = SimpleVPBot_UI_Layout::effective_rows_for_surface( 'svc_menu_l2tp' );
+		foreach ( $layout_rows as $line ) {
+			$rline = array();
+			foreach ( $line as $cell ) {
+				if ( empty( $cell['enabled'] ) ) {
+					continue;
+				}
+				$slot = (string) ( $cell['id'] ?? '' );
+				if ( 'svc_l2tp.del_admin' === $slot && ! $show_admin_soft_delete ) {
+					continue;
+				}
+				$b = self::svc_l2tp_slot_button( $slot, $id, $portal );
+				if ( array() !== $b ) {
+					$rline[] = $b;
+				}
+			}
+			if ( array() !== $rline ) {
+				$rows[] = $rline;
+			}
+		}
+		return array( 'inline_keyboard' => $rows );
+	}
+
+	/**
+	 * @param string $slot       Slot id.
+	 * @param int    $service_id Id.
+	 * @param string $portal_url Portal.
+	 * @return array<string, string>
+	 */
+	private static function svc_l2tp_slot_button( $slot, $service_id, $portal_url ) {
+		$id = (int) $service_id;
+		$pu = (string) $portal_url;
+		switch ( $slot ) {
+			case 'svc_l2tp.conn':
+				return array(
+					'text'          => self::glass_button_text( '🔐 نمایش اتصال', 64 ),
+					'callback_data' => 'svc:p:' . $id,
+				);
+			case 'svc_l2tp.usage':
+				return array(
+					'text'          => self::glass_button_text( '📊 نمایش مصرف', 64 ),
+					'callback_data' => 'svc:us:' . $id,
+				);
+			case 'svc_l2tp.portal':
+				if ( '' === $pu ) {
+					return array();
+				}
+				return array(
+					'text' => self::glass_button_text( '🌐 پنل وب', 64 ),
+					'url'  => $pu,
+				);
+			case 'svc_l2tp.pass':
+				return array(
+					'text'          => self::glass_button_text( '🔑 تغییر رمز عبور', 64 ),
+					'callback_data' => 'svc:k:' . $id,
+				);
+			case 'svc_l2tp.renew':
+				return array(
+					'text'          => self::glass_button_text( '♻️ تمدید سرویس', 64 ),
+					'callback_data' => 'svc:r:' . $id,
+				);
+			case 'svc_l2tp.autorenew':
+				return array(
+					'text'          => self::glass_button_text( '🔁 تمدید خودکار', 64 ),
+					'callback_data' => 'svc:ar:' . $id,
+				);
+			case 'svc_l2tp.alerts':
+				return array(
+					'text'          => self::glass_button_text( '🔔 هشدارها', 64 ),
+					'callback_data' => 'svc:al:' . $id,
+				);
+			case 'svc_l2tp.rename':
+				return array(
+					'text'          => self::glass_button_text( '✏️ تغییر نام', 64 ),
+					'callback_data' => 'svc:rn:' . $id,
+				);
+			case 'svc_l2tp.faq':
+				return array(
+					'text'          => self::glass_button_text( '❓ راهنمای اتصال', 64 ),
+					'callback_data' => 'svc:f:' . $id,
+				);
+			case 'svc_l2tp.support':
+				return array(
+					'text'          => self::glass_button_text( '🆘 پشتیبانی', 64 ),
+					'callback_data' => 'svc:su:' . $id,
+				);
+			case 'svc_l2tp.transfer':
+				return array(
+					'text'          => self::glass_button_text( '🎁 انتقال سرویس', 64 ),
+					'callback_data' => 'svc:tx:' . $id,
+				);
+			case 'svc_l2tp.del_admin':
+				$cb = 'adm:svc_del:' . $id;
+				if ( strlen( $cb ) > 64 ) {
+					return array();
+				}
+				return array(
+					'text'          => self::glass_button_text(
+						SimpleVPBot_Texts::get( 'btn.admin.delete_service_soft', '🗑 حذف از لیست ربات (غیرفعال‌سازی)' ),
+						64
+					),
+					'callback_data' => $cb,
+				);
+			case 'svc_l2tp.back':
+				return array(
+					'text'          => self::glass_button_text( '⬅️ بازگشت', 64 ),
+					'callback_data' => 'svc:b:' . $id,
+				);
+			default:
+				return array();
+		}
 	}
 
 	/**

@@ -72,6 +72,17 @@ class SimpleVPBot_Bot_Runtime {
 	public static function send_message( $platform, $chat_id, $text, array $extra = array() ) {
 		$c = self::client( $platform );
 		if ( ! $c ) {
+			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+				SimpleVPBot_Logger::error(
+					'send_message: no bot API client (missing token for context)',
+					array(
+						'platform'             => $platform,
+						'chat_id'              => (int) $chat_id,
+						'scope'                => class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot() ? 'reseller' : 'main',
+						'reseller_svp_user_id' => class_exists( 'SimpleVPBot_Bot_Context' ) ? (int) SimpleVPBot_Bot_Context::reseller_svp_user_id() : 0,
+					)
+				);
+			}
 			return null;
 		}
 		if ( 'bale' === $platform ) {

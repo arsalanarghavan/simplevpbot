@@ -25,6 +25,25 @@ class SimpleVPBot_Model_Reseller_Panel_Price {
 	}
 
 	/**
+	 * Row for one reseller + panel (null if none).
+	 *
+	 * @param int $reseller_svp_user_id Reseller svp_users.id.
+	 * @param int $panel_id             Panel id.
+	 * @return object|null
+	 */
+	public static function get_panel_row( $reseller_svp_user_id, $panel_id ) {
+		global $wpdb;
+		$r = (int) $reseller_svp_user_id;
+		$p = (int) $panel_id;
+		if ( $r < 1 || $p < 1 ) {
+			return null;
+		}
+		$t = self::table();
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		return $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$t} WHERE reseller_svp_user_id = %d AND panel_id = %d LIMIT 1", $r, $p ) );
+	}
+
+	/**
 	 * Unit price (toman per GB) or 0 if unset.
 	 *
 	 * @param int $reseller_svp_user_id Reseller svp_users.id.
@@ -32,16 +51,26 @@ class SimpleVPBot_Model_Reseller_Panel_Price {
 	 * @return float
 	 */
 	public static function get_unit_price( $reseller_svp_user_id, $panel_id ) {
-		global $wpdb;
-		$r = (int) $reseller_svp_user_id;
-		$p = (int) $panel_id;
-		if ( $r < 1 || $p < 1 ) {
+		$row = self::get_panel_row( $reseller_svp_user_id, $panel_id );
+		if ( ! $row ) {
 			return 0.0;
 		}
-		$t = self::table();
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$v = $wpdb->get_var( $wpdb->prepare( "SELECT price_per_gb FROM {$t} WHERE reseller_svp_user_id = %d AND panel_id = %d LIMIT 1", $r, $p ) );
-		return null === $v ? 0.0 : (float) $v;
+		return (float) ( $row->price_per_gb ?? 0 );
+	}
+
+	/**
+	 * Whether reseller may use this panel (row exists and panel_access = 1).
+	 *
+	 * @param int $reseller_svp_user_id Id.
+	 * @param int $panel_id             Panel id.
+	 * @return bool
+	 */
+	public static function has_panel_access( $reseller_svp_user_id, $panel_id ) {
+		$row = self::get_panel_row( $reseller_svp_user_id, $panel_id );
+		if ( ! $row ) {
+			return false;
+		}
+		return ! empty( $row->panel_access );
 	}
 
 	/**
@@ -67,8 +96,8 @@ class SimpleVPBot_Model_Reseller_Panel_Price {
 	/**
 	 * Replace all price rows for a reseller (transactional).
 	 *
-	 * @param int                      $reseller_svp_user_id Reseller id.
-	 * @param array<int, array<string, mixed>> $rows          Each: panel_id, price_per_gb.
+	 * @param int                                $reseller_svp_user_id Reseller id.
+	 * @param array<int, array<string, mixed>> $rows                 Each: panel_id, price_per_gb, panel_access?.
 	 * @return void
 	 */
 	public static function replace_all_for_reseller( $reseller_svp_user_id, array $rows ) {
@@ -87,6 +116,7 @@ class SimpleVPBot_Model_Reseller_Panel_Price {
 				}
 				$pid = (int) ( $row['panel_id'] ?? 0 );
 				$ppb = isset( $row['price_per_gb'] ) ? (float) $row['price_per_gb'] : 0.0;
+				$pacc = array_key_exists( 'panel_access', $row ) ? (int) ( ! empty( $row['panel_access'] ) ) : 1;
 				if ( $pid < 1 || $ppb < 0 ) {
 					continue;
 				}
@@ -96,9 +126,10 @@ class SimpleVPBot_Model_Reseller_Panel_Price {
 						'reseller_svp_user_id' => $r,
 						'panel_id'             => $pid,
 						'price_per_gb'         => round( $ppb, 4 ),
+						'panel_access'         => $pacc ? 1 : 0,
 						'updated_at'           => current_time( 'mysql' ),
 					),
-					array( '%d', '%d', '%f', '%s' )
+					array( '%d', '%d', '%f', '%d', '%s' )
 				);
 			}
 			$wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery

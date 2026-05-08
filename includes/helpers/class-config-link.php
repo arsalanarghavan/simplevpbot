@@ -136,6 +136,11 @@ class SimpleVPBot_Config_Link {
 	 * may return plain lines or base64-encoded concatenation; both are handled
 	 * without any transformation of the URI strings themselves. Cached 60s.
 	 *
+	 * If this returns empty while the portal still shows a subscription link, check:
+	 * per-panel and global `subscription_public_base` in the bot dashboard, subscription
+	 * service enabled in 3x-ui (path/port), and that `sub_id` on the service matches the
+	 * client on the panel (see plugin logs: subscription fetch failed / bad response).
+	 *
 	 * @param string $sub_url Fully-qualified subscription URL.
 	 * @return array<int, string> List of non-empty URI lines, exactly as served.
 	 */

@@ -61,11 +61,15 @@ class SimpleVPBot_Plugin {
 		'SimpleVPBot_Model_Users_Bulk_Job' => 'models/class-model-users-bulk-job.php',
 		'SimpleVPBot_Model_Monitor_Host'  => 'models/class-model-monitor-host.php',
 		'SimpleVPBot_Webhook'             => 'bot/class-webhook.php',
+		'SimpleVPBot_Webhook_Diagnostics' => 'bot/class-webhook-diagnostics.php',
 		'SimpleVPBot_Bot_Runtime'         => 'bot/class-bot-runtime.php',
 		'SimpleVPBot_Bot_Context'         => 'bot/class-bot-context.php',
 		'SimpleVPBot_Router'             => 'bot/class-router.php',
 		'SimpleVPBot_State'              => 'bot/class-state.php',
 		'SimpleVPBot_Keyboards'          => 'bot/class-keyboards.php',
+		'SimpleVPBot_UI_Action_Registry' => 'bot/class-ui-action-registry.php',
+		'SimpleVPBot_UI_Layout'          => 'bot/class-ui-layout.php',
+		'SimpleVPBot_UI_Reply_Router'   => 'bot/class-ui-reply-router.php',
 		'SimpleVPBot_Texts'              => 'bot/class-texts.php',
 		'SimpleVPBot_Shared_Catalog'     => 'class-shared-catalog.php',
 		'SimpleVPBot_Handler_Start'      => 'bot/handlers/class-handler-start.php',
@@ -89,6 +93,7 @@ class SimpleVPBot_Plugin {
 		'SimpleVPBot_Qr'                 => 'helpers/class-qr.php',
 		'SimpleVPBot_Service_Provisioner'=> 'helpers/class-service-provisioner.php',
 		'SimpleVPBot_Service_Dashboard_Panel' => 'helpers/class-service-dashboard-panel.php',
+		'SimpleVPBot_Service_Panel_Transfer' => 'helpers/class-service-panel-transfer.php',
 		'SimpleVPBot_L2TP_Provisioner'   => 'helpers/class-l2tp-provisioner.php',
 		'SimpleVPBot_Secret_Box'         => 'helpers/class-secret-box.php',
 		'SimpleVPBot_Receipt_Processor'  => 'helpers/class-receipt-processor.php',
@@ -184,6 +189,7 @@ class SimpleVPBot_Plugin {
 		SimpleVPBot_Settings::ensure_secrets();
 		SimpleVPBot_Settings::init();
 		SimpleVPBot_Webhook::init();
+		SimpleVPBot_Webhook_Diagnostics::init();
 		SimpleVPBot_Crypto_Payment::init();
 		SimpleVPBot_Cron_Manager::init();
 

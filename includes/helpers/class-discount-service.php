@@ -67,7 +67,15 @@ class SimpleVPBot_Discount_Service {
 		if ( 'purchase' !== (string) $tx->type ) {
 			return array( 'ok' => false, 'reason' => 'not_purchase' );
 		}
-		$row = SimpleVPBot_Model_Discount_Code::find_by_code( $code );
+		$owner_candidates = array( 0 );
+		$uid = (int) ( $tx->user_id ?? 0 );
+		if ( $uid > 0 && class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+			$rid = (int) SimpleVPBot_Reseller_Branding::nearest_reseller_id_for_user( $uid );
+			if ( $rid > 0 ) {
+				$owner_candidates = array( $rid, 0 );
+			}
+		}
+		$row = SimpleVPBot_Model_Discount_Code::find_by_code_for_owners( $code, $owner_candidates );
 		if ( ! $row || ! (int) $row->active ) {
 			return array( 'ok' => false, 'reason' => 'invalid_code' );
 		}

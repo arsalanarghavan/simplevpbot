@@ -1153,6 +1153,15 @@ class SimpleVPBot_Handler_Service {
 		$last   = self::format_last_online( $obj['lastOnline'] ?? null );
 		$exp    = $svc->expires_at ? self::format_datetime_fa( (string) $svc->expires_at ) : 'بدون انقضا';
 
+		$remark_for_link = trim( (string) ( $cl['remark'] ?? '' ) );
+		if ( '' === $remark_for_link ) {
+			$remark_for_link = (string) $svc->email;
+		}
+		$portal_config_uri = '';
+		if ( class_exists( 'SimpleVPBot_Config_Link' ) ) {
+			$portal_config_uri = (string) SimpleVPBot_Config_Link::build( $inb, $cl, $remark_for_link, self::svc_panel_id_xui( $svc ) );
+		}
+
 		return array(
 			'sub_id'               => $sub_id,
 			'status'               => $status_label,
@@ -1176,6 +1185,7 @@ class SimpleVPBot_Handler_Service {
 			'expiry'               => $exp,
 			'expiry_fa'            => $exp,
 			'remark'               => (string) $svc->remark,
+			'_portal_config_uri'   => $portal_config_uri,
 		);
 	}
 
@@ -1436,6 +1446,11 @@ class SimpleVPBot_Handler_Service {
 			return self::get_portal_l2tp_data( $svc, $user_id );
 		}
 		$v = self::collect_usage_stats( $svc );
+		$direct_cfg = '';
+		if ( isset( $v['_portal_config_uri'] ) ) {
+			$direct_cfg = (string) $v['_portal_config_uri'];
+			unset( $v['_portal_config_uri'] );
+		}
 		if ( ! empty( $v['deleted'] ) ) {
 			return array( '_deleted' => 1 );
 		}
@@ -1446,6 +1461,9 @@ class SimpleVPBot_Handler_Service {
 			delete_transient( 'svp_sub_' . md5( $import ) );
 		}
 		$uris  = $import ? SimpleVPBot_Config_Link::fetch_subscription( $import ) : array();
+		if ( empty( $uris ) && '' !== $direct_cfg ) {
+			$uris = array( $direct_cfg );
+		}
 		$primary = '';
 		if ( ! empty( $uris[0] ) ) {
 			$primary = (string) $uris[0];

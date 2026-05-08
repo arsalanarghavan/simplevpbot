@@ -158,49 +158,79 @@ class SimpleVPBot_Handler_Start {
 		$body   = SimpleVPBot_Bot_Admin_User_Caption::membership_request_caption( $user, false );
 		$markup = SimpleVPBot_Keyboards::inline_registration( (int) $user->id );
 
-		$tg_ids = (array) SimpleVPBot_Settings::get( 'admin_telegram_ids', array() );
-		$bl_ids = (array) SimpleVPBot_Settings::get( 'admin_bale_ids', array() );
-		$tg_tok = (string) SimpleVPBot_Settings::get( 'telegram_token', '' );
-		$bl_tok = (string) SimpleVPBot_Settings::get( 'bale_token', '' );
-
-		if ( $tg_tok ) {
-			$tg = new SimpleVPBot_Telegram_Client( $tg_tok );
-			foreach ( $tg_ids as $adm ) {
-				$r = $tg->send_message(
-					array(
-						'chat_id'      => (int) $adm,
-						'text'         => $body,
-						'reply_markup' => $markup,
-					)
+		$is_reseller_ctx = class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot();
+		if ( $is_reseller_ctx && class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			$prof = SimpleVPBot_Bot_Context::reseller_profile();
+			$ids  = array();
+			if ( $prof ) {
+				if ( 'telegram' === $platform ) {
+					$ids = (array) SimpleVPBot_Model_Reseller_Bot_Profile::decode_admin_ids( $prof->admin_telegram_ids ?? '' );
+				} else {
+					$ids = (array) SimpleVPBot_Model_Reseller_Bot_Profile::decode_admin_ids( $prof->admin_bale_ids ?? '' );
+				}
+			}
+			$ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
+			foreach ( $ids as $adm ) {
+				$r = SimpleVPBot_Bot_Runtime::send_message(
+					$platform,
+					(int) $adm,
+					$body,
+					array( 'reply_markup' => $markup )
 				);
 				if ( ! empty( $r['result']['message_id'] ) ) {
 					$messages[] = array(
-						'platform'   => 'telegram',
+						'platform'   => $platform,
 						'chat_id'    => (int) $adm,
 						'message_id' => (int) $r['result']['message_id'],
 					);
 				}
 				usleep( 350000 );
 			}
-		}
-		if ( $bl_tok ) {
-			$bl = new SimpleVPBot_Bale_Client( $bl_tok );
-			foreach ( $bl_ids as $adm ) {
-				$r = $bl->send_message(
-					array(
-						'chat_id'      => (int) $adm,
-						'text'         => $body,
-						'reply_markup' => $markup,
-					)
-				);
-				if ( ! empty( $r['result']['message_id'] ) ) {
-					$messages[] = array(
-						'platform'   => 'bale',
-						'chat_id'    => (int) $adm,
-						'message_id' => (int) $r['result']['message_id'],
+		} else {
+			$tg_ids = (array) SimpleVPBot_Settings::get( 'admin_telegram_ids', array() );
+			$bl_ids = (array) SimpleVPBot_Settings::get( 'admin_bale_ids', array() );
+			$tg_tok = (string) SimpleVPBot_Settings::get( 'telegram_token', '' );
+			$bl_tok = (string) SimpleVPBot_Settings::get( 'bale_token', '' );
+
+			if ( $tg_tok ) {
+				$tg = new SimpleVPBot_Telegram_Client( $tg_tok );
+				foreach ( $tg_ids as $adm ) {
+					$r = $tg->send_message(
+						array(
+							'chat_id'      => (int) $adm,
+							'text'         => $body,
+							'reply_markup' => $markup,
+						)
 					);
+					if ( ! empty( $r['result']['message_id'] ) ) {
+						$messages[] = array(
+							'platform'   => 'telegram',
+							'chat_id'    => (int) $adm,
+							'message_id' => (int) $r['result']['message_id'],
+						);
+					}
+					usleep( 350000 );
 				}
-				usleep( 350000 );
+			}
+			if ( $bl_tok ) {
+				$bl = new SimpleVPBot_Bale_Client( $bl_tok );
+				foreach ( $bl_ids as $adm ) {
+					$r = $bl->send_message(
+						array(
+							'chat_id'      => (int) $adm,
+							'text'         => $body,
+							'reply_markup' => $markup,
+						)
+					);
+					if ( ! empty( $r['result']['message_id'] ) ) {
+						$messages[] = array(
+							'platform'   => 'bale',
+							'chat_id'    => (int) $adm,
+							'message_id' => (int) $r['result']['message_id'],
+						);
+					}
+					usleep( 350000 );
+				}
 			}
 		}
 

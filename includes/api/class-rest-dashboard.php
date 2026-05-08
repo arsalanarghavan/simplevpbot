@@ -638,7 +638,7 @@ class SimpleVPBot_Rest_Dashboard {
 		$p_rcpt   = self::dash_list_pagination( $req, 'receipts', 40 );
 		$p_bc     = self::dash_list_pagination( $req, 'broadcasts', 20 );
 		$p_ref_ev = self::dash_list_pagination( $req, 'referralEvents', 20 );
-		$p_bots   = self::dash_list_pagination( $req, 'bots', 30 );
+		$p_bots   = self::dash_list_pagination( $req, 'bots', 25, 200 );
 
 		$t_panels = SimpleVPBot_Model_Panel::table();
 		$t_plans  = SimpleVPBot_Model_Plan::table();
@@ -659,6 +659,13 @@ class SimpleVPBot_Rest_Dashboard {
 		$ctx         = self::dashboard_actor_context();
 		$is_reseller = ! empty( $ctx['isReseller'] );
 		$actor_uid   = (int) ( $ctx['actorUserId'] ?? 0 );
+		$owner_ctx   = (int) $req->get_param( 'resellerContextId' );
+		$owner_scope = array( 0 );
+		$scope_user_ids = array();
+		if ( $owner_ctx > 0 ) {
+			$owner_scope = array( $owner_ctx, 0 );
+			$scope_user_ids = SimpleVPBot_Model_User::reseller_scope_user_ids( $owner_ctx );
+		}
 
 		if ( $is_reseller ) {
 			$scope = SimpleVPBot_Model_User::reseller_scope_clause( $actor_uid, 'u' );
@@ -754,9 +761,17 @@ class SimpleVPBot_Rest_Dashboard {
 		}
 
 		$tot_panels = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_panels}" ); // phpcs:ignore
-		$tot_plans  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_plans}" ); // phpcs:ignore
+		if ( $owner_ctx > 0 ) {
+			$tot_plans = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$t_plans} WHERE owner_svp_user_id = %d", $owner_ctx ) ); // phpcs:ignore
+		} else {
+			$tot_plans = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_plans}" ); // phpcs:ignore
+		}
 		$tot_pc     = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_pc}" ); // phpcs:ignore
-		$tot_cards  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_cards}" ); // phpcs:ignore
+		if ( $owner_ctx > 0 ) {
+			$tot_cards = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$t_cards} WHERE owner_svp_user_id IN (%d,0)", $owner_ctx ) ); // phpcs:ignore
+		} else {
+			$tot_cards  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_cards}" ); // phpcs:ignore
+		}
 		$tot_l2tp = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_l2tp}" ); // phpcs:ignore
 		$texts_prebuilt = class_exists( 'SimpleVPBot_Model_Text' ) ? SimpleVPBot_Model_Text::all_grouped_by_key() : array();
 		$tot_texts      = count( $texts_prebuilt );
@@ -765,7 +780,11 @@ class SimpleVPBot_Rest_Dashboard {
 			'per_page' => max( 1, $tot_texts ),
 			'offset'   => 0,
 		);
-		$tot_disc = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_disc}" ); // phpcs:ignore
+		if ( $owner_ctx > 0 ) {
+			$tot_disc = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$t_disc} WHERE owner_svp_user_id IN (%d,0)", $owner_ctx ) ); // phpcs:ignore
+		} else {
+			$tot_disc = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_disc}" ); // phpcs:ignore
+		}
 		$tot_users  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$u_tbl}" ); // phpcs:ignore
 		$tot_pend   = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$u_tbl} WHERE status = %s", 'pending' ) ); // phpcs:ignore
 		$tot_resellers = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$u_tbl} WHERE role = %s", 'reseller' ) ); // phpcs:ignore
@@ -787,8 +806,17 @@ class SimpleVPBot_Rest_Dashboard {
 			$tot_users_list = $tot_users;
 			$tot_pend_list  = $tot_pend;
 		}
-		$tot_rcpt   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$rcpt_t}" ); // phpcs:ignore
-		$tot_bc     = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$bc_t}" ); // phpcs:ignore
+		if ( $owner_ctx > 0 && ! empty( $scope_user_ids ) ) {
+			$ph = implode( ',', array_map( 'absint', $scope_user_ids ) );
+			$tot_rcpt   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$rcpt_t} WHERE user_id IN ({$ph})" ); // phpcs:ignore
+			$tot_bc     = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$bc_t} WHERE owner_svp_user_id IN (%d,0)", $owner_ctx ) ); // phpcs:ignore
+		} elseif ( $owner_ctx > 0 ) {
+			$tot_rcpt   = 0;
+			$tot_bc     = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$bc_t} WHERE owner_svp_user_id IN (%d,0)", $owner_ctx ) ); // phpcs:ignore
+		} else {
+			$tot_rcpt   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$rcpt_t}" ); // phpcs:ignore
+			$tot_bc     = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$bc_t}" ); // phpcs:ignore
+		}
 
 		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		$panels_raw = $wpdb->get_results(
@@ -798,13 +826,24 @@ class SimpleVPBot_Rest_Dashboard {
 				$p_panels['offset']
 			)
 		);
-		$plans_raw = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT * FROM {$t_plans} ORDER BY sort_order ASC, id ASC LIMIT %d OFFSET %d",
-				$p_plans['per_page'],
-				$p_plans['offset']
-			)
-		);
+		if ( $owner_ctx > 0 ) {
+			$plans_raw = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$t_plans} WHERE owner_svp_user_id = %d ORDER BY sort_order ASC, id ASC LIMIT %d OFFSET %d",
+					$owner_ctx,
+					$p_plans['per_page'],
+					$p_plans['offset']
+				)
+			);
+		} else {
+			$plans_raw = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$t_plans} ORDER BY sort_order ASC, id ASC LIMIT %d OFFSET %d",
+					$p_plans['per_page'],
+					$p_plans['offset']
+				)
+			);
+		}
 		$plan_cats_raw = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT * FROM {$t_pc} ORDER BY panel_id ASC, sort_order ASC, id ASC LIMIT %d OFFSET %d",
@@ -812,13 +851,24 @@ class SimpleVPBot_Rest_Dashboard {
 				$p_pc['offset']
 			)
 		);
-		$cards_raw = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT * FROM {$t_cards} ORDER BY id DESC LIMIT %d OFFSET %d",
-				$p_cards['per_page'],
-				$p_cards['offset']
-			)
-		);
+		if ( $owner_ctx > 0 ) {
+			$cards_raw = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$t_cards} WHERE owner_svp_user_id IN (%d,0) ORDER BY id DESC LIMIT %d OFFSET %d",
+					$owner_ctx,
+					$p_cards['per_page'],
+					$p_cards['offset']
+				)
+			);
+		} else {
+			$cards_raw = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$t_cards} ORDER BY id DESC LIMIT %d OFFSET %d",
+					$p_cards['per_page'],
+					$p_cards['offset']
+				)
+			);
+		}
 		$l2tp_raw = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT * FROM {$t_l2tp} ORDER BY id DESC LIMIT %d OFFSET %d",
@@ -826,13 +876,24 @@ class SimpleVPBot_Rest_Dashboard {
 				$p_l2tp['offset']
 			)
 		);
-		$discounts_raw = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT * FROM {$t_disc} ORDER BY active DESC, id DESC LIMIT %d OFFSET %d",
-				$p_disc['per_page'],
-				$p_disc['offset']
-			)
-		);
+		if ( $owner_ctx > 0 ) {
+			$discounts_raw = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$t_disc} WHERE owner_svp_user_id IN (%d,0) ORDER BY active DESC, id DESC LIMIT %d OFFSET %d",
+					$owner_ctx,
+					$p_disc['per_page'],
+					$p_disc['offset']
+				)
+			);
+		} else {
+			$discounts_raw = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$t_disc} ORDER BY active DESC, id DESC LIMIT %d OFFSET %d",
+					$p_disc['per_page'],
+					$p_disc['offset']
+				)
+			);
+		}
 		$pend_sql = "SELECT u.* FROM {$u_tbl} u WHERE u.status = 'pending'";
 		if ( $user_filter ) {
 			$pend_sql .= $user_filter['sql'];
@@ -891,21 +952,71 @@ class SimpleVPBot_Rest_Dashboard {
 				$wpdb->prepare( $res_sql, $p_res['per_page'], $p_res['offset'] )
 			);
 		}
-		$receipts = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT * FROM {$rcpt_t} ORDER BY id DESC LIMIT %d OFFSET %d",
-				$p_rcpt['per_page'],
-				$p_rcpt['offset']
-			)
-		);
-		$broadcasts = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT * FROM {$bc_t} ORDER BY id DESC LIMIT %d OFFSET %d",
-				$p_bc['per_page'],
-				$p_bc['offset']
-			)
-		);
+		if ( $owner_ctx > 0 && ! empty( $scope_user_ids ) ) {
+			$ids_sql = implode( ',', array_map( 'absint', $scope_user_ids ) );
+			$receipts = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$rcpt_t} WHERE user_id IN ({$ids_sql}) ORDER BY id DESC LIMIT %d OFFSET %d",
+					$p_rcpt['per_page'],
+					$p_rcpt['offset']
+				)
+			);
+		} elseif ( $owner_ctx > 0 ) {
+			$receipts = array();
+		} else {
+			$receipts = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$rcpt_t} ORDER BY id DESC LIMIT %d OFFSET %d",
+					$p_rcpt['per_page'],
+					$p_rcpt['offset']
+				)
+			);
+		}
+		if ( $owner_ctx > 0 ) {
+			$broadcasts = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$bc_t} WHERE owner_svp_user_id IN (%d,0) ORDER BY id DESC LIMIT %d OFFSET %d",
+					$owner_ctx,
+					$p_bc['per_page'],
+					$p_bc['offset']
+				)
+			);
+		} else {
+			$broadcasts = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$bc_t} ORDER BY id DESC LIMIT %d OFFSET %d",
+					$p_bc['per_page'],
+					$p_bc['offset']
+				)
+			);
+		}
 		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+		$reseller_permissions_map = array();
+		$reseller_panel_prices_map = array();
+		$reseller_bot_map = array();
+		foreach ( (array) $resellers as $rr ) {
+			$rid = (int) ( is_object( $rr ) ? ( $rr->id ?? 0 ) : 0 );
+			if ( $rid < 1 ) {
+				continue;
+			}
+			$reseller_permissions_map[ (string) $rid ] = SimpleVPBot_Model_User::reseller_permissions( $rid );
+			if ( class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
+				$reseller_panel_prices_map[ (string) $rid ] = array_map(
+					array( __CLASS__, 'row_array' ),
+					(array) SimpleVPBot_Model_Reseller_Panel_Price::list_for_reseller( $rid )
+				);
+			} else {
+				$reseller_panel_prices_map[ (string) $rid ] = array();
+			}
+			if ( class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+				$bp = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $rid );
+				$reseller_bot_map[ (string) $rid ] = array(
+					'enabled' => $bp ? ! empty( $bp->enabled ) : false,
+					'brand'   => $bp ? (string) ( $bp->brand_name ?? '' ) : '',
+				);
+			}
+		}
 
 		$panels   = array();
 		$plans    = array();
@@ -1052,7 +1163,6 @@ class SimpleVPBot_Rest_Dashboard {
 			array( 'key' => 'site_settings', 'label' => __( 'تنظیمات سایت', 'simplevpbot' ) ),
 			array( 'key' => 'bots', 'label' => __( 'ربات‌ها', 'simplevpbot' ) ),
 			array( 'key' => 'xui_panels', 'label' => __( 'پنل‌های 3x-ui', 'simplevpbot' ) ),
-			array( 'key' => 'panel_inbounds', 'label' => __( 'اتصال کانفیگ پنل', 'simplevpbot' ) ),
 			array( 'key' => 'plan_cats', 'label' => __( 'دسته‌های خرید', 'simplevpbot' ) ),
 			array( 'key' => 'plans', 'label' => __( 'پلن‌ها', 'simplevpbot' ) ),
 			array( 'key' => 'cards', 'label' => __( 'کارت‌ها', 'simplevpbot' ) ),
@@ -1251,8 +1361,8 @@ class SimpleVPBot_Rest_Dashboard {
 		$bots_list_payload = array();
 		$tot_bots_list     = 0;
 		if ( class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
-			$tot_bots_list = SimpleVPBot_Model_Reseller_Bot_Profile::count_all();
-			$bot_profiles  = SimpleVPBot_Model_Reseller_Bot_Profile::list_paginated( $p_bots['per_page'], $p_bots['offset'] );
+			$tot_bots_list = SimpleVPBot_Model_Reseller_Bot_Profile::count_resellers_for_bot_admin();
+			$bot_profiles  = SimpleVPBot_Model_Reseller_Bot_Profile::list_resellers_bot_admin_paginated( $p_bots['per_page'], $p_bots['offset'] );
 			foreach ( (array) $bot_profiles as $brow ) {
 				$rid    = (int) ( $brow->reseller_svp_user_id ?? 0 );
 				$tg_ids = SimpleVPBot_Model_Reseller_Bot_Profile::decode_admin_ids( $brow->admin_telegram_ids ?? '' );
@@ -1295,10 +1405,15 @@ class SimpleVPBot_Rest_Dashboard {
 			'botsList'       => self::dash_pagination_meta( $p_bots['page'], $p_bots['per_page'], $tot_bots_list ),
 		);
 
+		$ui_layout    = class_exists( 'SimpleVPBot_UI_Layout' ) ? SimpleVPBot_UI_Layout::export_merged_for_dashboard() : array( 'version' => 0, 'surfaces' => array() );
+		$ui_registry = class_exists( 'SimpleVPBot_UI_Action_Registry' ) ? SimpleVPBot_UI_Action_Registry::export_for_dashboard() : array( 'version' => 0, 'surfaces' => array() );
+
 		return new WP_REST_Response(
 			array(
 				'settings'                 => $settings,
 				'textDefaults'             => $text_defaults,
+				'uiLayout'                 => $ui_layout,
+				'uiRegistry'               => $ui_registry,
 				'referralStats'            => $referral_stats,
 				'referralEvents'          => $referral_events,
 				'panels'                   => $panels,
@@ -1311,6 +1426,9 @@ class SimpleVPBot_Rest_Dashboard {
 				'pendingUsers'             => array_map( array( __CLASS__, 'row_array' ), (array) $pending_users ),
 				'usersList'                => array_map( array( __CLASS__, 'row_array' ), (array) $users_list ),
 				'resellers'                => array_map( array( __CLASS__, 'row_array' ), (array) $resellers ),
+				'resellerPermissionsMap'   => $reseller_permissions_map,
+				'resellerPanelPricesMap'   => $reseller_panel_prices_map,
+				'resellerBotMap'           => $reseller_bot_map,
 				'botsList'                 => $bots_list_payload,
 				'receipts'                 => array_map( array( __CLASS__, 'row_array' ), (array) $receipts ),
 				'receiptAggregates'        => $receipt_aggregates,
@@ -1321,6 +1439,7 @@ class SimpleVPBot_Rest_Dashboard {
 				'overview'                 => $overview,
 				'monitorHosts'             => $monitor_hosts_pub,
 				'pagination'               => $pagination,
+				'resellerContextId'        => $owner_ctx > 0 ? $owner_ctx : 0,
 			)
 		);
 	}
@@ -1725,6 +1844,15 @@ class SimpleVPBot_Rest_Dashboard {
 		}
 		if ( ! empty( $ctx['isReseller'] ) ) {
 			$allow = array(
+				'plan',
+				'plan_category',
+				'broadcast_send',
+				'broadcast_cancel',
+				'discount_save',
+				'discount_delete',
+				'card_add',
+				'card_update',
+				'card_delete',
 				'membership',
 				'user_status',
 				'user_balance_delta',
@@ -1770,6 +1898,14 @@ class SimpleVPBot_Rest_Dashboard {
 			}
 			if ( 'user_manual_create' === $op ) {
 				$params['invited_by'] = (int) $ctx['actorUserId'];
+			}
+			$params['__actor_svp_user_id'] = (int) $ctx['actorUserId'];
+			$params['owner_svp_user_id']   = (int) $ctx['actorUserId'];
+		}
+		if ( current_user_can( 'manage_options' ) ) {
+			$owner_ctx = isset( $params['reseller_context_svp_user_id'] ) ? (int) $params['reseller_context_svp_user_id'] : 0;
+			if ( $owner_ctx > 0 ) {
+				$params['owner_svp_user_id'] = $owner_ctx;
 			}
 		}
 		unset( $params['op'] );

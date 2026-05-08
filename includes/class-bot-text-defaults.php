@@ -37,6 +37,40 @@ class SimpleVPBot_Bot_Text_Defaults {
 	}
 
 	/**
+	 * Default fa/en strings for a text key (from seeded defaults).
+	 *
+	 * @param string $key Text key e.g. btn.main.buy.
+	 * @return array{fa:string,en:string}
+	 */
+	public static function default_pair_for_key( $key ) {
+		static $map = null;
+		$key = (string) $key;
+		if ( '' === $key ) {
+			return array( 'fa' => '', 'en' => '' );
+		}
+		if ( null === $map ) {
+			$map = array();
+			foreach ( self::all_rows() as $row ) {
+				if ( empty( $row['key_name'] ) || empty( $row['locale'] ) ) {
+					continue;
+				}
+				$k = (string) $row['key_name'];
+				if ( ! isset( $map[ $k ] ) ) {
+					$map[ $k ] = array();
+				}
+				$map[ $k ][ (string) $row['locale'] ] = (string) ( $row['value'] ?? '' );
+			}
+		}
+		if ( ! isset( $map[ $key ] ) ) {
+			return array( 'fa' => '', 'en' => '' );
+		}
+		return array(
+			'fa' => isset( $map[ $key ]['fa'] ) ? (string) $map[ $key ]['fa'] : '',
+			'en' => isset( $map[ $key ]['en'] ) ? (string) $map[ $key ]['en'] : '',
+		);
+	}
+
+	/**
 	 * All default rows (two locales per logical key).
 	 *
 	 * @return array<int, array<string, string>>
@@ -235,6 +269,59 @@ class SimpleVPBot_Bot_Text_Defaults {
 		self::pair( $r, 'msg.use_reply_buttons', 'messages', 'ℹ️ از دکمه‌های پایین استفاده کنید.', 'ℹ️ Please use the buttons below.' );
 		self::pair( $r, 'msg.start_first', 'messages', '⛔ ابتدا /start را بزنید.', '⛔ Please tap /start first.' );
 		self::pair( $r, 'msg.blocked', 'messages', '⛔ دسترسی شما مسدود است.', '⛔ Your access is blocked.' );
+		// Bot UI Studio (admin surfaces).
+		self::pair( $r, 'btn.admin.bulk_short', 'buttons', '➕ گروهی', '➕ Bulk' );
+		self::pair( $r, 'btn.admin.nav.catalog', 'buttons', '⚙️ تنظیمات ربات', '⚙️ Bot settings' );
+		self::pair( $r, 'btn.admin.cat.plan_cats', 'buttons', '📂 دسته پلن', '📂 Plan categories' );
+		self::pair( $r, 'btn.admin.cat.plans', 'buttons', '📋 پلن‌ها', '📋 Plans' );
+		self::pair( $r, 'btn.admin.cat.cards', 'buttons', '💳 کارت‌ها', '💳 Cards' );
+		self::pair( $r, 'btn.admin.cat.panel', 'buttons', '🖥 پنل', '🖥 Panel' );
+		self::pair( $r, 'btn.admin.cat.l2tp', 'buttons', '🔌 L2TP', '🔌 L2TP' );
+		self::pair( $r, 'btn.admin.cat.config', 'buttons', '🔗 کانفیگ', '🔗 Configs' );
+		self::pair( $r, 'btn.admin.cat.crypto', 'buttons', '₿ کریپتو', '₿ Crypto' );
+		self::pair( $r, 'btn.admin.cat.bots', 'buttons', '🤖 ربات‌ها', '🤖 Bots' );
+		self::pair( $r, 'btn.admin.adv.general', 'buttons', '⚙️ عمومی', '⚙️ General' );
+		self::pair( $r, 'btn.admin.adv.notif', 'buttons', '🔔 نوتیف', '🔔 Notifications' );
+		self::pair( $r, 'btn.admin.adv.texts', 'buttons', '📝 متن‌ها', '📝 Texts' );
+		self::pair( $r, 'btn.admin.adv.logs', 'buttons', '📜 لاگ', '📜 Logs' );
+		self::pair( $r, 'btn.admin.adv.broadcast', 'buttons', '📣 گزارش همگانی', '📣 Broadcast report' );
+		self::pair( $r, 'btn.admin.wiz.gen_at', 'buttons', '📥 ادمین TG', '📥 Admin TG' );
+		self::pair( $r, 'btn.admin.wiz.gen_ab', 'buttons', '📥 ادمین Bl', '📥 Admin Bale' );
+		self::pair( $r, 'btn.admin.wiz.gen_pp', 'buttons', '📄 ID پورتال', '📄 Portal page ID' );
+		self::pair( $r, 'btn.admin.wiz.gen_dp', 'buttons', '📦 پلن پیش‌فرض سرویس', '📦 Default plan' );
+		self::pair( $r, 'btn.admin.wiz.bot_tt', 'buttons', 'tok TG', 'tok TG' );
+		self::pair( $r, 'btn.admin.wiz.bot_bt', 'buttons', 'tok Bl', 'tok Bale' );
+		self::pair( $r, 'btn.admin.wiz.bot_ts', 'buttons', 'wh sec TG', 'wh sec TG' );
+		self::pair( $r, 'btn.admin.wiz.bot_bs', 'buttons', 'wh sec Bl', 'wh sec Bale' );
+		self::pair( $r, 'btn.admin.wiz.bot_th', 'buttons', 'hdr', 'hdr' );
+		self::pair( $r, 'btn.admin.wiz.bot_bw', 'buttons', 'Bale $', 'Bale $' );
+		self::pair( $r, 'btn.admin.op.getme', 'buttons', 'getMe', 'getMe' );
+		self::pair( $r, 'btn.admin.op.wh_tg', 'buttons', 'Set WH TG', 'Set WH TG' );
+		self::pair( $r, 'btn.admin.op.wh_bl', 'buttons', 'Set WH Bl', 'Set WH Bale' );
+		self::pair( $r, 'btn.admin.wiz.pan_u', 'buttons', 'URL', 'URL' );
+		self::pair( $r, 'btn.admin.wiz.pan_n', 'buttons', 'User', 'User' );
+		self::pair( $r, 'btn.admin.wiz.pan_p', 'buttons', 'Pass', 'Pass' );
+		self::pair( $r, 'btn.admin.wiz.pan_a', 'buttons', 'API', 'API' );
+		self::pair( $r, 'btn.admin.wiz.pan_l', 'buttons', 'Log sec', 'Login secret' );
+		self::pair( $r, 'btn.admin.wiz.pan_s', 'buttons', 'Sub URL', 'Sub URL' );
+		self::pair( $r, 'btn.admin.op.pan_test', 'buttons', '🔬 تست اتصال', '🔬 Test connection' );
+		self::pair( $r, 'btn.admin.wiz.not_l', 'buttons', '٪ کمی', '% Low traffic' );
+		self::pair( $r, 'btn.admin.wiz.not_e', 'buttons', 'روز هشدار', 'Expiry days' );
+		self::pair( $r, 'btn.admin.wiz.not_d', 'buttons', 'سقف کاربر', 'Slots' );
+		self::pair( $r, 'btn.admin.wiz.not_p', 'buttons', 'قیمت+کاربر', 'Price per user' );
+		self::pair( $r, 'btn.admin.wiz.cry_ak', 'buttons', '₿ API', '₿ API' );
+		self::pair( $r, 'btn.admin.wiz.cry_in', 'buttons', '₿ IPN', '₿ IPN' );
+		self::pair( $r, 'btn.admin.wiz.cry_cu', 'buttons', '₿ Cur', '₿ Cur' );
+		self::pair( $r, 'btn.admin.hub.crypto_ipn_path', 'buttons', '🔄 مسیر IPN', '🔄 IPN path' );
+		self::pair( $r, 'btn.admin.bulk.d1', 'buttons', '+۱ روز', '+1 day' );
+		self::pair( $r, 'btn.admin.bulk.d7', 'buttons', '+۷ روز', '+7 days' );
+		self::pair( $r, 'btn.admin.bulk.d30', 'buttons', '+۳۰ روز', '+30 days' );
+		self::pair( $r, 'btn.admin.bulk.g1', 'buttons', '+۱ GB', '+1 GB' );
+		self::pair( $r, 'btn.admin.bulk.g5', 'buttons', '+۵ GB', '+5 GB' );
+		self::pair( $r, 'btn.admin.bulk.confirm_text', 'buttons', '📝 تأیید متنی گروهی', '📝 Text bulk confirm' );
+		self::pair( $r, 'btn.admin.inbound.list', 'buttons', '📋 لیست Inbound', '📋 Inbound list' );
+		self::pair( $r, 'btn.admin.hub.toggle_enabled', 'buttons', '🔛 ربات فعال/غیر', '🔛 Bot on/off' );
+		self::pair( $r, 'btn.admin.hub.toggle_test', 'buttons', '🧪 تست فعال/غیر', '🧪 Test acct on/off' );
 		return $r;
 	}
 }

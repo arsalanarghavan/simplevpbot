@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from "react"
 import { useTranslation } from "react-i18next"
 import { DashboardBackupAdmin } from "@/components/dashboard-backup-admin"
+import { DashboardBotUiStudio } from "@/components/dashboard-bot-ui-studio"
 import { DashboardBotsAdmin } from "@/components/dashboard-bots-admin"
 import { DashboardBroadcastAdmin } from "@/components/dashboard-broadcast-admin"
 import { DashboardCardsAdmin } from "@/components/dashboard-cards-admin"
@@ -11,7 +12,6 @@ import { DashboardNotificationsAdmin } from "@/components/dashboard-notification
 import { DashboardMonitoring } from "@/components/dashboard-monitoring"
 import { DashboardOverview, type OverviewPayload } from "@/components/dashboard-overview"
 import { DashboardConfigsAdmin } from "@/components/dashboard-configs-admin"
-import { DashboardInboundLinkAdmin } from "@/components/dashboard-inbound-link-admin"
 import { DashboardPanelsAdmin } from "@/components/dashboard-panels-admin"
 import { DashboardPlanCatsAdmin } from "@/components/dashboard-plan-cats-admin"
 import { DashboardPlansAdmin } from "@/components/dashboard-plans-admin"
@@ -86,6 +86,7 @@ type Props = {
   dashboardBaseUrl: string
   onSelectTab: (tabKey: string) => void
   onOpenUserDetail: (svpUserId: number) => void
+  onOpenResellerWorkspace?: (resellerId: number) => void
   onCloseUserDetail: () => void
   setListQuery: Dispatch<SetStateAction<Record<string, string>>>
   usersSearchQuery: string
@@ -103,6 +104,7 @@ export function DashboardAdminView({
   dashboardBaseUrl,
   onSelectTab,
   onOpenUserDetail,
+  onOpenResellerWorkspace,
   onCloseUserDetail,
   setListQuery,
   usersSearchQuery,
@@ -247,16 +249,11 @@ export function DashboardAdminView({
     )
   }
 
-  if (activeTab === "panel_inbounds") {
-    return (
-      <DashboardInboundLinkAdmin panels={panels} isFa={isFa} onMutateSuccess={onAdminMutateSuccess} />
-    )
-  }
-
   if (activeTab === "configs") {
     return (
       <DashboardConfigsAdmin
         panels={panels}
+        plans={plans}
         isFa={isFa}
         configsActive={activeTab === "configs"}
         onMutateSuccess={onAdminMutateSuccess}
@@ -368,6 +365,22 @@ export function DashboardAdminView({
     )
   }
 
+  if (activeTab === "bot_ui") {
+    return (
+      <DashboardBotUiStudio
+        uiLayout={data.uiLayout as Record<string, unknown> | undefined}
+        uiRegistry={data.uiRegistry as Record<string, unknown> | undefined}
+        textDefaults={
+          data.textDefaults && typeof data.textDefaults === "object"
+            ? (data.textDefaults as Record<string, unknown>)
+            : undefined
+        }
+        isFa={isFa}
+        onMutateSuccess={onAdminMutateSuccess}
+      />
+    )
+  }
+
   if (activeTab === "users" && userDetailId != null && userDetailId > 0) {
     return (
       <DashboardUserDetailAdmin
@@ -406,14 +419,33 @@ export function DashboardAdminView({
       <DashboardResellersAdmin
         rows={resellers}
         panels={panels}
+        resellerPermissionsMap={(data.resellerPermissionsMap as Record<string, Record<string, boolean>>) || {}}
+        resellerPanelPricesMap={(data.resellerPanelPricesMap as Record<string, Array<{ panel_id?: number; price_per_gb?: number | string; panel_access?: boolean | number }>>) || {}}
         pagination={pickPagination(data, "resellers")}
         isFa={isFa}
         onPageChange={(p) => setPage("resellers", p)}
         onPerPageChange={(n) => setPer("resellers", n)}
         onOpenUserDetail={onOpenUserDetail}
+        onOpenWorkspace={onOpenResellerWorkspace}
         onMutateSuccess={onAdminMutateSuccess}
       />
     )
+  }
+
+  if (activeTab === "reseller_workspace") {
+    const ctxId = Number((data as Record<string, unknown>).resellerContextId ?? 0)
+    if (ctxId > 0) {
+      return (
+        <DashboardUserDetailAdmin
+          userId={ctxId}
+          plans={plans}
+          isFa={isFa}
+          onBack={() => onSelectTab("resellers")}
+          onMutateSuccess={onAdminMutateSuccess}
+          onOpenUserDetail={onOpenUserDetail}
+        />
+      )
+    }
   }
 
   if (activeTab === "backup") {

@@ -33,6 +33,7 @@ const enSidebar = {
     site_settings: "Site settings",
     users: "Users",
     resellers: "Resellers",
+    users_bulk: "Bulk operations",
     broadcast: "Broadcast",
     plans: "Plans",
     cards: "Cards",
@@ -41,10 +42,10 @@ const enSidebar = {
     discounts: "Discount codes",
     plan_cats: "Plan categories",
     texts: "Texts",
+    bot_ui: "Bot UI Studio",
     notifications: "Notifications",
     bots: "Bots",
     xui_panels: "3x-ui panels",
-    panel_inbounds: "Panel config linking",
     configs: "Configs (by plan)",
     l2tp_servers: "L2TP servers",
     backup: "Backup",
@@ -97,6 +98,7 @@ const faSidebar = {
     site_settings: "تنظیمات سایت",
     users: "کاربران",
     resellers: "نمایندگان",
+    users_bulk: "عملیات گروهی",
     broadcast: "پیام همگانی",
     plans: "پلن‌ها",
     cards: "کارت‌ها",
@@ -105,10 +107,10 @@ const faSidebar = {
     discounts: "کدهای تخفیف",
     plan_cats: "دسته‌های خرید",
     texts: "متن‌ها",
+    bot_ui: "صفحه‌ساز ربات",
     notifications: "نوتیفیکیشن",
     bots: "ربات‌ها",
     xui_panels: "پنل‌های 3x-ui",
-    panel_inbounds: "اتصال کانفیگ پنل",
     configs: "کانفیگ‌ها (بر اساس پلن)",
     l2tp_servers: "سرورهای L2TP",
     backup: "بکاپ",
@@ -333,6 +335,16 @@ const enCardsAdmin = {
   edit: "Edit",
   delete: "Delete",
   statsPageBreakdown: "Active / inactive counts are for this page only; total is catalog-wide.",
+  displayModeTitle: "How cards appear in the bot",
+  displayModeDesc: "Choose whether users see all cards at once or one card at a time (sequential).",
+  displayModeLabel: "Display mode",
+  displayModeList: "List (all cards)",
+  displayModeSequential: "Sequential (one at a time)",
+  saveDisplayMode: "Save display mode",
+  displayModeHint: "Applies to the payment card step in the purchase flow.",
+  method_c2c: "Card-to-card",
+  method_crypto: "Cryptocurrency (manual)",
+  method_crypto_auto: "Cryptocurrency (auto)",
 }
 
 const enReceiptsAdmin = {
@@ -737,6 +749,9 @@ const enPagination = {
 const enBotsAdmin = {
   title: "Telegram & Bale bots",
   subtitle: "Bot tokens, optional Telegram secret header, admin chat IDs, and reseller bots.",
+  resellerBots: "Reseller bots",
+  resellerBotsDesc:
+    "Each reseller can run a white-label bot. Configure tokens, webhooks, and admin IDs per reseller below.",
   webhookSecretHint: "Path webhook secrets are generated on the server and are not shown here.",
   adminIdsCardTitle: "Admin chat IDs",
   adminIdsCardDesc:
@@ -907,6 +922,35 @@ const enTextsAdmin = {
   noDefaultHint: "No bundled default; reset is disabled for this key.",
 }
 
+const enBotUiStudio = {
+  title: "Bot UI Studio",
+  subtitle:
+    "Drag buttons within each row, toggle visibility and glass styling. Labels come from Bot texts — edit keys under Texts.",
+  surface: "Menu surface",
+  save: "Save layout",
+  reset: "Reset all layouts",
+  saving: "Saving…",
+  resetting: "Resetting…",
+  saved: "Layout saved.",
+  resetDone: "Layouts reset to defaults.",
+  saveError: "Save failed",
+  resetError: "Reset failed",
+  enabled: "Shown",
+  glass: "Glass prefix",
+  preview: "Preview label",
+  row: "Row {{n}}",
+  emptySurface: "No buttons for this surface.",
+  hintInline:
+    "Inline service menus use fixed callbacks; you can reorder rows and hide optional actions (e.g. extra user slot when pricing is off).",
+  addRow: "Add row",
+  deleteRow: "Remove row",
+  confirmDeleteRow: "Remove this row? Buttons stay available to drag into other rows.",
+  duplicateActions: "Duplicate button in layout: {{id}}",
+  dropZoneEmpty: "Drop here",
+  dragAcrossRowsHint: "Drag chips across rows; empty rows are drop targets.",
+  noRowsHint: "No rows yet — add a row, then drag buttons here.",
+}
+
 const enLogsAdmin = {
   title: "Logs",
   subtitle: "Operational logs are not streamed inside this dashboard.",
@@ -1064,6 +1108,14 @@ const enConfigsAdmin = {
   statsLine:
     "Snapshot (last sync): {{total}} clients · {{enabled}} enabled · {{disabled}} disabled · {{online}} online now · {{expired}} expired · {{linked}} linked · {{unlinked}} unlinked",
   statsHint: "Counts follow the same panel sync as the list below.",
+  clientsListPagedHint: "The table below shows one page of clients; chart and summary counts include the full snapshot.",
+  chartEnabled: "Enabled",
+  chartDisabled: "Disabled",
+  chartOnline: "Online now",
+  chartLinked: "Linked",
+  chartUnlinked: "Unlinked",
+  chartExpired: "Expired",
+  planClientsPagedAbove: "Clients in this plan are shown in the paginated list above.",
   expiryUnified: "Expiry",
   expiryMismatchHint:
     "Note: the service row in the database shows a different expiry time than the panel; the panel value is used here.",
@@ -1170,6 +1222,22 @@ const enConfigsAdmin = {
   cacheSyncedAt: "Last cache sync: {{time}}",
   cacheStaleBanner: "Some data may be stale (traffic / IPs). Auto-sync runs when you open or revisit this tab.",
   needsSyncBanner: "Local cache is built from the panel API.",
+  qrPortal: "User dashboard",
+  qrConfigN: "Config {{n}}",
+  assignPlan: "Attach plan",
+  assignPlanTitle: "Attach plan to selected configs",
+  assignPlanHint: "Sets the bot plan on linked services for the current panel; only services on the same inbound as the chosen plan will succeed.",
+  pickPlan: "Choose a plan",
+  transferPanel: "Transfer to another panel",
+  transferPanelTitle: "Transfer service between panels",
+  pickTargetPanel: "Target panel",
+  pickTargetPlan: "Target plan (optional)",
+  transferKeepRemaining: "Auto-pick first active plan (default)",
+  transferConfirm: "Transfer",
+  volumeExhausted: "Volume exhausted",
+  chartExhausted: "Volume exhausted",
+  selectAllInPanel: "Select all on this page",
+  noEligibleRows: "No eligible rows in selection.",
 }
 
 const enL2tpAdmin = {
@@ -1226,6 +1294,9 @@ const faPagination = {
 const faBotsAdmin = {
   title: "ربات تلگرام و بله",
   subtitle: "توکن ربات، شناسهٔ ادمین‌ها برای هر پلتفرم، و ربات‌های نمایندگان.",
+  resellerBots: "ربات‌های نمایندگان",
+  resellerBotsDesc:
+    "هر نماینده می‌تواند ربات سفیدبرند داشته باشد. توکن، وب‌هوک و شناسهٔ ادمین را برای هر نماینده تنظیم کنید.",
   webhookSecretHint: "راز مسیر وب‌هوک به‌صورت خودکار در سرور ساخته می‌شود و اینجا نمایش داده نمی‌شود.",
   adminIdsCardTitle: "شناسهٔ چت ادمین‌ها",
   adminIdsCardDesc:
@@ -1397,6 +1468,35 @@ const faTextsAdmin = {
   noDefaultHint: "متن پیش‌فرض بسته وجود ندارد؛ دکمهٔ بازگشت غیرفعال است.",
 }
 
+const faBotUiStudio = {
+  title: "صفحه‌ساز ربات",
+  subtitle:
+    "جابجایی دکمه‌ها در هر ردیف، روشن/خاموش و استایل شیشه‌ای. متن دکمه‌ها از بخش «متن‌ها» با همان کلیدهاست.",
+  surface: "سطح منو",
+  save: "ذخیره چیدمان",
+  reset: "بازنشانی همه",
+  saving: "در حال ذخیره…",
+  resetting: "در حال بازنشانی…",
+  saved: "چیدمان ذخیره شد.",
+  resetDone: "چیدمان‌ها به پیش‌فرض برگشت.",
+  saveError: "ذخیره نشد",
+  resetError: "بازنشانی نشد",
+  enabled: "نمایش",
+  glass: "پیشوند شیشه‌ای",
+  preview: "پیش‌نمایش برچسب",
+  row: "ردیف {{n}}",
+  emptySurface: "دکمه‌ای برای این سطح نیست.",
+  hintInline:
+    "منوی اینلاین سرویس callback ثابت دارد؛ می‌توانید ترتیب را عوض کنید و موارد اختیاری را مخفی کنید (مثلاً اسلات کاربر وقتی قیمت صفر است).",
+  addRow: "ردیف جدید",
+  deleteRow: "حذف ردیف",
+  confirmDeleteRow: "این ردیف حذف شود؟ دکمه‌ها را می‌توانید به ردیف دیگر بکشید.",
+  duplicateActions: "دکمه تکراری در چیدمان: {{id}}",
+  dropZoneEmpty: "رها کنید اینجا",
+  dragAcrossRowsHint: "کارت‌ها را بین ردیف‌ها بکشید؛ ردیف خالی محل رها کردن است.",
+  noRowsHint: "ردیفی نیست — یک ردیف اضافه کنید و دکمه‌ها را بکشید.",
+}
+
 const faLogsAdmin = {
   title: "لاگ‌ها",
   subtitle: "لاگ عملیاتی در این داشبورد پخش نمی‌شود.",
@@ -1553,6 +1653,14 @@ const faConfigsAdmin = {
   statsLine:
     "آمار (آخرین سینک): {{total}} کلاینت · {{enabled}} فعال · {{disabled}} غیرفعال · {{online}} آنلاین · {{expired}} منقضی · {{linked}} لینک‌شده · {{unlinked}} بدون لینک",
   statsHint: "این اعداد همان دادهٔ هم‌زمان با لیست زیر است (بعد از سینک با پنل).",
+  clientsListPagedHint: "لیست زیر فقط یک صفحه از کلاینت‌ها را نشان می‌دهد؛ نمودار و خلاصه برای کل دادهٔ اسنپ‌شات است.",
+  chartEnabled: "فعال",
+  chartDisabled: "غیرفعال",
+  chartOnline: "آنلاین",
+  chartLinked: "لینک‌شده",
+  chartUnlinked: "بدون لینک",
+  chartExpired: "منقضی",
+  planClientsPagedAbove: "کلاینت‌های این پلن در بخش صفحه‌بندی‌شدهٔ بالا نمایش داده می‌شوند.",
   expiryUnified: "انقضا",
   expiryMismatchHint:
     "توجه: زمان انقضای ردیف سرویس در دیتابیس با پنل فرق دارد؛ برای نمایش، مقدار پنل در نظر گرفته شده است.",
@@ -1659,6 +1767,22 @@ const faConfigsAdmin = {
   cacheSyncedAt: "آخرین سینک کش: {{time}}",
   cacheStaleBanner: "برخی داده‌ها ممکن است قدیمی باشند (ترافیک / IP). با ورود دوباره به این تب سینک خودکار اجرا می‌شود.",
   needsSyncBanner: "کش محلی از API پنل ساخته شده است.",
+  qrPortal: "پورتال کاربر",
+  qrConfigN: "کانفیگ {{n}}",
+  assignPlan: "اتصال به پلن",
+  assignPlanTitle: "اتصال پلن به کانفیگ‌های انتخاب‌شده",
+  assignPlanHint: "پلن ربات روی سرویس‌های متصل پنل فعلی ست می‌شود؛ فقط سرویس‌هایی که هم‌اینباند پلن انتخاب‌شده باشند موفق می‌شوند.",
+  pickPlan: "انتخاب پلن",
+  transferPanel: "انتقال به پنل دیگر",
+  transferPanelTitle: "انتقال سرویس بین پنل‌ها",
+  pickTargetPanel: "پنل مقصد",
+  pickTargetPlan: "پلن مقصد (اختیاری)",
+  transferKeepRemaining: "انتخاب خودکار اولین پلن فعال (پیش‌فرض)",
+  transferConfirm: "انتقال",
+  volumeExhausted: "حجم تمام شده",
+  chartExhausted: "حجم تمام",
+  selectAllInPanel: "انتخاب همه در این صفحه",
+  noEligibleRows: "ردیف واجد شرایطی در انتخاب نیست.",
 }
 
 const faL2tpAdmin = {
@@ -1800,6 +1924,16 @@ const faCardsAdmin = {
   edit: "ویرایش",
   delete: "حذف",
   statsPageBreakdown: "فعال/غیرفعال فقط برای همین صفحه است؛ «کل» سراسری است.",
+  displayModeTitle: "نمایش کارت‌ها در ربات",
+  displayModeDesc: "همهٔ کارت‌ها با هم یا نمایش پشت‌سرهم (یکی‌یکی).",
+  displayModeLabel: "حالت نمایش",
+  displayModeList: "فهرست (همه)",
+  displayModeSequential: "پشت‌سرهم (یک کارت)",
+  saveDisplayMode: "ذخیرهٔ حالت نمایش",
+  displayModeHint: "روی مرحلهٔ انتخاب کارت پرداخت در ربات اعمال می‌شود.",
+  method_c2c: "کارت به کارت",
+  method_crypto: "رمزارز (دستی)",
+  method_crypto_auto: "رمزارز (خودکار)",
 }
 
 const faReceiptsAdmin = {
@@ -2503,6 +2637,7 @@ export function buildDashboardResources(): {
         backupAdmin: enBackupAdmin,
         referralAdmin: enReferralAdmin,
         textsAdmin: enTextsAdmin,
+        botUiStudio: enBotUiStudio,
         logsAdmin: enLogsAdmin,
         planCatsAdmin: enPlanCatsAdmin,
         panelsAdmin: enPanelsAdmin,
@@ -2547,6 +2682,7 @@ export function buildDashboardResources(): {
         backupAdmin: faBackupAdmin,
         referralAdmin: faReferralAdmin,
         textsAdmin: faTextsAdmin,
+        botUiStudio: faBotUiStudio,
         logsAdmin: faLogsAdmin,
         planCatsAdmin: faPlanCatsAdmin,
         panelsAdmin: faPanelsAdmin,

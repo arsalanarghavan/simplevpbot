@@ -95,6 +95,7 @@ class SimpleVPBot_Settings {
 			'suppress_bulk_user_notifications' => false,
 			'cards_display_mode'             => 'list',
 			'default_bot_locale'             => 'fa',
+			'bot_ui_layouts'                 => array(),
 		);
 	}
 

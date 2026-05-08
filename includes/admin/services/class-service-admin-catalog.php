@@ -193,21 +193,24 @@ class SimpleVPBot_Service_Admin_Catalog {
 		if ( ! class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
 			return array( 'row' => $row_data, 'block' => true, 'code' => 'module_missing' );
 		}
-		$unit = SimpleVPBot_Model_Reseller_Panel_Price::get_unit_price( $actor, $panel_id );
-		if ( $unit <= 0 ) {
-			return array( 'row' => $row_data, 'block' => true, 'code' => 'reseller_price_required' );
+		$pp_row = SimpleVPBot_Model_Reseller_Panel_Price::get_panel_row( $actor, $panel_id );
+		if ( ! $pp_row || ! (int) ( $pp_row->panel_access ?? 1 ) ) {
+			return array( 'row' => $row_data, 'block' => true, 'code' => 'panel_not_allowed' );
 		}
+		$unit = (float) ( $pp_row->price_per_gb ?? 0 );
 		$ptype = (string) ( $row_data['pricing_type'] ?? 'fixed' );
-		if ( 'per_gb' === $ptype ) {
-			$ppg = (float) ( $row_data['price_per_gb'] ?? 0 );
-			if ( $ppg + 0.000001 < $unit ) {
-				return array( 'row' => $row_data, 'block' => true, 'code' => 'below_reseller_floor' );
-			}
-		} else {
-			$gb  = max( 1, (int) ( $row_data['traffic_gb'] ?? 0 ) );
-			$min = $unit * $gb;
-			if ( (float) ( $row_data['price'] ?? 0 ) + 0.000001 < $min ) {
-				return array( 'row' => $row_data, 'block' => true, 'code' => 'below_reseller_floor' );
+		if ( $unit > 0 ) {
+			if ( 'per_gb' === $ptype ) {
+				$ppg = (float) ( $row_data['price_per_gb'] ?? 0 );
+				if ( $ppg + 0.000001 < $unit ) {
+					return array( 'row' => $row_data, 'block' => true, 'code' => 'below_reseller_floor' );
+				}
+			} else {
+				$gb  = max( 1, (int) ( $row_data['traffic_gb'] ?? 0 ) );
+				$min = $unit * $gb;
+				if ( (float) ( $row_data['price'] ?? 0 ) + 0.000001 < $min ) {
+					return array( 'row' => $row_data, 'block' => true, 'code' => 'below_reseller_floor' );
+				}
 			}
 		}
 		$row_data['owner_svp_user_id'] = $actor;
@@ -225,6 +228,7 @@ class SimpleVPBot_Service_Admin_Catalog {
 	public static function apply_plan_category_action( $action, $rid, array $post ) {
 		$action = sanitize_key( (string) $action );
 		$rid    = (int) $rid;
+		$actor  = (int) ( $post['__actor_svp_user_id'] ?? 0 );
 
 		if ( 'delete' === $action && $rid > 0 ) {
 			$row = SimpleVPBot_Model_Plan_Category::find( $rid );
@@ -250,6 +254,11 @@ class SimpleVPBot_Service_Admin_Catalog {
 		if ( 'add' === $action ) {
 			$slug     = strtolower( substr( preg_replace( '/[^a-z0-9_]/', '', (string) ( $post['pc_slug'] ?? '' ) ), 0, 32 ) );
 			$panel_id = max( 1, (int) ( $post['pc_panel_id'] ?? 1 ) );
+			if ( $actor > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
+				if ( ! SimpleVPBot_Model_Reseller_Panel_Price::has_panel_access( $actor, $panel_id ) ) {
+					return array( 'ok' => false, 'code' => 'panel_not_allowed' );
+				}
+			}
 			if ( '' === $slug || '' === $label ) {
 				return array( 'ok' => false, 'code' => 'invalid' );
 			}
@@ -269,6 +278,13 @@ class SimpleVPBot_Service_Admin_Catalog {
 		}
 
 		if ( 'update' === $action && $rid > 0 ) {
+			if ( $actor > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
+				$ex_row = SimpleVPBot_Model_Plan_Category::find( $rid );
+				$pid_chk = $ex_row ? max( 1, (int) ( $ex_row->panel_id ?? 1 ) ) : 1;
+				if ( ! SimpleVPBot_Model_Reseller_Panel_Price::has_panel_access( $actor, $pid_chk ) ) {
+					return array( 'ok' => false, 'code' => 'panel_not_allowed' );
+				}
+			}
 			if ( '' === $label ) {
 				return array( 'ok' => false, 'code' => 'invalid' );
 			}

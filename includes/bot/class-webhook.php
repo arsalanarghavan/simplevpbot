@@ -123,6 +123,20 @@ class SimpleVPBot_Webhook {
 	}
 
 	/**
+	 * Best-effort DB log for webhook troubleshooting (no secrets).
+	 *
+	 * @param string               $level   info|warning|error.
+	 * @param string               $message Message.
+	 * @param array<string, mixed> $context Context.
+	 */
+	private static function log_webhook( $level, $message, array $context = array() ) {
+		if ( ! class_exists( 'SimpleVPBot_Logger' ) ) {
+			return;
+		}
+		SimpleVPBot_Logger::log( $level, $message, $context );
+	}
+
+	/**
 	 * REST handler.
 	 *
 	 * @param WP_REST_Request $req Request.
@@ -134,6 +148,14 @@ class SimpleVPBot_Webhook {
 		$ip       = self::rate_limit_client_ip();
 
 		if ( ! self::rate_limit_ok( $ip ) ) {
+			self::log_webhook(
+				'warning',
+				'webhook rate limited',
+				array(
+					'scope'    => 'main',
+					'platform' => $platform,
+				)
+			);
 			return new WP_REST_Response( array( 'ok' => false ), 429 );
 		}
 
@@ -141,6 +163,15 @@ class SimpleVPBot_Webhook {
 			? (string) SimpleVPBot_Settings::get( 'telegram_webhook_secret', '' )
 			: (string) SimpleVPBot_Settings::get( 'bale_webhook_secret', '' );
 		if ( '' === $expected || '' === $secret || ! hash_equals( (string) $expected, $secret ) ) {
+			self::log_webhook(
+				'warning',
+				'webhook rejected',
+				array(
+					'scope'  => 'main',
+					'reason' => 'bad_path_secret',
+					'platform' => $platform,
+				)
+			);
 			return new WP_REST_Response( array( 'ok' => false ), 403 );
 		}
 
@@ -150,6 +181,15 @@ class SimpleVPBot_Webhook {
 				: '';
 			$exp2 = (string) SimpleVPBot_Settings::get( 'telegram_secret_header', '' );
 			if ( $exp2 && ! hash_equals( $exp2, $hdr ) ) {
+				self::log_webhook(
+					'warning',
+					'webhook rejected',
+					array(
+						'scope'  => 'main',
+						'reason' => 'bad_telegram_secret_header',
+						'platform' => $platform,
+					)
+				);
 				return new WP_REST_Response( array( 'ok' => false ), 403 );
 			}
 		}
@@ -185,30 +225,98 @@ class SimpleVPBot_Webhook {
 		$ip       = self::rate_limit_client_ip();
 
 		if ( ! self::rate_limit_ok( $ip ) ) {
+			self::log_webhook(
+				'warning',
+				'webhook rate limited',
+				array(
+					'scope'             => 'reseller',
+					'platform'          => $platform,
+					'reseller_svp_user_id' => $rid,
+				)
+			);
 			return new WP_REST_Response( array( 'ok' => false ), 429 );
 		}
 
 		if ( $rid < 1 || '' === $secret ) {
+			self::log_webhook(
+				'warning',
+				'webhook rejected',
+				array(
+					'scope'  => 'reseller',
+					'reason' => 'bad_path_params',
+					'platform' => $platform,
+					'reseller_svp_user_id' => $rid,
+				)
+			);
 			return new WP_REST_Response( array( 'ok' => false ), 403 );
 		}
 
 		$row = class_exists( 'SimpleVPBot_Model_User' ) ? SimpleVPBot_Model_User::find( $rid ) : null;
 		if ( ! $row || ! SimpleVPBot_Model_User::is_reseller_row( $row ) ) {
+			self::log_webhook(
+				'warning',
+				'webhook rejected',
+				array(
+					'scope'  => 'reseller',
+					'reason' => 'invalid_reseller',
+					'platform' => $platform,
+					'reseller_svp_user_id' => $rid,
+				)
+			);
 			return new WP_REST_Response( array( 'ok' => false ), 403 );
 		}
 
 		if ( ! class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			self::log_webhook(
+				'warning',
+				'webhook rejected',
+				array(
+					'scope'  => 'reseller',
+					'reason' => 'profile_model_missing',
+					'platform' => $platform,
+					'reseller_svp_user_id' => $rid,
+				)
+			);
 			return new WP_REST_Response( array( 'ok' => false ), 403 );
 		}
 
 		$profile = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $rid );
 		if ( ! $profile || '' === trim( (string) ( $profile->webhook_secret ?? '' ) ) ) {
+			self::log_webhook(
+				'warning',
+				'webhook rejected',
+				array(
+					'scope'  => 'reseller',
+					'reason' => 'profile_or_webhook_secret_missing',
+					'platform' => $platform,
+					'reseller_svp_user_id' => $rid,
+				)
+			);
 			return new WP_REST_Response( array( 'ok' => false ), 403 );
 		}
 		if ( isset( $profile->enabled ) && ! (int) $profile->enabled ) {
+			self::log_webhook(
+				'warning',
+				'reseller webhook ignored (profile disabled)',
+				array(
+					'scope' => 'reseller',
+					'platform' => $platform,
+					'reseller_svp_user_id' => $rid,
+				)
+			);
 			return new WP_REST_Response( array( 'ok' => true, 'disabled' => true ), 200 );
 		}
 		if ( ! hash_equals( (string) $profile->webhook_secret, $secret ) ) {
+			self::log_webhook(
+				'warning',
+				'webhook rejected',
+				array(
+					'scope'  => 'reseller',
+					'reason' => 'bad_path_secret',
+					'platform' => $platform,
+					'reseller_svp_user_id' => $rid,
+				)
+			);
 			return new WP_REST_Response( array( 'ok' => false ), 403 );
 		}
 
@@ -218,6 +326,16 @@ class SimpleVPBot_Webhook {
 				: '';
 			$rtok = trim( (string) ( $profile->telegram_secret_token ?? '' ) );
 			if ( '' !== $rtok && ! hash_equals( $rtok, $hdr ) ) {
+				self::log_webhook(
+					'warning',
+					'webhook rejected',
+					array(
+						'scope'  => 'reseller',
+						'reason' => 'bad_telegram_secret_header',
+						'platform' => $platform,
+						'reseller_svp_user_id' => $rid,
+					)
+				);
 				return new WP_REST_Response( array( 'ok' => false ), 403 );
 			}
 		}

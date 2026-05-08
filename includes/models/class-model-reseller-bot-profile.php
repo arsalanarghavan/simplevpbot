@@ -425,4 +425,49 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 			array( '%d' )
 		);
 	}
+
+	/**
+	 * Count all reseller users (for admin bots list pagination total).
+	 *
+	 * @return int
+	 */
+	public static function count_resellers_for_bot_admin() {
+		global $wpdb;
+		$u = SimpleVPBot_Model_User::table();
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$u} WHERE role = %s", 'reseller' ) );
+	}
+
+	/**
+	 * Paginated resellers with optional bot profile (LEFT JOIN).
+	 *
+	 * @param int $per_page Per page (capped 200).
+	 * @param int $offset Offset.
+	 * @return array<int, object>
+	 */
+	public static function list_resellers_bot_admin_paginated( $per_page, $offset ) {
+		global $wpdb;
+		$p   = self::table();
+		$u   = SimpleVPBot_Model_User::table();
+		$lim = max( 1, min( 200, (int) $per_page ) );
+		$off = max( 0, (int) $offset );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT u.id AS reseller_svp_user_id, u.first_name AS reseller_first_name, u.last_name AS reseller_last_name,
+					u.username AS reseller_username, u.status AS reseller_status,
+					p.brand_name, p.enabled, p.telegram_token, p.bale_token, p.telegram_secret_token,
+					p.admin_telegram_ids, p.admin_bale_ids
+				FROM {$u} u
+				LEFT JOIN {$p} p ON p.reseller_svp_user_id = u.id
+				WHERE u.role = %s
+				ORDER BY u.id DESC
+				LIMIT %d OFFSET %d",
+				'reseller',
+				$lim,
+				$off
+			)
+		);
+		return is_array( $rows ) ? $rows : array();
+	}
 }

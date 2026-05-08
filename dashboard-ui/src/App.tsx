@@ -68,6 +68,12 @@ function App() {
     if (typeof window !== "undefined") return parseDashFromPath(window.location.pathname).userDetailId
     return null
   })
+  const [resellerContextId, setResellerContextId] = useState<number | null>(() => {
+    const b = window.__SIMPLEVPBOT_DASH__ || {}
+    if (!b.isAdmin && !b.isReseller) return null
+    if (typeof window !== "undefined") return parseDashFromPath(window.location.pathname).resellerContextId ?? null
+    return null
+  })
 
   const dashboardBaseUrl = boot.dashboardUrl || `${window.location.origin}/dashboard/`
   const allowedResellerTabs = useMemo(() => {
@@ -110,6 +116,7 @@ function App() {
       window.history.pushState({ tab: tabKey }, "", url)
       setActiveTab(tabKey)
       setUserDetailId(null)
+      setResellerContextId(null)
     },
     [isOperator, dashboardBaseUrl, safeResellerTab]
   )
@@ -122,6 +129,7 @@ function App() {
       window.history.pushState({ tab: "users", userDetailId: id }, "", `${base}/users/u/${id}/`)
       setActiveTab("users")
       setUserDetailId(id)
+      setResellerContextId(null)
     },
     [isOperator, dashboardBaseUrl, isReseller, allowedResellerTabs]
   )
@@ -149,6 +157,21 @@ function App() {
         refreshLivePanelMetrics: opts?.refreshLivePanelMetrics,
         activeTab: tab,
       })
+      if (resellerContextId && resellerContextId > 0) {
+        const sep = q.includes("?") ? "&" : "?"
+        const q2 = `${q}${sep}resellerContextId=${encodeURIComponent(String(resellerContextId))}`
+        void fetch(`${restBase}/dashboard/admin/state${q2}`, {
+          headers: {
+            "Content-Type": "application/json",
+            "X-WP-Nonce": boot.nonce || "",
+          },
+          credentials: "include",
+        })
+          .then((r) => r.json())
+          .then((json) => setData(json))
+          .catch(() => setData({ ok: false }))
+        return
+      }
       void fetch(`${restBase}/dashboard/admin/state${q}`, {
         headers: {
           "Content-Type": "application/json",
@@ -160,7 +183,7 @@ function App() {
         .then((json) => setData(json))
         .catch(() => setData({ ok: false }))
     },
-    [boot, isOperator, listQuery, activeTab]
+    [boot, isOperator, listQuery, activeTab, resellerContextId]
   )
 
   useEffect(() => {
@@ -221,6 +244,7 @@ function App() {
       const loc = parseDashFromPath(window.location.pathname)
       setActiveTab(safeResellerTab(loc.tab))
       setUserDetailId(loc.userDetailId)
+      setResellerContextId(loc.resellerContextId ?? null)
     }
     window.addEventListener("popstate", onPop)
     return () => window.removeEventListener("popstate", onPop)
@@ -352,6 +376,14 @@ function App() {
               const base = dashboardBaseUrl.replace(/\/?$/, "")
               window.history.pushState({ tab: "users" }, "", `${base}/users/`)
               setUserDetailId(null)
+            }}
+            onOpenResellerWorkspace={(rid) => {
+              const id = Number(rid)
+              if (!Number.isFinite(id) || id < 1) return
+              const base = dashboardBaseUrl.replace(/\/?$/, "")
+              window.history.pushState({ tab: "reseller_workspace", resellerContextId: id }, "", `${base}/reseller_workspace/${id}/`)
+              setResellerContextId(id)
+              setActiveTab("reseller_workspace")
             }}
             setListQuery={setListQuery}
             usersSearchQuery={listQuery.users_q ?? ""}

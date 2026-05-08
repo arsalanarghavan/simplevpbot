@@ -18,6 +18,13 @@ export async function postAdminMutate(
     return { ok: false, message: "no_rest" }
   }
   const nonce = String((boot as { nonce?: string }).nonce || "")
+  const path = typeof window !== "undefined" ? window.location.pathname : ""
+  const m = path.match(/\/dashboard\/reseller_workspace\/(\d+)(?:\/|$)/)
+  const resellerCtx = m ? Number(m[1]) : 0
+  const payload: Record<string, unknown> = { op, ...params }
+  if (resellerCtx > 0 && !("reseller_context_svp_user_id" in payload)) {
+    payload.reseller_context_svp_user_id = resellerCtx
+  }
   const res = await fetch(`${restBase}/dashboard/admin/mutate`, {
     method: "POST",
     headers: {
@@ -25,7 +32,7 @@ export async function postAdminMutate(
       "X-WP-Nonce": nonce,
     },
     credentials: "include",
-    body: JSON.stringify({ op, ...params }),
+    body: JSON.stringify(payload),
   })
   let json: Record<string, unknown> = {}
   try {

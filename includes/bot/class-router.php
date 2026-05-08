@@ -22,6 +22,16 @@ class SimpleVPBot_Router {
 	 */
 	public static function dispatch( $platform, array $update ) {
 		if ( ! SimpleVPBot_Settings::get( 'enabled', true ) ) {
+			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+				SimpleVPBot_Logger::warning(
+					'router skipped: bot processing disabled in settings',
+					array(
+						'scope' => class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot() ? 'reseller' : 'main',
+						'reseller_svp_user_id' => class_exists( 'SimpleVPBot_Bot_Context' ) ? (int) SimpleVPBot_Bot_Context::reseller_svp_user_id() : 0,
+						'platform' => $platform,
+					)
+				);
+			}
 			return;
 		}
 		$plat = ( 'bale' === $platform ) ? 'bale' : 'telegram';
@@ -315,16 +325,27 @@ class SimpleVPBot_Router {
 	 */
 	public static function is_platform_admin( $platform, $from_id ) {
 		if ( class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot() ) {
+			$admin_ids = array();
+			$prof      = class_exists( 'SimpleVPBot_Bot_Context' ) ? SimpleVPBot_Bot_Context::reseller_profile() : null;
+			if ( $prof && class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+				$raw_ids   = 'bale' === $platform ? ( $prof->admin_bale_ids ?? '' ) : ( $prof->admin_telegram_ids ?? '' );
+				$admin_ids = array_map( 'intval', (array) SimpleVPBot_Model_Reseller_Bot_Profile::decode_admin_ids( $raw_ids ) );
+			}
+			if ( in_array( (int) $from_id, $admin_ids, true ) ) {
+				return true;
+			}
 			$reseller_id = (int) SimpleVPBot_Bot_Context::reseller_svp_user_id();
-			if ( $reseller_id > 0 ) {
+			if ( $reseller_id > 0 && class_exists( 'SimpleVPBot_Model_User' ) ) {
 				$reseller = SimpleVPBot_Model_User::find( $reseller_id );
 				if ( $reseller ) {
-					if ( 'bale' === $platform ) {
-						return (int) ( $reseller->bale_user_id ?? 0 ) === (int) $from_id;
+					$owner_id = 'bale' === $platform ? (int) ( $reseller->bale_user_id ?? 0 ) : (int) ( $reseller->tg_user_id ?? 0 );
+					if ( $owner_id > 0 && $owner_id === (int) $from_id ) {
+						return true;
 					}
-					return (int) ( $reseller->tg_user_id ?? 0 ) === (int) $from_id;
 				}
 			}
+			// In reseller context, do not fall back to global admin id lists.
+			return false;
 		}
 		$ids = 'bale' === $platform
 			? (array) SimpleVPBot_Settings::get( 'admin_bale_ids', array() )
