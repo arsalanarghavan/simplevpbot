@@ -69,6 +69,21 @@ class SimpleVPBot_Dashboard_Front {
 	}
 
 	/**
+	 * Whether dash path is /dashboard/logout/ (SPA logout without wp-login).
+	 *
+	 * @param string $dash_path Normalized dash path.
+	 * @return bool
+	 */
+	private static function is_logout_dash_path( $dash_path ) {
+		$s = trim( str_replace( '\\', '/', (string) $dash_path ), '/' );
+		if ( '' === $s ) {
+			return false;
+		}
+		$parts = explode( '/', $s );
+		return isset( $parts[0] ) && 'logout' === $parts[0];
+	}
+
+	/**
 	 * Serve standalone HTML shell for the React app.
 	 */
 	public static function render_page() {
@@ -82,6 +97,22 @@ class SimpleVPBot_Dashboard_Front {
 		$dash_path = get_query_var( 'svp_dash_path' );
 		$dash_path = is_string( $dash_path ) ? trim( str_replace( '\\', '/', $dash_path ), '/' ) : '';
 		$is_login  = self::is_login_dash_path( $dash_path );
+
+		if ( self::is_logout_dash_path( $dash_path ) ) {
+			$login_slash = trailingslashit( home_url( '/dashboard/login' ) );
+			if ( ! is_user_logged_in() ) {
+				wp_safe_redirect( $login_slash );
+				exit;
+			}
+			$nonce = isset( $_GET['_wpnonce'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['_wpnonce'] ) ) : '';
+			if ( ! wp_verify_nonce( $nonce, 'simplevpbot_dash_logout' ) ) {
+				wp_safe_redirect( home_url( '/dashboard/' ) );
+				exit;
+			}
+			wp_logout();
+			wp_safe_redirect( $login_slash );
+			exit;
+		}
 
 		if ( ! is_user_logged_in() ) {
 			if ( ! $is_login ) {
@@ -128,42 +159,58 @@ class SimpleVPBot_Dashboard_Front {
 				'loginNonce'          => wp_create_nonce( 'simplevpbot_dash_login' ),
 				'dashboardUrl'        => home_url( '/dashboard/' ),
 				'dashboardLoginUrl'   => trailingslashit( home_url( '/dashboard/login' ) ),
-				'logoutUrl'           => wp_logout_url( home_url( '/dashboard/' ) ),
+				'logoutUrl'           => class_exists( 'SimpleVPBot_Rest_Dashboard' ) ? SimpleVPBot_Rest_Dashboard::dashboard_logout_url() : wp_logout_url( home_url( '/dashboard/' ) ),
 				'siteName'            => get_bloginfo( 'name' ),
 				'pluginUrl'           => SIMPLEVPBOT_PLUGIN_URL,
 				'dashPath'            => 'login',
 				'siteTimeZone'        => is_string( $tz ) ? $tz : '',
 			);
 		} else {
-			$user     = wp_get_current_user();
-			$is_admin = current_user_can( 'manage_options' );
-			$svp_uid  = 0;
-			$is_reseller = false;
-			if ( class_exists( 'SimpleVPBot_Model_User' ) ) {
-				$row = SimpleVPBot_Model_User::find_by_wp_user( (int) $user->ID );
-				if ( $row ) {
-					$svp_uid = (int) $row->id;
-					$is_reseller = ! $is_admin && SimpleVPBot_Model_User::is_reseller_row( $row );
-				}
+			$ctx         = class_exists( 'SimpleVPBot_Rest_Dashboard' )
+				? SimpleVPBot_Rest_Dashboard::dashboard_actor_context()
+				: array(
+					'isAdmin'             => current_user_can( 'manage_options' ),
+					'isReseller'          => false,
+					'actorUserId'         => 0,
+					'activePersona'       => 'user',
+					'availablePersonas'   => array(),
+				);
+			$is_admin    = ! empty( $ctx['isAdmin'] );
+			$is_reseller = ! empty( $ctx['isReseller'] );
+			$svp_uid     = (int) ( $ctx['actorUserId'] ?? 0 );
+			$actor_perms = null;
+			if ( $is_reseller && $svp_uid > 0 && class_exists( 'SimpleVPBot_Model_User' ) ) {
+				$actor_perms = SimpleVPBot_Model_User::reseller_permissions( $svp_uid );
+			}
+			$sidebar_user = null;
+			if ( $svp_uid > 0 && class_exists( 'SimpleVPBot_Rest_Dashboard' ) ) {
+				$sidebar_user = SimpleVPBot_Rest_Dashboard::sidebar_user_payload( $svp_uid );
 			}
 			$boot = array(
-				'restUrl'             => $rest,
-				'nonce'               => wp_create_nonce( 'wp_rest' ),
-				'locale'              => $locale,
-				'lang'                => $lang,
-				'isRtl'               => $rtl,
-				'isLoggedIn'          => true,
-				'isAdmin'             => $is_admin,
-				'isReseller'          => $is_reseller,
-				'svpUserId'           => $svp_uid,
-				'loginUrl'            => wp_login_url( home_url( '/dashboard/' ) ),
-				'dashboardUrl'        => home_url( '/dashboard/' ),
-				'dashboardLoginUrl'   => trailingslashit( home_url( '/dashboard/login' ) ),
-				'logoutUrl'           => wp_logout_url( home_url( '/dashboard/' ) ),
-				'siteName'            => get_bloginfo( 'name' ),
-				'pluginUrl'           => SIMPLEVPBOT_PLUGIN_URL,
-				'dashPath'            => $dash_path,
-				'siteTimeZone'        => is_string( $tz ) ? $tz : '',
+				'restUrl'                   => $rest,
+				'nonce'                     => wp_create_nonce( 'wp_rest' ),
+				'locale'                    => $locale,
+				'lang'                      => $lang,
+				'isRtl'                     => $rtl,
+				'isLoggedIn'                => true,
+				'isAdmin'                   => $is_admin,
+				'isReseller'                => $is_reseller,
+				'svpUserId'                 => $svp_uid,
+				'user'                      => $sidebar_user,
+				'actorPermissions'          => $actor_perms,
+				'activePersona'             => isset( $ctx['activePersona'] ) ? (string) $ctx['activePersona'] : 'user',
+				'availablePersonas'         => isset( $ctx['availablePersonas'] ) ? array_values( (array) $ctx['availablePersonas'] ) : array(),
+				'impersonating'             => ! empty( $ctx['impersonating'] ),
+				'impersonationTargetId'     => isset( $ctx['impersonationTargetId'] ) ? (int) $ctx['impersonationTargetId'] : 0,
+				'impersonationTargetLabel'  => isset( $ctx['impersonationTargetLabel'] ) ? (string) $ctx['impersonationTargetLabel'] : '',
+				'loginUrl'                  => wp_login_url( home_url( '/dashboard/' ) ),
+				'dashboardUrl'              => home_url( '/dashboard/' ),
+				'dashboardLoginUrl'         => trailingslashit( home_url( '/dashboard/login' ) ),
+				'logoutUrl'                 => class_exists( 'SimpleVPBot_Rest_Dashboard' ) ? SimpleVPBot_Rest_Dashboard::dashboard_logout_url() : wp_logout_url( home_url( '/dashboard/' ) ),
+				'siteName'                  => get_bloginfo( 'name' ),
+				'pluginUrl'                 => SIMPLEVPBOT_PLUGIN_URL,
+				'dashPath'                  => $dash_path,
+				'siteTimeZone'              => is_string( $tz ) ? $tz : '',
 			);
 		}
 

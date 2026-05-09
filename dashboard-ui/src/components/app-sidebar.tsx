@@ -26,6 +26,12 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import type { AdminNavSection } from "@/config/admin-nav"
 import { cn } from "@/lib/utils"
 
@@ -80,10 +86,75 @@ function SidebarQuickLinks({ rtl }: { rtl: boolean }) {
   )
 }
 
-function RoleSwitcher({ role }: { role: "admin" | "reseller" | "user" }) {
+function RoleSwitcher({
+  activePersona,
+  availablePersonas,
+  restUrl,
+  nonce,
+  rtl = false,
+  personaSwitchBlocked,
+}: {
+  activePersona: "admin" | "reseller" | "user"
+  availablePersonas: Array<"admin" | "reseller" | "user">
+  restUrl: string
+  nonce: string
+  rtl?: boolean
+  /** True while impersonating a reseller — persona API returns 403 until stopped. */
+  personaSwitchBlocked?: boolean
+}) {
   const { t } = useTranslation()
   const label =
-    role === "admin" ? t("sidebar.role.admin") : role === "reseller" ? t("sidebar.role.reseller") : t("sidebar.role.user")
+    activePersona === "admin"
+      ? t("sidebar.role.admin")
+      : activePersona === "reseller"
+        ? t("sidebar.role.reseller")
+        : t("sidebar.role.user")
+
+  const setPersona = (persona: "admin" | "reseller" | "user") => {
+    if (persona === activePersona) return
+    const base = restUrl.replace(/\/$/, "")
+    void fetch(`${base}/dashboard/persona`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-WP-Nonce": nonce,
+      },
+      credentials: "include",
+      body: JSON.stringify({ persona }),
+    })
+      .then(async (r) => {
+        const json = (await r.json()) as { ok?: boolean; code?: string }
+        if (r.ok && json?.ok) window.location.reload()
+      })
+      .catch(() => {})
+  }
+
+  if (personaSwitchBlocked) {
+    return (
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                disabled
+                aria-label={label}
+              >
+                <UserRoundCog className="size-4 opacity-50" />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className={cn("max-w-xs", rtl && "text-right")}>
+            <p>{t("layout.personaSwitchBlockedImpersonation")}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    )
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -91,42 +162,64 @@ function RoleSwitcher({ role }: { role: "admin" | "reseller" | "user" }) {
           type="button"
           variant="outline"
           size="icon"
-          className="h-8 w-8 shrink-0 group-data-[collapsible=icon]:hidden"
+          className="h-8 w-8 shrink-0"
           aria-label={label}
           title={label}
         >
           <UserRoundCog className="size-4" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-48">
+      <DropdownMenuContent
+        align="end"
+        style={{ direction: rtl ? "rtl" : "ltr" }}
+        className={cn("min-w-48", rtl && "text-right")}
+      >
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
           {t("sidebar.role.switchLabel")}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem disabled={role !== "admin"} className="gap-2 text-sm">
-          {role === "admin" ? (
-            <Check className="size-4 shrink-0 opacity-90" />
-          ) : (
-            <span className="inline-block w-4 shrink-0" aria-hidden />
-          )}
-          {t("sidebar.role.admin")}
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={role !== "reseller"} className="gap-2 text-sm">
-          {role === "reseller" ? (
-            <Check className="size-4 shrink-0 opacity-90" />
-          ) : (
-            <span className="inline-block w-4 shrink-0" aria-hidden />
-          )}
-          {t("sidebar.role.reseller")}
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={role !== "user"} className="gap-2 text-sm">
-          {role === "user" ? (
-            <Check className="size-4 shrink-0 opacity-90" />
-          ) : (
-            <span className="inline-block w-4 shrink-0" aria-hidden />
-          )}
-          {t("sidebar.role.user")}
-        </DropdownMenuItem>
+        {availablePersonas.includes("admin") ? (
+          <DropdownMenuItem
+            disabled={activePersona === "admin"}
+            className={cn("gap-2 text-sm", rtl && "flex-row-reverse justify-end")}
+            onClick={() => setPersona("admin")}
+          >
+            {activePersona === "admin" ? (
+              <Check className="size-4 shrink-0 opacity-90" />
+            ) : (
+              <span className="inline-block w-4 shrink-0" aria-hidden />
+            )}
+            {t("sidebar.role.admin")}
+          </DropdownMenuItem>
+        ) : null}
+        {availablePersonas.includes("reseller") ? (
+          <DropdownMenuItem
+            disabled={activePersona === "reseller"}
+            className={cn("gap-2 text-sm", rtl && "flex-row-reverse justify-end")}
+            onClick={() => setPersona("reseller")}
+          >
+            {activePersona === "reseller" ? (
+              <Check className="size-4 shrink-0 opacity-90" />
+            ) : (
+              <span className="inline-block w-4 shrink-0" aria-hidden />
+            )}
+            {t("sidebar.role.reseller")}
+          </DropdownMenuItem>
+        ) : null}
+        {availablePersonas.includes("user") ? (
+          <DropdownMenuItem
+            disabled={activePersona === "user"}
+            className={cn("gap-2 text-sm", rtl && "flex-row-reverse justify-end")}
+            onClick={() => setPersona("user")}
+          >
+            {activePersona === "user" ? (
+              <Check className="size-4 shrink-0 opacity-90" />
+            ) : (
+              <span className="inline-block w-4 shrink-0" aria-hidden />
+            )}
+            {t("sidebar.role.user")}
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -146,11 +239,22 @@ export function AppSidebar({
   userSearchRestUrl,
   userSearchNonce,
   adminSections,
+  activePersona,
+  availablePersonas,
+  personaRestUrl,
+  personaNonce,
+  personaSwitchBlocked = false,
 }: {
   side: "left" | "right"
   variant: "admin" | "reseller" | "user"
   navTabs: NavTab[]
-  user: { name: string; email: string; avatar: string; logoutUrl?: string }
+  user: {
+    name: string
+    tgUserId: number
+    baleUserId: number
+    avatar: string
+    logoutUrl?: string
+  }
   activeTabKey: string
   onSelectTab: (tabKey: string) => void
   dashboardBaseUrl: string
@@ -160,6 +264,11 @@ export function AppSidebar({
   userSearchRestUrl?: string
   userSearchNonce?: string
   adminSections?: AdminNavSection[]
+  activePersona?: "admin" | "reseller" | "user"
+  availablePersonas?: Array<"admin" | "reseller" | "user">
+  personaRestUrl?: string
+  personaNonce?: string
+  personaSwitchBlocked?: boolean
 }) {
   const isFa = side === "right"
   const { t } = useTranslation()
@@ -168,7 +277,12 @@ export function AppSidebar({
 
   const displayName = siteName.trim() || t("sidebar.siteFallback")
   const isAdmin = variant === "admin"
-  const role: "admin" | "reseller" | "user" = isAdmin ? "admin" : variant === "reseller" ? "reseller" : "user"
+  const persona: "admin" | "reseller" | "user" =
+    activePersona ?? (isAdmin ? "admin" : variant === "reseller" ? "reseller" : "user")
+  const personas = availablePersonas ?? [persona]
+  const showRoleSwitcher =
+    Boolean(personaRestUrl && personaNonce) &&
+    (personas.length > 1 || personaSwitchBlocked)
 
   const userMainItems = [
     {
@@ -184,9 +298,11 @@ export function AppSidebar({
     },
   ]
 
+  const showOperatorHeader = variant === "admin" || variant === "reseller"
+
   return (
     <Sidebar side={side} collapsible="icon">
-      {(variant === "admin" || variant === "reseller") && (
+      {(showOperatorHeader || (variant === "user" && showRoleSwitcher)) && (
         <SidebarHeader
           className={cn(
             "gap-2 border-b border-sidebar-border pb-3",
@@ -205,7 +321,16 @@ export function AppSidebar({
               <p className="min-w-0 flex-1 truncate text-sm font-semibold leading-tight">
                 {displayName}
               </p>
-              <RoleSwitcher role={role} />
+              {showRoleSwitcher ? (
+                <RoleSwitcher
+                  activePersona={persona}
+                  availablePersonas={personas}
+                  restUrl={personaRestUrl!}
+                  nonce={personaNonce!}
+                  rtl={isFa}
+                  personaSwitchBlocked={personaSwitchBlocked}
+                />
+              ) : null}
             </div>
           ) : (
             <div className="flex items-center gap-2 px-2 pt-2">
@@ -220,20 +345,31 @@ export function AppSidebar({
                 <p className="min-w-0 flex-1 truncate text-sm font-semibold leading-tight">
                   {displayName}
                 </p>
-                <RoleSwitcher role={role} />
+                {showRoleSwitcher ? (
+                  <RoleSwitcher
+                    activePersona={persona}
+                    availablePersonas={personas}
+                    restUrl={personaRestUrl!}
+                    nonce={personaNonce!}
+                    rtl={isFa}
+                    personaSwitchBlocked={personaSwitchBlocked}
+                  />
+                ) : null}
               </div>
             </div>
           )}
-          <div className="px-2">
-            <SidebarSearch
-              onSelectTab={onSelectTab}
-              onOpenUserDetail={onOpenUserDetail}
-              restUrl={userSearchRestUrl}
-              nonce={userSearchNonce}
-              rtl={isFa}
-              sections={adminSections}
-            />
-          </div>
+          {showOperatorHeader ? (
+            <div className="px-2">
+              <SidebarSearch
+                onSelectTab={onSelectTab}
+                onOpenUserDetail={onOpenUserDetail}
+                restUrl={userSearchRestUrl}
+                nonce={userSearchNonce}
+                rtl={isFa}
+                sections={adminSections}
+              />
+            </div>
+          ) : null}
         </SidebarHeader>
       )}
       <SidebarContent>
@@ -248,7 +384,7 @@ export function AppSidebar({
         ) : (
           <NavMain
             items={userMainItems}
-            groupLabel={t("sidebar.sections.overview")}
+            groupLabel={t("myPanel")}
             activeTabKey={activeTabKey}
             onSubItemClick={onSelectTab}
             subItemUrl={subItemUrl}

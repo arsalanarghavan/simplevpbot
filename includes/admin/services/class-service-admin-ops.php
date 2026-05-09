@@ -1182,10 +1182,11 @@ class SimpleVPBot_Service_Admin_Ops {
 	 * @param int                     $panel_id Panel id.
 	 * @param int                     $inbound_id Inbound id.
 	 * @param object                  $row      DB row object.
-	 * @param array<string, mixed>    $inb      Inbound array or empty.
+	 * @param array<string, mixed>    $inb      Inbound JSON from cache map (unused here; config lines come from subscription only).
 	 * @return array<string, mixed>|null
 	 */
 	private static function configs_ui_client_from_cache_row( $panel_id, $inbound_id, $row, array $inb ) {
+		unset( $inb );
 		$pid = (int) $panel_id;
 		$iid = (int) $inbound_id;
 		$em  = trim( (string) ( $row->email ?? '' ) );
@@ -1217,17 +1218,15 @@ class SimpleVPBot_Service_Admin_Ops {
 		if ( '' === $comment_val && '' !== $inb_remark ) {
 			$comment_val = $inb_remark;
 		}
-		$remark_for_link = '' !== $comment_val ? $comment_val : $em;
 		$sub_id          = (string) ( $row->sub_id ?? '' );
 		$subscription_url = '' !== $sub_id
 			? SimpleVPBot_Config_Link::subscription_url( $sub_id, $pid )
 			: '';
-		$primary_uri = ! empty( $inb )
-			? SimpleVPBot_Config_Link::build( $inb, $c, $remark_for_link, $pid )
-			: '';
-		$config_uris       = array();
-		$portal_url        = '';
-		$primary_link      = '';
+		// Config share URIs must match 3x-ui subscription output only — do not build locally here (avoids N HTTP calls per snapshot row); use configs-portal-payload or portal for real lines.
+		$primary_uri  = '';
+		$config_uris  = array();
+		$portal_url   = '';
+		$primary_link = (string) $subscription_url;
 		$limit_bytes_i     = (int) ( $row->limit_bytes ?? 0 );
 		$used_bytes_i      = (int) ( $row->used_bytes ?? 0 );
 		$volume_exhausted  = ( $limit_bytes_i > 0 && $used_bytes_i >= $limit_bytes_i ) ? 1 : 0;
@@ -1245,15 +1244,6 @@ class SimpleVPBot_Service_Admin_Ops {
 					$date_expired = 1;
 				}
 			}
-		}
-		if ( '' === $primary_uri && ! empty( $config_uris[0] ) ) {
-			$primary_uri = (string) $config_uris[0];
-		}
-		if ( '' !== $primary_uri ) {
-			$config_uris = array( $primary_uri );
-		}
-		if ( '' === $primary_link ) {
-			$primary_link = '' !== $primary_uri ? (string) $primary_uri : (string) $subscription_url;
 		}
 		$ips_raw = isset( $row->client_ips_json ) ? (string) $row->client_ips_json : '';
 		$ips_dec = json_decode( $ips_raw, true );
@@ -1295,6 +1285,122 @@ class SimpleVPBot_Service_Admin_Ops {
 			'service_plan_id'     => $service_plan_id,
 			'service_expires_at'  => $svc && ! empty( $svc->expires_at ) ? (string) $svc->expires_at : '',
 			'client_ips'          => $client_ips,
+		);
+	}
+
+	/**
+	 * Normalize Handler_Service::get_portal_service_data() for dashboard JSON (subscription + config lines like bot).
+	 *
+	 * @param array<string, mixed> $data Portal payload.
+	 * @return array<string, mixed>
+	 */
+	private static function configs_portal_payload_shape_from_handler( array $data ) {
+		$uris = isset( $data['config_uris'] ) && is_array( $data['config_uris'] )
+			? array_values( array_filter( array_map( 'strval', $data['config_uris'] ) ) )
+			: array();
+		$sub = isset( $data['subscription_url'] ) ? (string) $data['subscription_url'] : '';
+		if ( '' === $sub && isset( $data['import_sub_url'] ) ) {
+			$sub = (string) $data['import_sub_url'];
+		}
+		$portal = isset( $data['portal_url'] ) ? (string) $data['portal_url'] : '';
+		if ( '' === $portal && isset( $data['user_portal_url'] ) ) {
+			$portal = (string) $data['user_portal_url'];
+		}
+		$primary = isset( $data['primary_link'] ) ? (string) $data['primary_link'] : '';
+		if ( '' === $primary && ! empty( $uris[0] ) ) {
+			$primary = (string) $uris[0];
+		}
+		if ( '' === $primary && isset( $data['config_uri'] ) && '' !== (string) $data['config_uri'] ) {
+			$primary = (string) $data['config_uri'];
+		}
+		if ( '' === $primary && '' !== $sub ) {
+			$primary = $sub;
+		}
+		$primary_uri = ! empty( $uris[0] ) ? (string) $uris[0] : ( isset( $data['config_uri'] ) ? (string) $data['config_uri'] : '' );
+		if ( '' === $primary_uri && '' !== $primary ) {
+			$primary_uri = $primary;
+		}
+		return array(
+			'subscription_url'   => $sub,
+			'portal_url'         => $portal,
+			'primary_link'       => $primary,
+			'config_uris'        => $uris,
+			'primary_config_uri' => $primary_uri,
+		);
+	}
+
+	/**
+	 * Subscription + config URIs exactly as the bot / user portal (`SimpleVPBot_Handler_Service::get_portal_service_data`).
+	 *
+	 * Linked service: full portal payload. Unlinked row: subscription fetch only (no portal HMAC).
+	 *
+	 * @param int    $service_id  svp_services.id; if &gt; 0, uses bot path.
+	 * @param int    $panel_id    Panel id (unlinked).
+	 * @param int    $inbound_id  Inbound id (unlinked).
+	 * @param string $email       Client email (unlinked).
+	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
+	 */
+	public static function configs_portal_payload( $service_id = 0, $panel_id = 0, $inbound_id = 0, $email = '' ) {
+		$sid = (int) $service_id;
+		if ( $sid > 0 ) {
+			$svc = SimpleVPBot_Model_Service::find( $sid );
+			if ( ! $svc ) {
+				return array( 'ok' => false, 'message' => __( 'سرویس یافت نشد.', 'simplevpbot' ) );
+			}
+			if ( SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
+				return array( 'ok' => false, 'message' => 'l2tp' );
+			}
+			if ( ! class_exists( 'SimpleVPBot_Handler_Service' ) ) {
+				return array( 'ok' => false, 'message' => 'handler_missing' );
+			}
+			$data = SimpleVPBot_Handler_Service::get_portal_service_data( $svc, (int) ( $svc->user_id ?? 0 ) );
+			if ( ! is_array( $data ) || ! empty( $data['_deleted'] ) ) {
+				return array( 'ok' => false, 'message' => 'deleted_or_invalid' );
+			}
+			return array(
+				'ok'   => true,
+				'data' => self::configs_portal_payload_shape_from_handler( $data ),
+			);
+		}
+
+		$pid = (int) $panel_id;
+		$iid = (int) $inbound_id;
+		$em  = trim( (string) $email );
+		if ( $pid < 1 || $iid < 1 || '' === $em ) {
+			return array( 'ok' => false, 'message' => __( 'پارامترهای نامعتبر.', 'simplevpbot' ) );
+		}
+		global $wpdb;
+		$t   = SimpleVPBot_Model_Panel_Inbound_Client::table();
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT * FROM {$t} WHERE panel_id = %d AND inbound_id = %d AND email = %s LIMIT 1",
+				$pid,
+				$iid,
+				$em
+			)
+		);
+		if ( ! $row ) {
+			return array( 'ok' => false, 'message' => __( 'کلاینت در کش یافت نشد.', 'simplevpbot' ) );
+		}
+		$sub_id = (string) ( $row->sub_id ?? '' );
+		$sub_url = '' !== $sub_id
+			? SimpleVPBot_Config_Link::subscription_url( $sub_id, $pid )
+			: '';
+		$uris = '' !== $sub_url ? SimpleVPBot_Config_Link::fetch_subscription( $sub_url, $pid ) : array();
+		if ( ! is_array( $uris ) ) {
+			$uris = array();
+		}
+		$uris = array_values( array_filter( array_map( 'strval', $uris ) ) );
+		$primary = ! empty( $uris[0] ) ? (string) $uris[0] : $sub_url;
+		return array(
+			'ok'   => true,
+			'data' => array(
+				'subscription_url'   => (string) $sub_url,
+				'portal_url'         => '',
+				'primary_link'       => (string) $primary,
+				'config_uris'        => $uris,
+				'primary_config_uri' => ! empty( $uris[0] ) ? (string) $uris[0] : '',
+			),
 		);
 	}
 

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { KeyRound, LayoutDashboard, Settings2, ShieldCheck } from "lucide-react"
+import { KeyRound, LayoutDashboard, LogIn, Settings2, ShieldCheck } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -21,13 +21,52 @@ import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import { dashContentClass, dashFlexRowClass } from "@/lib/dash-locale"
 import { DataPagination } from "@/components/data-pagination"
 import type { PaginationMeta } from "@/lib/dash-pagination"
+import { formatNumber } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
+
+const selectClass =
+  "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
 
 type DashRecord = Record<string, unknown>
 
 function n(v: unknown): number {
   const x = Number(v)
   return Number.isFinite(x) ? x : 0
+}
+
+const PERSIAN_DIGITS = "۰۱۲۳۴۵۶۷۸۹"
+const ARABIC_DIGITS = "٠١٢٣٤٥٦٧٨٩"
+
+/** Normalize Persian/Arabic digits and separators for parseFloat. */
+function normalizeNumericInput(raw: string): string {
+  let s = String(raw)
+    .trim()
+    .replace(/[\u066C\u060C,]/g, "")
+    .replace(/[\u066B\u06DF]/g, ".")
+  for (let i = 0; i < 10; i++) {
+    const d = String(i)
+    s = s.split(PERSIAN_DIGITS[i]!).join(d)
+    s = s.split(ARABIC_DIGITS[i]!).join(d)
+  }
+  return s.replace(/,/g, ".")
+}
+
+function parsePricePerGbToman(raw: string): number {
+  const s = normalizeNumericInput(raw)
+  if (!s) return 0
+  const x = parseFloat(s)
+  return Number.isFinite(x) ? x : 0
+}
+
+/** Show whole toman in inputs when the stored value is an integer (avoid 190000.0000). */
+function formatTomanInputFromStored(raw: unknown): string {
+  const s = String(raw ?? "").trim()
+  if (!s) return ""
+  const x = parsePricePerGbToman(s)
+  if (!Number.isFinite(x) || x < 0) return s
+  if (Math.abs(x - Math.round(x)) < 1e-6) return String(Math.round(x))
+  const rounded = Math.round(x * 100) / 100
+  return String(rounded)
 }
 
 function displayName(u: DashRecord): string {
@@ -54,12 +93,23 @@ function resellerStatusLabel(t: (k: string, o?: { defaultValue?: string }) => st
   return String(raw ?? "").trim() || "—"
 }
 
+type PanelPriceRow = {
+  panel_id: number
+  price_per_gb: string
+  panel_access: boolean
+  default_service_type: "xray" | "l2tp"
+  default_inbound_id: string
+  default_l2tp_server_id: number
+}
+
 export function DashboardResellersAdmin({
   rows,
   panels,
+  l2tpServers = [],
   resellerPermissionsMap,
   resellerPanelPricesMap,
   canManageResellerControls = true,
+  canManagePanelPrices = canManageResellerControls,
   isFa,
   pagination,
   onPageChange,
@@ -67,13 +117,16 @@ export function DashboardResellersAdmin({
   onOpenUserDetail,
   onOpenWorkspace,
   onMutateSuccess,
+  onImpersonateReseller,
 }: {
   rows: DashRecord[]
   panels: DashRecord[]
+  l2tpServers?: DashRecord[]
   resellerPermissionsMap?: Record<string, Record<string, boolean> | undefined>
-  resellerPanelPricesMap?: Record<string, Array<{ panel_id?: number; price_per_gb?: number | string; panel_access?: boolean | number }> | undefined>
+  resellerPanelPricesMap?: Record<string, Array<Record<string, unknown>> | undefined>
   resellerBotMap?: Record<string, { enabled?: boolean; brand?: string } | undefined>
   canManageResellerControls?: boolean
+  canManagePanelPrices?: boolean
   isFa: boolean
   pagination: PaginationMeta | null
   onPageChange: (p: number) => void
@@ -81,9 +134,11 @@ export function DashboardResellersAdmin({
   onOpenUserDetail: (id: number) => void
   onOpenWorkspace?: (id: number) => void
   onMutateSuccess?: () => void
+  onImpersonateReseller?: (id: number) => void
 }) {
   const { t } = useTranslation()
   const tp = (k: string) => t(`resellersAdmin.${k}`)
+  const isResellerActor = Boolean(window.__SIMPLEVPBOT_DASH__?.isReseller)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState("")
   const [form, setForm] = useState({
@@ -96,7 +151,7 @@ export function DashboardResellersAdmin({
     bale_user_id: "",
   })
   const [priceResellerId, setPriceResellerId] = useState<number | null>(null)
-  const [priceRows, setPriceRows] = useState<{ panel_id: number; price_per_gb: string; panel_access: boolean }[]>([])
+  const [priceRows, setPriceRows] = useState<PanelPriceRow[]>([])
   const [permResellerId, setPermResellerId] = useState<number | null>(null)
   const [permissions, setPermissions] = useState<Record<string, boolean>>({})
 
@@ -125,12 +180,19 @@ export function DashboardResellersAdmin({
       if (pid > 0) existingByPanel.set(pid, String(row?.price_per_gb ?? ""))
     }
     setPriceRows(
-      panels.map((p) => ({
-        panel_id: n(p.id),
-        price_per_gb: existingByPanel.get(n(p.id)) ?? "",
-        panel_access:
-          ((existingRows.find((x) => n(x.panel_id) === n(p.id))?.panel_access ?? 1) as number | boolean) !== 0,
-      }))
+      panels.map((p) => {
+        const pid = n(p.id)
+        const ex = existingRows.find((x) => n(x.panel_id) === pid) as Record<string, unknown> | undefined
+        const stRaw = String(ex?.default_service_type ?? "xray").toLowerCase()
+        return {
+          panel_id: pid,
+          price_per_gb: formatTomanInputFromStored(existingByPanel.get(pid) ?? ""),
+          panel_access: ((ex?.panel_access ?? 1) as number | boolean) !== 0,
+          default_service_type: stRaw === "l2tp" ? "l2tp" : "xray",
+          default_inbound_id: String(ex?.default_inbound_id ?? ""),
+          default_l2tp_server_id: n(ex?.default_l2tp_server_id),
+        }
+      })
     )
   }
 
@@ -140,12 +202,27 @@ export function DashboardResellersAdmin({
     setErr("")
     try {
       const rows = priceRows
-        .map((r) => ({
-          panel_id: r.panel_id,
-          price_per_gb: parseFloat(r.price_per_gb.replace(/,/g, ".")) || 0,
-          panel_access: r.panel_access,
-        }))
-        .filter((r) => r.panel_access || r.price_per_gb > 0)
+        .map((r) => {
+          const priceNum = parsePricePerGbToman(String(r.price_per_gb))
+          const panel_access = priceNum > 0 ? true : r.panel_access
+          const base: Record<string, unknown> = {
+            panel_id: r.panel_id,
+            price_per_gb: priceNum,
+            panel_access,
+          }
+          if (!isResellerActor) {
+            base.default_service_type = r.default_service_type
+            base.default_inbound_id = Math.max(0, parseInt(String(r.default_inbound_id).trim(), 10) || 0)
+            base.default_l2tp_server_id =
+              r.default_service_type === "l2tp" ? Math.max(0, r.default_l2tp_server_id) : 0
+          }
+          return base
+        })
+        .filter((r) => (r.panel_access as boolean) || (r.price_per_gb as number) > 0)
+      if (rows.length === 0) {
+        setErr(tp("panelPricesNoRowsError"))
+        return
+      }
       const res = await postAdminMutate("reseller_panel_prices_save", {
         reseller_svp_user_id: priceResellerId,
         rows,
@@ -201,7 +278,6 @@ export function DashboardResellersAdmin({
   const permDefs = useMemo(
     () => [
       { key: "users.manage", label: tp("perm_users_manage") },
-      { key: "users.merge", label: tp("perm_users_merge") },
       { key: "users.bulk", label: tp("perm_users_bulk") },
       { key: "broadcast.send", label: tp("perm_broadcast_send") },
       { key: "receipts.review", label: tp("perm_receipts_review") },
@@ -342,7 +418,18 @@ export function DashboardResellersAdmin({
                           <Button type="button" variant="outline" size="icon" onClick={() => onOpenWorkspace?.(id)} aria-label={t("sidebar.groups.resellerWorkspace")}>
                             <LayoutDashboard className="h-4 w-4" />
                           </Button>
-                          <Button type="button" variant="outline" size="icon" onClick={() => openPriceDialog(id)} disabled={!canManageResellerControls || panels.length < 1} aria-label={tp("panelPrices")}>
+                          {onImpersonateReseller && canManageResellerControls ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => onImpersonateReseller(id)}
+                              aria-label={tp("impersonateReseller")}
+                            >
+                              <LogIn className="h-4 w-4" />
+                            </Button>
+                          ) : null}
+                          <Button type="button" variant="outline" size="icon" onClick={() => openPriceDialog(id)} disabled={!canManagePanelPrices || panels.length < 1} aria-label={tp("panelPrices")}>
                             <Settings2 className="h-4 w-4" />
                           </Button>
                           <Button type="button" variant="outline" size="icon" onClick={() => { setPermResellerId(id); setPermissions({ ...(resellerPermissionsMap?.[String(id)] ?? {}) }) }} disabled={!canManageResellerControls} aria-label={tp("permissionsColumn")}>
@@ -390,7 +477,17 @@ export function DashboardResellersAdmin({
                               <div className={cn("flex flex-wrap gap-1", isFa && "flex-row-reverse justify-end")}>
                                 <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" onClick={() => onOpenUserDetail(id)}><KeyRound className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>{tp("manage")}</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" onClick={() => onOpenWorkspace?.(id)}><LayoutDashboard className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>{t("sidebar.groups.resellerWorkspace")}</TooltipContent></Tooltip>
-                                <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" onClick={() => openPriceDialog(id)} disabled={!canManageResellerControls || panels.length < 1}><Settings2 className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>{tp("panelPrices")}</TooltipContent></Tooltip>
+                                {onImpersonateReseller && canManageResellerControls ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button type="button" variant="ghost" size="icon" onClick={() => onImpersonateReseller(id)}>
+                                        <LogIn className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{tp("impersonateReseller")}</TooltipContent>
+                                  </Tooltip>
+                                ) : null}
+                                <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" onClick={() => openPriceDialog(id)} disabled={!canManagePanelPrices || panels.length < 1}><Settings2 className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>{tp("panelPrices")}</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" onClick={() => { setPermResellerId(id); setPermissions({ ...(resellerPermissionsMap?.[String(id)] ?? {}) }) }} disabled={!canManageResellerControls}><ShieldCheck className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>{tp("permissionsColumn")}</TooltipContent></Tooltip>
                               </div>
                             </TooltipProvider>
@@ -414,19 +511,40 @@ export function DashboardResellersAdmin({
       </Card>
 
       <Dialog open={priceResellerId != null} onOpenChange={(o) => !o && setPriceResellerId(null)}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{tp("panelPricesTitle")}</DialogTitle>
-            <DialogDescription>
-              {t("resellersAdmin.panelPricesDialogDescription", { id: priceResellerId ?? 0 })}
+            <DialogTitle className={cn("flex items-center gap-2", isFa && "flex-row-reverse")}>
+              <span>{tp("panelPricesTitle")}</span>
+              {isResellerActor ? (
+                <Badge variant="secondary" className="font-normal">
+                  {tp("panelPricesParentFloorBadge")}
+                </Badge>
+              ) : null}
+            </DialogTitle>
+            <DialogDescription className="space-y-2">
+              <span>
+                {t(
+                  isResellerActor
+                    ? "resellersAdmin.panelPricesDialogDescriptionParentFloor"
+                    : "resellersAdmin.panelPricesDialogDescription",
+                  { id: priceResellerId ?? 0 }
+                )}
+              </span>
+              <span className="block text-muted-foreground">
+                {t(
+                  isResellerActor
+                    ? "resellersAdmin.panelPricesDialogHintParentFloor"
+                    : "resellersAdmin.panelPricesDialogHintAdmin"
+                )}
+              </span>
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-3 py-2">
+          <div className="grid gap-4 py-2">
             {priceRows.map((row, idx) => {
               const pl = panels.find((p) => n(p.id) === row.panel_id)
-              const label = String(pl?.label ?? `Panel ${row.panel_id}`)
+              const label = String(pl?.label ?? pl?.name ?? `Panel ${row.panel_id}`)
               return (
-                <div key={row.panel_id} className="grid gap-1">
+                <div key={row.panel_id} className="grid gap-2 rounded-md border border-border/60 p-3">
                   <Label htmlFor={`ppb-${row.panel_id}`}>{label}</Label>
                   <label className={cn("flex items-center gap-2 text-xs", isFa && "flex-row-reverse justify-end")}>
                     <input
@@ -437,7 +555,7 @@ export function DashboardResellersAdmin({
                         setPriceRows((prev) => prev.map((r, i) => (i === idx ? { ...r, panel_access: checked } : r)))
                       }}
                     />
-                    {t("resellersAdmin.manage")}
+                    {isResellerActor ? tp("panelPricesIncludePanelFloor") : tp("panelAccessLabel")}
                   </label>
                   <Input
                     id={`ppb-${row.panel_id}`}
@@ -449,6 +567,66 @@ export function DashboardResellersAdmin({
                     }}
                     placeholder={tp("pricePlaceholder")}
                   />
+                  {!isResellerActor ? (
+                    <div className={cn("grid gap-2 sm:grid-cols-2", isFa && "text-right")}>
+                      <div className="space-y-1 sm:col-span-2">
+                        <Label className="text-xs">{tp("defaultServiceType")}</Label>
+                        <select
+                          className={selectClass}
+                          dir="ltr"
+                          value={priceRows[idx]?.default_service_type ?? "xray"}
+                          onChange={(e) => {
+                            const v = e.target.value === "l2tp" ? "l2tp" : "xray"
+                            setPriceRows((prev) =>
+                              prev.map((r, i) => (i === idx ? { ...r, default_service_type: v } : r))
+                            )
+                          }}
+                        >
+                          <option value="xray">{t("plansAdmin.protocolXray")}</option>
+                          <option value="l2tp">{t("plansAdmin.protocolL2tp")}</option>
+                        </select>
+                      </div>
+                      {priceRows[idx]?.default_service_type === "l2tp" ? (
+                        <div className="space-y-1 sm:col-span-2">
+                          <Label className="text-xs">{tp("defaultL2tpServer")}</Label>
+                          <select
+                            className={selectClass}
+                            dir="ltr"
+                            value={String(priceRows[idx]?.default_l2tp_server_id ?? 0)}
+                            onChange={(e) => {
+                              const v = n(e.target.value)
+                              setPriceRows((prev) =>
+                                prev.map((r, i) => (i === idx ? { ...r, default_l2tp_server_id: v } : r))
+                              )
+                            }}
+                          >
+                            <option value="0">—</option>
+                            {l2tpServers.map((s) => (
+                              <option key={String(s.id)} value={String(n(s.id))}>
+                                #{formatNumber(n(s.id), isFa)} {String(s.name ?? s.host ?? "")}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <div className="space-y-1 sm:col-span-2">
+                          <Label className="text-xs">{tp("defaultInbound")}</Label>
+                          <Input
+                            dir="ltr"
+                            className="font-mono text-sm"
+                            inputMode="numeric"
+                            value={priceRows[idx]?.default_inbound_id ?? ""}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              setPriceRows((prev) =>
+                                prev.map((r, i) => (i === idx ? { ...r, default_inbound_id: v } : r))
+                              )
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               )
             })}

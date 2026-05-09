@@ -20,6 +20,7 @@ import { DashboardReferralAdmin } from "@/components/dashboard-referral-admin"
 import { DashboardResellersAdmin } from "@/components/dashboard-resellers-admin"
 import { DashboardTextsAdmin } from "@/components/dashboard-texts-admin"
 import { DashboardUsersAdmin } from "@/components/dashboard-users-admin"
+import { DashboardUsersBulkAdmin } from "@/components/dashboard-users-bulk-admin"
 import { DashboardUserDetailAdmin } from "@/components/dashboard-user-detail-admin"
 import { DataPagination } from "@/components/data-pagination"
 import {
@@ -82,6 +83,10 @@ type Props = {
   data: DashData
   activeTab: string
   userDetailId: number | null
+  /** Reseller operator (non–WP admin); tighter UI and catalog defaults. */
+  isReseller?: boolean
+  /** When set, overview/quick links only offer these tabs (already server-filtered). */
+  allowedNavTabs?: Set<string> | null
   isFa: boolean
   dashboardBaseUrl: string
   onSelectTab: (tabKey: string) => void
@@ -94,12 +99,15 @@ type Props = {
   onRefreshPanelHealth?: () => void
   onRefreshLivePanelMetrics?: () => void
   onAdminMutateSuccess?: () => void
+  onImpersonateReseller?: (svpUserId: number) => void
 }
 
 export function DashboardAdminView({
   data,
   activeTab,
   userDetailId,
+  isReseller = false,
+  allowedNavTabs = null,
   isFa,
   dashboardBaseUrl,
   onSelectTab,
@@ -112,8 +120,10 @@ export function DashboardAdminView({
   onRefreshPanelHealth,
   onRefreshLivePanelMetrics,
   onAdminMutateSuccess,
+  onImpersonateReseller,
 }: Props) {
   const { t } = useTranslation()
+  const navAllowed = allowedNavTabs
   const setPage = useCallback(
     (key: ListQueryKey, page: number) => {
       setListQuery((q) => listQuerySetPage(q, key, page))
@@ -169,10 +179,12 @@ export function DashboardAdminView({
         panelsPagination={pickPagination(data, "panels")}
         isFa={isFa}
         dashboardBaseUrl={dashboardBaseUrl}
+        allowedNavTabs={navAllowed}
         onSelectTab={onSelectTab}
         onRefreshPanelHealth={onRefreshPanelHealth}
         onPanelsPageChange={(p) => setPage("panels", p)}
         onPanelsPerPageChange={(n) => setPer("panels", n)}
+        compactHealthOnly={isReseller}
       />
     )
   }
@@ -187,6 +199,7 @@ export function DashboardAdminView({
         isFa={isFa}
         onRefreshPanelHealth={onRefreshPanelHealth}
         onRefreshLivePanelMetrics={onRefreshLivePanelMetrics}
+        compactHealthOnly={isReseller}
       />
     )
   }
@@ -229,6 +242,22 @@ export function DashboardAdminView({
         botsList={asRecordArray(data.botsList)}
         botsPagination={pickPagination(data, "botsList")}
         isFa={isFa}
+        resellerSelfServe={false}
+        onMutateSuccess={onAdminMutateSuccess}
+        onPageChange={(p) => setPage("botsList", p)}
+        onPerPageChange={(n) => setPer("botsList", n)}
+      />
+    )
+  }
+
+  if (activeTab === "reseller_bots") {
+    return (
+      <DashboardBotsAdmin
+        settings={settings}
+        botsList={asRecordArray(data.botsList)}
+        botsPagination={pickPagination(data, "botsList")}
+        isFa={isFa}
+        resellerSelfServe
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("botsList", p)}
         onPerPageChange={(n) => setPer("botsList", n)}
@@ -282,8 +311,11 @@ export function DashboardAdminView({
         panels={panels}
         planCategories={planCategories}
         l2tpServers={l2tp}
+        resellerPlanFloors={asRecordArray((data as Record<string, unknown>).resellerPlanFloors)}
+        resellerMode={isReseller}
         pagination={pickPagination(data, "plans")}
         settings={settings}
+        showCatalogDefaultsSave={!isReseller}
         isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("plans", p)}
@@ -375,6 +407,7 @@ export function DashboardAdminView({
             ? (data.textDefaults as Record<string, unknown>)
             : undefined
         }
+        layoutReadOnly={isReseller}
         isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
       />
@@ -394,6 +427,12 @@ export function DashboardAdminView({
     )
   }
 
+  if (activeTab === "users_bulk") {
+    return (
+      <DashboardUsersBulkAdmin isFa={isFa} onMutateSuccess={onAdminMutateSuccess} canRunBulkWorker={!isReseller} />
+    )
+  }
+
   if (activeTab === "users") {
     return (
       <DashboardUsersAdmin
@@ -402,6 +441,10 @@ export function DashboardAdminView({
         usersPagination={pickPagination(data, "usersList")}
         pendingPagination={pickPagination(data, "pendingUsers")}
         isFa={isFa}
+        isReseller={isReseller}
+        actorPermissions={
+          (data.actorPermissions as Record<string, boolean> | undefined) ?? undefined
+        }
         onMutateSuccess={onAdminMutateSuccess}
         onUsersPageChange={(p) => setPage("usersList", p)}
         onUsersPerPageChange={(n) => setPer("usersList", n)}
@@ -419,15 +462,19 @@ export function DashboardAdminView({
       <DashboardResellersAdmin
         rows={resellers}
         panels={panels}
+        l2tpServers={l2tp}
         resellerPermissionsMap={(data.resellerPermissionsMap as Record<string, Record<string, boolean>>) || {}}
         resellerPanelPricesMap={(data.resellerPanelPricesMap as Record<string, Array<{ panel_id?: number; price_per_gb?: number | string; panel_access?: boolean | number }>>) || {}}
         pagination={pickPagination(data, "resellers")}
+        canManageResellerControls={!isReseller}
+        canManagePanelPrices={true}
         isFa={isFa}
         onPageChange={(p) => setPage("resellers", p)}
         onPerPageChange={(n) => setPer("resellers", n)}
         onOpenUserDetail={onOpenUserDetail}
         onOpenWorkspace={onOpenResellerWorkspace}
         onMutateSuccess={onAdminMutateSuccess}
+        onImpersonateReseller={onImpersonateReseller}
       />
     )
   }
@@ -463,6 +510,7 @@ export function DashboardAdminView({
         referralStats={data.referralStats}
         referralEvents={asRecordArray(data.referralEvents)}
         eventsPagination={pickPagination(data, "referralEvents")}
+        readOnlySettings={isReseller}
         isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
         onEventsPageChange={(p) => setPage("referralEvents", p)}

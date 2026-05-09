@@ -55,7 +55,13 @@ export function listQuerySetPage(
  */
 export function buildAdminStateQuery(
   listQuery: Record<string, string>,
-  opts?: { refreshPanelHealth?: boolean; refreshLivePanelMetrics?: boolean; activeTab?: string }
+  opts?: {
+    refreshPanelHealth?: boolean
+    refreshLivePanelMetrics?: boolean
+    activeTab?: string
+    /** Reseller operator: avoid stale admin panels_page leaving panel list empty. */
+    resellerOperator?: boolean
+  }
 ): string {
   const sp = new URLSearchParams()
   if (opts?.refreshPanelHealth) sp.set("refreshPanelHealth", "1")
@@ -84,6 +90,14 @@ export function buildAdminStateQuery(
     sp.set("planCategories_per_page", "100")
     sp.set("l2tp_page", "1")
     sp.set("l2tp_per_page", "100")
+  }
+  if (tab === "resellers") {
+    sp.set("l2tp_page", "1")
+    sp.set("l2tp_per_page", "100")
+  }
+  if (opts?.resellerOperator) {
+    sp.set("panels_page", "1")
+    sp.set("panels_per_page", "100")
   }
   const s = sp.toString()
   return s ? `?${s}` : ""

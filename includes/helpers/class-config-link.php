@@ -1,6 +1,8 @@
 <?php
 /**
- * Build share URI from inbound + client (best-effort for vless/vmess/trojan/ss).
+ * Subscription URL + HTTP body from 3x-ui: {@see SimpleVPBot_Config_Link::fetch_subscription()}.
+ * Lines are exactly what the panel serves (public subscription URL and/or `sub/{token}` on the panel host).
+ * {@see SimpleVPBot_Config_Link::build()} is internal only — not used for user-facing config lists.
  *
  * @package SimpleVPBot
  */
@@ -26,11 +28,12 @@ class SimpleVPBot_Config_Link {
 	}
 
 	/**
-	 * Build primary link for client.
+	 * Internal: synthesize a share link from API JSON (not the panel subscription body).
 	 *
 	 * @param array<string, mixed> $inbound Inbound obj from API.
 	 * @param array<string, mixed> $client Client object from settings.clients.
-	 * @param string                 $remark Remark / fragment name.
+	 * @param string               $remark Remark / fragment name.
+	 * @param int|null             $panel_id Optional panel id.
 	 * @return string
 	 */
 	public static function build( $inbound, $client, $remark = '', $panel_id = null ) {
@@ -141,51 +144,60 @@ class SimpleVPBot_Config_Link {
 	 * service enabled in 3x-ui (path/port), and that `sub_id` on the service matches the
 	 * client on the panel (see plugin logs: subscription fetch failed / bad response).
 	 *
-	 * @param string $sub_url Fully-qualified subscription URL.
-	 * @return array<int, string> List of non-empty URI lines, exactly as served.
+	 * @param string   $sub_url   Fully-qualified public subscription URL (for cache key + second-chance fetch).
+	 * @param int|null $panel_id  `svp_panels.id` (0 = legacy). When not null, panel `sub/{token}` is tried first — same bytes the panel serves, often reachable when `subscription_public_base` is not.
+	 * @return array<int, string> Lines exactly as in the panel subscription HTTP body.
 	 */
-	public static function fetch_subscription( $sub_url ) {
+	public static function fetch_subscription( $sub_url, $panel_id = null ) {
 		$url = trim( (string) $sub_url );
 		if ( '' === $url ) {
 			return array();
 		}
-		$cache_key = 'svp_sub_' . md5( $url );
+		$cache_key = 'svp_sub_' . md5( $url . '|p' . (string) ( null === $panel_id ? 'x' : (int) $panel_id ) );
 		$cached    = get_transient( $cache_key );
 		if ( false !== $cached && is_array( $cached ) ) {
 			return $cached;
 		}
-		$attempts = 5;
-		$lines    = array();
-		for ( $i = 0; $i < $attempts; $i++ ) {
-			if ( $i > 0 ) {
-				usleep( 200000 + $i * 150000 );
-			}
-			$resp = wp_remote_get(
-				$url,
-				array(
-					'timeout'     => 20,
-					'redirection' => 3,
-					'sslverify'   => false,
-					'headers'     => array( 'Accept' => '*/*' ),
-				)
-			);
-			if ( is_wp_error( $resp ) ) {
-				if ( class_exists( 'SimpleVPBot_Logger' ) ) {
-					SimpleVPBot_Logger::error( 'subscription fetch failed', array( 'url' => $url, 'err' => $resp->get_error_message(), 'try' => $i ) );
+		$lines = array();
+		if ( null !== $panel_id ) {
+			$lines = self::fetch_subscription_from_panel_sub_path( $url, (int) $panel_id );
+		}
+		if ( empty( $lines ) ) {
+			$attempts = 5;
+			for ( $i = 0; $i < $attempts; $i++ ) {
+				if ( $i > 0 ) {
+					usleep( 200000 + $i * 150000 );
 				}
-				continue;
-			}
-			$code = (int) wp_remote_retrieve_response_code( $resp );
-			$body = (string) wp_remote_retrieve_body( $resp );
-			if ( $code < 200 || $code >= 300 || '' === $body ) {
-				if ( class_exists( 'SimpleVPBot_Logger' ) ) {
-					SimpleVPBot_Logger::error( 'subscription bad response', array( 'url' => $url, 'code' => $code, 'len' => strlen( $body ), 'try' => $i ) );
+				$resp = wp_remote_get(
+					$url,
+					array(
+						'timeout'     => 20,
+						'redirection' => 3,
+						'sslverify'   => false,
+						'headers'     => array(
+							'Accept'     => '*/*',
+							'User-Agent' => 'SimpleVPBot/1.0 subscription',
+						),
+					)
+				);
+				if ( is_wp_error( $resp ) ) {
+					if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+						SimpleVPBot_Logger::error( 'subscription fetch failed', array( 'url' => $url, 'err' => $resp->get_error_message(), 'try' => $i ) );
+					}
+					continue;
 				}
-				continue;
-			}
-			$lines = self::parse_subscription_body( $body );
-			if ( ! empty( $lines ) ) {
-				break;
+				$code = (int) wp_remote_retrieve_response_code( $resp );
+				$body = (string) wp_remote_retrieve_body( $resp );
+				if ( $code < 200 || $code >= 300 || '' === $body ) {
+					if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+						SimpleVPBot_Logger::error( 'subscription bad response', array( 'url' => $url, 'code' => $code, 'len' => strlen( $body ), 'try' => $i ) );
+					}
+					continue;
+				}
+				$lines = self::parse_subscription_body( $body );
+				if ( ! empty( $lines ) ) {
+					break;
+				}
 			}
 		}
 		if ( empty( $lines ) ) {
@@ -196,35 +208,203 @@ class SimpleVPBot_Config_Link {
 	}
 
 	/**
-	 * Try base64-decode, else return body as-is. Split into non-empty lines.
+	 * GET subscription raw body from the panel web root: `sub/{token}` (same output as public sub URL).
+	 *
+	 * @param string $sub_url   Public subscription URL (path basename = token).
+	 * @param int    $panel_id  0 = legacy global panel from settings.
+	 * @return array<int, string>
+	 */
+	private static function fetch_subscription_from_panel_sub_path( $sub_url, $panel_id ) {
+		$parts = wp_parse_url( (string) $sub_url );
+		if ( ! is_array( $parts ) || empty( $parts['path'] ) ) {
+			return array();
+		}
+		$token = rawurldecode( (string) basename( rtrim( (string) $parts['path'], '/' ) ) );
+		if ( '' === $token || ! class_exists( 'SimpleVPBot_Xui_Client' ) ) {
+			return array();
+		}
+		$pid = (int) $panel_id;
+		if ( $pid < 0 ) {
+			$pid = 0;
+		}
+		return SimpleVPBot_Xui_Client::run_with_panel(
+			$pid,
+			function () use ( $token ) {
+				$rel_encoded = 'sub/' . rawurlencode( $token );
+				$rel_raw     = 'sub/' . $token;
+				$candidates  = array_unique(
+					array(
+						$rel_encoded,
+						$rel_raw,
+					)
+				);
+				$pull = static function () use ( $candidates ) {
+					foreach ( $candidates as $rel ) {
+						$r = SimpleVPBot_Xui_Client::request( $rel, 'GET', array(), true, 0, 'panel' );
+						if ( ! empty( $r['ok'] ) && is_string( $r['body'] ?? null ) && strlen( (string) $r['body'] ) > 4 ) {
+							$parsed = self::parse_subscription_body( (string) $r['body'] );
+							if ( ! empty( $parsed ) ) {
+								return $parsed;
+							}
+						}
+					}
+					return array();
+				};
+				$lines = $pull();
+				if ( ! empty( $lines ) ) {
+					return $lines;
+				}
+				if ( SimpleVPBot_Xui_Client::login_with_retries( 4, 250000 ) ) {
+					return $pull();
+				}
+				return array();
+			}
+		);
+	}
+
+	/**
+	 * Decode subscription body: JSON wrappers, base64 chain, newline URIs, regex scrape.
 	 *
 	 * @param string $body Response body.
 	 * @return array<int, string>
 	 */
 	public static function parse_subscription_body( $body ) {
-		$body  = trim( (string) $body );
-		$plain = $body;
-		// Heuristic: base64 body rarely contains "://"; if it has, treat as plain.
-		if ( false === strpos( $body, '://' ) ) {
-			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode
-			$decoded = base64_decode( str_replace( array( "\r", "\n", ' ' ), '', $body ), true );
-			if ( is_string( $decoded ) && '' !== $decoded && false !== strpos( $decoded, '://' ) ) {
-				$plain = $decoded;
+		$body = trim( (string) $body );
+		if ( '' === $body ) {
+			return array();
+		}
+		if ( strncmp( $body, "\xEF\xBB\xBF", 3 ) === 0 ) {
+			$body = substr( $body, 3 );
+		}
+		$lead = ltrim( $body );
+		if ( '' !== $lead && ( '{' === $lead[0] || '[' === $lead[0] ) ) {
+			$json = json_decode( $body, true );
+			if ( is_array( $json ) ) {
+				$from = self::extract_uris_from_subscription_json( $json );
+				if ( ! empty( $from ) ) {
+					return $from;
+				}
 			}
 		}
+		$lines = self::split_subscription_uri_lines( self::expand_subscription_plain( $body ) );
+		if ( ! empty( $lines ) ) {
+			return $lines;
+		}
+		return self::extract_uris_by_regex( $body );
+	}
+
+	/**
+	 * Unwrap base64 layers until "://" appears or decode stalls.
+	 *
+	 * @param string $body Raw body.
+	 * @return string
+	 */
+	private static function expand_subscription_plain( $body ) {
+		$plain = (string) $body;
+		$guard = 0;
+		while ( $guard < 4 && false === strpos( $plain, '://' ) ) {
+			$b64 = str_replace( array( "\r", "\n", "\t", ' ' ), '', $plain );
+			if ( '' === $b64 ) {
+				break;
+			}
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode
+			$decoded = base64_decode( $b64, true );
+			if ( ! is_string( $decoded ) || '' === $decoded || $decoded === $plain ) {
+				break;
+			}
+			$plain = $decoded;
+			$guard++;
+		}
+		return $plain;
+	}
+
+	/**
+	 * Split text into share URI lines (non-empty, contain ://).
+	 *
+	 * @param string $plain Plain or decoded text.
+	 * @return array<int, string>
+	 */
+	private static function split_subscription_uri_lines( $plain ) {
+		$plain = (string) $plain;
 		$lines = preg_split( '/\r\n|\r|\n/', $plain );
 		$out   = array();
 		foreach ( (array) $lines as $ln ) {
 			$ln = trim( (string) $ln );
-			if ( '' === $ln ) {
-				continue;
-			}
-			if ( false === strpos( $ln, '://' ) ) {
+			if ( '' === $ln || false === strpos( $ln, '://' ) ) {
 				continue;
 			}
 			$out[] = $ln;
 		}
+		if ( empty( $out ) && false !== strpos( $plain, '://' ) ) {
+			$out[] = trim( $plain );
+		}
 		return $out;
+	}
+
+	/**
+	 * Recursively collect strings that look like share URIs (also decodes nested base64 strings).
+	 *
+	 * @param mixed $data JSON-decoded value.
+	 * @param int   $depth Recursion guard.
+	 * @return array<int, string>
+	 */
+	private static function extract_uris_from_subscription_json( $data, $depth = 0 ) {
+		$out = array();
+		if ( $depth > 8 ) {
+			return $out;
+		}
+		if ( is_string( $data ) ) {
+			$t = trim( $data );
+			if ( '' === $t ) {
+				return $out;
+			}
+			if ( false !== strpos( $t, '://' ) ) {
+				foreach ( self::split_subscription_uri_lines( $t ) as $ln ) {
+					$out[] = $ln;
+				}
+				return $out;
+			}
+			$expanded = self::expand_subscription_plain( $t );
+			if ( false !== strpos( $expanded, '://' ) ) {
+				foreach ( self::split_subscription_uri_lines( $expanded ) as $ln ) {
+					$out[] = $ln;
+				}
+			}
+			return $out;
+		}
+		if ( ! is_array( $data ) ) {
+			return $out;
+		}
+		foreach ( $data as $v ) {
+			foreach ( self::extract_uris_from_subscription_json( $v, $depth + 1 ) as $ln ) {
+				$out[] = $ln;
+			}
+		}
+		return array_values( array_unique( array_filter( $out ) ) );
+	}
+
+	/**
+	 * Last-resort: find vmess/vless/trojan/ss/tuic/hy2 URIs embedded in HTML or single-line blobs.
+	 *
+	 * @param string $body Raw body.
+	 * @return array<int, string>
+	 */
+	private static function extract_uris_by_regex( $body ) {
+		$s = (string) $body;
+		if ( '' === $s ) {
+			return array();
+		}
+		if ( preg_match_all( '/\b(?:vmess|vless|trojan|ss|ssr|tuic|hy2|hysteria2):\/\/\S+/iu', $s, $m ) && ! empty( $m[0] ) ) {
+			$out = array();
+			foreach ( $m[0] as $raw ) {
+				$u = rtrim( (string) $raw, "\t\r\n.,;)'\"»«،" );
+				if ( false !== strpos( $u, '://' ) ) {
+					$out[] = $u;
+				}
+			}
+			return array_values( array_unique( array_filter( $out ) ) );
+		}
+		return array();
 	}
 
 	/**

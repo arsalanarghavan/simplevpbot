@@ -72,6 +72,68 @@ class SimpleVPBot_Model_Users_Bulk_Job {
 		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t}" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 	}
 
+	/**
+	 * Jobs created by a reseller dashboard actor (svp_users.id). Admin uses 0 / omit filter via {@see list_jobs()}.
+	 *
+	 * @param int $created_by_svp_user_id Reseller svp_users.id.
+	 * @param int $limit                Page size.
+	 * @param int $offset               Offset.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function list_jobs_for_svp_actor( $created_by_svp_user_id, $limit = 20, $offset = 0 ) {
+		global $wpdb;
+		$t   = self::table();
+		$cid = (int) $created_by_svp_user_id;
+		if ( $cid < 1 ) {
+			return array();
+		}
+		$lim = max( 1, min( 100, (int) $limit ) );
+		$off = max( 0, (int) $offset );
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT * FROM {$t} WHERE created_by_svp_user_id = %d ORDER BY id DESC LIMIT %d OFFSET %d",
+				$cid,
+				$lim,
+				$off
+			),
+			ARRAY_A
+		); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
+	 * @param int $created_by_svp_user_id Reseller svp_users.id.
+	 * @return int
+	 */
+	public static function count_jobs_for_svp_actor( $created_by_svp_user_id ) {
+		global $wpdb;
+		$t   = self::table();
+		$cid = (int) $created_by_svp_user_id;
+		if ( $cid < 1 ) {
+			return 0;
+		}
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$t} WHERE created_by_svp_user_id = %d", $cid ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	}
+
+	/**
+	 * Whether the job row belongs to this reseller actor (or caller is admin bypass via $actor_uid 0).
+	 *
+	 * @param int $job_id      Job id.
+	 * @param int $actor_uid   Reseller svp_users.id or 0 when admin lists any job.
+	 * @return bool
+	 */
+	public static function job_visible_to_svp_actor( $job_id, $actor_uid ) {
+		$row = self::get_job( $job_id );
+		if ( ! is_array( $row ) || empty( $row ) ) {
+			return false;
+		}
+		$actor_uid = (int) $actor_uid;
+		if ( $actor_uid < 1 ) {
+			return true;
+		}
+		return (int) ( $row['created_by_svp_user_id'] ?? 0 ) === $actor_uid;
+	}
+
 	public static function list_job_items( $job_id, $page = 1, $per_page = 25, $status = '' ) {
 		global $wpdb;
 		$t      = self::items_table();

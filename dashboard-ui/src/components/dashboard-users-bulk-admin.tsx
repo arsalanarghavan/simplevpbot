@@ -19,12 +19,16 @@ type JobItemRow = Record<string, unknown>
 export function DashboardUsersBulkAdmin({
   isFa,
   onMutateSuccess,
+  canRunBulkWorker = true,
 }: {
   isFa: boolean
   onMutateSuccess?: () => void
+  /** WP admins may trigger the queue worker; resellers only enqueue jobs. */
+  canRunBulkWorker?: boolean
 }) {
   const { t } = useTranslation()
   const tp = (k: string) => t(`usersBulkAdmin.${k}`)
+  const isResellerActor = Boolean(window.__SIMPLEVPBOT_DASH__?.isReseller)
   const [scope, setScope] = useState("all_approved")
   const [customIds, setCustomIds] = useState("")
   const [op, setOp] = useState<BulkOp>("wallet")
@@ -171,6 +175,11 @@ export function DashboardUsersBulkAdmin({
         <CardHeader>
           <CardTitle className="text-base">{tp("scope")}</CardTitle>
           <CardDescription>{tp("scopeHint")}</CardDescription>
+          {isResellerActor ? (
+            <CardDescription className="text-amber-700 dark:text-amber-400">
+              {tp("resellerScopeHint")}
+            </CardDescription>
+          ) : null}
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
@@ -287,20 +296,22 @@ export function DashboardUsersBulkAdmin({
       ) : null}
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle className="text-base">{tp("jobsTitle")}</CardTitle>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            onClick={async () => {
-              await postAdminMutate("users_bulk_run_worker", { max_iterations: 20 })
-              await loadJobs()
-              if (selectedJobId) await loadItems(selectedJobId)
-            }}
-          >
-            {tp("runNow")}
-          </Button>
+          {canRunBulkWorker ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={async () => {
+                await postAdminMutate("users_bulk_run_worker", { max_iterations: 20 })
+                await loadJobs()
+                if (selectedJobId) await loadItems(selectedJobId)
+              }}
+            >
+              {tp("runNow")}
+            </Button>
+          ) : null}
         </CardHeader>
         <CardContent className="space-y-4">
           {jobs.length < 1 ? (

@@ -172,7 +172,7 @@ class SimpleVPBot_Handler_Admin {
 		$ntex = SimpleVPBot_Bot_Runtime::normalize_digits( $text );
 
 		if ( preg_match( '/^\/cancel(?:@\w+)?/i', $text ) || 'لغو' === $text ) {
-			$can_cancel = in_array( $st, array( 'admin_bak_interval', 'admin_bak_tg_chat', 'admin_bak_bl_chat', 'admin_bak_restore', 'admin_find_user', 'admin_dm', 'admin_w_balance' ), true )
+			$can_cancel = in_array( $st, array( 'admin_bak_interval', 'admin_bak_tg_chat', 'admin_bak_bl_chat', 'admin_bak_restore', 'admin_find_user', 'admin_dm', 'admin_broadcast', 'admin_w_balance' ), true )
 				|| ( class_exists( 'SimpleVPBot_Handler_Admin_Settings' ) && SimpleVPBot_Handler_Admin_Settings::is_cancelable_settings_state( $st ) )
 				|| ( 0 === strpos( $st, 'admin_line_' ) )
 				|| ( 0 === strpos( $st, 'admin_ns_' ) );

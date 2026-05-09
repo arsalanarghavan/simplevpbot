@@ -90,6 +90,7 @@ export function DashboardMonitoring({
   isFa,
   onRefreshPanelHealth,
   onRefreshLivePanelMetrics,
+  compactHealthOnly = false,
 }: {
   overview: OverviewPayload | undefined
   panels: Record<string, unknown>[]
@@ -98,6 +99,7 @@ export function DashboardMonitoring({
   isFa: boolean
   onRefreshPanelHealth?: () => void
   onRefreshLivePanelMetrics?: () => void
+  compactHealthOnly?: boolean
 }) {
   const { t } = useTranslation()
   const host = overview?.host
@@ -194,6 +196,63 @@ export function DashboardMonitoring({
   const diskFree = num(host?.diskFreeBytes)
   const diskUsed = diskTotal > 0 ? diskTotal - diskFree : 0
   const diskPct = diskTotal > 0 ? clampPct((diskUsed / diskTotal) * 100) : 0
+
+  if (compactHealthOnly) {
+    return (
+      <div className={cn("space-y-4", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
+        <div className={cn("flex flex-wrap items-center justify-between gap-2", isFa && "flex-row-reverse")}>
+          <div>
+            <h2 className="text-lg font-semibold">{t("monitoringPage.compactTitle")}</h2>
+            <p className="text-sm text-muted-foreground">{t("monitoringPage.compactSubtitle")}</p>
+          </div>
+          {onRefreshPanelHealth ? (
+            <Button type="button" variant="secondary" size="sm" onClick={() => onRefreshPanelHealth()}>
+              {t("dashboardOverview.refreshPanelHealth")}
+            </Button>
+          ) : null}
+        </div>
+        <Card>
+          <CardContent className="pt-6">
+            {panels.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t("dashboardOverview.unknown")}</p>
+            ) : (
+              <ul className="space-y-2">
+                {panels.map((row) => {
+                  const pid = Number(row.id)
+                  const h = healthById.get(pid)
+                  const { httpOk, networkReachable } = resolvePanelHealthFlags(h)
+                  const urlRaw = String(row.panel_url ?? "")
+                  const urlEmpty = !urlRaw.trim()
+                  const lat = h?.latencyMs ?? null
+                  const online = Boolean(h && !urlEmpty && networkReachable && httpOk)
+                  const label = String(row.label ?? row.name ?? `#${pid}`)
+                  return (
+                    <li
+                      key={pid}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/80 px-3 py-2.5 text-sm"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium">{label}</p>
+                        <p className="break-all font-mono text-xs text-muted-foreground">{truncateUrl(urlRaw)}</p>
+                      </div>
+                      <div className={cn("flex flex-wrap items-center gap-2", isFa && "flex-row-reverse")}>
+                        <span className="tabular-nums text-muted-foreground">
+                          {lat != null ? `${formatNumber(lat, isFa)} ms` : "—"}
+                        </span>
+                        <Badge variant={online ? "secondary" : "destructive"}>
+                          {online ? t("dashboardOverview.online") : t("dashboardOverview.offline")}
+                        </Badge>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div className={cn("space-y-6", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>

@@ -115,8 +115,8 @@ class SimpleVPBot_Bot_Text_Defaults {
 			$r,
 			'msg.welcome',
 			'messages',
-			"👋 سلام {name}!\n➖➖➖➖➖➖➖➖\nبه ربات VIP ما خوش آمدید.\nبرای شروع از منوی زیر استفاده کنید.",
-			"👋 Hi {name}!\n➖➖➖➖➖➖➖➖\nWelcome to our VIP bot.\nUse the menu below to get started."
+			"👋 سلام {name}!\n➖➖➖➖➖➖➖➖\nبه ربات VIP ما خوش آمدید.{referrer_line}\nبرای شروع از منوی زیر استفاده کنید.",
+			"👋 Hi {name}!\n➖➖➖➖➖➖➖➖\nWelcome to our VIP bot.{referrer_line}\nUse the menu below to get started."
 		);
 		self::pair(
 			$r,

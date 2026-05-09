@@ -177,6 +177,7 @@ export function SidebarSearch({
         onOpenChange={setOpen}
         title={t("sidebar.search.title")}
         description={t("sidebar.search.placeholder")}
+        rtl={rtl}
       >
         <CommandInput placeholder={t("sidebar.search.placeholder")} />
         <CommandSearchBridge onSearch={setPaletteQuery} />

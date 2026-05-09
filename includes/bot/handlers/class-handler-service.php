@@ -1061,7 +1061,30 @@ class SimpleVPBot_Handler_Service {
 			'expiry'               => $exp,
 			'expiry_fa'            => $exp,
 			'remark'               => (string) $svc->remark,
+			'usage_footer_notes'   => self::usage_footer_notes_fa( 0, $total, $used_bytes ),
 		);
+	}
+
+	/**
+	 * Extra lines under the usage panel (shared quota / over-cap explanation).
+	 *
+	 * @param int        $limit_ip Concurrent cap from panel client (0 if unknown).
+	 * @param int        $total_bytes Quota bytes (0 = unlimited).
+	 * @param float      $used_bytes Usage bytes.
+	 * @return string Empty or multi-line Persian note without leading/trailing blank lines.
+	 */
+	private static function usage_footer_notes_fa( $limit_ip, $total_bytes, $used_bytes ) {
+		$notes = array();
+		$lip   = max( 0, (int) $limit_ip );
+		if ( $lip > 1 ) {
+			$lip_fa = SimpleVPBot_Bot_Persian_Text::digits_to_fa( (string) $lip );
+			$notes[] = '👥 تا ' . $lip_fa . ' اتصال هم‌زمان برای این اشتراک مجاز است؛ مصرف دانلود و آپلود برای همهٔ دستگاه‌ها یکجا محاسبه می‌شود.';
+		}
+		$total = (int) $total_bytes;
+		if ( $total > 0 && (float) $used_bytes > (float) $total + 1048576.0 ) {
+			$notes[] = '⚠️ مصرف کل از سقف نمایش‌داده‌شده بیشتر است؛ اگر تازه حجم خریده‌اید یا چند نفر هم‌زمان استفاده می‌کنند، لحظاتی برای همگام‌سازی با پنل صبر کنید یا از پشتیبانی بپرسید.';
+		}
+		return $notes ? implode( "\n", $notes ) : '';
 	}
 
 	/**
@@ -1124,6 +1147,7 @@ class SimpleVPBot_Handler_Service {
 		$total       = null !== $panel_total
 			? (int) $panel_total
 			: self::normalize_service_quota_bytes( $svc, $us_bytes );
+		$limit_ip = max( 0, (int) ( $cl['limitIp'] ?? 0 ) );
 		$total_q  = $total > 0 ? self::format_bytes( $total ) : '♾️ نامحدود';
 		$remained = $total > 0 ? self::format_bytes( max( 0, $total - $us_bytes ) ) : '♾️ نامحدود';
 
@@ -1153,15 +1177,6 @@ class SimpleVPBot_Handler_Service {
 		$last   = self::format_last_online( $obj['lastOnline'] ?? null );
 		$exp    = $svc->expires_at ? self::format_datetime_fa( (string) $svc->expires_at ) : 'بدون انقضا';
 
-		$remark_for_link = trim( (string) ( $cl['remark'] ?? '' ) );
-		if ( '' === $remark_for_link ) {
-			$remark_for_link = (string) $svc->email;
-		}
-		$portal_config_uri = '';
-		if ( class_exists( 'SimpleVPBot_Config_Link' ) ) {
-			$portal_config_uri = (string) SimpleVPBot_Config_Link::build( $inb, $cl, $remark_for_link, self::svc_panel_id_xui( $svc ) );
-		}
-
 		return array(
 			'sub_id'               => $sub_id,
 			'status'               => $status_label,
@@ -1185,7 +1200,7 @@ class SimpleVPBot_Handler_Service {
 			'expiry'               => $exp,
 			'expiry_fa'            => $exp,
 			'remark'               => (string) $svc->remark,
-			'_portal_config_uri'   => $portal_config_uri,
+			'usage_footer_notes'   => self::usage_footer_notes_fa( $limit_ip, $total, $us_bytes ),
 		);
 	}
 
@@ -1249,6 +1264,10 @@ class SimpleVPBot_Handler_Service {
 		}
 		$tpl = SimpleVPBot_Texts::get( 'msg.subscription_panel', self::default_usage_template_fa() );
 		$txt = SimpleVPBot_Texts::format( $tpl, $v );
+		$ufn = isset( $v['usage_footer_notes'] ) ? trim( (string) $v['usage_footer_notes'] ) : '';
+		if ( '' !== $ufn ) {
+			$txt .= "\n\n" . $ufn;
+		}
 		if ( ! empty( $v['panel_unreachable'] ) ) {
 			$txt .= "\n\n⚠️ اتصال زنده به پنل برقرار نشد؛ جزئیات ترافیک پنل در دسترس نیست و بخشی از اعداد از آخرین ذخیرهٔ ربات است.";
 		}
@@ -1446,11 +1465,6 @@ class SimpleVPBot_Handler_Service {
 			return self::get_portal_l2tp_data( $svc, $user_id );
 		}
 		$v = self::collect_usage_stats( $svc );
-		$direct_cfg = '';
-		if ( isset( $v['_portal_config_uri'] ) ) {
-			$direct_cfg = (string) $v['_portal_config_uri'];
-			unset( $v['_portal_config_uri'] );
-		}
 		if ( ! empty( $v['deleted'] ) ) {
 			return array( '_deleted' => 1 );
 		}
@@ -1460,10 +1474,9 @@ class SimpleVPBot_Handler_Service {
 		if ( ! empty( $v['panel_unreachable'] ) && '' !== $import ) {
 			delete_transient( 'svp_sub_' . md5( $import ) );
 		}
-		$uris  = $import ? SimpleVPBot_Config_Link::fetch_subscription( $import ) : array();
-		if ( empty( $uris ) && '' !== $direct_cfg ) {
-			$uris = array( $direct_cfg );
-		}
+		$uris = $import
+			? SimpleVPBot_Config_Link::fetch_subscription( $import, (int) ( $svc->panel_id ?? 0 ) )
+			: array();
 		$primary = '';
 		if ( ! empty( $uris[0] ) ) {
 			$primary = (string) $uris[0];

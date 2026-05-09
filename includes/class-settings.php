@@ -224,5 +224,58 @@ class SimpleVPBot_Settings {
 		$mins = max( 5, (int) self::get( 'backup_interval_minutes', 60 ) );
 		return 'simplevpbot_every_' . $mins . '_minutes';
 	}
+
+	/**
+	 * Non-sensitive keys for reseller dashboard (no tokens, payment secrets, or panel credentials).
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function dashboard_slice_for_reseller_operator() {
+		$all  = self::all();
+		$keys = array(
+			'enabled',
+			'test_account_enabled',
+			'default_concurrent_users',
+			'price_per_extra_user',
+			'cards_display_mode',
+			'default_bot_locale',
+			'telegram_bot_username',
+			'bale_bot_username',
+			'referral_enabled',
+			'referral_percent',
+			'referral_min_payout_base',
+			'referral_example_base_toman',
+			'referral_example_invite_count',
+			'referral_require_approved_referrer',
+			'broadcast_batch_size',
+			'broadcast_usleep_us',
+			'broadcast_max_retries',
+			'broadcast_sending_timeout_sec',
+			'broadcast_api_timeout_sec',
+			'crisis_mode',
+			'suppress_bulk_user_notifications',
+			'alert_ip_warn_min_distinct',
+			'alert_ip_warn_hysteresis',
+			'alert_ip_warn_cooldown_minutes',
+			'notify_expiry_days',
+			'notify_low_traffic_percent',
+			'notify_user_volume',
+			'notify_user_expiry',
+			'notify_user_users',
+			'notify_user_after_expire',
+			'notify_idle_enabled',
+			'notify_idle_after_days',
+			'notify_idle_cooldown_days',
+			'webhook_rate_limit_per_min',
+			'rate_limit_trust_forwarded_for',
+		);
+		$out = array();
+		foreach ( $keys as $k ) {
+			if ( array_key_exists( $k, $all ) ) {
+				$out[ $k ] = $all[ $k ];
+			}
+		}
+		return $out;
+	}
 }
 

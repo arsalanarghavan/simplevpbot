@@ -36,6 +36,7 @@ class SimpleVPBot_Receipt_Processor {
 		if ( ! is_array( $meta ) ) {
 			$meta = array();
 		}
+		self::normalize_intent_meta( $meta );
 		$purchase_failed = false;
 		$provision_err   = '';
 		$provision_info  = null;
@@ -74,11 +75,21 @@ class SimpleVPBot_Receipt_Processor {
 					);
 				}
 			}
-		} elseif ( 'purchase' === $tx->type && ! empty( $meta['intent'] ) && 'add_volume' === (string) $meta['intent'] && isset( $meta['extra_gb'] ) ) {
+		} elseif ( 'purchase' === $tx->type && ! empty( $meta['intent'] ) && 'add_volume' === (string) $meta['intent'] && (int) ( $meta['extra_gb'] ?? 0 ) >= 1 ) {
 			$res_svc = self::resolve_intent_service_for_transaction( $tx, $meta );
 			if ( ! $res_svc['ok'] ) {
 				$purchase_failed = true;
 				$provision_err   = (string) $res_svc['reason'];
+				SimpleVPBot_Logger::error(
+					'purchase add_volume resolve failed',
+					array(
+						'tx_id'      => (int) $tx->id,
+						'rid'        => $rid,
+						'reason'     => $provision_err,
+						'extra_gb'   => (int) ( $meta['extra_gb'] ?? 0 ),
+						'service_id' => (int) ( $meta['service_id'] ?? 0 ),
+					)
+				);
 			} else {
 				$rn = SimpleVPBot_Service_Renew::apply_add_volume_after_payment( (int) $res_svc['service_id'], (int) $meta['extra_gb'] );
 				if ( ! empty( $rn['ok'] ) ) {
@@ -96,9 +107,13 @@ class SimpleVPBot_Receipt_Processor {
 					SimpleVPBot_Logger::error(
 						'purchase add_volume failed',
 						array(
-							'tx_id'  => (int) $tx->id,
-							'rid'    => $rid,
-							'reason' => $provision_err,
+							'tx_id'      => (int) $tx->id,
+							'rid'        => $rid,
+							'reason'     => $provision_err,
+							'intent'     => 'add_volume',
+							'service_id' => (int) ( $meta['service_id'] ?? 0 ),
+							'extra_gb'   => (int) ( $meta['extra_gb'] ?? 0 ),
+							'tx_user_id' => (int) $tx->user_id,
 						)
 					);
 				}
@@ -159,8 +174,23 @@ class SimpleVPBot_Receipt_Processor {
 			}
 		} elseif ( 'purchase' === $tx->type ) {
 			$purchase_failed = true;
-			$provision_err   = 'no_plan_id';
-			SimpleVPBot_Logger::error( 'purchase without plan_id', array( 'tx_id' => (int) $tx->id, 'rid' => $rid ) );
+			$intent            = isset( $meta['intent'] ) ? (string) $meta['intent'] : '';
+			if ( 'add_volume' === $intent && (int) ( $meta['extra_gb'] ?? 0 ) < 1 ) {
+				$provision_err = 'extra_gb_missing';
+			} else {
+				$provision_err = 'no_plan_id';
+			}
+			SimpleVPBot_Logger::error(
+				'purchase fallback no_plan_id',
+				array(
+					'tx_id'      => (int) $tx->id,
+					'rid'        => $rid,
+					'intent'     => $intent,
+					'plan_id'    => (int) ( $meta['plan_id'] ?? 0 ),
+					'service_id' => (int) ( $meta['service_id'] ?? 0 ),
+					'extra_gb'   => (int) ( $meta['extra_gb'] ?? 0 ),
+				)
+			);
 		}
 
 		if ( $purchase_failed ) {
@@ -237,6 +267,55 @@ class SimpleVPBot_Receipt_Processor {
 	}
 
 	/**
+	 * Normalize intent meta (aliases for extra_gb / extra_users).
+	 *
+	 * @param array<string, mixed> $meta Meta by reference.
+	 */
+	private static function normalize_intent_meta( array &$meta ) {
+		$intent = isset( $meta['intent'] ) ? (string) $meta['intent'] : '';
+		if ( 'add_volume' === $intent && ( ! isset( $meta['extra_gb'] ) || (int) $meta['extra_gb'] < 1 ) ) {
+			foreach ( array( 'volume_gb', 'gb', 'add_gb', 'traffic_gb', 'extra_traffic_gb' ) as $alias ) {
+				if ( isset( $meta[ $alias ] ) && (int) $meta[ $alias ] > 0 ) {
+					$meta['extra_gb'] = (int) $meta[ $alias ];
+					break;
+				}
+			}
+		}
+		if ( 'add_user_slots' === $intent && ( ! isset( $meta['extra_users'] ) || (int) $meta['extra_users'] < 1 ) ) {
+			foreach ( array( 'extra_slots', 'user_slots', 'slots' ) as $alias ) {
+				if ( isset( $meta[ $alias ] ) && (int) $meta[ $alias ] > 0 ) {
+					$meta['extra_users'] = (int) $meta[ $alias ];
+					break;
+				}
+			}
+		}
+	}
+
+	/**
+	 * When the payer has exactly one non-L2TP service, use it for renew/add_volume/add_user_slots intents.
+	 *
+	 * @param int $user_id svp_users.id.
+	 * @return object|null Service row.
+	 */
+	private static function single_eligible_intent_service_for_user( $user_id ) {
+		$uid = (int) $user_id;
+		if ( $uid < 1 ) {
+			return null;
+		}
+		$list = SimpleVPBot_Model_Service::by_user( $uid );
+		$xray = array();
+		foreach ( (array) $list as $svc ) {
+			if ( $svc && ! SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
+				$xray[] = $svc;
+			}
+		}
+		if ( 1 !== count( $xray ) ) {
+			return null;
+		}
+		return $xray[0];
+	}
+
+	/**
 	 * For renew / add_volume / add_user_slots: find service that belongs to transaction user.
 	 * Uses meta.service_id and/or transaction.service_id if meta is stale or missing.
 	 *
@@ -267,6 +346,25 @@ class SimpleVPBot_Receipt_Processor {
 					'reason'     => '',
 				);
 			}
+		}
+		$fb = self::single_eligible_intent_service_for_user( $uid );
+		if ( $fb ) {
+			$meta['service_id'] = (int) $fb->id;
+			SimpleVPBot_Logger::info(
+				'intent_service_resolve_fallback_single',
+				array(
+					'tx_user_id'          => $uid,
+					'service_id'          => (int) $fb->id,
+					'had_candidates'      => $candidates,
+					'resolved_from_empty' => empty( $candidates ),
+				)
+			);
+			return array(
+				'ok'         => true,
+				'service_id' => (int) $fb->id,
+				'service'    => $fb,
+				'reason'     => '',
+			);
 		}
 		if ( empty( $candidates ) ) {
 			return array(
@@ -317,8 +415,36 @@ class SimpleVPBot_Receipt_Processor {
 		if ( ! is_array( $meta ) ) {
 			return array( 'ok' => false, 'reason' => 'no_plan_id' );
 		}
+		self::normalize_intent_meta( $meta );
 		if ( ! empty( $meta['intent'] ) && in_array( (string) $meta['intent'], array( 'renew_same', 'add_volume', 'add_user_slots' ), true ) ) {
-			return array( 'ok' => false, 'reason' => 'intent_not_provision' );
+			if ( 'pending' !== (string) $tx->status ) {
+				return array( 'ok' => false, 'reason' => 'intent_tx_not_pending' );
+			}
+			$ful = self::fulfill_purchase_by_transaction( (int) $tx->id, 'admin_retry_receipt' );
+			if ( empty( $ful['ok'] ) ) {
+				return array( 'ok' => false, 'reason' => (string) ( $ful['reason'] ?? 'fulfill_failed' ) );
+			}
+			$tx2 = SimpleVPBot_Model_Transaction::find( (int) $tx->id );
+			if ( 'pending' === (string) $rec->status ) {
+				SimpleVPBot_Model_Receipt::update(
+					$rid,
+					array(
+						'status'     => 'approved',
+						'decided_at' => current_time( 'mysql' ),
+					)
+				);
+			}
+			$markup_retry = array(
+				'inline_keyboard' => array(
+					array( array( 'text' => SimpleVPBot_Keyboards::glass_button_text( '✅ سفارش اعمال شد (' . ( $label ?: 'admin' ) . ')' ), 'callback_data' => 'noop' ) ),
+				),
+			);
+			self::edit_admin_messages( $rec, $markup_retry );
+			return array(
+				'ok'         => true,
+				'reason'     => 'intent_fulfilled',
+				'service_id' => $tx2 && ! empty( $tx2->service_id ) ? (int) $tx2->service_id : 0,
+			);
 		}
 		if ( empty( $meta['plan_id'] ) ) {
 			return array( 'ok' => false, 'reason' => 'no_plan_id' );
@@ -378,6 +504,7 @@ class SimpleVPBot_Receipt_Processor {
 		if ( ! is_array( $meta ) ) {
 			return array( 'ok' => false, 'reason' => 'no_plan' );
 		}
+		self::normalize_intent_meta( $meta );
 		$intent = isset( $meta['intent'] ) ? (string) $meta['intent'] : '';
 
 		if ( 'renew_same' === $intent ) {
@@ -426,9 +553,19 @@ class SimpleVPBot_Receipt_Processor {
 			return array( 'ok' => true, 'tx' => $tx, 'meta' => $meta );
 		}
 
-		if ( 'add_volume' === $intent && isset( $meta['extra_gb'] ) ) {
+		if ( 'add_volume' === $intent && (int) ( $meta['extra_gb'] ?? 0 ) >= 1 ) {
 			$res_svc = self::resolve_intent_service_for_transaction( $tx, $meta );
 			if ( ! $res_svc['ok'] ) {
+				SimpleVPBot_Logger::error(
+					'fulfill_purchase add_volume resolve failed',
+					array(
+						'tx_id'      => (int) $tx->id,
+						'source'     => (string) $source_label,
+						'reason'     => (string) $res_svc['reason'],
+						'extra_gb'   => (int) ( $meta['extra_gb'] ?? 0 ),
+						'service_id' => (int) ( $meta['service_id'] ?? 0 ),
+					)
+				);
 				return array( 'ok' => false, 'reason' => (string) $res_svc['reason'] );
 			}
 			$intent_sid = (int) $res_svc['service_id'];
@@ -436,7 +573,13 @@ class SimpleVPBot_Receipt_Processor {
 			if ( empty( $rn['ok'] ) ) {
 				SimpleVPBot_Logger::error(
 					'fulfill_purchase add_volume failed',
-					array( 'tx_id' => (int) $tx->id, 'source' => (string) $source_label, 'msg' => (string) ( $rn['message'] ?? '' ) )
+					array(
+						'tx_id'      => (int) $tx->id,
+						'source'     => (string) $source_label,
+						'msg'        => (string) ( $rn['message'] ?? '' ),
+						'service_id' => $intent_sid,
+						'extra_gb'   => (int) ( $meta['extra_gb'] ?? 0 ),
+					)
 				);
 				return array( 'ok' => false, 'reason' => 'add_volume_failed' );
 			}

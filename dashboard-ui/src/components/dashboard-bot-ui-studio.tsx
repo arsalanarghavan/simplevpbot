@@ -234,12 +234,15 @@ export function DashboardBotUiStudio({
   uiLayout,
   uiRegistry,
   textDefaults,
+  layoutReadOnly = false,
   isFa,
   onMutateSuccess,
 }: {
   uiLayout?: Record<string, unknown>
   uiRegistry?: Record<string, unknown>
   textDefaults?: Record<string, unknown>
+  /** View layouts only (global Bot UI is admin-owned). */
+  layoutReadOnly?: boolean
   isFa: boolean
   onMutateSuccess?: () => void
 }) {
@@ -441,6 +444,9 @@ export function DashboardBotUiStudio({
       <div>
         <h2 className="text-lg font-medium">{tp("title")}</h2>
         <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
+        {layoutReadOnly ? (
+          <p className="mt-2 text-xs text-muted-foreground">{tp("readOnlyHint")}</p>
+        ) : null}
         {(surface.startsWith("svc_menu_") || surface.includes("inline")) && (
           <p className="mt-2 text-xs text-muted-foreground">{tp("hintInline")}</p>
         )}
@@ -466,12 +472,16 @@ export function DashboardBotUiStudio({
             })}
           </select>
         </div>
-        <Button type="button" onClick={onSave} disabled={saving || !surface}>
-          {saving ? tp("saving") : tp("save")}
-        </Button>
-        <Button type="button" variant="outline" onClick={onReset} disabled={resetting}>
-          {resetting ? tp("resetting") : tp("reset")}
-        </Button>
+        {!layoutReadOnly ? (
+          <>
+            <Button type="button" onClick={onSave} disabled={saving || !surface}>
+              {saving ? tp("saving") : tp("save")}
+            </Button>
+            <Button type="button" variant="outline" onClick={onReset} disabled={resetting}>
+              {resetting ? tp("resetting") : tp("reset")}
+            </Button>
+          </>
+        ) : null}
       </div>
 
       {err && <p className="text-sm text-destructive">{err}</p>}
@@ -480,14 +490,20 @@ export function DashboardBotUiStudio({
       {!surface ? (
         <p className="text-sm text-muted-foreground">{tp("emptySurface")}</p>
       ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
-          <div className="space-y-4">
-            <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
-              <Button type="button" variant="secondary" size="sm" onClick={addRow}>
-                {tp("addRow")}
-              </Button>
-              <span className="text-xs text-muted-foreground self-center">{tp("dragAcrossRowsHint")}</span>
-            </div>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragEnd={layoutReadOnly ? () => {} : handleDragEnd}
+        >
+          <div className={cn("space-y-4", layoutReadOnly && "pointer-events-none opacity-90")}>
+            {!layoutReadOnly ? (
+              <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
+                <Button type="button" variant="secondary" size="sm" onClick={addRow}>
+                  {tp("addRow")}
+                </Button>
+                <span className="text-xs text-muted-foreground self-center">{tp("dragAcrossRowsHint")}</span>
+              </div>
+            ) : null}
 
             {rows.length === 0 ? (
               <p className="text-sm text-muted-foreground">{tp("noRowsHint")}</p>

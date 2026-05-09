@@ -10,7 +10,7 @@ const enSidebar = {
     user: "User",
     seller: "Seller",
     switchLabel: "Role",
-    switchHint: "The user role must sign in with a different account.",
+    switchHint: "Switch how you use the dashboard for this account.",
   },
   sections: {
     overview: "Overview",
@@ -75,7 +75,7 @@ const faSidebar = {
     user: "کاربر",
     seller: "فروشنده",
     switchLabel: "نقش",
-    switchHint: "برای نقش کاربر باید با حساب دیگر وارد شوید.",
+    switchHint: "نحوهٔ استفاده از داشبورد را برای همین حساب عوض کنید.",
   },
   sections: {
     overview: "پیشخوان",
@@ -207,11 +207,15 @@ const enDashboardOverview = {
   diskFreeLabel: "Free",
   badgeDbActive: "DB active",
   badgeDbInactive: "DB inactive",
+  compactTitle: "Servers",
+  compactSubtitle: "Reachability and ping per panel (location = panel URL).",
 }
 
 const enMonitoringPage = {
   title: "Monitoring",
   subtitle: "Host health, panel reachability, live online counts, and optional external HTTPS JSON endpoints.",
+  compactTitle: "Servers",
+  compactSubtitle: "Online/offline and ping for each panel.",
   siteHost: "Site host",
   externalHosts: "External hosts (HTTPS JSON)",
   externalEmpty:
@@ -300,6 +304,11 @@ const enPlansAdmin = {
   catalogExtraPrice: "Price per extra user slot",
   catalogSave: "Save catalog defaults",
   catalogSaveError: "Could not save defaults",
+  resellerNoPanels: "No panel is linked to your account yet.",
+  connectionPresetTitle: "Connection (set by admin)",
+  connectionPresetHint: "Inbound / protocol cannot be changed here; your administrator configures them per panel.",
+  minPriceHintFixed: "Minimum total price (your wholesale floor): {{min}}",
+  minPriceHintPerGb: "Minimum price per GB (your wholesale floor): {{min}}",
 }
 
 const enCardsAdmin = {
@@ -455,6 +464,7 @@ const enUsersAdmin = {
   status_blocked: "Blocked",
   colActions: "Actions",
   manage: "Manage",
+  mergeUsers: "Merge users",
 }
 
 const enResellersAdmin = {
@@ -482,8 +492,20 @@ const enResellersAdmin = {
   manage: "Manage",
   panelPrices: "Panel prices",
   panelPricesTitle: "Reseller panel prices",
+  panelPricesParentFloorBadge: "Parent floor",
   panelPricesSave: "Save prices",
-  panelPricesDialogDescription: "Reseller #{{id}}. Enter unit price in toman per GB for each panel (leave blank to skip).",
+  panelAccessLabel: "Allow this panel for the reseller (required for Plans / dashboard)",
+  panelPricesIncludePanelFloor: "Include this panel (enter a minimum price per GB)",
+  panelPricesNoRowsError:
+    "Nothing to save: enable at least one panel or enter a wholesale price greater than zero.",
+  panelPricesDialogHintAdmin:
+    "Turn access on for every panel this reseller should use. Entering a price greater than zero also turns access on automatically.",
+  panelPricesDialogHintParentFloor:
+    "Only rows with a price are stored. Use this to set per-panel minimum sale prices for your direct child reseller.",
+  panelPricesDialogDescription:
+    "Reseller #{{id}}. Wholesale price in toman per GB per panel; each panel is a separate server. Access must be enabled (or use a price > 0) or this reseller will not see that panel.",
+  panelPricesDialogDescriptionParentFloor:
+    "Reseller #{{id}}. Minimum allowed sale price (toman per GB) per panel for your direct child reseller.",
   perm_users_manage: "Manage users",
   perm_users_merge: "Merge users",
   perm_users_bulk: "Bulk operations",
@@ -495,6 +517,10 @@ const enResellersAdmin = {
   permissionsDialogTitle: "Reseller permissions",
   permissionsSave: "Save permissions",
   pricePlaceholder: "0",
+  impersonateReseller: "View as reseller",
+  defaultServiceType: "Default protocol for plans",
+  defaultInbound: "Default inbound ID (Xray)",
+  defaultL2tpServer: "Default L2TP server",
 }
 
 const enUserDetailAdmin = {
@@ -747,6 +773,9 @@ const enPagination = {
 }
 
 const enBotsAdmin = {
+  mainBotSectionTitle: "Main bot",
+  mainBotSectionDesc:
+    "Telegram and Bale tokens, admin IDs per platform, and reseller bots below. Webhook path secrets are generated on the server and are not shown here.",
   title: "Telegram & Bale bots",
   subtitle: "Bot tokens, optional Telegram secret header, admin chat IDs, and reseller bots.",
   resellerBots: "Reseller bots",
@@ -1292,6 +1321,9 @@ const faPagination = {
 }
 
 const faBotsAdmin = {
+  mainBotSectionTitle: "ربات اصلی",
+  mainBotSectionDesc:
+    "توکن تلگرام و بله، شناسهٔ ادمین هر پیام‌رسان، و در پایین ربات‌های نمایندگان. راز مسیر وب‌هوک در سرور ساخته می‌شود و اینجا نمایش داده نمی‌شود.",
   title: "ربات تلگرام و بله",
   subtitle: "توکن ربات، شناسهٔ ادمین‌ها برای هر پلتفرم، و ربات‌های نمایندگان.",
   resellerBots: "ربات‌های نمایندگان",
@@ -1889,6 +1921,11 @@ const faPlansAdmin = {
   catalogExtraPrice: "قیمت هر اسلات کاربر اضافه",
   catalogSave: "ذخیرهٔ پیش‌فرض کاتالوگ",
   catalogSaveError: "ذخیرهٔ پیش‌فرض ناموفق بود",
+  resellerNoPanels: "هنوز پنلی به حساب شما وصل نشده است.",
+  connectionPresetTitle: "اتصال (توسط مدیر)",
+  connectionPresetHint: "inbound و نوع پروتکل اینجا قابل تغییر نیست؛ مدیر برای هر پنل تنظیم می‌کند.",
+  minPriceHintFixed: "حداقل قیمت کل (کف عمده شما): {{min}}",
+  minPriceHintPerGb: "حداقل قیمت هر گیگ (کف عمده شما): {{min}}",
 }
 
 const faCardsAdmin = {
@@ -2044,6 +2081,7 @@ const faUsersAdmin = {
   status_blocked: "مسدود",
   colActions: "اقدامات",
   manage: "مدیریت",
+  mergeUsers: "ادغام کاربران",
 }
 
 const faResellersAdmin = {
@@ -2072,8 +2110,20 @@ const faResellersAdmin = {
   manage: "مدیریت",
   panelPrices: "قیمت پنل‌ها",
   panelPricesTitle: "قیمت پنل برای نماینده",
+  panelPricesParentFloorBadge: "کف والد",
   panelPricesSave: "ذخیره قیمت‌ها",
-  panelPricesDialogDescription: "نماینده شماره {{id}}. قیمت هر گیگابایت به تومان برای هر پنل (خالی بگذارید تا نادیده گرفته شود).",
+  panelAccessLabel: "اجازهٔ استفاده از این پنل برای نماینده (برای تب پلن‌ها و داشبورد لازم است)",
+  panelPricesIncludePanelFloor: "این پنل را لحاظ کنید (کف قیمت هر گیگ را وارد کنید)",
+  panelPricesNoRowsError:
+    "چیزی برای ذخیره نیست: حداقل یک پنل را فعال کنید یا قیمت عمدهٔ بزرگ‌تر از صفر وارد کنید.",
+  panelPricesDialogHintAdmin:
+    "برای هر سروری که نماینده باید ببیند، دسترسی را روشن کنید. اگر قیمتی بزرگ‌تر از صفر بگذارید، دسترسی به‌صورت خودکار روشن می‌شود.",
+  panelPricesDialogHintParentFloor:
+    "فقط ردیف‌هایی که قیمت دارند ذخیره می‌شوند؛ برای تعیین کف فروش به ازای هر پنل برای نمایندهٔ فرزند مستقیم خودتان استفاده کنید.",
+  panelPricesDialogDescription:
+    "نماینده شماره {{id}}. قیمت عمده به تومان برای هر گیگ روی هر پنل؛ هر پنل یعنی یک سرور جدا. بدون روشن بودن دسترسی (یا قیمت > 0 که دسترسی را روشن می‌کند) نماینده آن پنل را در پلن‌ها نمی‌بیند.",
+  panelPricesDialogDescriptionParentFloor:
+    "نماینده شماره {{id}}. حداقل قیمت فروش مجاز (تومان به ازای هر گیگ) برای هر پنل، فقط برای نمایندهٔ زیرمجموعهٔ مستقیم شما.",
   perm_users_manage: "مدیریت کاربران",
   perm_users_merge: "ادغام کاربران",
   perm_users_bulk: "عملیات گروهی",
@@ -2085,6 +2135,10 @@ const faResellersAdmin = {
   permissionsDialogTitle: "سطح دسترسی نماینده",
   permissionsSave: "ذخیره دسترسی‌ها",
   pricePlaceholder: "0",
+  impersonateReseller: "مشاهده به‌جای نماینده",
+  defaultServiceType: "پروتکل پیش‌فرض برای پلن‌ها",
+  defaultInbound: "شناسهٔ پیش‌فرض inbound (Xray)",
+  defaultL2tpServer: "سرور پیش‌فرض L2TP",
 }
 
 const faUserDetailAdmin = {
@@ -2404,11 +2458,15 @@ const faDashboardOverview = {
   diskFreeLabel: "آزاد",
   badgeDbActive: "فعال در DB",
   badgeDbInactive: "غیرفعال در DB",
+  compactTitle: "سرورها",
+  compactSubtitle: "دسترسی و پینگ هر پنل (لوکیشن = آدرس پنل).",
 }
 
 const faMonitoringPage = {
   title: "مانیتورینگ",
   subtitle: "سلامت میزبان، دسترسی پنل، آنلاین لحظه‌ای، و در صورت تنظیم، سرورهای خارجی با JSON امن.",
+  compactTitle: "سرورها",
+  compactSubtitle: "آنلاین/آفلاین و پینگ هر پنل.",
   siteHost: "میزبان سایت",
   externalHosts: "سرورهای خارجی (JSON روی HTTPS)",
   externalEmpty:
@@ -2443,6 +2501,8 @@ const enUsersBulkAdmin = {
   subtitle: "Dry-run first, then enqueue a job and process it with the worker.",
   scope: "Audience",
   scopeHint: "Choose who receives the bulk change.",
+  resellerScopeHint:
+    "For resellers, \"All approved users\" and other scopes are limited to your own invite subtree (not global).",
   scopeLabel: "Scope",
   scopeAllApproved: "All approved users",
   scopeActiveSvc: "Approved users with at least one active service",
@@ -2487,6 +2547,8 @@ const faUsersBulkAdmin = {
   subtitle: "ابتدا اجرای آزمایشی، سپس صف و پردازش با کارگر.",
   scope: "مخاطب",
   scopeHint: "مشخص کنید تغییر روی چه کسانی اعمال شود.",
+  resellerScopeHint:
+    "برای نماینده، گزینهٔ «همهٔ کاربران تأییدشده» و سایر scopeها فقط روی subtree دعوت خودتان اعمال می‌شود (نه کل سامانه).",
   scopeLabel: "محدوده",
   scopeAllApproved: "همهٔ کاربران تأییدشده",
   scopeActiveSvc: "کاربران تأییدشده با حداقل یک سرویس فعال",
@@ -2589,6 +2651,10 @@ const enLayout = {
   adminSiteSettingsHidden: "Site settings (sensitive values hidden)",
   placeholderAdminEmail: "admin@dashboard",
   placeholderUserEmail: "user@dashboard",
+  impersonationBarPrefix: "Logged in as",
+  impersonationSwitchToAdmin: "Switch to admin",
+  personaSwitchBlockedImpersonation:
+    "You cannot switch persona while impersonating a reseller. Stop impersonation first.",
 }
 
 const faLayout = {
@@ -2601,6 +2667,10 @@ const faLayout = {
   adminSiteSettingsHidden: "تنظیمات سایت (مقادیر حساس مخفی‌اند)",
   placeholderAdminEmail: "admin@dashboard",
   placeholderUserEmail: "user@dashboard",
+  impersonationBarPrefix: "ورود به‌جای",
+  impersonationSwitchToAdmin: "بازگشت به مدیر",
+  personaSwitchBlockedImpersonation:
+    "در حالت ورود به‌جای نماینده نمی‌توان نقش را عوض کرد؛ ابتدا ورود به‌جای را متوقف کنید.",
 }
 
 export function buildDashboardResources(): {

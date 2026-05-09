@@ -37,6 +37,102 @@ export type AdminNavSection = {
   entries: AdminNavEntry[]
 }
 
+/** Tabs never shown to resellers (infra / global settings / alias monitoring). */
+export const ADMIN_ONLY_TAB_KEYS = new Set<string>([
+  "site_settings",
+  "backup",
+  "notifications",
+  "logs",
+  "xui_panels",
+  "configs",
+  "l2tp_servers",
+  "texts",
+  "monitoring",
+])
+
+/**
+ * Full admin nav minus forbidden tabs, intersected with server/permission allow-list.
+ * Injects `reseller_bots` under Bot settings when allowed (not present on super-admin nav).
+ */
+export function filterAdminNavForReseller(
+  sections: AdminNavSection[],
+  allowedTabs: Set<string>
+): AdminNavSection[] {
+  const out: AdminNavSection[] = []
+  for (const sec of sections) {
+    const entries: AdminNavEntry[] = []
+    for (const ent of sec.entries) {
+      if (ent.kind === "leaf") {
+        if (ADMIN_ONLY_TAB_KEYS.has(ent.tabKey)) continue
+        if (!allowedTabs.has(ent.tabKey)) continue
+        entries.push(ent)
+      } else {
+        const children = ent.children.filter(
+          (ch) => !ADMIN_ONLY_TAB_KEYS.has(ch.tabKey) && allowedTabs.has(ch.tabKey)
+        )
+        if (children.length === 0) continue
+        entries.push({ ...ent, children })
+      }
+    }
+    if (entries.length === 0) continue
+    out.push({ ...sec, entries })
+  }
+
+  if (!allowedTabs.has("reseller_bots")) {
+    return reorderResellerNavSections(out, false)
+  }
+
+  const botIdx = out.findIndex((s) => s.id === "bot")
+  if (botIdx < 0) return reorderResellerNavSections(out, false)
+
+  const botSec = out[botIdx]!
+  const newEntries = botSec.entries.map((ent) => {
+    if (ent.kind === "collapsible" && ent.id === "bot_menu") {
+      if (ent.children.some((c) => c.tabKey === "reseller_bots")) return ent
+      return {
+        ...ent,
+        children: [...ent.children, { tabKey: "reseller_bots", icon: Bot }],
+      }
+    }
+    return ent
+  })
+  out[botIdx] = { ...botSec, entries: newEntries }
+  return reorderResellerNavSections(out, true)
+}
+
+const RESELLER_NAV_SECTION_ORDER = ["overview", "users", "finance", "bot", "settings"]
+
+const RESELLER_BOT_CHILD_ORDER = ["plan_cats", "reseller_bots", "bot_ui"]
+
+function reorderResellerNavSections(sections: AdminNavSection[], sortBotChildren: boolean): AdminNavSection[] {
+  const sorted: AdminNavSection[] = []
+  for (const id of RESELLER_NAV_SECTION_ORDER) {
+    const found = sections.find((s) => s.id === id)
+    if (found) sorted.push(found)
+  }
+  for (const s of sections) {
+    if (!sorted.some((x) => x.id === s.id)) sorted.push(s)
+  }
+  if (!sortBotChildren) return sorted
+  const botIdx = sorted.findIndex((s) => s.id === "bot")
+  if (botIdx < 0) return sorted
+  const botSec = sorted[botIdx]!
+  const orderMap = new Map(RESELLER_BOT_CHILD_ORDER.map((k, i) => [k, i]))
+  sorted[botIdx] = {
+    ...botSec,
+    entries: botSec.entries.map((ent) => {
+      if (ent.kind === "collapsible" && ent.id === "bot_menu") {
+        const children = [...ent.children].sort(
+          (a, b) => (orderMap.get(a.tabKey) ?? 99) - (orderMap.get(b.tabKey) ?? 99)
+        )
+        return { ...ent, children }
+      }
+      return ent
+    }),
+  }
+  return sorted
+}
+
 export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
   {
     id: "overview",
@@ -57,9 +153,9 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
         labelKey: "sidebar.groups.users",
         children: [
           { tabKey: "users" },
-          { tabKey: "resellers" },
           { tabKey: "users_bulk" },
           { tabKey: "broadcast" },
+          { tabKey: "resellers" },
         ],
       },
     ],

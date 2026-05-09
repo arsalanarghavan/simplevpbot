@@ -4,10 +4,42 @@ export type DashLocation = {
   resellerContextId?: number | null
 }
 
+export type ParseDashOpts = {
+  /** When true, `/dashboard/general/` maps to `dashboard` instead of `monitoring`. */
+  reseller?: boolean
+}
+
+/** Map URL slugs (incl. hyphenated) to internal tab keys used by the SPA. */
+const TAB_SLUG_ALIASES: Record<string, string> = {
+  "users-bulk": "users_bulk",
+  "reseller-bots": "reseller_bots",
+  "plan-cats": "plan_cats",
+  "site-settings": "site_settings",
+  "bot-ui": "bot_ui",
+  "xui-panels": "xui_panels",
+  "l2tp-servers": "l2tp_servers",
+  "panel-inbounds": "configs",
+}
+
+export function normalizeDashTabKey(raw: string): string {
+  const t = String(raw || "").trim()
+  if (!t) return "dashboard"
+  const lower = t.toLowerCase()
+  if (TAB_SLUG_ALIASES[lower]) return TAB_SLUG_ALIASES[lower]
+  return t
+}
+
+/** Resellers use `reseller_bots`; `bots` is admin-only in nav. */
+export function mapTabForReseller(tab: string, isReseller: boolean): string {
+  if (!isReseller) return tab
+  if (tab === "bots") return "reseller_bots"
+  return tab
+}
+
 /**
  * Parse `/dashboard/...` path: list tab, optional user detail `/dashboard/users/u/{id}/`.
  */
-export function parseDashFromPath(pathname: string): DashLocation {
+export function parseDashFromPath(pathname: string, opts?: ParseDashOpts): DashLocation {
   const path = (pathname || "").replace(/\/+$/, "") || "/"
   if (/\/dashboard\/login(?:\/|$)/.test(path)) {
     return { tab: "login", userDetailId: null }
@@ -24,7 +56,7 @@ export function parseDashFromPath(pathname: string): DashLocation {
   }
   const sub = path.match(/\/dashboard\/([^/]+)$/)
   if (sub) {
-    let tab = sub[1]
+    let tab = normalizeDashTabKey(sub[1])
     if (tab === "inbound_link") {
       tab = "xui_panels"
     }
@@ -32,8 +64,9 @@ export function parseDashFromPath(pathname: string): DashLocation {
       tab = "configs"
     }
     if (tab === "general") {
-      tab = "monitoring"
+      tab = opts?.reseller ? "dashboard" : "monitoring"
     }
+    tab = mapTabForReseller(tab, Boolean(opts?.reseller))
     return { tab, userDetailId: null, resellerContextId: null }
   }
   if (/\/dashboard$/.test(path)) return { tab: "dashboard", userDetailId: null, resellerContextId: null }
@@ -41,9 +74,10 @@ export function parseDashFromPath(pathname: string): DashLocation {
 }
 
 /** Parse the first /dashboard/{tab}/ segment. Bare /dashboard/ → dashboard (SPA home). */
-export function parseActiveDashTab(boot: { dashPath?: string } | undefined | null): string {
+export function parseActiveDashTab(boot: { dashPath?: string; isReseller?: boolean } | undefined | null): string {
   if (typeof window !== "undefined") {
-    return parseDashFromPath(window.location.pathname).tab
+    const b = window.__SIMPLEVPBOT_DASH__ || {}
+    return parseDashFromPath(window.location.pathname, { reseller: Boolean(b.isReseller) }).tab
   }
   if (boot?.dashPath) {
     const s = String(boot.dashPath).trim()
@@ -51,13 +85,13 @@ export function parseActiveDashTab(boot: { dashPath?: string } | undefined | nul
     if (parts[0] === "users" && parts[1] === "u" && parts[2] && /^\d+$/.test(parts[2])) {
       return "users"
     }
-    const k = parts[0]
+    let k = parts[0] ? normalizeDashTabKey(parts[0]) : ""
     if (k) {
       if (k === "login") return "login"
       if (k === "inbound_link") return "xui_panels"
       if (k === "panel_inbounds") return "configs"
-      if (k === "general") return "monitoring"
-      return k
+      if (k === "general") return boot?.isReseller ? "dashboard" : "monitoring"
+      return mapTabForReseller(k, Boolean(boot?.isReseller))
     }
   }
   return "dashboard"

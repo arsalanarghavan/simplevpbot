@@ -144,6 +144,41 @@ function parseConfigUris(row: ClientRow): string[] {
   return raw.map((x) => String(x).trim()).filter(Boolean)
 }
 
+/** Same subscription/config lines as bot (`Handler_Service::get_portal_service_data`). */
+type QrCtx = { panel_id: number; inbound_id: number; row: ClientRow }
+
+function parsePayloadConfigUris(payload: Record<string, unknown> | null): string[] {
+  if (!payload || !Array.isArray(payload.config_uris)) return []
+  return payload.config_uris.map((x) => String(x).trim()).filter(Boolean)
+}
+
+function effectiveQrSubscriptionUrl(ctx: QrCtx | null, payload: Record<string, unknown> | null): string {
+  const p = payload && typeof payload.subscription_url === "string" ? payload.subscription_url.trim() : ""
+  if (p) return p
+  return ctx ? String(ctx.row.subscription_url ?? "").trim() : ""
+}
+
+function effectiveQrPortalUrl(ctx: QrCtx | null, payload: Record<string, unknown> | null): string {
+  const p = payload && typeof payload.portal_url === "string" ? payload.portal_url.trim() : ""
+  if (p) return p
+  return ctx ? String(ctx.row.portal_url ?? "").trim() : ""
+}
+
+function effectiveQrConfigUris(ctx: QrCtx | null, payload: Record<string, unknown> | null): string[] {
+  const fromPayload = parsePayloadConfigUris(payload)
+  if (fromPayload.length > 0) return fromPayload
+  if (!ctx) return []
+  return parseConfigUris(ctx.row)
+}
+
+function effectiveQrPrimaryConfigUri(ctx: QrCtx | null, payload: Record<string, unknown> | null): string {
+  const uris = effectiveQrConfigUris(ctx, payload)
+  if (uris.length > 0) return uris[0]
+  const p = payload && typeof payload.primary_config_uri === "string" ? payload.primary_config_uri.trim() : ""
+  if (p) return p
+  return ctx ? String(ctx.row.primary_config_uri ?? "").trim() : ""
+}
+
 function isVolumeExhausted(row: ClientRow): boolean {
   if (num(row.volume_exhausted) !== 0) return true
   const lim = num(row.limit_bytes)
@@ -392,7 +427,10 @@ export function DashboardConfigsAdmin({
   const [infoRow, setInfoRow] = useState<ClientRow | null>(null)
 
   const [qrOpen, setQrOpen] = useState(false)
-  const [qrRow, setQrRow] = useState<ClientRow | null>(null)
+  const [qrCtx, setQrCtx] = useState<QrCtx | null>(null)
+  /** Bot-identical portal payload from REST (`get_portal_service_data`). */
+  const [qrPortalPayload, setQrPortalPayload] = useState<Record<string, unknown> | null>(null)
+  const [qrPortalLoading, setQrPortalLoading] = useState(false)
   const [qrCopyHint, setQrCopyHint] = useState<string | null>(null)
   const qrCopyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -611,6 +649,32 @@ export function DashboardConfigsAdmin({
       setLinkPick(null)
     }
   }, [linkOpen, linkCtx?.panel_id, linkCtx?.inbound_id, linkCtx?.row.email])
+
+  useEffect(() => {
+    if (!qrOpen || !qrCtx) return
+    let cancelled = false
+    setQrPortalPayload(null)
+    setQrPortalLoading(true)
+    const sid = num(qrCtx.row.linked_service_id)
+    const q: Record<string, string | number> = {
+      panel_id: qrCtx.panel_id,
+      inbound_id: qrCtx.inbound_id,
+      email: String(qrCtx.row.email ?? ""),
+    }
+    if (sid > 0) {
+      q.service_id = sid
+    }
+    void getAdminJson("/dashboard/admin/configs-portal-payload", q).then((json) => {
+      if (cancelled) return
+      setQrPortalLoading(false)
+      if (json.ok && json.data && typeof json.data === "object" && json.data !== null && !Array.isArray(json.data)) {
+        setQrPortalPayload(json.data as Record<string, unknown>)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [qrOpen, qrCtx])
 
   const scheduleLinkSearch = useCallback((q: string) => {
     if (linkSearchTimer.current) clearTimeout(linkSearchTimer.current)
@@ -1384,7 +1448,7 @@ export function DashboardConfigsAdmin({
                 variant="ghost"
                 className="size-9"
                 onClick={() => {
-                  setQrRow(row)
+                  setQrCtx({ panel_id: pid, inbound_id: iid, row })
                   setQrCopyHint(null)
                   setQrOpen(true)
                 }}
@@ -2010,12 +2074,24 @@ export function DashboardConfigsAdmin({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={qrOpen} onOpenChange={setQrOpen}>
+      <Dialog
+        open={qrOpen}
+        onOpenChange={(open) => {
+          setQrOpen(open)
+          if (!open) {
+            setQrCtx(null)
+            setQrPortalPayload(null)
+            setQrPortalLoading(false)
+            setQrCopyHint(null)
+          }
+        }}
+      >
         <DialogContent dir={dialogDir} className={dialogContentCn("max-w-lg")}>
           <DialogHeader className={dialogHeaderClass}>
             <DialogTitle>{tl("qrTitle")}</DialogTitle>
           </DialogHeader>
           <p className="text-xs text-muted-foreground">{tl("qrClickCopyHint")}</p>
+          {qrPortalLoading ? <p className="text-xs text-muted-foreground">{tl("syncBusy")}</p> : null}
           {qrCopyHint ? (
             <p
               className={cn(
@@ -2026,17 +2102,21 @@ export function DashboardConfigsAdmin({
               {qrCopyHint.startsWith("__err__") ? qrCopyHint.slice(7) : qrCopyHint}
             </p>
           ) : null}
-          {qrRow ? (
+          {qrCtx ? (
             <div className="grid gap-8">
               <div className="grid justify-items-center gap-3">
                 <div className="text-sm font-medium">{tl("qrSub")}</div>
-                {String(qrRow.subscription_url ?? "").trim() ? (
+                {effectiveQrSubscriptionUrl(qrCtx, qrPortalPayload) ? (
                   <button
                     type="button"
                     className="rounded-lg border border-border/60 bg-background p-3 shadow-sm transition hover:bg-muted/50"
-                    onClick={() => void copyToClipboard(String(qrRow.subscription_url)).then((ok) => showQrCopy(ok ? "ok" : "fail"))}
+                    onClick={() =>
+                      void copyToClipboard(effectiveQrSubscriptionUrl(qrCtx, qrPortalPayload)).then((ok) =>
+                        showQrCopy(ok ? "ok" : "fail")
+                      )
+                    }
                   >
-                    <QRCodeSVG value={String(qrRow.subscription_url)} size={168} level="M" />
+                    <QRCodeSVG value={effectiveQrSubscriptionUrl(qrCtx, qrPortalPayload)} size={168} level="M" />
                     <span className="mt-2 flex items-center justify-center gap-1 text-xs text-muted-foreground">
                       <Copy className="size-3" /> {tl("copyAction")}
                     </span>
@@ -2047,13 +2127,17 @@ export function DashboardConfigsAdmin({
               </div>
               <div className="grid justify-items-center gap-3">
                 <div className="text-sm font-medium">{tl("qrPortal")}</div>
-                {String(qrRow.portal_url ?? "").trim() ? (
+                {effectiveQrPortalUrl(qrCtx, qrPortalPayload) ? (
                   <button
                     type="button"
                     className="rounded-lg border border-border/60 bg-background p-3 shadow-sm transition hover:bg-muted/50"
-                    onClick={() => void copyToClipboard(String(qrRow.portal_url)).then((ok) => showQrCopy(ok ? "ok" : "fail"))}
+                    onClick={() =>
+                      void copyToClipboard(effectiveQrPortalUrl(qrCtx, qrPortalPayload)).then((ok) =>
+                        showQrCopy(ok ? "ok" : "fail")
+                      )
+                    }
                   >
-                    <QRCodeSVG value={String(qrRow.portal_url)} size={168} level="M" />
+                    <QRCodeSVG value={effectiveQrPortalUrl(qrCtx, qrPortalPayload)} size={168} level="M" />
                     <span className="mt-2 flex items-center justify-center gap-1 text-xs text-muted-foreground">
                       <Copy className="size-3" /> {tl("copyAction")}
                     </span>
@@ -2064,9 +2148,9 @@ export function DashboardConfigsAdmin({
               </div>
               <div className="grid justify-items-center gap-3">
                 <div className="text-sm font-medium">{tl("qrCfg")}</div>
-                {parseConfigUris(qrRow).length > 0 ? (
+                {effectiveQrConfigUris(qrCtx, qrPortalPayload).length > 0 ? (
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {parseConfigUris(qrRow).map((cfg, idx) => (
+                    {effectiveQrConfigUris(qrCtx, qrPortalPayload).map((cfg, idx) => (
                       <button
                         key={`${idx}-${cfg}`}
                         type="button"
@@ -2081,13 +2165,17 @@ export function DashboardConfigsAdmin({
                       </button>
                     ))}
                   </div>
-                ) : String(qrRow.primary_config_uri ?? "").trim() ? (
+                ) : effectiveQrPrimaryConfigUri(qrCtx, qrPortalPayload) ? (
                   <button
                     type="button"
                     className="rounded-lg border border-border/60 bg-background p-3 shadow-sm transition hover:bg-muted/50"
-                    onClick={() => void copyToClipboard(String(qrRow.primary_config_uri)).then((ok) => showQrCopy(ok ? "ok" : "fail"))}
+                    onClick={() =>
+                      void copyToClipboard(effectiveQrPrimaryConfigUri(qrCtx, qrPortalPayload)).then((ok) =>
+                        showQrCopy(ok ? "ok" : "fail")
+                      )
+                    }
                   >
-                    <QRCodeSVG value={String(qrRow.primary_config_uri)} size={168} level="M" />
+                    <QRCodeSVG value={effectiveQrPrimaryConfigUri(qrCtx, qrPortalPayload)} size={168} level="M" />
                     <span className="mt-2 flex items-center justify-center gap-1 text-xs text-muted-foreground">
                       <Copy className="size-3" /> {tl("copyAction")}
                     </span>

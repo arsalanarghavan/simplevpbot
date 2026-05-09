@@ -52,7 +52,7 @@ function num(v: unknown): number {
 
 function panelLabel(panels: DashRecord[], panelId: number): string {
   const row = panels.find((p) => num(p.id) === panelId)
-  return String(row?.label ?? `#${panelId}`)
+  return String(row?.label ?? row?.name ?? `#${panelId}`)
 }
 
 type PlanFormState = {
@@ -140,11 +140,13 @@ function formToPayload(f: PlanFormState): Record<string, unknown> {
   }
 }
 
-function validateForm(f: PlanFormState): string | null {
+function validateForm(f: PlanFormState, resellerMode: boolean): string | null {
   if (!f.name.trim()) return "name"
   if (!f.category.trim()) return "category"
-  if (f.service_type === "xray" && f.inbound_id <= 0) return "inbound"
-  if (f.service_type === "l2tp" && f.l2tp_server_id <= 0) return "l2tp"
+  if (!resellerMode) {
+    if (f.service_type === "xray" && f.inbound_id <= 0) return "inbound"
+    if (f.service_type === "l2tp" && f.l2tp_server_id <= 0) return "l2tp"
+  }
   if (f.plan_pricing_type === "fixed" && f.price <= 0) return "price"
   if (f.plan_pricing_type === "per_gb") {
     if (f.price_per_gb <= 0) return "price_per_gb"
@@ -162,8 +164,11 @@ export function DashboardPlansAdmin({
   panels,
   planCategories,
   l2tpServers,
+  resellerPlanFloors = [],
+  resellerMode = false,
   pagination,
   settings,
+  showCatalogDefaultsSave = true,
   isFa,
   onMutateSuccess,
   onPageChange,
@@ -173,8 +178,13 @@ export function DashboardPlansAdmin({
   panels: DashRecord[]
   planCategories: DashRecord[]
   l2tpServers: DashRecord[]
+  /** Per-panel wholesale floor + admin connection presets (reseller dashboard only). */
+  resellerPlanFloors?: DashRecord[]
+  resellerMode?: boolean
   pagination: PaginationMeta | null
   settings?: DashRecord
+  /** Resellers cannot mutate global catalog defaults (`plans_catalog` / settings_tab). */
+  showCatalogDefaultsSave?: boolean
   isFa: boolean
   onMutateSuccess?: () => void
   onPageChange: (page: number) => void
@@ -270,6 +280,13 @@ export function DashboardPlansAdmin({
     })
   }, [filteredPlans])
 
+  const floorForPanel = useMemo(() => {
+    const pid = form.plan_panel_id
+    return resellerPlanFloors.find((x) => num(x.panel_id) === pid)
+  }, [form.plan_panel_id, resellerPlanFloors])
+
+  const minPriceFloorPerGb = num(floorForPanel?.min_price_per_gb_effective)
+
   const categoriesForFormPanel = useMemo(
     () => planCategories.filter((c) => num(c.panel_id) === form.plan_panel_id),
     [planCategories, form.plan_panel_id]
@@ -308,7 +325,7 @@ export function DashboardPlansAdmin({
   }
 
   const onSaveSheet = async () => {
-    const inv = validateForm(form)
+    const inv = validateForm(form, resellerMode)
     if (inv) {
       setError(tp("mutateInvalid"))
       return
@@ -347,54 +364,62 @@ export function DashboardPlansAdmin({
         <p className="mt-1 text-sm text-muted-foreground">{tp("subtitle")}</p>
       </div>
 
+      {resellerMode && panels.length === 0 ? (
+        <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
+          {tp("resellerNoPanels")}
+        </p>
+      ) : null}
+
       {error ? (
         <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
         </p>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{tp("catalogCardTitle")}</CardTitle>
-          <CardDescription>{tp("catalogCardDesc")}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {catalogError ? (
-            <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {catalogError}
-            </p>
-          ) : null}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="catalog_concurrent">{tp("catalogConcurrent")}</Label>
-              <Input
-                id="catalog_concurrent"
-                type="number"
-                min={0}
-                value={catalogForm.default_concurrent_users}
-                onChange={(e) =>
-                  setCatalogForm((f) => ({ ...f, default_concurrent_users: e.target.value }))
-                }
-              />
+      {showCatalogDefaultsSave ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{tp("catalogCardTitle")}</CardTitle>
+            <CardDescription>{tp("catalogCardDesc")}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {catalogError ? (
+              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {catalogError}
+              </p>
+            ) : null}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="catalog_concurrent">{tp("catalogConcurrent")}</Label>
+                <Input
+                  id="catalog_concurrent"
+                  type="number"
+                  min={0}
+                  value={catalogForm.default_concurrent_users}
+                  onChange={(e) =>
+                    setCatalogForm((f) => ({ ...f, default_concurrent_users: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="catalog_extra_price">{tp("catalogExtraPrice")}</Label>
+                <Input
+                  id="catalog_extra_price"
+                  type="text"
+                  inputMode="decimal"
+                  value={catalogForm.price_per_extra_user}
+                  onChange={(e) =>
+                    setCatalogForm((f) => ({ ...f, price_per_extra_user: e.target.value }))
+                  }
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="catalog_extra_price">{tp("catalogExtraPrice")}</Label>
-              <Input
-                id="catalog_extra_price"
-                type="text"
-                inputMode="decimal"
-                value={catalogForm.price_per_extra_user}
-                onChange={(e) =>
-                  setCatalogForm((f) => ({ ...f, price_per_extra_user: e.target.value }))
-                }
-              />
-            </div>
-          </div>
-          <Button type="button" disabled={catalogSaving} onClick={onSaveCatalogDefaults}>
-            {catalogSaving ? "…" : tp("catalogSave")}
-          </Button>
-        </CardContent>
-      </Card>
+            <Button type="button" disabled={catalogSaving} onClick={onSaveCatalogDefaults}>
+              {catalogSaving ? "…" : tp("catalogSave")}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
@@ -452,12 +477,12 @@ export function DashboardPlansAdmin({
                 <option value="all">{tp("filterAll")}</option>
                 {panels.map((p) => (
                   <option key={String(p.id)} value={String(p.id)}>
-                    {String(p.label ?? p.id)}
+                    {String(p.label ?? p.name ?? p.id)}
                   </option>
                 ))}
               </select>
             </div>
-            <Button type="button" onClick={openAdd}>
+            <Button type="button" onClick={openAdd} disabled={resellerMode && panels.length < 1}>
               {tp("addPlan")}
             </Button>
           </div>
@@ -627,7 +652,7 @@ export function DashboardPlansAdmin({
               >
                 {panels.map((p) => (
                   <option key={String(p.id)} value={String(p.id)}>
-                    {String(p.label ?? p.id)}
+                    {String(p.label ?? p.name ?? p.id)}
                   </option>
                 ))}
               </select>
@@ -650,49 +675,68 @@ export function DashboardPlansAdmin({
                 <p className="text-xs text-amber-600 dark:text-amber-400">{tp("noCategories")}</p>
               ) : null}
             </div>
-            <div className="space-y-2">
-              <Label>{tp("serviceType")}</Label>
-              <select
-                className={selectClass}
-                value={form.service_type}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    service_type: e.target.value === "l2tp" ? "l2tp" : "xray",
-                  }))
-                }
-              >
-                <option value="xray">{tp("protocolXray")}</option>
-                <option value="l2tp">{tp("protocolL2tp")}</option>
-              </select>
-            </div>
-            {form.service_type === "xray" ? (
-              <div className="space-y-2">
-                <Label>{tp("inbound")}</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={form.inbound_id || ""}
-                  onChange={(e) => setForm((f) => ({ ...f, inbound_id: num(e.target.value) }))}
-                />
+            {resellerMode && floorForPanel ? (
+              <div className={cn("space-y-2 rounded-md border bg-muted/40 p-3 text-sm", isFa && "text-right")}>
+                <p className="font-medium text-foreground">{tp("connectionPresetTitle")}</p>
+                <p className="text-muted-foreground">{tp("connectionPresetHint")}</p>
+                {String(floorForPanel.default_service_type ?? "xray") === "l2tp" ? (
+                  <p className="tabular-nums">
+                    {tp("protocolL2tp")}: #{formatNumber(num(floorForPanel.default_l2tp_server_id), isFa)}
+                  </p>
+                ) : (
+                  <p className="tabular-nums">
+                    {tp("protocolXray")} · {tp("inbound")}: #{formatNumber(num(floorForPanel.default_inbound_id), isFa)}
+                  </p>
+                )}
               </div>
-            ) : (
-              <div className="space-y-2">
-                <Label>{tp("l2tpServer")}</Label>
-                <select
-                  className={selectClass}
-                  value={form.l2tp_server_id || ""}
-                  onChange={(e) => setForm((f) => ({ ...f, l2tp_server_id: num(e.target.value) }))}
-                >
-                  <option value="0">—</option>
-                  {l2tpServers.map((s) => (
-                    <option key={String(s.id)} value={String(s.id)}>
-                      #{formatNumber(num(s.id), isFa)} {String(s.name ?? s.host ?? "")}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+            ) : null}
+            {!resellerMode ? (
+              <>
+                <div className="space-y-2">
+                  <Label>{tp("serviceType")}</Label>
+                  <select
+                    className={selectClass}
+                    value={form.service_type}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        service_type: e.target.value === "l2tp" ? "l2tp" : "xray",
+                      }))
+                    }
+                  >
+                    <option value="xray">{tp("protocolXray")}</option>
+                    <option value="l2tp">{tp("protocolL2tp")}</option>
+                  </select>
+                </div>
+                {form.service_type === "xray" ? (
+                  <div className="space-y-2">
+                    <Label>{tp("inbound")}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={form.inbound_id || ""}
+                      onChange={(e) => setForm((f) => ({ ...f, inbound_id: num(e.target.value) }))}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>{tp("l2tpServer")}</Label>
+                    <select
+                      className={selectClass}
+                      value={form.l2tp_server_id || ""}
+                      onChange={(e) => setForm((f) => ({ ...f, l2tp_server_id: num(e.target.value) }))}
+                    >
+                      <option value="0">—</option>
+                      {l2tpServers.map((s) => (
+                        <option key={String(s.id)} value={String(s.id)}>
+                          #{formatNumber(num(s.id), isFa)} {String(s.name ?? s.host ?? "")}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </>
+            ) : null}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>{tp("duration")}</Label>
@@ -783,6 +827,15 @@ export function DashboardPlansAdmin({
                 </div>
               </>
             )}
+            {resellerMode && minPriceFloorPerGb > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {form.plan_pricing_type === "per_gb"
+                  ? t("plansAdmin.minPriceHintPerGb", { min: formatNumber(minPriceFloorPerGb, isFa) })
+                  : t("plansAdmin.minPriceHintFixed", {
+                      min: formatNumber(minPriceFloorPerGb * Math.max(1, form.traffic_gb || 1), isFa),
+                    })}
+              </p>
+            ) : null}
             <div className="space-y-2">
               <Label>{tp("sortOrder")}</Label>
               <Input

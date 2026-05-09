@@ -178,6 +178,8 @@ class SimpleVPBot_Shortcode_Portal {
 		}
 		if ( $cfg_uri ) {
 			$out .= '<button type="button" data-copy="' . esc_attr( $cfg_uri ) . '">' . esc_html__( 'کپی کانفیگ', 'simplevpbot' ) . '</button>';
+		} elseif ( '' !== $sub_url ) {
+			$out .= '<button type="button" data-copy="' . esc_attr( $sub_url ) . '">' . esc_html__( 'کپی لینک اشتراک', 'simplevpbot' ) . '</button>';
 		}
 		$out .= '</div></header>';
 
@@ -215,10 +217,7 @@ class SimpleVPBot_Shortcode_Portal {
 		} else {
 			$out .= '<div class="svp-cfg">';
 			$out .= '<span class="svp-cfg__tag">' . esc_html__( 'اتصال', 'simplevpbot' ) . '</span>';
-			$msg = '' !== $sub_url
-				? esc_html__( 'کانفیگ‌ها از لینک اشتراک گرفته می‌شوند. روی «کپی لینک اشتراک» بزنید و داخل برنامهٔ اتصال (v2rayNG / Hiddify و غیره) وارد کنید.', 'simplevpbot' )
-				: esc_html__( 'هنوز لینک اشتراک برای شما روشن نشده؛ از ادمین بخواهید بررسی کند.', 'simplevpbot' );
-			$out .= '<code class="svp-cfg__code">' . $msg . '</code>';
+			$out .= '<p class="svp-cfg__hint">' . esc_html__( 'کانفیگ نمایش داده نشد (اشتراک و پنل در دسترس نبود). صفحه را تازه کنید یا با پشتیبانی تماس بگیرید.', 'simplevpbot' ) . '</p>';
 			$out .= '</div>';
 		}
 

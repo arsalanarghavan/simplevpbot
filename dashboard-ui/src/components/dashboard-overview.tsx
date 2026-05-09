@@ -289,22 +289,29 @@ export function DashboardOverview({
   panelsPagination,
   isFa,
   dashboardBaseUrl,
+  allowedNavTabs = null,
   onSelectTab,
   onRefreshPanelHealth,
   onPanelsPageChange,
   onPanelsPerPageChange,
+  compactHealthOnly = false,
 }: {
   overview: OverviewPayload | undefined
   panels: DashRecord[]
   panelsPagination: PaginationMeta | null
   isFa: boolean
   dashboardBaseUrl: string
+  /** When set (reseller), only show links to tabs in this set. */
+  allowedNavTabs?: Set<string> | null
   onSelectTab: (tabKey: string) => void
   onRefreshPanelHealth?: () => void
   onPanelsPageChange: (page: number) => void
   onPanelsPerPageChange: (perPage: number) => void
+  /** Reseller / user persona: only server list, online/offline, ping. */
+  compactHealthOnly?: boolean
 }) {
   const { t } = useTranslation()
+  const allowTab = (tab: string) => !allowedNavTabs || allowedNavTabs.has(tab)
   const u = overview?.stats?.users ?? {}
   const counts = overview?.counts ?? {}
   const bot = overview?.bot ?? {}
@@ -383,6 +390,70 @@ export function DashboardOverview({
     host?.loadAvg && host.loadAvg.length >= 3
       ? host.loadAvg.map((x) => formatNumber(x, isFa)).join(" / ")
       : "—"
+
+  if (compactHealthOnly) {
+    return (
+      <div className={cn("space-y-4", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
+        <div className={cn("flex flex-wrap items-center justify-between gap-2", isFa && "flex-row-reverse")}>
+          <div>
+            <h2 className="text-lg font-semibold">{t("dashboardOverview.compactTitle")}</h2>
+            <p className="text-sm text-muted-foreground">{t("dashboardOverview.compactSubtitle")}</p>
+          </div>
+          {onRefreshPanelHealth ? (
+            <Button type="button" variant="secondary" size="sm" onClick={onRefreshPanelHealth}>
+              {t("dashboardOverview.refreshPanelHealth")}
+            </Button>
+          ) : null}
+        </div>
+        <Card>
+          <CardContent className="pt-6">
+            {rows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">—</p>
+            ) : (
+              <ul className="space-y-2">
+                {rows.map(({ p, id, st, h }) => {
+                  const label = String(
+                    p.label ?? p.name ?? st?.label ?? `#${formatNumericString(String(id), isFa)}`
+                  )
+                  const urlRaw = String(p.panel_url ?? (p as { panelUrl?: unknown }).panelUrl ?? "")
+                  const loc = truncateUrl(urlRaw)
+                  const { httpOk, networkReachable } = resolvePanelHealthFlags(h)
+                  const lat = h?.latencyMs
+                  const urlEmpty = !urlRaw.trim()
+                  const online = Boolean(h && !urlEmpty && networkReachable && httpOk)
+                  return (
+                    <li
+                      key={id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/80 px-3 py-2.5 text-sm"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium">{label}</p>
+                        <p className="break-all font-mono text-xs text-muted-foreground">{loc}</p>
+                      </div>
+                      <div className={cn("flex flex-wrap items-center gap-2", isFa && "flex-row-reverse")}>
+                        <span className="tabular-nums text-muted-foreground">
+                          {lat != null ? `${formatNumber(lat, isFa)} ms` : "—"}
+                        </span>
+                        <Badge variant={online ? "secondary" : "destructive"}>
+                          {online ? t("dashboardOverview.online") : t("dashboardOverview.offline")}
+                        </Badge>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+        <DataPagination
+          meta={panelsPagination}
+          isFa={isFa}
+          onPageChange={onPanelsPageChange}
+          onPerPageChange={onPanelsPerPageChange}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className={cn("space-y-8", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
@@ -727,41 +798,51 @@ export function DashboardOverview({
           ) : null}
 
           <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
-            <DashTabLink
-              tabKey="plans"
-              label={t("sidebar.items.plans")}
-              base={dashboardBaseUrl}
-              onSelectTab={onSelectTab}
-              Icon={Layers}
-            />
-            <DashTabLink
-              tabKey="plan_cats"
-              label={t("sidebar.items.plan_cats")}
-              base={dashboardBaseUrl}
-              onSelectTab={onSelectTab}
-              Icon={Tags}
-            />
-            <DashTabLink
-              tabKey="cards"
-              label={t("sidebar.items.cards")}
-              base={dashboardBaseUrl}
-              onSelectTab={onSelectTab}
-              Icon={CreditCard}
-            />
-            <DashTabLink
-              tabKey="receipts"
-              label={t("sidebar.items.receipts")}
-              base={dashboardBaseUrl}
-              onSelectTab={onSelectTab}
-              Icon={Receipt}
-            />
-            <DashTabLink
-              tabKey="discounts"
-              label={t("sidebar.items.discounts")}
-              base={dashboardBaseUrl}
-              onSelectTab={onSelectTab}
-              Icon={Percent}
-            />
+            {allowTab("plans") ? (
+              <DashTabLink
+                tabKey="plans"
+                label={t("sidebar.items.plans")}
+                base={dashboardBaseUrl}
+                onSelectTab={onSelectTab}
+                Icon={Layers}
+              />
+            ) : null}
+            {allowTab("plan_cats") ? (
+              <DashTabLink
+                tabKey="plan_cats"
+                label={t("sidebar.items.plan_cats")}
+                base={dashboardBaseUrl}
+                onSelectTab={onSelectTab}
+                Icon={Tags}
+              />
+            ) : null}
+            {allowTab("cards") ? (
+              <DashTabLink
+                tabKey="cards"
+                label={t("sidebar.items.cards")}
+                base={dashboardBaseUrl}
+                onSelectTab={onSelectTab}
+                Icon={CreditCard}
+              />
+            ) : null}
+            {allowTab("receipts") ? (
+              <DashTabLink
+                tabKey="receipts"
+                label={t("sidebar.items.receipts")}
+                base={dashboardBaseUrl}
+                onSelectTab={onSelectTab}
+                Icon={Receipt}
+              />
+            ) : null}
+            {allowTab("discounts") ? (
+              <DashTabLink
+                tabKey="discounts"
+                label={t("sidebar.items.discounts")}
+                base={dashboardBaseUrl}
+                onSelectTab={onSelectTab}
+                Icon={Percent}
+              />
+            ) : null}
           </div>
         </CardContent>
       </Card>
@@ -937,13 +1018,30 @@ export function DashboardOverview({
       <section className={cn("space-y-2", isFa && "text-right")}>
         <h3 className="text-sm font-medium">{t("dashboardOverview.quickLinks")}</h3>
         <div className="flex flex-wrap gap-2">
-          <QuickLink tabKey="users" label={t("sidebar.items.users")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
-          <QuickLink tabKey="receipts" label={t("sidebar.items.receipts")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
-          <QuickLink tabKey="xui_panels" label={t("sidebar.items.xui_panels")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
-          <QuickLink tabKey="plans" label={t("sidebar.items.plans")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
-          <QuickLink tabKey="l2tp_servers" label={t("sidebar.items.l2tp_servers")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
-          <QuickLink tabKey="bots" label={t("sidebar.items.bots")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
-          <QuickLink tabKey="monitoring" label={t("sidebar.items.monitoring")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
+          {allowTab("users") ? (
+            <QuickLink tabKey="users" label={t("sidebar.items.users")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
+          ) : null}
+          {allowTab("receipts") ? (
+            <QuickLink tabKey="receipts" label={t("sidebar.items.receipts")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
+          ) : null}
+          {allowTab("xui_panels") ? (
+            <QuickLink tabKey="xui_panels" label={t("sidebar.items.xui_panels")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
+          ) : null}
+          {allowTab("plans") ? (
+            <QuickLink tabKey="plans" label={t("sidebar.items.plans")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
+          ) : null}
+          {allowTab("l2tp_servers") ? (
+            <QuickLink tabKey="l2tp_servers" label={t("sidebar.items.l2tp_servers")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
+          ) : null}
+          {allowTab("bots") ? (
+            <QuickLink tabKey="bots" label={t("sidebar.items.bots")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
+          ) : null}
+          {allowTab("reseller_bots") ? (
+            <QuickLink tabKey="reseller_bots" label={t("sidebar.items.reseller_bots")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
+          ) : null}
+          {allowTab("monitoring") ? (
+            <QuickLink tabKey="monitoring" label={t("sidebar.items.monitoring")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
+          ) : null}
         </div>
       </section>
     </div>

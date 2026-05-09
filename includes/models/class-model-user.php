@@ -15,7 +15,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 class SimpleVPBot_Model_User {
 	const RESELLER_PERMISSION_KEYS = array(
 		'users.manage',
-		'users.merge',
 		'users.bulk',
 		'broadcast.send',
 		'receipts.review',
@@ -703,39 +702,46 @@ class SimpleVPBot_Model_User {
 	}
 
 	/**
-	 * IDs a reseller can manage in phase 1:
-	 * self + direct children + direct children of direct reseller-children.
+	 * IDs a reseller can manage: self plus every descendant in the invited_by tree (unbounded depth).
 	 *
 	 * @param int $reseller_id Reseller svp_users.id.
 	 * @return array<int, int>
 	 */
 	public static function reseller_scope_user_ids( $reseller_id ) {
+		global $wpdb;
 		$rid = (int) $reseller_id;
 		if ( $rid < 1 ) {
 			return array();
 		}
-		$ids   = array( $rid );
-		$lvl1  = self::list_direct_children( $rid );
-		$rids1 = array();
-		foreach ( $lvl1 as $u ) {
-			$uid = (int) ( $u->id ?? 0 );
-			if ( $uid > 0 ) {
-				$ids[] = $uid;
-			}
-			if ( self::is_reseller_row( $u ) && $uid > 0 ) {
-				$rids1[] = $uid;
-			}
-		}
-		foreach ( $rids1 as $child_reseller_id ) {
-			$lvl2 = self::list_direct_children( $child_reseller_id );
-			foreach ( $lvl2 as $u2 ) {
-				$uid2 = (int) ( $u2->id ?? 0 );
-				if ( $uid2 > 0 ) {
-					$ids[] = $uid2;
+		$t       = self::table();
+		$id_set  = array( $rid => true );
+		$frontier = array( $rid );
+		while ( ! empty( $frontier ) ) {
+			$frontier = array_values( array_unique( array_map( 'intval', $frontier ) ) );
+			$frontier = array_filter(
+				$frontier,
+				static function ( $x ) {
+					return $x > 0;
 				}
+			);
+			if ( empty( $frontier ) ) {
+				break;
 			}
+			$ph   = implode( ',', array_fill( 0, count( $frontier ), '%d' ) );
+			$sql  = "SELECT id FROM {$t} WHERE invited_by IN ({$ph})";
+			$cols = $wpdb->get_col( $wpdb->prepare( $sql, $frontier ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$next = array();
+			foreach ( (array) $cols as $cid ) {
+				$uid = (int) $cid;
+				if ( $uid < 1 || isset( $id_set[ $uid ] ) ) {
+					continue;
+				}
+				$id_set[ $uid ] = true;
+				$next[]        = $uid;
+			}
+			$frontier = $next;
 		}
-		$ids = array_values( array_unique( array_map( 'intval', $ids ) ) );
+		$ids = array_map( 'intval', array_keys( $id_set ) );
 		sort( $ids );
 		return $ids;
 	}

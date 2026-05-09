@@ -94,7 +94,7 @@ class SimpleVPBot_State {
 		if ( 0 === strpos( $st, 'admin_bak_' ) ) {
 			return true;
 		}
-		if ( 'admin_find_user' === $st || 'admin_dm' === $st ) {
+		if ( 'admin_find_user' === $st || 'admin_dm' === $st || 'admin_broadcast' === $st ) {
 			return true;
 		}
 		if ( 0 === strpos( $st, 'admin_w_' ) || 0 === strpos( $st, 'admin_set_' ) || 0 === strpos( $st, 'admin_line_' ) || 0 === strpos( $st, 'admin_ns_' ) || in_array( $st, array( 'admin_txt_edit', 'admin_inb_uid' ), true ) ) {

@@ -82,11 +82,15 @@
     "ttRttHint": "زمان رفت‌وبرگشت برای HEAD/GET به ریشهٔ URL پنل.",
     "diskFreeLabel": "آزاد",
     "badgeDbActive": "فعال در DB",
-    "badgeDbInactive": "غیرفعال در DB"
+    "badgeDbInactive": "غیرفعال در DB",
+    "compactTitle": "سرورها",
+    "compactSubtitle": "دسترسی و پینگ هر پنل (لوکیشن = آدرس پنل)."
   },
   "monitoringPage": {
     "title": "مانیتورینگ",
     "subtitle": "سلامت میزبان، دسترسی پنل، آنلاین لحظه‌ای، و در صورت تنظیم، سرورهای خارجی با JSON امن.",
+    "compactTitle": "سرورها",
+    "compactSubtitle": "آنلاین/آفلاین و پینگ هر پنل.",
     "siteHost": "میزبان سایت",
     "externalHosts": "سرورهای خارجی (JSON روی HTTPS)",
     "externalEmpty": "میزبان خارجی ثبت نشده. ردیف در جدول svp_monitor_hosts اضافه کنید (label، metrics_url، در صورت نیاز bearer_token).",
@@ -170,7 +174,12 @@
     "catalogConcurrent": "تعداد کاربر همزمان پیش‌فرض",
     "catalogExtraPrice": "قیمت هر اسلات کاربر اضافه",
     "catalogSave": "ذخیرهٔ پیش‌فرض کاتالوگ",
-    "catalogSaveError": "ذخیرهٔ پیش‌فرض ناموفق بود"
+    "catalogSaveError": "ذخیرهٔ پیش‌فرض ناموفق بود",
+    "resellerNoPanels": "هنوز پنلی به حساب شما وصل نشده است.",
+    "connectionPresetTitle": "اتصال (توسط مدیر)",
+    "connectionPresetHint": "inbound و نوع پروتکل اینجا قابل تغییر نیست؛ مدیر برای هر پنل تنظیم می‌کند.",
+    "minPriceHintFixed": "حداقل قیمت کل (کف عمده شما): {{min}}",
+    "minPriceHintPerGb": "حداقل قیمت هر گیگ (کف عمده شما): {{min}}"
   },
   "cardsAdmin": {
     "title": "کارت‌های بانکی",
@@ -321,7 +330,8 @@
     "status_rejected": "رد شده",
     "status_blocked": "مسدود",
     "colActions": "اقدامات",
-    "manage": "مدیریت"
+    "manage": "مدیریت",
+    "mergeUsers": "ادغام کاربران"
   },
   "resellersAdmin": {
     "title": "نمایندگان",
@@ -347,8 +357,15 @@
     "manage": "مدیریت",
     "panelPrices": "قیمت پنل‌ها",
     "panelPricesTitle": "قیمت پنل برای نماینده",
+    "panelPricesParentFloorBadge": "کف والد",
     "panelPricesSave": "ذخیره قیمت‌ها",
-    "panelPricesDialogDescription": "نماینده شماره {{id}}. قیمت هر گیگابایت به تومان برای هر پنل (خالی بگذارید تا نادیده گرفته شود).",
+    "panelAccessLabel": "اجازهٔ استفاده از این پنل برای نماینده (برای تب پلن‌ها و داشبورد لازم است)",
+    "panelPricesIncludePanelFloor": "این پنل را لحاظ کنید (کف قیمت هر گیگ را وارد کنید)",
+    "panelPricesNoRowsError": "چیزی برای ذخیره نیست: حداقل یک پنل را فعال کنید یا قیمت عمدهٔ بزرگ‌تر از صفر وارد کنید.",
+    "panelPricesDialogHintAdmin": "برای هر سروری که نماینده باید ببیند، دسترسی را روشن کنید. اگر قیمتی بزرگ‌تر از صفر بگذارید، دسترسی به‌صورت خودکار روشن می‌شود.",
+    "panelPricesDialogHintParentFloor": "فقط ردیف‌هایی که قیمت دارند ذخیره می‌شوند؛ برای تعیین کف فروش به ازای هر پنل برای نمایندهٔ فرزند مستقیم خودتان استفاده کنید.",
+    "panelPricesDialogDescription": "نماینده شماره {{id}}. قیمت عمده به تومان برای هر گیگ روی هر پنل؛ هر پنل یعنی یک سرور جدا. بدون روشن بودن دسترسی (یا قیمت > 0 که دسترسی را روشن می‌کند) نماینده آن پنل را در پلن‌ها نمی‌بیند.",
+    "panelPricesDialogDescriptionParentFloor": "نماینده شماره {{id}}. حداقل قیمت فروش مجاز (تومان به ازای هر گیگ) برای هر پنل، فقط برای نمایندهٔ زیرمجموعهٔ مستقیم شما.",
     "perm_users_manage": "مدیریت کاربران",
     "perm_users_merge": "ادغام کاربران",
     "perm_users_bulk": "عملیات گروهی",
@@ -359,7 +376,11 @@
     "permissionsColumn": "سطح دسترسی",
     "permissionsDialogTitle": "سطح دسترسی نماینده",
     "permissionsSave": "ذخیره دسترسی‌ها",
-    "pricePlaceholder": "0"
+    "pricePlaceholder": "0",
+    "impersonateReseller": "مشاهده به‌جای نماینده",
+    "defaultServiceType": "پروتکل پیش‌فرض برای پلن‌ها",
+    "defaultInbound": "شناسهٔ پیش‌فرض inbound (Xray)",
+    "defaultL2tpServer": "سرور پیش‌فرض L2TP"
   },
   "userDetailAdmin": {
     "title": "مدیریت کاربر",
@@ -600,6 +621,8 @@
     "next": "بعدی"
   },
   "botsAdmin": {
+    "mainBotSectionTitle": "ربات اصلی",
+    "mainBotSectionDesc": "توکن تلگرام و بله، شناسهٔ ادمین هر پیام‌رسان، و در پایین ربات‌های نمایندگان. راز مسیر وب‌هوک در سرور ساخته می‌شود و اینجا نمایش داده نمی‌شود.",
     "title": "ربات تلگرام و بله",
     "subtitle": "توکن ربات، شناسهٔ ادمین‌ها برای هر پلتفرم، و ربات‌های نمایندگان.",
     "resellerBots": "ربات‌های نمایندگان",
@@ -1118,7 +1141,7 @@
       "user": "کاربر",
       "seller": "فروشنده",
       "switchLabel": "نقش",
-      "switchHint": "برای نقش کاربر باید با حساب دیگر وارد شوید."
+      "switchHint": "نحوهٔ استفاده از داشبورد را برای همین حساب عوض کنید."
     },
     "sections": {
       "overview": "پیشخوان",
@@ -1182,6 +1205,7 @@
     "subtitle": "ابتدا اجرای آزمایشی، سپس صف و پردازش با کارگر.",
     "scope": "مخاطب",
     "scopeHint": "مشخص کنید تغییر روی چه کسانی اعمال شود.",
+    "resellerScopeHint": "برای نماینده، گزینهٔ «همهٔ کاربران تأییدشده» و سایر scopeها فقط روی subtree دعوت خودتان اعمال می‌شود (نه کل سامانه).",
     "scopeLabel": "محدوده",
     "scopeAllApproved": "همهٔ کاربران تأییدشده",
     "scopeActiveSvc": "کاربران تأییدشده با حداقل یک سرویس فعال",
@@ -1253,6 +1277,9 @@
     "adminUnknownSection": "این بخش فعلاً داده‌ای ندارد یا تب ناشناخته است.",
     "adminSiteSettingsHidden": "تنظیمات سایت (مقادیر حساس مخفی‌اند)",
     "placeholderAdminEmail": "admin@dashboard",
-    "placeholderUserEmail": "user@dashboard"
+    "placeholderUserEmail": "user@dashboard",
+    "impersonationBarPrefix": "ورود به‌جای",
+    "impersonationSwitchToAdmin": "بازگشت به مدیر",
+    "personaSwitchBlockedImpersonation": "در حالت ورود به‌جای نماینده نمی‌توان نقش را عوض کرد؛ ابتدا ورود به‌جای را متوقف کنید."
   }
 }

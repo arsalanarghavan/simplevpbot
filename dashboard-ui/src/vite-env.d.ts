@@ -12,7 +12,21 @@ interface Window {
     loginNonce?: string
     isAdmin?: boolean
     isReseller?: boolean
+    activePersona?: "admin" | "reseller" | "user"
+    availablePersonas?: Array<"admin" | "reseller" | "user">
+    /** Reseller permission map from PHP (same keys as server-side). */
+    actorPermissions?: Record<string, boolean>
     svpUserId?: number
+    /** Actor bot-user row summary for sidebar footer (label + messenger IDs). */
+    user?: {
+      label?: string
+      tg_user_id?: number
+      bale_user_id?: number
+    }
+    /** True when a site admin is viewing the dashboard as a reseller (signed cookie). */
+    impersonating?: boolean
+    impersonationTargetId?: number
+    impersonationTargetLabel?: string
     logoutUrl?: string
     dashboardUrl?: string
     dashboardLoginUrl?: string

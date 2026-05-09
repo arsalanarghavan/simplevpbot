@@ -15,6 +15,33 @@ if ( ! defined( 'ABSPATH' ) ) {
 class SimpleVPBot_Handler_Start {
 
 	/**
+	 * Optional line for msg.welcome when user has invited_by set (referral link).
+	 *
+	 * @param object $user svp_users row.
+	 * @return string Empty or "\n🔔 …" in user's locale.
+	 */
+	private static function welcome_referrer_line( $user ) {
+		$bid = (int) ( $user->invited_by ?? 0 );
+		if ( $bid < 1 ) {
+			return '';
+		}
+		$ref = SimpleVPBot_Model_User::find( $bid );
+		if ( ! $ref ) {
+			return '';
+		}
+		$rn = trim( (string) ( $ref->first_name ?? '' ) . ' ' . (string) ( $ref->last_name ?? '' ) );
+		if ( '' === $rn ) {
+			$un = trim( (string) ( $ref->username ?? '' ) );
+			$rn = '' !== $un ? ( '@' . ltrim( $un, '@' ) ) : ( '#' . (int) $ref->id );
+		}
+		$loc = SimpleVPBot_Texts::locale_for_user( $user );
+		if ( 'en' === $loc ) {
+			return "\n🔔 You joined via an invite from " . $rn . '.';
+		}
+		return "\n🔔 با معرفی از طرف " . $rn . '.';
+	}
+
+	/**
 	 * Handle /start.
 	 *
 	 * @param array<string, mixed> $ctx Context.
@@ -118,10 +145,18 @@ class SimpleVPBot_Handler_Start {
 		}
 
 		if ( 'approved' === $user->status ) {
-			$msg = SimpleVPBot_Texts::format(
-				SimpleVPBot_Texts::get_for_user( 'msg.welcome', $user ),
-				array( 'name' => $name )
+			$welcome_tpl = SimpleVPBot_Texts::get_for_user( 'msg.welcome', $user );
+			$ref_line    = self::welcome_referrer_line( $user );
+			$msg         = SimpleVPBot_Texts::format(
+				$welcome_tpl,
+				array(
+					'name'           => $name,
+					'referrer_line' => $ref_line,
+				)
 			);
+			if ( '' !== $ref_line && false === strpos( $welcome_tpl, '{referrer_line}' ) ) {
+				$msg .= $ref_line;
+			}
 			SimpleVPBot_Bot_Runtime::send_message(
 				$platform,
 				$chat_id,

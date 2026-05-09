@@ -39,6 +39,7 @@ export function DashboardReferralAdmin({
   referralStats,
   referralEvents,
   eventsPagination,
+  readOnlySettings = false,
   isFa,
   onMutateSuccess,
   onEventsPageChange,
@@ -48,6 +49,8 @@ export function DashboardReferralAdmin({
   referralStats: unknown
   referralEvents: DashRecord[]
   eventsPagination: PaginationMeta | null
+  /** Hide global referral program settings (resellers see scoped stats only). */
+  readOnlySettings?: boolean
   isFa: boolean
   onMutateSuccess?: () => void
   onEventsPageChange?: (page: number) => void
@@ -220,6 +223,7 @@ export function DashboardReferralAdmin({
         </Card>
       ) : null}
 
+      {readOnlySettings ? null : (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{tp("cardTitle")}</CardTitle>
@@ -307,6 +311,7 @@ export function DashboardReferralAdmin({
           </Button>
         </CardContent>
       </Card>
+      )}
     </div>
   )
 }

@@ -45,6 +45,13 @@ function formatAtUsername(raw: unknown): string {
   return s.startsWith("@") ? s : `@${s}`
 }
 
+/** Match backend digit normalization: numeric id / phone queries can be 1+ chars. */
+function isDigitOnlyQuery(raw: string): boolean {
+  const t = raw.replace(/\s/g, "")
+  if (!t) return false
+  return /^[\d۰-۹٠-٩]+$/.test(t)
+}
+
 function statusBadgeVariant(
   st: string
 ): "default" | "secondary" | "destructive" | "outline" {
@@ -82,6 +89,7 @@ export function DashboardUsersAdmin({
   onPendingPageChange,
   onPendingPerPageChange,
   onOpenUserDetail,
+  isReseller = false,
   actorPermissions,
 }: {
   users: DashRecord[]
@@ -97,6 +105,7 @@ export function DashboardUsersAdmin({
   onPendingPageChange: (page: number) => void
   onPendingPerPageChange: (perPage: number) => void
   onOpenUserDetail: (id: number) => void
+  isReseller?: boolean
   actorPermissions?: Record<string, boolean>
 }) {
   const { t } = useTranslation()
@@ -108,8 +117,8 @@ export function DashboardUsersAdmin({
   const [mergeOpen, setMergeOpen] = useState(false)
   const [searchDraft, setSearchDraft] = useState(usersSearchQuery)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const canManageUsers = actorPermissions?.["users.manage"] !== false
-  const canMergeUsers = actorPermissions?.["users.merge"] !== false
+  const canManageUsers = !isReseller || actorPermissions?.["users.manage"] !== false
+  const canMergeUsers = !isReseller
 
   useEffect(() => {
     setSearchDraft(usersSearchQuery)
@@ -119,10 +128,12 @@ export function DashboardUsersAdmin({
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
       const next = searchDraft.trim()
-      if (next !== usersSearchQuery.trim()) {
-        onUsersSearchQueryChange(next)
+      const effective =
+        next !== "" && !isDigitOnlyQuery(next) && next.length < 2 ? "" : next
+      if (effective !== usersSearchQuery.trim()) {
+        onUsersSearchQueryChange(effective)
       }
-    }, 300)
+    }, 580)
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }

@@ -1,4 +1,4 @@
-import { ChevronsUpDown, LogOut } from "lucide-react"
+import { ChevronsUpDown, LogOut, MessagesSquare } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import {
@@ -20,7 +20,78 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { formatPlainLatinInt } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
+
+function IconTelegram({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      aria-hidden
+      focusable="false"
+    >
+      <path
+        fill="currentColor"
+        d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12 12 12 0 0 0-12-12 12 12 0 0 0-12 12zm4.962 7.224-.156-.634c-.203-.828-.637-.988-1.293-.813l-9.31 2.863c-.852.262-.854.826-.156 1.042l2.384.746 5.532-3.492c.262-.165.502-.076.306.104l-4.483 4.047-.172 2.017c.315 0 .454-.144.63-.315l1.52-1.476 3.15 2.322c.583.32 1.003.154 1.147-.534z"
+      />
+    </svg>
+  )
+}
+
+function MessengerIds({
+  tgUserId,
+  baleUserId,
+  rtl,
+}: {
+  tgUserId: number
+  baleUserId: number
+  rtl: boolean
+}) {
+  const showTg = tgUserId > 0
+  const showBl = baleUserId > 0
+  if (!showTg && !showBl) return null
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-0.5 text-xs text-muted-foreground",
+        rtl ? "items-end" : "items-start"
+      )}
+    >
+      {showTg ? (
+        <div
+          className={cn(
+            "flex max-w-full items-center gap-1.5",
+            rtl && "flex-row-reverse"
+          )}
+          dir="ltr"
+        >
+          <IconTelegram className="size-3.5 shrink-0 text-sky-500" />
+          <span className="truncate tabular-nums font-mono">
+            {formatPlainLatinInt(tgUserId)}
+          </span>
+        </div>
+      ) : null}
+      {showBl ? (
+        <div
+          className={cn(
+            "flex max-w-full items-center gap-1.5",
+            rtl && "flex-row-reverse"
+          )}
+          dir="ltr"
+        >
+          <MessagesSquare
+            className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400"
+            aria-hidden
+          />
+          <span className="truncate tabular-nums font-mono">
+            {formatPlainLatinInt(baleUserId)}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 export function NavUser({
   user,
@@ -28,7 +99,8 @@ export function NavUser({
 }: {
   user: {
     name: string
-    email: string
+    tgUserId: number
+    baleUserId: number
     avatar: string
     logoutUrl?: string
   }
@@ -53,18 +125,31 @@ export function NavUser({
               </Avatar>
               <div
                 className={cn(
-                  "grid min-w-0 flex-1 text-sm leading-tight",
+                  "grid min-w-0 flex-1 gap-0.5 text-sm leading-tight",
                   rtl ? "text-end" : "text-start"
                 )}
               >
                 <span className="truncate font-medium">{user.name}</span>
-                <span className="truncate text-xs">{user.email}</span>
+                <MessengerIds
+                  tgUserId={user.tgUserId}
+                  baleUserId={user.baleUserId}
+                  rtl={rtl}
+                />
               </div>
-              <ChevronsUpDown className="ms-auto size-4 shrink-0" />
+              <ChevronsUpDown
+                className={cn(
+                  "size-4 shrink-0 opacity-70",
+                  rtl ? "me-auto ms-0 rotate-180" : "ms-auto"
+                )}
+              />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
+            className={cn(
+              "w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg",
+              rtl && "text-right"
+            )}
+            style={{ direction: rtl ? "rtl" : "ltr" }}
             side={isMobile ? "bottom" : "right"}
             align="end"
             sideOffset={4}
@@ -72,8 +157,8 @@ export function NavUser({
             <DropdownMenuLabel className="p-0 font-normal">
               <div
                 className={cn(
-                  "flex items-center gap-2 px-1 py-1.5 text-sm",
-                  rtl ? "flex-row-reverse text-end" : "text-left"
+                  "flex items-start gap-2 px-1 py-1.5 text-sm",
+                  rtl ? "flex-row-reverse text-end" : "text-start"
                 )}
               >
                 <Avatar className="h-8 w-8 shrink-0 rounded-lg">
@@ -82,18 +167,25 @@ export function NavUser({
                 </Avatar>
                 <div
                   className={cn(
-                    "grid min-w-0 flex-1 text-sm leading-tight",
-                    rtl ? "text-end" : "text-left"
+                    "grid min-w-0 flex-1 gap-1 text-sm leading-tight",
+                    rtl ? "text-end" : "text-start"
                   )}
                 >
                   <span className="truncate font-medium">{user.name}</span>
-                  <span className="truncate text-xs">{user.email}</span>
+                  <MessengerIds
+                    tgUserId={user.tgUserId}
+                    baleUserId={user.baleUserId}
+                    rtl={rtl}
+                  />
                 </div>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <a href={user.logoutUrl || "/wp-login.php?action=logout"}>
+              <a
+                href={user.logoutUrl || "#"}
+                className={cn("gap-2", rtl && "flex-row-reverse justify-end")}
+              >
                 <LogOut />
                 {t("sidebar.user.logout")}
               </a>

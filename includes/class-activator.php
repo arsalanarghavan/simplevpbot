@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class SimpleVPBot_Activator {
 
-	const DB_VERSION = '2.0.7';
+	const DB_VERSION = '2.1.1';
 
 	/**
 	 * Activate plugin.
@@ -202,10 +202,12 @@ class SimpleVPBot_Activator {
 			payload_json longtext NULL,
 			status varchar(20) NOT NULL DEFAULT 'pending',
 			created_by_wp bigint(20) unsigned NOT NULL DEFAULT 0,
+			created_by_svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			finished_at datetime DEFAULT NULL,
 			PRIMARY KEY (id),
-			KEY status (status)
+			KEY status (status),
+			KEY created_by_svp (created_by_svp_user_id)
 		) $charset_collate;";
 		$sql_users_bulk_items = "CREATE TABLE {$p}svp_users_bulk_job_items (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -258,6 +260,7 @@ class SimpleVPBot_Activator {
 		dbDelta( self::sql_panel_inbound_clients( $p, $charset_collate ) );
 		dbDelta( self::sql_panel_inbound_api( $p, $charset_collate ) );
 		dbDelta( self::sql_reseller_panel_prices( $p, $charset_collate ) );
+		dbDelta( self::sql_reseller_parent_panel_floors( $p, $charset_collate ) );
 		dbDelta( self::sql_reseller_bot_profiles( $p, $charset_collate ) );
 		if ( class_exists( 'SimpleVPBot_Service_Transfer' ) ) {
 			SimpleVPBot_Service_Transfer::ensure_table();
@@ -695,6 +698,15 @@ class SimpleVPBot_Activator {
 		if ( version_compare( (string) $current, '2.0.7', '<' ) ) {
 			self::maybe_migrate_207( $p, $charset_collate );
 		}
+		if ( version_compare( (string) $current, '2.0.8', '<' ) ) {
+			self::maybe_migrate_208( $p );
+		}
+		if ( version_compare( (string) $current, '2.1.0', '<' ) ) {
+			self::maybe_migrate_210( $p, $charset_collate );
+		}
+		if ( version_compare( (string) $current, '2.1.1', '<' ) ) {
+			self::maybe_migrate_211( $p );
+		}
 		update_option( 'simplevpbot_db_version', self::DB_VERSION );
 	}
 
@@ -798,6 +810,32 @@ class SimpleVPBot_Activator {
 		}
 	}
 
+	/**
+	 * Reseller-owned users bulk jobs (scope isolation in UI/API).
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_208( $p ) {
+		global $wpdb;
+		$t = $p . 'svp_users_bulk_jobs';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'created_by_svp_user_id'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN created_by_svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0 AFTER created_by_wp, ADD KEY created_by_svp (created_by_svp_user_id)" );
+		}
+	}
+
+	/**
+	 * Parent reseller floor table (direct parent -> direct child).
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 */
+	public static function maybe_migrate_210( $p, $charset_collate ) {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		dbDelta( self::sql_reseller_parent_panel_floors( $p, $charset_collate ) );
+	}
+
 	public static function maybe_migrate_204( $p, $charset_collate ) {
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		$sql_users_bulk_jobs = "CREATE TABLE {$p}svp_users_bulk_jobs (
@@ -807,10 +845,12 @@ class SimpleVPBot_Activator {
 			payload_json longtext NULL,
 			status varchar(20) NOT NULL DEFAULT 'pending',
 			created_by_wp bigint(20) unsigned NOT NULL DEFAULT 0,
+			created_by_svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			finished_at datetime DEFAULT NULL,
 			PRIMARY KEY (id),
-			KEY status (status)
+			KEY status (status),
+			KEY created_by_svp (created_by_svp_user_id)
 		) $charset_collate;";
 		$sql_users_bulk_items = "CREATE TABLE {$p}svp_users_bulk_job_items (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -861,10 +901,58 @@ class SimpleVPBot_Activator {
 			panel_id bigint(20) unsigned NOT NULL,
 			price_per_gb decimal(15,4) NOT NULL DEFAULT 0,
 			panel_access tinyint(1) NOT NULL DEFAULT 1,
+			default_service_type varchar(16) NOT NULL DEFAULT 'xray',
+			default_inbound_id int NOT NULL DEFAULT 0,
+			default_l2tp_server_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY (id),
 			UNIQUE KEY reseller_panel (reseller_svp_user_id, panel_id),
 			KEY panel_id (panel_id)
+		) $charset_collate;";
+	}
+
+	/**
+	 * Reseller panel rows: admin presets for inbound / protocol (dashboard plan form).
+	 *
+	 * @param string $p Prefix.
+	 */
+	public static function maybe_migrate_211( $p ) {
+		global $wpdb;
+		$t = $p . 'svp_reseller_panel_prices';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'default_service_type'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN default_service_type varchar(16) NOT NULL DEFAULT 'xray' AFTER panel_access" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'default_inbound_id'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN default_inbound_id int NOT NULL DEFAULT 0 AFTER default_service_type" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'default_l2tp_server_id'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN default_l2tp_server_id bigint(20) unsigned NOT NULL DEFAULT 0 AFTER default_inbound_id" );
+		}
+	}
+
+	/**
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 * @return string
+	 */
+	public static function sql_reseller_parent_panel_floors( $p, $charset_collate ) {
+		return "CREATE TABLE {$p}svp_reseller_parent_panel_floors (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			parent_svp_user_id bigint(20) unsigned NOT NULL,
+			child_svp_user_id bigint(20) unsigned NOT NULL,
+			panel_id bigint(20) unsigned NOT NULL,
+			min_price_per_gb decimal(15,4) NOT NULL DEFAULT 0,
+			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			UNIQUE KEY parent_child_panel (parent_svp_user_id, child_svp_user_id, panel_id),
+			KEY child_panel (child_svp_user_id, panel_id),
+			KEY parent_child (parent_svp_user_id, child_svp_user_id)
 		) $charset_collate;";
 	}
 

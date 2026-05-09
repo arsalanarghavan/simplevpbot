@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Moon, Sun, Users } from "lucide-react"
+import { Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { AppSidebar } from "@/components/app-sidebar"
 import { DashboardAdminView } from "@/components/dashboard-admin-view"
+import { ImpersonationBanner } from "@/components/impersonation-banner"
 import { Button } from "@/components/ui/button"
 import {
   Breadcrumb,
@@ -20,9 +21,13 @@ import {
 } from "@/components/ui/sidebar"
 import { DashboardLogin } from "@/components/dashboard-login"
 import { buildAdminStateQuery } from "@/lib/dash-pagination"
-import { parseActiveDashTab, parseDashFromPath } from "@/lib/dash-tab"
+import { mapTabForReseller, parseActiveDashTab, parseDashFromPath } from "@/lib/dash-tab"
 import { formatNumber } from "@/lib/format-locale"
-import { ADMIN_NAV_SECTIONS, type AdminNavSection } from "@/config/admin-nav"
+import {
+  ADMIN_NAV_SECTIONS,
+  filterAdminNavForReseller,
+  type AdminNavSection,
+} from "@/config/admin-nav"
 import { cn } from "@/lib/utils"
 
 type DashData = {
@@ -30,18 +35,24 @@ type DashData = {
   user?: { label?: string }
 } & Record<string, unknown>
 type NavTab = { key: string; label: string }
+type DashPersona = "admin" | "reseller" | "user"
 
 const RESELLER_ALLOWED_BY_PERMISSION: Record<string, string | null> = {
   dashboard: null,
   monitoring: null,
   users: "users.manage",
   resellers: "users.manage",
+  users_bulk: "users.bulk",
   plans: "plans.manage",
   plan_cats: "plans.manage",
+  cards: "plans.manage",
+  referral: null,
+  discounts: "plans.manage",
   reseller_bots: "services.manage",
-  users_bulk: "users.bulk",
+  bot_ui: "services.manage",
   broadcast: "broadcast.send",
   receipts: "receipts.review",
+  reseller_workspace: null,
 }
 
 function App() {
@@ -52,26 +63,42 @@ function App() {
   const isAdmin = Boolean(boot.isAdmin)
   const isReseller = Boolean(boot.isReseller)
   const isOperator = isAdmin || isReseller
+  const availablePersonas: DashPersona[] = useMemo(() => {
+    const raw = boot.availablePersonas
+    if (!Array.isArray(raw)) return []
+    return raw.filter((x): x is DashPersona => x === "admin" || x === "reseller" || x === "user")
+  }, [boot])
+  const activePersona: DashPersona = useMemo(() => {
+    const a = boot.activePersona
+    if (a === "admin" || a === "reseller" || a === "user") return a
+    return availablePersonas[0] ?? "user"
+  }, [boot.activePersona, availablePersonas])
   const [data, setData] = useState<DashData | null>(null)
+  const dashStateAbortRef = useRef<AbortController | null>(null)
   /** Query params for GET admin/state list pagination (e.g. users_page). */
   const [listQuery, setListQuery] = useState<Record<string, string>>({})
   const [lang, setLang] = useState<"fa" | "en">(boot.lang === "fa" ? "fa" : "en")
   const [activeTab, setActiveTab] = useState(() => {
     const b = window.__SIMPLEVPBOT_DASH__ || {}
     if (!b.isAdmin && !b.isReseller) return "home"
-    if (typeof window !== "undefined") return parseDashFromPath(window.location.pathname).tab
+    if (typeof window !== "undefined")
+      return parseDashFromPath(window.location.pathname, { reseller: Boolean(b.isReseller) }).tab
     return parseActiveDashTab(b)
   })
   const [userDetailId, setUserDetailId] = useState<number | null>(() => {
     const b = window.__SIMPLEVPBOT_DASH__ || {}
     if (!b.isAdmin && !b.isReseller) return null
-    if (typeof window !== "undefined") return parseDashFromPath(window.location.pathname).userDetailId
+    if (typeof window !== "undefined")
+      return parseDashFromPath(window.location.pathname, { reseller: Boolean(b.isReseller) }).userDetailId
     return null
   })
   const [resellerContextId, setResellerContextId] = useState<number | null>(() => {
     const b = window.__SIMPLEVPBOT_DASH__ || {}
     if (!b.isAdmin && !b.isReseller) return null
-    if (typeof window !== "undefined") return parseDashFromPath(window.location.pathname).resellerContextId ?? null
+    if (typeof window !== "undefined")
+      return (
+        parseDashFromPath(window.location.pathname, { reseller: Boolean(b.isReseller) }).resellerContextId ?? null
+      )
     return null
   })
 
@@ -86,16 +113,21 @@ function App() {
       }
       return out
     }
-    const perms =
+    const permsFromData =
       data?.actorPermissions && typeof data.actorPermissions === "object"
         ? (data.actorPermissions as Record<string, boolean>)
-        : {}
+        : null
+    const permsFromBoot =
+      boot.actorPermissions && typeof boot.actorPermissions === "object"
+        ? (boot.actorPermissions as Record<string, boolean>)
+        : null
+    const perms = permsFromData ?? permsFromBoot ?? {}
     const out = new Set<string>()
     for (const [tab, perm] of Object.entries(RESELLER_ALLOWED_BY_PERMISSION)) {
       if (perm == null || perms[perm] !== false) out.add(tab)
     }
     return out
-  }, [isReseller, data])
+  }, [isReseller, data, boot])
   const safeResellerTab = useCallback(
     (tab: string) => {
       if (!isReseller) return tab
@@ -110,7 +142,9 @@ function App() {
         if (key === "home") setActiveTab("home")
         return
       }
-      const tabKey = safeResellerTab(key === "general" ? "monitoring" : key)
+      let mapped = key === "general" ? (isReseller ? "dashboard" : "monitoring") : key
+      mapped = mapTabForReseller(mapped, isReseller)
+      const tabKey = safeResellerTab(mapped)
       const base = dashboardBaseUrl.replace(/\/?$/, "")
       const url = `${base}/${encodeURIComponent(tabKey)}/`
       window.history.pushState({ tab: tabKey }, "", url)
@@ -118,7 +152,7 @@ function App() {
       setUserDetailId(null)
       setResellerContextId(null)
     },
-    [isOperator, dashboardBaseUrl, safeResellerTab]
+    [isOperator, dashboardBaseUrl, safeResellerTab, isReseller]
   )
 
   const openUserDetail = useCallback(
@@ -134,30 +168,74 @@ function App() {
     [isOperator, dashboardBaseUrl, isReseller, allowedResellerTabs]
   )
 
+  const onImpersonateReseller = useCallback(
+    async (svpUserId: number) => {
+      const restBase = (boot.restUrl || "").replace(/\/$/, "")
+      if (!restBase || !boot.nonce || !Number.isFinite(svpUserId) || svpUserId < 1) return
+      const r = await fetch(`${restBase}/dashboard/impersonate/start`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-WP-Nonce": boot.nonce,
+        },
+        body: JSON.stringify({ targetSvpUserId: svpUserId }),
+      })
+      if (r.ok) window.location.reload()
+    },
+    [boot.restUrl, boot.nonce]
+  )
+
   const fetchDashState = useCallback(
     (opts?: { refreshPanelHealth?: boolean; refreshLivePanelMetrics?: boolean }) => {
       const restBase = (boot.restUrl || "").replace(/\/$/, "")
       if (!restBase) return
       if (!isOperator) {
+        dashStateAbortRef.current?.abort()
+        const ac = new AbortController()
+        dashStateAbortRef.current = ac
+        const { signal } = ac
         void fetch(`${restBase}/dashboard/me/state`, {
           headers: {
             "Content-Type": "application/json",
             "X-WP-Nonce": boot.nonce || "",
           },
           credentials: "include",
+          signal,
         })
           .then((r) => r.json())
-          .then((json) => setData(json))
-          .catch(() => setData({ ok: false }))
+          .then((json) => {
+            if (signal.aborted) return
+            setData(json)
+          })
+          .catch((err: unknown) => {
+            if (signal.aborted) return
+            if (err instanceof DOMException && err.name === "AbortError") return
+            setData({ ok: false })
+          })
         return
       }
+      dashStateAbortRef.current?.abort()
+      const ac = new AbortController()
+      dashStateAbortRef.current = ac
+      const { signal } = ac
       const tab = activeTab
       const q = buildAdminStateQuery(listQuery, {
         refreshPanelHealth: opts?.refreshPanelHealth,
         refreshLivePanelMetrics: opts?.refreshLivePanelMetrics,
         activeTab: tab,
+        resellerOperator: isReseller,
       })
-      if (resellerContextId && resellerContextId > 0) {
+      const applyJson = (json: unknown) => {
+        if (signal.aborted) return
+        setData(json as DashData)
+      }
+      const onFetchError = (err: unknown) => {
+        if (signal.aborted) return
+        if (err instanceof DOMException && err.name === "AbortError") return
+        setData({ ok: false })
+      }
+      if (isAdmin && resellerContextId && resellerContextId > 0) {
         const sep = q.includes("?") ? "&" : "?"
         const q2 = `${q}${sep}resellerContextId=${encodeURIComponent(String(resellerContextId))}`
         void fetch(`${restBase}/dashboard/admin/state${q2}`, {
@@ -166,10 +244,11 @@ function App() {
             "X-WP-Nonce": boot.nonce || "",
           },
           credentials: "include",
+          signal,
         })
           .then((r) => r.json())
-          .then((json) => setData(json))
-          .catch(() => setData({ ok: false }))
+          .then(applyJson)
+          .catch(onFetchError)
         return
       }
       void fetch(`${restBase}/dashboard/admin/state${q}`, {
@@ -178,12 +257,13 @@ function App() {
           "X-WP-Nonce": boot.nonce || "",
         },
         credentials: "include",
+        signal,
       })
         .then((r) => r.json())
-        .then((json) => setData(json))
-        .catch(() => setData({ ok: false }))
+        .then(applyJson)
+        .catch(onFetchError)
     },
-    [boot, isOperator, listQuery, activeTab, resellerContextId]
+    [boot, isOperator, isAdmin, isReseller, listQuery, activeTab, resellerContextId]
   )
 
   useEffect(() => {
@@ -191,10 +271,11 @@ function App() {
     const path = window.location.pathname.replace(/\/+$/, "") || "/"
     if (path.endsWith("/dashboard/general") || /\/dashboard\/general$/i.test(path)) {
       const base = dashboardBaseUrl.replace(/\/?$/, "")
-      window.history.replaceState({ tab: "monitoring" }, "", `${base}/monitoring/`)
-      setActiveTab("monitoring")
+      const tab = isReseller ? "dashboard" : "monitoring"
+      window.history.replaceState({ tab }, "", `${base}/${tab}/`)
+      setActiveTab(tab)
     }
-  }, [isOperator, dashboardBaseUrl])
+  }, [isOperator, dashboardBaseUrl, isReseller])
 
   useEffect(() => {
     fetchDashState()
@@ -211,7 +292,31 @@ function App() {
   }, [isReseller, activeTab, safeResellerTab, dashboardBaseUrl])
 
   useEffect(() => {
-    if (!isOperator || (activeTab !== "dashboard" && activeTab !== "monitoring")) return
+    if (!isReseller || activeTab !== "reseller_workspace") return
+    const id = resellerContextId
+    if (id == null || id < 1) return
+    const base = dashboardBaseUrl.replace(/\/?$/, "")
+    window.history.replaceState({ tab: "users", userDetailId: id }, "", `${base}/users/u/${id}/`)
+    setActiveTab("users")
+    setUserDetailId(id)
+    setResellerContextId(null)
+  }, [isReseller, activeTab, resellerContextId, dashboardBaseUrl])
+
+  /** `/dashboard/reseller_workspace/` without numeric id falls through to unknown tab — redirect. */
+  useEffect(() => {
+    if (!isOperator || activeTab !== "reseller_workspace") return
+    if (resellerContextId != null && resellerContextId > 0) return
+    const base = dashboardBaseUrl.replace(/\/?$/, "")
+    const fallback = isAdmin ? "resellers" : "dashboard"
+    window.history.replaceState({ tab: fallback }, "", `${base}/${encodeURIComponent(fallback)}/`)
+    setActiveTab(fallback)
+    setResellerContextId(null)
+  }, [isOperator, isAdmin, activeTab, resellerContextId, dashboardBaseUrl])
+
+  useEffect(() => {
+    const pollHere =
+      activeTab === "dashboard" || (!isReseller && activeTab === "monitoring")
+    if (!isOperator || !pollHere) return
     const ms = 25000
     const id = window.setInterval(() => {
       if (document.visibilityState === "hidden") return
@@ -225,7 +330,7 @@ function App() {
       window.clearInterval(id)
       document.removeEventListener("visibilitychange", onVis)
     }
-  }, [isOperator, activeTab, fetchDashState])
+  }, [isOperator, isReseller, activeTab, fetchDashState])
 
   useEffect(() => {
     const isFa = lang === "fa"
@@ -241,14 +346,14 @@ function App() {
         setActiveTab("home")
         return
       }
-      const loc = parseDashFromPath(window.location.pathname)
+      const loc = parseDashFromPath(window.location.pathname, { reseller: isReseller })
       setActiveTab(safeResellerTab(loc.tab))
       setUserDetailId(loc.userDetailId)
       setResellerContextId(loc.resellerContextId ?? null)
     }
     window.addEventListener("popstate", onPop)
     return () => window.removeEventListener("popstate", onPop)
-  }, [isOperator, safeResellerTab])
+  }, [isOperator, safeResellerTab, isReseller])
 
   const isFa = lang === "fa"
   const sidebarSide: "left" | "right" = isFa ? "right" : "left"
@@ -256,36 +361,9 @@ function App() {
     () => (isOperator ? [] : [{ key: "home", label: t("layout.breadcrumbHome") }]),
     [isOperator, t],
   )
-  const resellerSections: AdminNavSection[] = useMemo(() => {
-    if (!isReseller) return ADMIN_NAV_SECTIONS
-    const overview = ADMIN_NAV_SECTIONS.find((s) => s.id === "overview")
-    if (!overview) return ADMIN_NAV_SECTIONS
-    const workspaceTabs = [
-      "users",
-      "users_bulk",
-      "resellers",
-      "plans",
-      "plan_cats",
-      "receipts",
-      "broadcast",
-      "reseller_bots",
-    ].filter((tabKey) => allowedResellerTabs.has(tabKey))
-    return [
-      overview,
-      {
-        id: "users",
-        hintKey: "sidebar.sections.users",
-        entries: [
-          {
-            kind: "collapsible",
-            id: "reseller_workspace",
-            icon: Users,
-            labelKey: "sidebar.groups.resellerWorkspace",
-            children: workspaceTabs.map((tabKey) => ({ tabKey })),
-          },
-        ],
-      },
-    ]
+  const operatorNavSections: AdminNavSection[] | undefined = useMemo(() => {
+    if (!isReseller) return undefined
+    return filterAdminNavForReseller(ADMIN_NAV_SECTIONS, allowedResellerTabs)
   }, [isReseller, allowedResellerTabs])
 
   const currentSectionLabel = useMemo(() => {
@@ -298,19 +376,38 @@ function App() {
     return t(`sidebar.items.${activeTab}`, { defaultValue: activeTab })
   }, [isOperator, activeTab, userDetailId, t])
 
+  const sidebarProfile = useMemo(() => {
+    const d = data?.user as
+      | { label?: string; tg_user_id?: unknown; bale_user_id?: unknown }
+      | undefined
+    const b = boot.user as typeof d
+    const tg = Number(d?.tg_user_id ?? b?.tg_user_id ?? 0) || 0
+    const bl = Number(d?.bale_user_id ?? b?.bale_user_id ?? 0) || 0
+    const labelRaw = String(d?.label ?? b?.label ?? "").trim()
+    return { label: labelRaw, tg_user_id: tg, bale_user_id: bl }
+  }, [data?.user, boot])
+
   const user = {
-    name: data?.user?.label || `#${formatNumber(boot.svpUserId || 0, isFa)}`,
-    email: isAdmin ? t("layout.placeholderAdminEmail") : t("layout.placeholderUserEmail"),
+    name:
+      sidebarProfile.label ||
+      `#${formatNumber(boot.svpUserId || 0, isFa)}`,
+    tgUserId: sidebarProfile.tg_user_id,
+    baleUserId: sidebarProfile.bale_user_id,
     avatar: "",
-    logoutUrl: boot.logoutUrl || "/wp-login.php?action=logout",
+    logoutUrl: boot.logoutUrl || dashboardBaseUrl,
   }
+  const impersonating = Boolean(boot.impersonating)
+  const impersonationTargetLabel = String(boot.impersonationTargetLabel ?? "")
   const langLabel = isFa ? t("layout.langSwitchToEn") : t("layout.langSwitchToFa")
   const effectiveActiveTab = isAdmin || isReseller ? activeTab : "home"
+
+  const sidebarVariant: "admin" | "reseller" | "user" =
+    activePersona === "user" ? "user" : activePersona === "reseller" ? "reseller" : "admin"
 
   const sidebarEl = (
     <AppSidebar
       side={sidebarSide}
-      variant={isAdmin ? "admin" : isReseller ? "reseller" : "user"}
+      variant={sidebarVariant}
       navTabs={navTabs}
       user={user}
       activeTabKey={effectiveActiveTab}
@@ -321,7 +418,12 @@ function App() {
       onOpenUserDetail={isOperator ? openUserDetail : undefined}
       userSearchRestUrl={isOperator ? String(boot.restUrl ?? "") : undefined}
       userSearchNonce={isOperator ? String(boot.nonce ?? "") : undefined}
-      adminSections={resellerSections}
+      adminSections={operatorNavSections}
+      activePersona={activePersona}
+      availablePersonas={availablePersonas}
+      personaRestUrl={String(boot.restUrl ?? "")}
+      personaNonce={String(boot.nonce ?? "")}
+      personaSwitchBlocked={impersonating}
     />
   )
 
@@ -368,6 +470,8 @@ function App() {
             data={data}
             activeTab={effectiveActiveTab}
             userDetailId={userDetailId}
+            isReseller={isReseller}
+            allowedNavTabs={isReseller ? allowedResellerTabs : null}
             isFa={isFa}
             dashboardBaseUrl={dashboardBaseUrl}
             onSelectTab={selectTab}
@@ -380,6 +484,10 @@ function App() {
             onOpenResellerWorkspace={(rid) => {
               const id = Number(rid)
               if (!Number.isFinite(id) || id < 1) return
+              if (isReseller) {
+                openUserDetail(id)
+                return
+              }
               const base = dashboardBaseUrl.replace(/\/?$/, "")
               window.history.pushState({ tab: "reseller_workspace", resellerContextId: id }, "", `${base}/reseller_workspace/${id}/`)
               setResellerContextId(id)
@@ -401,6 +509,7 @@ function App() {
             onRefreshPanelHealth={() => fetchDashState({ refreshPanelHealth: true })}
             onRefreshLivePanelMetrics={() => fetchDashState({ refreshLivePanelMetrics: true })}
             onAdminMutateSuccess={() => fetchDashState()}
+            onImpersonateReseller={isAdmin && !impersonating ? onImpersonateReseller : undefined}
           />
         ) : (
           <p className="text-sm text-muted-foreground">
@@ -416,9 +525,20 @@ function App() {
   }
 
   return (
-    <SidebarProvider dir={isFa ? "rtl" : "ltr"}>
-      {sidebarEl}
-      {insetEl}
+    <SidebarProvider dir={isFa ? "rtl" : "ltr"} className="flex-col">
+      {impersonating && impersonationTargetLabel ? (
+        <ImpersonationBanner
+          targetLabel={impersonationTargetLabel}
+          isFa={isFa}
+          restBase={String(boot.restUrl ?? "")}
+          nonce={String(boot.nonce ?? "")}
+          dashboardBaseUrl={dashboardBaseUrl}
+        />
+      ) : null}
+      <div className="flex min-h-0 w-full flex-1">
+        {sidebarEl}
+        {insetEl}
+      </div>
     </SidebarProvider>
   )
 }
