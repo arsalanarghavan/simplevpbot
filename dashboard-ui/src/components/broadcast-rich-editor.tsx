@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef } from "react"
+import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -19,6 +20,13 @@ function insertHtml(html: string) {
   document.execCommand("insertHTML", false, html)
 }
 
+function escapeForPreFragment(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+}
+
 export function BroadcastRichEditor({
   value,
   onChange,
@@ -32,6 +40,8 @@ export function BroadcastRichEditor({
   disabled?: boolean
   placeholder?: string
 }) {
+  const { t } = useTranslation()
+  const tip = (key: string) => t(`broadcastAdmin.${key}`)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -63,10 +73,44 @@ export function BroadcastRichEditor({
     emit()
   }, [emit])
 
-  const runCode = useCallback(() => {
+  const runUnderline = useCallback(() => {
+    ref.current?.focus()
+    document.execCommand("underline", false)
+    emit()
+  }, [emit])
+
+  const runStrike = useCallback(() => {
+    ref.current?.focus()
+    document.execCommand("strikeThrough", false)
+    emit()
+  }, [emit])
+
+  const runMono = useCallback(() => {
     ref.current?.focus()
     const inner = selectionHtml() || "…"
     insertHtml(`<code>${inner}</code>`)
+    emit()
+  }, [emit])
+
+  const runPre = useCallback(() => {
+    ref.current?.focus()
+    const raw = window.getSelection()?.toString() || "…"
+    const inner = escapeForPreFragment(raw)
+    insertHtml(`<pre>${inner}</pre>`)
+    emit()
+  }, [emit])
+
+  const runSpoiler = useCallback(() => {
+    ref.current?.focus()
+    const inner = selectionHtml() || "…"
+    insertHtml(`<tg-spoiler>${inner}</tg-spoiler>`)
+    emit()
+  }, [emit])
+
+  const runQuote = useCallback(() => {
+    ref.current?.focus()
+    const inner = selectionHtml() || "…"
+    insertHtml(`<blockquote>${inner}</blockquote>`)
     emit()
   }, [emit])
 
@@ -80,32 +124,48 @@ export function BroadcastRichEditor({
     emit()
   }, [emit])
 
+  const btn = (
+    label: string,
+    titleKey: string,
+    onClick: () => void,
+    extraClass?: string,
+  ) => (
+    <Button
+      type="button"
+      variant="secondary"
+      size="sm"
+      className={cn("h-8 px-2 text-xs", extraClass)}
+      disabled={disabled}
+      title={tip(titleKey)}
+      onClick={onClick}
+    >
+      {label}
+    </Button>
+  )
+
   return (
     <div className="space-y-2">
       <div
         className={cn(
           "flex flex-wrap gap-1 rounded-md border border-input bg-muted/30 p-1",
-          isFa && "flex-row-reverse"
+          isFa && "flex-row-reverse",
         )}
       >
-        <Button type="button" variant="secondary" size="sm" className="h-8 px-2 text-xs" disabled={disabled} onClick={runBold}>
-          B
-        </Button>
-        <Button type="button" variant="secondary" size="sm" className="h-8 px-2 text-xs" disabled={disabled} onClick={runItalic}>
-          I
-        </Button>
-        <Button type="button" variant="secondary" size="sm" className="h-8 px-2 text-xs" disabled={disabled} onClick={runCode}>
-          {"</>"}
-        </Button>
-        <Button type="button" variant="secondary" size="sm" className="h-8 px-2 text-xs" disabled={disabled} onClick={runLink}>
-          Link
-        </Button>
+        {btn("B", "editorTipBold", runBold, "font-bold")}
+        {btn("I", "editorTipItalic", runItalic, "italic")}
+        {btn(t("broadcastAdmin.editorBtnMono"), "editorTipMono", runMono, "font-mono")}
+        {btn(t("broadcastAdmin.editorBtnPre"), "editorTipPre", runPre, "font-mono")}
+        {btn("U", "editorTipUnderline", runUnderline, "underline")}
+        {btn("S", "editorTipStrike", runStrike, "line-through")}
+        {btn(t("broadcastAdmin.editorBtnSpoiler"), "editorTipSpoiler", runSpoiler)}
+        {btn(t("broadcastAdmin.editorBtnQuote"), "editorTipQuote", runQuote)}
+        {btn(t("broadcastAdmin.editorBtnLink"), "editorTipLink", runLink)}
       </div>
       <div
         ref={ref}
         className={cn(
           "min-h-[8rem] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
-          isFa && "text-right"
+          isFa && "text-right",
         )}
         contentEditable={!disabled}
         dir="auto"

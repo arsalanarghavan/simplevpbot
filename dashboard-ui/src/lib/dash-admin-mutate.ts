@@ -6,6 +6,10 @@ export type AdminMutateResult = {
   data?: unknown
   reason?: string
   iterations?: number
+  transaction_id?: number
+  notify_sent?: boolean
+  /** Unknown catalog panel IDs skipped during reseller_panel_prices_save (admin path). */
+  skipped_panel_ids?: number[]
 }
 
 export async function postAdminMutate(
@@ -40,6 +44,11 @@ export async function postAdminMutate(
   } catch {
     return { ok: false, message: "bad_json" }
   }
+  const skippedRaw = json.skipped_panel_ids
+  const skipped_panel_ids = Array.isArray(skippedRaw)
+    ? skippedRaw.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0)
+    : undefined
+
   return {
     ok: Boolean(json.ok),
     code: typeof json.code === "string" ? json.code : undefined,
@@ -48,6 +57,9 @@ export async function postAdminMutate(
     data: "data" in json ? json.data : undefined,
     reason: typeof json.reason === "string" ? json.reason : undefined,
     iterations: typeof json.iterations === "number" ? json.iterations : undefined,
+    transaction_id: typeof json.transaction_id === "number" ? json.transaction_id : undefined,
+    notify_sent: typeof json.notify_sent === "boolean" ? json.notify_sent : undefined,
+    skipped_panel_ids: skipped_panel_ids?.length ? skipped_panel_ids : undefined,
   }
 }
 

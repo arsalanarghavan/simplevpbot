@@ -3,6 +3,7 @@ import {
   Activity,
   Bot,
   LayoutDashboard,
+  Layers,
   PanelsTopLeft,
   Network,
   Server,
@@ -46,6 +47,7 @@ export const ADMIN_ONLY_TAB_KEYS = new Set<string>([
   "xui_panels",
   "configs",
   "l2tp_servers",
+  "wholesale_lines",
   "texts",
   "monitoring",
 ])
@@ -173,6 +175,7 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
           { tabKey: "plans" },
           { tabKey: "cards" },
           { tabKey: "receipts" },
+          { tabKey: "reseller_finance" },
           { tabKey: "referral" },
           { tabKey: "discounts" },
         ],
@@ -210,6 +213,7 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
           { tabKey: "xui_panels" },
           { tabKey: "configs", icon: Network },
           { tabKey: "l2tp_servers" },
+          { tabKey: "wholesale_lines", icon: Layers },
         ],
       },
       {
@@ -240,6 +244,7 @@ export const ADMIN_TAB_KEYS: string[] = [
   "plans",
   "cards",
   "receipts",
+  "reseller_finance",
   "referral",
   "discounts",
   "plan_cats",
@@ -251,6 +256,7 @@ export const ADMIN_TAB_KEYS: string[] = [
   "xui_panels",
   "configs",
   "l2tp_servers",
+  "wholesale_lines",
   "backup",
   "logs",
 ]

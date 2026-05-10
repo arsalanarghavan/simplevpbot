@@ -40,6 +40,7 @@ type DashPersona = "admin" | "reseller" | "user"
 const RESELLER_ALLOWED_BY_PERMISSION: Record<string, string | null> = {
   dashboard: null,
   monitoring: null,
+  reseller_finance: null,
   users: "users.manage",
   resellers: "users.manage",
   users_bulk: "users.bulk",
@@ -124,7 +125,11 @@ function App() {
     const perms = permsFromData ?? permsFromBoot ?? {}
     const out = new Set<string>()
     for (const [tab, perm] of Object.entries(RESELLER_ALLOWED_BY_PERMISSION)) {
-      if (perm == null || perms[perm] !== false) out.add(tab)
+      if (perm == null) {
+        out.add(tab)
+      } else if (perms[perm] === true) {
+        out.add(tab)
+      }
     }
     return out
   }, [isReseller, data, boot])

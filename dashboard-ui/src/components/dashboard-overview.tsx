@@ -50,6 +50,7 @@ import {
 } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
 import type { PaginationMeta } from "@/lib/dash-pagination"
+import { WholesaleLadderTimeline } from "@/components/dashboard-wholesale-ladder-timeline"
 
 type OverviewUsers = {
   users_approved?: number
@@ -295,6 +296,8 @@ export function DashboardOverview({
   onPanelsPageChange,
   onPanelsPerPageChange,
   compactHealthOnly = false,
+  wholesaleLines = [],
+  actorBalance = undefined,
 }: {
   overview: OverviewPayload | undefined
   panels: DashRecord[]
@@ -309,6 +312,10 @@ export function DashboardOverview({
   onPanelsPerPageChange: (perPage: number) => void
   /** Reseller / user persona: only server list, online/offline, ping. */
   compactHealthOnly?: boolean
+  /** Reseller wholesale catalog lines with ladder snapshots (dashboard only). */
+  wholesaleLines?: DashRecord[]
+  /** Reseller wallet balance (toman); shown when compactHealthOnly and defined. */
+  actorBalance?: number
 }) {
   const { t } = useTranslation()
   const allowTab = (tab: string) => !allowedNavTabs || allowedNavTabs.has(tab)
@@ -392,6 +399,7 @@ export function DashboardOverview({
       : "—"
 
   if (compactHealthOnly) {
+    const showFinance = typeof actorBalance === "number"
     return (
       <div className={cn("space-y-4", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
         <div className={cn("flex flex-wrap items-center justify-between gap-2", isFa && "flex-row-reverse")}>
@@ -405,6 +413,22 @@ export function DashboardOverview({
             </Button>
           ) : null}
         </div>
+        {wholesaleLines.length > 0 ? (
+          <WholesaleLadderTimeline wholesaleLines={wholesaleLines} isFa={isFa} />
+        ) : null}
+        {showFinance ? (
+          <Card>
+            <CardContent className={cn("flex flex-wrap items-center justify-between gap-3 pt-6", isFa && "flex-row-reverse")}>
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">{t("dashboardOverview.actorWalletLabel")}</p>
+                <p className="text-2xl font-semibold tabular-nums">{formatNumber(actorBalance, isFa)}</p>
+              </div>
+              <Button type="button" variant="default" size="sm" onClick={() => onSelectTab("reseller_finance")}>
+                {t("dashboardOverview.actorWalletTopUp")}
+              </Button>
+            </CardContent>
+          </Card>
+        ) : null}
         <Card>
           <CardContent className="pt-6">
             {rows.length === 0 ? (

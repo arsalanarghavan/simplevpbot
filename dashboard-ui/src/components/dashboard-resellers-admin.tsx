@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { KeyRound, LayoutDashboard, LogIn, Settings2, ShieldCheck } from "lucide-react"
+import { KeyRound, Layers, LayoutDashboard, LogIn, Settings2, ShieldCheck } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,17 +15,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import { dashContentClass, dashFlexRowClass } from "@/lib/dash-locale"
 import { DataPagination } from "@/components/data-pagination"
 import type { PaginationMeta } from "@/lib/dash-pagination"
-import { formatNumber } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
-
-const selectClass =
-  "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
 
 type DashRecord = Record<string, unknown>
 
@@ -102,10 +98,20 @@ type PanelPriceRow = {
   default_l2tp_server_id: number
 }
 
+/** Matches backend: access if explicit allow or positive wholesale (legacy rows). */
+function panelAllowedFromStoredRow(ex: Record<string, unknown> | undefined): boolean {
+  if (!ex) return false
+  const raw = ex.panel_access
+  const acc = raw === true || raw === 1 || raw === "1"
+  const price = parsePricePerGbToman(String(ex.price_per_gb ?? ""))
+  return acc || price > 0
+}
+
 export function DashboardResellersAdmin({
   rows,
   panels,
-  l2tpServers = [],
+  wholesaleLinesCatalog = [],
+  resellerWholesaleLineIdsMap = {},
   resellerPermissionsMap,
   resellerPanelPricesMap,
   canManageResellerControls = true,
@@ -121,7 +127,8 @@ export function DashboardResellersAdmin({
 }: {
   rows: DashRecord[]
   panels: DashRecord[]
-  l2tpServers?: DashRecord[]
+  wholesaleLinesCatalog?: DashRecord[]
+  resellerWholesaleLineIdsMap?: Record<string, number[]>
   resellerPermissionsMap?: Record<string, Record<string, boolean> | undefined>
   resellerPanelPricesMap?: Record<string, Array<Record<string, unknown>> | undefined>
   resellerBotMap?: Record<string, { enabled?: boolean; brand?: string } | undefined>
@@ -137,10 +144,12 @@ export function DashboardResellersAdmin({
   onImpersonateReseller?: (id: number) => void
 }) {
   const { t } = useTranslation()
-  const tp = (k: string) => t(`resellersAdmin.${k}`)
+  const tp = (k: string, opts?: Record<string, string | number>) => t(`resellersAdmin.${k}`, opts)
   const isResellerActor = Boolean(window.__SIMPLEVPBOT_DASH__?.isReseller)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState("")
+  const [panelPriceErr, setPanelPriceErr] = useState("")
+  const [panelPriceNotice, setPanelPriceNotice] = useState("")
   const [form, setForm] = useState({
     first_name: "",
     last_name: "",
@@ -154,6 +163,9 @@ export function DashboardResellersAdmin({
   const [priceRows, setPriceRows] = useState<PanelPriceRow[]>([])
   const [permResellerId, setPermResellerId] = useState<number | null>(null)
   const [permissions, setPermissions] = useState<Record<string, boolean>>({})
+  const [wholesaleAssignId, setWholesaleAssignId] = useState<number | null>(null)
+  const [wholesaleSelectedIds, setWholesaleSelectedIds] = useState<number[]>([])
+  const [wholesaleErr, setWholesaleErr] = useState("")
 
   const directUsersCount = useMemo(() => {
     const m = new Map<number, number>()
@@ -171,7 +183,41 @@ export function DashboardResellersAdmin({
     return hasDash || hasBot
   }, [form.username, form.dashboard_password, form.tg_user_id, form.bale_user_id])
 
+  function openWholesaleAssign(rid: number) {
+    setWholesaleErr("")
+    setWholesaleAssignId(rid)
+    setWholesaleSelectedIds([...(resellerWholesaleLineIdsMap[String(rid)] ?? [])])
+  }
+
+  function toggleWholesaleLine(lid: number) {
+    setWholesaleSelectedIds((prev) =>
+      prev.includes(lid) ? prev.filter((x) => x !== lid) : [...prev, lid].sort((a, b) => a - b)
+    )
+  }
+
+  async function saveWholesaleAssign() {
+    if (wholesaleAssignId == null) return
+    setBusy(true)
+    setWholesaleErr("")
+    try {
+      const res = await postAdminMutate("reseller_wholesale_lines_assign", {
+        reseller_svp_user_id: wholesaleAssignId,
+        line_ids: wholesaleSelectedIds,
+      })
+      if (!res.ok) {
+        setWholesaleErr(res.message || tp("createError"))
+        return
+      }
+      setWholesaleAssignId(null)
+      onMutateSuccess?.()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   function openPriceDialog(rid: number) {
+    setPanelPriceErr("")
+    setPanelPriceNotice("")
     setPriceResellerId(rid)
     const existingRows = resellerPanelPricesMap?.[String(rid)] ?? []
     const existingByPanel = new Map<number, string>()
@@ -187,7 +233,7 @@ export function DashboardResellersAdmin({
         return {
           panel_id: pid,
           price_per_gb: formatTomanInputFromStored(existingByPanel.get(pid) ?? ""),
-          panel_access: ((ex?.panel_access ?? 1) as number | boolean) !== 0,
+          panel_access: panelAllowedFromStoredRow(ex),
           default_service_type: stRaw === "l2tp" ? "l2tp" : "xray",
           default_inbound_id: String(ex?.default_inbound_id ?? ""),
           default_l2tp_server_id: n(ex?.default_l2tp_server_id),
@@ -199,39 +245,48 @@ export function DashboardResellersAdmin({
   async function savePrices() {
     if (priceResellerId == null) return
     setBusy(true)
-    setErr("")
+    setPanelPriceErr("")
     try {
-      const rows = priceRows
-        .map((r) => {
-          const priceNum = parsePricePerGbToman(String(r.price_per_gb))
-          const panel_access = priceNum > 0 ? true : r.panel_access
-          const base: Record<string, unknown> = {
-            panel_id: r.panel_id,
-            price_per_gb: priceNum,
-            panel_access,
-          }
-          if (!isResellerActor) {
-            base.default_service_type = r.default_service_type
-            base.default_inbound_id = Math.max(0, parseInt(String(r.default_inbound_id).trim(), 10) || 0)
-            base.default_l2tp_server_id =
-              r.default_service_type === "l2tp" ? Math.max(0, r.default_l2tp_server_id) : 0
-          }
-          return base
-        })
-        .filter((r) => (r.panel_access as boolean) || (r.price_per_gb as number) > 0)
-      if (rows.length === 0) {
-        setErr(tp("panelPricesNoRowsError"))
-        return
-      }
+      const rows = isResellerActor
+        ? priceRows
+            .filter((r) => r.panel_access)
+            .map((r) => ({
+              panel_id: r.panel_id,
+              price_per_gb: parsePricePerGbToman(String(r.price_per_gb)),
+            }))
+        : priceRows
+            .filter((r) => r.panel_access)
+            .map((r) => {
+              const priceNum = parsePricePerGbToman(String(r.price_per_gb))
+              return {
+                panel_id: r.panel_id,
+                price_per_gb: priceNum,
+                panel_access: true,
+                default_service_type: r.default_service_type,
+                default_inbound_id: Math.max(0, parseInt(String(r.default_inbound_id).trim(), 10) || 0),
+                default_l2tp_server_id:
+                  r.default_service_type === "l2tp" ? Math.max(0, r.default_l2tp_server_id) : 0,
+              }
+            })
       const res = await postAdminMutate("reseller_panel_prices_save", {
         reseller_svp_user_id: priceResellerId,
         rows,
       })
       if (!res.ok) {
-        setErr(res.message || tp("createError"))
+        setPanelPriceErr(
+          res.message === "no_valid_panels" ? tp("panelPricesSaveNoValidPanels") : res.message || tp("createError")
+        )
         return
       }
+      const noticeParts: string[] = []
+      if (res.skipped_panel_ids?.length) {
+        noticeParts.push(tp("panelPricesSkippedUnknownPanels", { ids: res.skipped_panel_ids.join(", ") }))
+      }
+      if (isResellerActor) {
+        noticeParts.push(tp("panelPricesParentFloorSavedHint"))
+      }
       setPriceResellerId(null)
+      if (noticeParts.length) setPanelPriceNotice(noticeParts.join(" "))
       onMutateSuccess?.()
     } finally {
       setBusy(false)
@@ -308,6 +363,8 @@ export function DashboardResellersAdmin({
   }
 
   const flexRow = dashFlexRowClass(isFa)
+  const showWholesaleAssign =
+    wholesaleLinesCatalog.length > 0 && !isResellerActor && canManageResellerControls
 
   return (
     <div className={cn("space-y-4", dashContentClass(isFa))}>
@@ -384,6 +441,9 @@ export function DashboardResellersAdmin({
       <Card>
         <CardHeader className={cn("flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between", flexRow)}>
           <CardTitle className="text-base">{tp("listTitle")}</CardTitle>
+          {panelPriceNotice ? (
+            <p className="text-sm text-amber-900 dark:text-amber-100">{panelPriceNotice}</p>
+          ) : null}
         </CardHeader>
         <CardContent>
           {rows.length === 0 ? (
@@ -432,6 +492,17 @@ export function DashboardResellersAdmin({
                           <Button type="button" variant="outline" size="icon" onClick={() => openPriceDialog(id)} disabled={!canManagePanelPrices || panels.length < 1} aria-label={tp("panelPrices")}>
                             <Settings2 className="h-4 w-4" />
                           </Button>
+                          {showWholesaleAssign ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => openWholesaleAssign(id)}
+                              aria-label={tp("wholesaleLinesAssign")}
+                            >
+                              <Layers className="h-4 w-4" />
+                            </Button>
+                          ) : null}
                           <Button type="button" variant="outline" size="icon" onClick={() => { setPermResellerId(id); setPermissions({ ...(resellerPermissionsMap?.[String(id)] ?? {}) }) }} disabled={!canManageResellerControls} aria-label={tp("permissionsColumn")}>
                             <ShieldCheck className="h-4 w-4" />
                           </Button>
@@ -488,6 +559,16 @@ export function DashboardResellersAdmin({
                                   </Tooltip>
                                 ) : null}
                                 <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" onClick={() => openPriceDialog(id)} disabled={!canManagePanelPrices || panels.length < 1}><Settings2 className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>{tp("panelPrices")}</TooltipContent></Tooltip>
+                                {showWholesaleAssign ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button type="button" variant="ghost" size="icon" onClick={() => openWholesaleAssign(id)}>
+                                        <Layers className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{tp("wholesaleLinesAssign")}</TooltipContent>
+                                  </Tooltip>
+                                ) : null}
                                 <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" onClick={() => { setPermResellerId(id); setPermissions({ ...(resellerPermissionsMap?.[String(id)] ?? {}) }) }} disabled={!canManageResellerControls}><ShieldCheck className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>{tp("permissionsColumn")}</TooltipContent></Tooltip>
                               </div>
                             </TooltipProvider>
@@ -510,7 +591,15 @@ export function DashboardResellersAdmin({
         </CardContent>
       </Card>
 
-      <Dialog open={priceResellerId != null} onOpenChange={(o) => !o && setPriceResellerId(null)}>
+      <Dialog
+        open={priceResellerId != null}
+        onOpenChange={(o) => {
+          if (!o) {
+            setPriceResellerId(null)
+            setPanelPriceErr("")
+          }
+        }}
+      >
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className={cn("flex items-center gap-2", isFa && "flex-row-reverse")}>
@@ -537,96 +626,37 @@ export function DashboardResellersAdmin({
                     : "resellersAdmin.panelPricesDialogHintAdmin"
                 )}
               </span>
+              {isResellerActor ? (
+                <span className="block rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-muted-foreground">
+                  {tp("panelPricesParentCatalogNote")}
+                </span>
+              ) : null}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-2">
+          {panelPriceErr ? (
+            <p className="text-sm text-destructive">{panelPriceErr}</p>
+          ) : null}
+          <div className="grid gap-2 py-2">
             {priceRows.map((row, idx) => {
               const pl = panels.find((p) => n(p.id) === row.panel_id)
               const label = String(pl?.label ?? pl?.name ?? `Panel ${row.panel_id}`)
               return (
-                <div key={row.panel_id} className="grid gap-2 rounded-md border border-border/60 p-3">
-                  <Label htmlFor={`ppb-${row.panel_id}`}>{label}</Label>
-                  <label className={cn("flex items-center gap-2 text-xs", isFa && "flex-row-reverse justify-end")}>
-                    <input
-                      type="checkbox"
-                      checked={priceRows[idx]?.panel_access ?? true}
-                      onChange={(e) => {
-                        const checked = e.target.checked
-                        setPriceRows((prev) => prev.map((r, i) => (i === idx ? { ...r, panel_access: checked } : r)))
-                      }}
-                    />
-                    {isResellerActor ? tp("panelPricesIncludePanelFloor") : tp("panelAccessLabel")}
-                  </label>
-                  <Input
-                    id={`ppb-${row.panel_id}`}
-                    dir="ltr"
-                    value={priceRows[idx]?.price_per_gb ?? ""}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setPriceRows((prev) => prev.map((r, i) => (i === idx ? { ...r, price_per_gb: v } : r)))
+                <div
+                  key={row.panel_id}
+                  className={cn(
+                    "flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2.5",
+                    isFa && "flex-row-reverse"
+                  )}
+                >
+                  <span className="min-w-0 flex-1 text-sm font-medium leading-snug">{label}</span>
+                  <Switch
+                    id={`panel-access-${row.panel_id}`}
+                    checked={priceRows[idx]?.panel_access ?? false}
+                    onCheckedChange={(checked) => {
+                      setPriceRows((prev) => prev.map((r, i) => (i === idx ? { ...r, panel_access: checked } : r)))
                     }}
-                    placeholder={tp("pricePlaceholder")}
+                    aria-label={tp("panelAccessToggleAria", { label })}
                   />
-                  {!isResellerActor ? (
-                    <div className={cn("grid gap-2 sm:grid-cols-2", isFa && "text-right")}>
-                      <div className="space-y-1 sm:col-span-2">
-                        <Label className="text-xs">{tp("defaultServiceType")}</Label>
-                        <select
-                          className={selectClass}
-                          dir="ltr"
-                          value={priceRows[idx]?.default_service_type ?? "xray"}
-                          onChange={(e) => {
-                            const v = e.target.value === "l2tp" ? "l2tp" : "xray"
-                            setPriceRows((prev) =>
-                              prev.map((r, i) => (i === idx ? { ...r, default_service_type: v } : r))
-                            )
-                          }}
-                        >
-                          <option value="xray">{t("plansAdmin.protocolXray")}</option>
-                          <option value="l2tp">{t("plansAdmin.protocolL2tp")}</option>
-                        </select>
-                      </div>
-                      {priceRows[idx]?.default_service_type === "l2tp" ? (
-                        <div className="space-y-1 sm:col-span-2">
-                          <Label className="text-xs">{tp("defaultL2tpServer")}</Label>
-                          <select
-                            className={selectClass}
-                            dir="ltr"
-                            value={String(priceRows[idx]?.default_l2tp_server_id ?? 0)}
-                            onChange={(e) => {
-                              const v = n(e.target.value)
-                              setPriceRows((prev) =>
-                                prev.map((r, i) => (i === idx ? { ...r, default_l2tp_server_id: v } : r))
-                              )
-                            }}
-                          >
-                            <option value="0">—</option>
-                            {l2tpServers.map((s) => (
-                              <option key={String(s.id)} value={String(n(s.id))}>
-                                #{formatNumber(n(s.id), isFa)} {String(s.name ?? s.host ?? "")}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      ) : (
-                        <div className="space-y-1 sm:col-span-2">
-                          <Label className="text-xs">{tp("defaultInbound")}</Label>
-                          <Input
-                            dir="ltr"
-                            className="font-mono text-sm"
-                            inputMode="numeric"
-                            value={priceRows[idx]?.default_inbound_id ?? ""}
-                            onChange={(e) => {
-                              const v = e.target.value
-                              setPriceRows((prev) =>
-                                prev.map((r, i) => (i === idx ? { ...r, default_inbound_id: v } : r))
-                              )
-                            }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
                 </div>
               )
             })}
@@ -641,6 +671,56 @@ export function DashboardResellersAdmin({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog
+        open={wholesaleAssignId != null}
+        onOpenChange={(o) => {
+          if (!o) {
+            setWholesaleAssignId(null)
+            setWholesaleErr("")
+          }
+        }}
+      >
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{tp("wholesaleLinesDialogTitle", { id: wholesaleAssignId ?? 0 })}</DialogTitle>
+            <DialogDescription>{tp("wholesaleLinesAssignHint")}</DialogDescription>
+          </DialogHeader>
+          {wholesaleErr ? <p className="text-sm text-destructive">{wholesaleErr}</p> : null}
+          <div className="grid gap-2 py-2">
+            {wholesaleLinesCatalog.map((ln) => {
+              const lid = n(ln.id)
+              if (lid < 1) return null
+              const checked = wholesaleSelectedIds.includes(lid)
+              return (
+                <label
+                  key={lid}
+                  className={cn("flex cursor-pointer items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-sm", isFa && "flex-row-reverse justify-end")}
+                >
+                  <input type="checkbox" checked={checked} onChange={() => toggleWholesaleLine(lid)} />
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: String(ln.badge_color ?? "#6366f1") }}
+                    aria-hidden
+                  />
+                  <span className="min-w-0 flex-1 font-medium">{String(ln.label ?? `#${lid}`)}</span>
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground" dir="ltr">
+                    #{lid}
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setWholesaleAssignId(null)}>
+              {t("a11y.close")}
+            </Button>
+            <Button type="button" disabled={busy} onClick={() => void saveWholesaleAssign()}>
+              {tp("wholesaleLinesSave")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={permResellerId != null} onOpenChange={(o) => !o && setPermResellerId(null)}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>

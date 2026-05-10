@@ -366,15 +366,31 @@ class SimpleVPBot_Handler_Admin {
 		}
 		if ( 'admin_broadcast' === $st && $text ) {
 			SimpleVPBot_State::clear( (int) $user->id );
-			$bid = SimpleVPBot_Model_Broadcast::insert(
+			$text_trim = trim( (string) $text );
+			$text_safe = class_exists( 'SimpleVPBot_Dashboard_Admin_Mutations' )
+				? SimpleVPBot_Dashboard_Admin_Mutations::sanitize_bot_text_for_messages( $text_trim )
+				: $text_trim;
+			$text_safe = mb_substr( $text_safe, 0, 4096 );
+			$parse_api = 'HTML';
+			$bid       = SimpleVPBot_Model_Broadcast::insert(
 				array(
 					'type'    => 'text',
-					'content' => wp_json_encode( array( 'text' => $text ) ),
+					'content' => wp_json_encode(
+						array(
+							'text'       => $text_safe,
+							'parse_mode' => $parse_api,
+						),
+						JSON_UNESCAPED_UNICODE
+					),
 					'status'  => 'sending',
 				)
 			);
 			$users = SimpleVPBot_Model_User::all_approved();
 			$rows  = array();
+			$base  = array(
+				'text'       => $text_safe,
+				'parse_mode' => $parse_api,
+			);
 			foreach ( $users as $u ) {
 				if ( ! empty( $u->tg_user_id ) ) {
 					$rows[] = array(
@@ -382,7 +398,10 @@ class SimpleVPBot_Handler_Admin {
 						'user_id'      => (int) $u->id,
 						'bot'          => 'tg',
 						'chat_id'      => (int) $u->tg_user_id,
-						'payload_json' => wp_json_encode( array( 'chat_id' => (int) $u->tg_user_id, 'text' => $text ) ),
+						'payload_json' => wp_json_encode(
+							array_merge( $base, array( 'chat_id' => (int) $u->tg_user_id ) ),
+							JSON_UNESCAPED_UNICODE
+						),
 						'status'       => 'pending',
 					);
 				}
@@ -392,7 +411,10 @@ class SimpleVPBot_Handler_Admin {
 						'user_id'      => (int) $u->id,
 						'bot'          => 'bale',
 						'chat_id'      => (int) $u->bale_user_id,
-						'payload_json' => wp_json_encode( array( 'chat_id' => (int) $u->bale_user_id, 'text' => $text ) ),
+						'payload_json' => wp_json_encode(
+							array_merge( $base, array( 'chat_id' => (int) $u->bale_user_id ) ),
+							JSON_UNESCAPED_UNICODE
+						),
 						'status'       => 'pending',
 					);
 				}

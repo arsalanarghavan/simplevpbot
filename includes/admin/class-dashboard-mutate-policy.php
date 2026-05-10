@@ -64,6 +64,7 @@ class SimpleVPBot_Dashboard_Mutate_Policy {
 			'users_bulk_alerts'          => 'users.bulk',
 			'users_bulk_job_cancel'      => 'users.bulk',
 			'users_bulk_job_resume'      => 'users.bulk',
+			'reseller_wallet_topup_checkout' => 'plans.manage',
 		);
 		if ( ! isset( $map[ $op ] ) ) {
 			return null;

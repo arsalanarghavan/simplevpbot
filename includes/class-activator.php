@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class SimpleVPBot_Activator {
 
-	const DB_VERSION = '2.1.1';
+	const DB_VERSION = '2.2.0';
 
 	/**
 	 * Activate plugin.
@@ -474,6 +474,7 @@ class SimpleVPBot_Activator {
 			clients_count int NOT NULL DEFAULT 1,
 			inbound_id int NOT NULL DEFAULT 0,
 			panel_id bigint(20) unsigned NOT NULL DEFAULT 1,
+			wholesale_line_id bigint(20) unsigned DEFAULT NULL,
 			service_type varchar(16) NOT NULL DEFAULT 'xray',
 			l2tp_server_id bigint(20) unsigned DEFAULT NULL,
 			active tinyint(1) NOT NULL DEFAULT 1,
@@ -483,7 +484,8 @@ class SimpleVPBot_Activator {
 			KEY category (category),
 			KEY active (active),
 			KEY service_type (service_type),
-			KEY panel_id (panel_id)
+			KEY panel_id (panel_id),
+			KEY wholesale_line_id (wholesale_line_id)
 		) $charset_collate;";
 	}
 
@@ -706,6 +708,9 @@ class SimpleVPBot_Activator {
 		}
 		if ( version_compare( (string) $current, '2.1.1', '<' ) ) {
 			self::maybe_migrate_211( $p );
+		}
+		if ( version_compare( (string) $current, '2.2.0', '<' ) ) {
+			self::maybe_migrate_220_wholesale_lines( $p, $charset_collate );
 		}
 		update_option( 'simplevpbot_db_version', self::DB_VERSION );
 	}
@@ -933,6 +938,82 @@ class SimpleVPBot_Activator {
 		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'default_l2tp_server_id'" ) ) {
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN default_l2tp_server_id bigint(20) unsigned NOT NULL DEFAULT 0 AFTER default_inbound_id" );
+		}
+	}
+
+	/**
+	 * Reseller wholesale lines (abstract catalog), tiers, assignments, accruals; plan.wholesale_line_id.
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Charset.
+	 */
+	public static function maybe_migrate_220_wholesale_lines( $p, $charset_collate ) {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		global $wpdb;
+
+		$sql_lines = "CREATE TABLE {$p}svp_reseller_wholesale_lines (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			label varchar(191) NOT NULL DEFAULT '',
+			badge_color varchar(32) NOT NULL DEFAULT '',
+			panel_id bigint(20) unsigned NOT NULL DEFAULT 1,
+			default_service_type varchar(16) NOT NULL DEFAULT 'xray',
+			default_inbound_id int NOT NULL DEFAULT 0,
+			default_l2tp_server_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			active tinyint(1) NOT NULL DEFAULT 1,
+			sort_order int NOT NULL DEFAULT 0,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY panel_id (panel_id),
+			KEY active_sort (active, sort_order)
+		) $charset_collate;";
+
+		$sql_tiers = "CREATE TABLE {$p}svp_reseller_wholesale_tiers (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			line_id bigint(20) unsigned NOT NULL,
+			sort_order int NOT NULL DEFAULT 0,
+			price_per_gb decimal(15,4) NOT NULL DEFAULT 0,
+			min_total_gb bigint NOT NULL DEFAULT 0,
+			min_total_toman decimal(15,2) NOT NULL DEFAULT 0,
+			PRIMARY KEY (id),
+			KEY line_sort (line_id, sort_order)
+		) $charset_collate;";
+
+		$sql_assign = "CREATE TABLE {$p}svp_reseller_wholesale_line_assignments (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			reseller_svp_user_id bigint(20) unsigned NOT NULL,
+			line_id bigint(20) unsigned NOT NULL,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			UNIQUE KEY reseller_line (reseller_svp_user_id, line_id),
+			KEY line_id (line_id)
+		) $charset_collate;";
+
+		$sql_acc = "CREATE TABLE {$p}svp_reseller_wholesale_accruals (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			reseller_svp_user_id bigint(20) unsigned NOT NULL,
+			line_id bigint(20) unsigned NOT NULL,
+			delta_gb bigint NOT NULL DEFAULT 0,
+			delta_wholesale_toman decimal(15,2) NOT NULL DEFAULT 0,
+			unit_price_applied decimal(15,4) NOT NULL DEFAULT 0,
+			transaction_id bigint(20) unsigned DEFAULT NULL,
+			service_id bigint(20) unsigned DEFAULT NULL,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			UNIQUE KEY u_tx (transaction_id),
+			KEY reseller_line (reseller_svp_user_id, line_id),
+			KEY created (created_at)
+		) $charset_collate;";
+
+		dbDelta( $sql_lines );
+		dbDelta( $sql_tiers );
+		dbDelta( $sql_assign );
+		dbDelta( $sql_acc );
+
+		$plans = $p . 'svp_plans';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$plans} LIKE 'wholesale_line_id'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$plans} ADD COLUMN wholesale_line_id bigint(20) unsigned DEFAULT NULL AFTER panel_id, ADD KEY wholesale_line_id (wholesale_line_id)" );
 		}
 	}
 

@@ -200,13 +200,20 @@ class SimpleVPBot_Model_Card {
 	public static function active_for_transaction( $transaction_id ) {
 		$tid   = (int) $transaction_id;
 		$cards = array();
-		if ( class_exists( 'SimpleVPBot_Model_Transaction' ) && class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
-			$tx = SimpleVPBot_Model_Transaction::find( $tid );
-			if ( $tx ) {
-				$uid = (int) ( $tx->user_id ?? 0 );
-				$rid = $uid > 0 ? (int) SimpleVPBot_Reseller_Branding::nearest_reseller_id_for_user( $uid ) : 0;
-				$cards = $rid > 0 ? self::active_ordered_for_owners( array( $rid, 0 ) ) : self::active_ordered_for_owners( array( 0 ) );
+		$tx    = class_exists( 'SimpleVPBot_Model_Transaction' ) ? SimpleVPBot_Model_Transaction::find( $tid ) : null;
+		if ( $tx ) {
+			$meta = json_decode( (string) ( $tx->meta_json ?? '{}' ), true );
+			if ( is_array( $meta ) && ! empty( $meta['invoice_card_owner_scope_svp_id'] ) ) {
+				$scope_rid = (int) $meta['invoice_card_owner_scope_svp_id'];
+				if ( $scope_rid > 0 ) {
+					$cards = self::active_ordered_for_owners( array( 0, $scope_rid ) );
+				}
 			}
+		}
+		if ( empty( $cards ) && $tx && class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+			$uid = (int) ( $tx->user_id ?? 0 );
+			$rid = $uid > 0 ? (int) SimpleVPBot_Reseller_Branding::nearest_reseller_id_for_user( $uid ) : 0;
+			$cards = $rid > 0 ? self::active_ordered_for_owners( array( $rid, 0 ) ) : self::active_ordered_for_owners( array( 0 ) );
 		}
 		if ( empty( $cards ) ) {
 			$cards = self::active_ordered();

@@ -33,18 +33,73 @@ class SimpleVPBot_Admin_User_Ops {
 	}
 
 	/**
+	 * Debit reseller actor balance (dashboard wallet purchases for downline users).
+	 *
+	 * @param float $price    Toman.
+	 * @param int   $actor_id svp_users.id (reseller).
+	 * @return bool True if one row updated.
+	 */
+	private static function reseller_dashboard_debit_actor( $price, $actor_id ) {
+		global $wpdb;
+		$actor_id = (int) $actor_id;
+		$price    = round( (float) $price, 2 );
+		if ( $actor_id < 1 || $price <= 0 ) {
+			return false;
+		}
+		$tbl = SimpleVPBot_Model_User::table();
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance - %f WHERE id = %d AND balance >= %f", $price, $actor_id, $price ) );
+		return (int) $wpdb->rows_affected > 0;
+	}
+
+	/**
+	 * Refund reseller actor after failed provision.
+	 *
+	 * @param float $price    Toman.
+	 * @param int   $actor_id svp_users.id.
+	 */
+	private static function reseller_dashboard_refund_actor( $price, $actor_id ) {
+		global $wpdb;
+		$actor_id = (int) $actor_id;
+		$price    = round( (float) $price, 2 );
+		if ( $actor_id < 1 || $price <= 0 ) {
+			return;
+		}
+		$tbl = SimpleVPBot_Model_User::table();
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance + %f WHERE id = %d", $price, $actor_id ) );
+	}
+
+	/**
+	 * Meta flags when the reseller's wallet paid for a customer's service.
+	 *
+	 * @param int                  $actor_id   Reseller svp id.
+	 * @param int                  $customer_id Customer svp id.
+	 * @param array<string, mixed> $base       Existing meta.
+	 * @return array<string, mixed>
+	 */
+	private static function meta_with_reseller_billing( $actor_id, $customer_id, array $base ) {
+		$base['billing_reseller_svp_id']     = (int) $actor_id;
+		$base['billing_customer_svp_id']      = (int) $customer_id;
+		$base['reseller_dashboard_wallet']    = true;
+		return $base;
+	}
+
+	/**
 	 * Create new service: free | wallet | invoice (pending checkout to user chats).
 	 *
 	 * @param int    $target_user_id svp_users.id.
 	 * @param int    $plan_id        Plan id.
 	 * @param int|null $volume_gb    For per-GB plans.
-	 * @param string $mode           free|wallet|invoice.
+	 * @param string $mode                              free|wallet|invoice.
+	 * @param int    $invoice_card_scope_reseller_svp_id When >0 (dashboard reseller actor), checkout cards are scoped to owners 0 + this id via transaction meta.
 	 * @return array{ok:bool, reason?:string, service_id?:int, transaction_id?:int, detail?:string}
 	 */
-	public static function admin_create_service( $target_user_id, $plan_id, $volume_gb, $mode ) {
+	public static function admin_create_service( $target_user_id, $plan_id, $volume_gb, $mode, $invoice_card_scope_reseller_svp_id = 0 ) {
 		$uid  = (int) $target_user_id;
 		$pid  = (int) $plan_id;
 		$mode = sanitize_key( (string) $mode );
+		$scope_cards = (int) $invoice_card_scope_reseller_svp_id;
 		$user = SimpleVPBot_Model_User::find( $uid );
 		$plan = SimpleVPBot_Model_Plan::find( $pid );
 		if ( ! $user || 'approved' !== (string) $user->status ) {
@@ -59,7 +114,12 @@ class SimpleVPBot_Admin_User_Ops {
 			}
 		}
 
+		$price = self::price_new_service( $plan, $volume_gb );
+
 		if ( 'free' === $mode ) {
+			if ( $scope_cards > 0 ) {
+				return array( 'ok' => false, 'reason' => 'forbidden_free_reseller' );
+			}
 			$det = SimpleVPBot_Service_Provisioner::create_from_plan_detailed( $uid, $pid, $volume_gb );
 			if ( empty( $det['ok'] ) ) {
 				return array( 'ok' => false, 'reason' => (string) ( $det['reason'] ?? 'provision_failed' ), 'detail' => (string) ( $det['detail'] ?? '' ) );
@@ -78,23 +138,43 @@ class SimpleVPBot_Admin_User_Ops {
 			return array( 'ok' => true, 'service_id' => (int) $det['service_id'] );
 		}
 
-		$price = self::price_new_service( $plan, $volume_gb );
 		if ( 'wallet' === $mode ) {
 			if ( $price <= 0 ) {
-				return self::admin_create_service( $uid, $pid, $volume_gb, 'free' );
+				if ( $scope_cards > 0 ) {
+					return array( 'ok' => false, 'reason' => 'forbidden_free_reseller' );
+				}
+				return self::admin_create_service( $uid, $pid, $volume_gb, 'free', $scope_cards );
 			}
 			global $wpdb;
 			$tbl = SimpleVPBot_Model_User::table();
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$aff = $wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance - %f WHERE id = %d AND balance >= %f", $price, $uid, $price ) );
-			if ( ! $aff ) {
-				return array( 'ok' => false, 'reason' => 'insufficient_balance' );
+			if ( $scope_cards > 0 ) {
+				if ( ! self::reseller_dashboard_debit_actor( $price, $scope_cards ) ) {
+					return array( 'ok' => false, 'reason' => 'insufficient_balance' );
+				}
+			} else {
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$aff = $wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance - %f WHERE id = %d AND balance >= %f", $price, $uid, $price ) );
+				if ( ! $aff ) {
+					return array( 'ok' => false, 'reason' => 'insufficient_balance' );
+				}
 			}
 			$det = SimpleVPBot_Service_Provisioner::create_from_plan_detailed( $uid, $pid, $volume_gb );
 			if ( empty( $det['ok'] ) ) {
-				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-				$wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance + %f WHERE id = %d", $price, $uid ) );
+				if ( $scope_cards > 0 ) {
+					self::reseller_dashboard_refund_actor( $price, $scope_cards );
+				} else {
+					// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					$wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance + %f WHERE id = %d", $price, $uid ) );
+				}
 				return array( 'ok' => false, 'reason' => (string) ( $det['reason'] ?? 'provision_failed' ), 'detail' => (string) ( $det['detail'] ?? '' ) );
+			}
+			$purchase_meta = array(
+				'plan_id'      => $pid,
+				'volume_gb'    => $volume_gb,
+				'admin_wallet' => true,
+			);
+			if ( $scope_cards > 0 ) {
+				$purchase_meta = self::meta_with_reseller_billing( $scope_cards, $uid, $purchase_meta );
 			}
 			$ins_id = SimpleVPBot_Model_Transaction::insert(
 				array(
@@ -103,13 +183,7 @@ class SimpleVPBot_Admin_User_Ops {
 					'amount'     => $price,
 					'type'       => 'purchase',
 					'status'     => 'approved',
-					'meta_json'  => wp_json_encode(
-						array(
-							'plan_id'        => $pid,
-							'volume_gb'      => $volume_gb,
-							'admin_wallet'   => true,
-						)
-					),
+					'meta_json'  => wp_json_encode( $purchase_meta ),
 				)
 			);
 			if ( $ins_id ) {
@@ -121,14 +195,17 @@ class SimpleVPBot_Admin_User_Ops {
 
 		if ( 'invoice' === $mode ) {
 			if ( $price <= 0 ) {
-				return self::admin_create_service( $uid, $pid, $volume_gb, 'free' );
+				if ( $scope_cards > 0 ) {
+					return array( 'ok' => false, 'reason' => 'forbidden_free_reseller' );
+				}
+				return self::admin_create_service( $uid, $pid, $volume_gb, 'free', $scope_cards );
 			}
 			$meta = array(
 				'plan_id'         => $pid,
 				'volume_gb'       => $volume_gb,
 				'admin_invoice'   => true,
 			);
-			$tid = self::enqueue_purchase_invoice( $user, $price, $meta );
+			$tid = self::enqueue_purchase_invoice( $user, $price, $meta, $scope_cards );
 			if ( $tid < 1 ) {
 				return array( 'ok' => false, 'reason' => 'checkout_failed' );
 			}
@@ -143,10 +220,15 @@ class SimpleVPBot_Admin_User_Ops {
 	 *
 	 * @param object               $user   svp_users row.
 	 * @param float                $amount Toman.
-	 * @param array<string, mixed> $meta   Transaction meta.
+	 * @param array<string, mixed> $meta                              Transaction meta.
+	 * @param int                    $invoice_card_scope_reseller_svp_id When >0, sets meta invoice_card_owner_scope_svp_id for {@see SimpleVPBot_Model_Card::active_for_transaction()}.
 	 * @return int Transaction id or 0.
 	 */
-	public static function enqueue_purchase_invoice( $user, $amount, array $meta ) {
+	public static function enqueue_purchase_invoice( $user, $amount, array $meta, $invoice_card_scope_reseller_svp_id = 0 ) {
+		$scope = (int) $invoice_card_scope_reseller_svp_id;
+		if ( $scope > 0 ) {
+			$meta['invoice_card_owner_scope_svp_id'] = $scope;
+		}
 		$uid = (int) $user->id;
 		$tid = SimpleVPBot_Model_Transaction::insert(
 			array(
@@ -161,7 +243,7 @@ class SimpleVPBot_Admin_User_Ops {
 		if ( $tid < 1 ) {
 			return 0;
 		}
-		$cards = SimpleVPBot_Model_Card::active_ordered();
+		$cards = SimpleVPBot_Model_Card::active_for_transaction( (int) $tid );
 		if ( empty( $cards ) ) {
 			SimpleVPBot_Model_Transaction::set_status( $tid, 'cancelled' );
 			return 0;
@@ -191,10 +273,11 @@ class SimpleVPBot_Admin_User_Ops {
 	 * Renew same cap: free | wallet | invoice.
 	 *
 	 * @param int    $service_id Service id.
-	 * @param string $mode       free|wallet|invoice.
+	 * @param string $mode                              free|wallet|invoice.
+	 * @param int    $invoice_card_scope_reseller_svp_id Dashboard reseller actor for invoice card scope (0 = default behaviour).
 	 * @return array{ok:bool, reason?:string, transaction_id?:int}
 	 */
-	public static function admin_renew_service( $service_id, $mode ) {
+	public static function admin_renew_service( $service_id, $mode, $invoice_card_scope_reseller_svp_id = 0 ) {
 		$sid  = (int) $service_id;
 		$mode = sanitize_key( (string) $mode );
 		$svc  = SimpleVPBot_Model_Service::find( $sid );
@@ -208,6 +291,11 @@ class SimpleVPBot_Admin_User_Ops {
 			return array( 'ok' => false, 'reason' => 'bad_plan_user' );
 		}
 		$price = SimpleVPBot_Service_Renew::checkout_price_renew( $svc, $plan );
+		$scope = (int) $invoice_card_scope_reseller_svp_id;
+
+		if ( ( 'free' === $mode || $price <= 0 ) && $scope > 0 ) {
+			return array( 'ok' => false, 'reason' => 'forbidden_free_reseller' );
+		}
 
 		if ( 'free' === $mode || $price <= 0 ) {
 			$rn = SimpleVPBot_Service_Renew::apply_after_payment( $sid );
@@ -217,16 +305,30 @@ class SimpleVPBot_Admin_User_Ops {
 		if ( 'wallet' === $mode ) {
 			global $wpdb;
 			$tbl = SimpleVPBot_Model_User::table();
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$aff = $wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance - %f WHERE id = %d AND balance >= %f", $price, $uid, $price ) );
-			if ( ! $aff ) {
-				return array( 'ok' => false, 'reason' => 'insufficient_balance' );
+			if ( $scope > 0 ) {
+				if ( ! self::reseller_dashboard_debit_actor( $price, $scope ) ) {
+					return array( 'ok' => false, 'reason' => 'insufficient_balance' );
+				}
+			} else {
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$aff = $wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance - %f WHERE id = %d AND balance >= %f", $price, $uid, $price ) );
+				if ( ! $aff ) {
+					return array( 'ok' => false, 'reason' => 'insufficient_balance' );
+				}
 			}
 			$rn = SimpleVPBot_Service_Renew::apply_after_payment( $sid );
 			if ( empty( $rn['ok'] ) ) {
-				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-				$wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance + %f WHERE id = %d", $price, $uid ) );
+				if ( $scope > 0 ) {
+					self::reseller_dashboard_refund_actor( $price, $scope );
+				} else {
+					// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					$wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance + %f WHERE id = %d", $price, $uid ) );
+				}
 				return array( 'ok' => false, 'reason' => (string) ( $rn['message'] ?? 'renew_failed' ) );
+			}
+			$renew_meta = array( 'intent' => 'renew_same', 'admin_wallet' => true );
+			if ( $scope > 0 ) {
+				$renew_meta = self::meta_with_reseller_billing( $scope, $uid, $renew_meta );
 			}
 			$ins_id = SimpleVPBot_Model_Transaction::insert(
 				array(
@@ -235,7 +337,7 @@ class SimpleVPBot_Admin_User_Ops {
 					'amount'     => $price,
 					'type'       => 'renew',
 					'status'     => 'approved',
-					'meta_json'  => wp_json_encode( array( 'intent' => 'renew_same', 'admin_wallet' => true ) ),
+					'meta_json'  => wp_json_encode( $renew_meta ),
 				)
 			);
 			if ( $ins_id ) {
@@ -250,7 +352,7 @@ class SimpleVPBot_Admin_User_Ops {
 				'service_id'    => $sid,
 				'admin_invoice' => true,
 			);
-			$tid = self::enqueue_purchase_invoice( $user, $price, $meta );
+			$tid = self::enqueue_purchase_invoice( $user, $price, $meta, (int) $invoice_card_scope_reseller_svp_id );
 			return $tid > 0 ? array( 'ok' => true, 'transaction_id' => $tid ) : array( 'ok' => false, 'reason' => 'checkout_failed' );
 		}
 
@@ -262,10 +364,11 @@ class SimpleVPBot_Admin_User_Ops {
 	 *
 	 * @param int    $service_id Service id.
 	 * @param int    $extra_gb   Extra GB.
-	 * @param string $mode       free|wallet|invoice.
+	 * @param string $mode                              free|wallet|invoice.
+	 * @param int    $invoice_card_scope_reseller_svp_id Dashboard reseller actor for invoice card scope.
 	 * @return array{ok:bool, reason?:string, transaction_id?:int}
 	 */
-	public static function admin_add_volume( $service_id, $extra_gb, $mode ) {
+	public static function admin_add_volume( $service_id, $extra_gb, $mode, $invoice_card_scope_reseller_svp_id = 0 ) {
 		$sid  = (int) $service_id;
 		$g    = max( 1, (int) $extra_gb );
 		$mode = sanitize_key( (string) $mode );
@@ -280,6 +383,11 @@ class SimpleVPBot_Admin_User_Ops {
 			return array( 'ok' => false, 'reason' => 'bad_plan_user' );
 		}
 		$price = SimpleVPBot_Service_Renew::checkout_price_add_volume( $plan, $g );
+		$scope = (int) $invoice_card_scope_reseller_svp_id;
+
+		if ( ( 'free' === $mode || $price <= 0 ) && $scope > 0 ) {
+			return array( 'ok' => false, 'reason' => 'forbidden_free_reseller' );
+		}
 
 		if ( 'free' === $mode || $price <= 0 ) {
 			$rn = SimpleVPBot_Service_Renew::apply_add_volume_after_payment( $sid, $g );
@@ -288,16 +396,30 @@ class SimpleVPBot_Admin_User_Ops {
 		if ( 'wallet' === $mode ) {
 			global $wpdb;
 			$tbl = SimpleVPBot_Model_User::table();
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$aff = $wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance - %f WHERE id = %d AND balance >= %f", $price, $uid, $price ) );
-			if ( ! $aff ) {
-				return array( 'ok' => false, 'reason' => 'insufficient_balance' );
+			if ( $scope > 0 ) {
+				if ( ! self::reseller_dashboard_debit_actor( $price, $scope ) ) {
+					return array( 'ok' => false, 'reason' => 'insufficient_balance' );
+				}
+			} else {
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$aff = $wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance - %f WHERE id = %d AND balance >= %f", $price, $uid, $price ) );
+				if ( ! $aff ) {
+					return array( 'ok' => false, 'reason' => 'insufficient_balance' );
+				}
 			}
 			$rn = SimpleVPBot_Service_Renew::apply_add_volume_after_payment( $sid, $g );
 			if ( empty( $rn['ok'] ) ) {
-				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-				$wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance + %f WHERE id = %d", $price, $uid ) );
+				if ( $scope > 0 ) {
+					self::reseller_dashboard_refund_actor( $price, $scope );
+				} else {
+					// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					$wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance + %f WHERE id = %d", $price, $uid ) );
+				}
 				return array( 'ok' => false, 'reason' => (string) ( $rn['message'] ?? 'add_vol_failed' ) );
+			}
+			$vol_meta = array( 'intent' => 'add_volume', 'extra_gb' => $g, 'admin_wallet' => true );
+			if ( $scope > 0 ) {
+				$vol_meta = self::meta_with_reseller_billing( $scope, $uid, $vol_meta );
 			}
 			$ins_id = SimpleVPBot_Model_Transaction::insert(
 				array(
@@ -306,7 +428,7 @@ class SimpleVPBot_Admin_User_Ops {
 					'amount'     => $price,
 					'type'       => 'purchase',
 					'status'     => 'approved',
-					'meta_json'  => wp_json_encode( array( 'intent' => 'add_volume', 'extra_gb' => $g, 'admin_wallet' => true ) ),
+					'meta_json'  => wp_json_encode( $vol_meta ),
 				)
 			);
 			if ( $ins_id ) {
@@ -321,7 +443,7 @@ class SimpleVPBot_Admin_User_Ops {
 				'extra_gb'      => $g,
 				'admin_invoice' => true,
 			);
-			$tid = self::enqueue_purchase_invoice( $user, $price, $meta );
+			$tid = self::enqueue_purchase_invoice( $user, $price, $meta, (int) $invoice_card_scope_reseller_svp_id );
 			return $tid > 0 ? array( 'ok' => true, 'transaction_id' => $tid ) : array( 'ok' => false, 'reason' => 'checkout_failed' );
 		}
 		return array( 'ok' => false, 'reason' => 'bad_mode' );
@@ -355,10 +477,11 @@ class SimpleVPBot_Admin_User_Ops {
 	 *
 	 * @param int    $service_id Service id.
 	 * @param int    $extra_users Count.
-	 * @param string $mode free|wallet|invoice.
+	 * @param string $mode                              free|wallet|invoice.
+	 * @param int    $invoice_card_scope_reseller_svp_id Dashboard reseller actor for invoice card scope.
 	 * @return array{ok:bool, reason?:string, transaction_id?:int}
 	 */
-	public static function admin_add_user_slots( $service_id, $extra_users, $mode ) {
+	public static function admin_add_user_slots( $service_id, $extra_users, $mode, $invoice_card_scope_reseller_svp_id = 0 ) {
 		$n    = max( 1, (int) $extra_users );
 		$mode = sanitize_key( (string) $mode );
 		$svc  = SimpleVPBot_Model_Service::find( (int) $service_id );
@@ -371,6 +494,12 @@ class SimpleVPBot_Admin_User_Ops {
 			return array( 'ok' => false, 'reason' => 'bad_user' );
 		}
 		$price = SimpleVPBot_Service_Renew::checkout_price_add_user_slots( $n );
+		$scope = (int) $invoice_card_scope_reseller_svp_id;
+
+		if ( ( 'free' === $mode || $price <= 0 ) && $scope > 0 ) {
+			return array( 'ok' => false, 'reason' => 'forbidden_free_reseller' );
+		}
+
 		if ( 'free' === $mode || $price <= 0 ) {
 			$rn = SimpleVPBot_Service_Renew::apply_add_user_slots_after_payment( (int) $service_id, $n );
 			return ! empty( $rn['ok'] ) ? array( 'ok' => true ) : array( 'ok' => false, 'reason' => (string) ( $rn['message'] ?? 'slots_failed' ) );
@@ -378,16 +507,30 @@ class SimpleVPBot_Admin_User_Ops {
 		if ( 'wallet' === $mode ) {
 			global $wpdb;
 			$tbl = SimpleVPBot_Model_User::table();
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$aff = $wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance - %f WHERE id = %d AND balance >= %f", $price, $uid, $price ) );
-			if ( ! $aff ) {
-				return array( 'ok' => false, 'reason' => 'insufficient_balance' );
+			if ( $scope > 0 ) {
+				if ( ! self::reseller_dashboard_debit_actor( $price, $scope ) ) {
+					return array( 'ok' => false, 'reason' => 'insufficient_balance' );
+				}
+			} else {
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$aff = $wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance - %f WHERE id = %d AND balance >= %f", $price, $uid, $price ) );
+				if ( ! $aff ) {
+					return array( 'ok' => false, 'reason' => 'insufficient_balance' );
+				}
 			}
 			$rn = SimpleVPBot_Service_Renew::apply_add_user_slots_after_payment( (int) $service_id, $n );
 			if ( empty( $rn['ok'] ) ) {
-				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-				$wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance + %f WHERE id = %d", $price, $uid ) );
+				if ( $scope > 0 ) {
+					self::reseller_dashboard_refund_actor( $price, $scope );
+				} else {
+					// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					$wpdb->query( $wpdb->prepare( "UPDATE {$tbl} SET balance = balance + %f WHERE id = %d", $price, $uid ) );
+				}
 				return array( 'ok' => false, 'reason' => (string) ( $rn['message'] ?? 'slots_failed' ) );
+			}
+			$slot_meta = array( 'intent' => 'add_user_slots', 'extra_users' => $n, 'admin_wallet' => true );
+			if ( $scope > 0 ) {
+				$slot_meta = self::meta_with_reseller_billing( $scope, $uid, $slot_meta );
 			}
 			$ins_id = SimpleVPBot_Model_Transaction::insert(
 				array(
@@ -396,7 +539,7 @@ class SimpleVPBot_Admin_User_Ops {
 					'amount'     => $price,
 					'type'       => 'purchase',
 					'status'     => 'approved',
-					'meta_json'  => wp_json_encode( array( 'intent' => 'add_user_slots', 'extra_users' => $n, 'admin_wallet' => true ) ),
+					'meta_json'  => wp_json_encode( $slot_meta ),
 				)
 			);
 			if ( $ins_id ) {
@@ -411,7 +554,7 @@ class SimpleVPBot_Admin_User_Ops {
 				'extra_users'   => $n,
 				'admin_invoice' => true,
 			);
-			$tid = self::enqueue_purchase_invoice( $user, $price, $meta );
+			$tid = self::enqueue_purchase_invoice( $user, $price, $meta, (int) $invoice_card_scope_reseller_svp_id );
 			return $tid > 0 ? array( 'ok' => true, 'transaction_id' => $tid ) : array( 'ok' => false, 'reason' => 'checkout_failed' );
 		}
 		return array( 'ok' => false, 'reason' => 'bad_mode' );

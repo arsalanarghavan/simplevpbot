@@ -14,14 +14,16 @@ import { DashboardOverview, type OverviewPayload } from "@/components/dashboard-
 import { DashboardConfigsAdmin } from "@/components/dashboard-configs-admin"
 import { DashboardPanelsAdmin } from "@/components/dashboard-panels-admin"
 import { DashboardPlanCatsAdmin } from "@/components/dashboard-plan-cats-admin"
-import { DashboardPlansAdmin } from "@/components/dashboard-plans-admin"
+import { DashboardPlansAdmin, type ResellerPanelAccessDiagnostics } from "@/components/dashboard-plans-admin"
 import { DashboardReceiptsAdmin } from "@/components/dashboard-receipts-admin"
 import { DashboardReferralAdmin } from "@/components/dashboard-referral-admin"
+import { DashboardResellerFinance } from "@/components/dashboard-reseller-finance"
 import { DashboardResellersAdmin } from "@/components/dashboard-resellers-admin"
 import { DashboardTextsAdmin } from "@/components/dashboard-texts-admin"
 import { DashboardUsersAdmin } from "@/components/dashboard-users-admin"
 import { DashboardUsersBulkAdmin } from "@/components/dashboard-users-bulk-admin"
 import { DashboardUserDetailAdmin } from "@/components/dashboard-user-detail-admin"
+import { DashboardWholesaleLinesAdmin } from "@/components/dashboard-wholesale-lines-admin"
 import { DataPagination } from "@/components/data-pagination"
 import {
   listQuerySetPage,
@@ -77,6 +79,12 @@ function maskedSettingsObject(obj: Record<string, unknown> | undefined): [string
 
 function asRecordArray(x: unknown): Record<string, unknown>[] {
   return Array.isArray(x) ? (x as Record<string, unknown>[]) : []
+}
+
+function dashActorSvpUserId(data: DashData): number {
+  const u = data.user as Record<string, unknown> | undefined
+  const x = Number(u?.svp_user_id)
+  return Number.isFinite(x) && x > 0 ? Math.trunc(x) : 0
 }
 
 type Props = {
@@ -166,12 +174,16 @@ export function DashboardAdminView({
   const disc = asRecordArray(data.discountCodes)
   const broadcasts = asRecordArray(data.broadcasts)
   const resellers = asRecordArray(data.resellers)
+  const wholesaleLinesCatalog = asRecordArray((data as Record<string, unknown>).wholesaleLinesCatalog)
+  const wholesaleLinesReseller = asRecordArray((data as Record<string, unknown>).wholesaleLines)
 
   const notFound = (
     <p className="text-sm text-muted-foreground">{t("layout.adminUnknownSection")}</p>
   )
 
   if (activeTab === "dashboard") {
+    const uBal = data.user as { balance?: unknown } | undefined
+    const actorBal = typeof uBal?.balance === "number" ? uBal.balance : undefined
     return (
       <DashboardOverview
         overview={data.overview as OverviewPayload | undefined}
@@ -185,6 +197,8 @@ export function DashboardAdminView({
         onPanelsPageChange={(p) => setPage("panels", p)}
         onPanelsPerPageChange={(n) => setPer("panels", n)}
         compactHealthOnly={isReseller}
+        wholesaleLines={wholesaleLinesReseller}
+        actorBalance={actorBal}
       />
     )
   }
@@ -311,8 +325,15 @@ export function DashboardAdminView({
         panels={panels}
         planCategories={planCategories}
         l2tpServers={l2tp}
+        wholesaleLines={wholesaleLinesReseller}
         resellerPlanFloors={asRecordArray((data as Record<string, unknown>).resellerPlanFloors)}
         resellerMode={isReseller}
+        actorSvpUserId={isReseller ? dashActorSvpUserId(data) : 0}
+        panelAccessDiagnostics={
+          isReseller
+            ? ((data.resellerPanelAccessDiagnostics ?? null) as ResellerPanelAccessDiagnostics | null)
+            : null
+        }
         pagination={pickPagination(data, "plans")}
         settings={settings}
         showCatalogDefaultsSave={!isReseller}
@@ -350,6 +371,18 @@ export function DashboardAdminView({
     )
   }
 
+  if (activeTab === "wholesale_lines") {
+    return (
+      <DashboardWholesaleLinesAdmin
+        catalog={wholesaleLinesCatalog}
+        panels={panels}
+        l2tpServers={l2tp}
+        isFa={isFa}
+        onMutateSuccess={onAdminMutateSuccess}
+      />
+    )
+  }
+
   if (activeTab === "receipts") {
     return (
       <DashboardReceiptsAdmin
@@ -360,6 +393,27 @@ export function DashboardAdminView({
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("receipts", p)}
         onPerPageChange={(n) => setPer("receipts", n)}
+      />
+    )
+  }
+
+  if (activeTab === "reseller_finance") {
+    const uBal = data.user as { balance?: unknown } | undefined
+    const actorBal = typeof uBal?.balance === "number" ? uBal.balance : undefined
+    const charges = Array.isArray((data as Record<string, unknown>).resellerCustomerCharges)
+      ? ((data as Record<string, unknown>).resellerCustomerCharges as Record<string, unknown>[])
+      : []
+    return (
+      <DashboardResellerFinance
+        wholesaleLines={wholesaleLinesReseller}
+        receipts={receipts}
+        customerCharges={charges}
+        actorBalance={actorBal}
+        isFa={isFa}
+        receiptsPagination={pickPagination(data, "receipts")}
+        onMutateSuccess={onAdminMutateSuccess}
+        onReceiptsPageChange={(p) => setPage("receipts", p)}
+        onReceiptsPerPageChange={(n) => setPer("receipts", n)}
       />
     )
   }
@@ -420,6 +474,7 @@ export function DashboardAdminView({
         userId={userDetailId}
         plans={plans}
         isFa={isFa}
+        isReseller={isReseller}
         onBack={onCloseUserDetail}
         onMutateSuccess={onAdminMutateSuccess}
         onOpenUserDetail={onOpenUserDetail}
@@ -462,7 +517,10 @@ export function DashboardAdminView({
       <DashboardResellersAdmin
         rows={resellers}
         panels={panels}
-        l2tpServers={l2tp}
+        wholesaleLinesCatalog={wholesaleLinesCatalog}
+        resellerWholesaleLineIdsMap={
+          (data.resellerWholesaleLineIdsMap as Record<string, number[]> | undefined) ?? {}
+        }
         resellerPermissionsMap={(data.resellerPermissionsMap as Record<string, Record<string, boolean>>) || {}}
         resellerPanelPricesMap={(data.resellerPanelPricesMap as Record<string, Array<{ panel_id?: number; price_per_gb?: number | string; panel_access?: boolean | number }>>) || {}}
         pagination={pickPagination(data, "resellers")}
@@ -487,6 +545,7 @@ export function DashboardAdminView({
           userId={ctxId}
           plans={plans}
           isFa={isFa}
+          isReseller={isReseller}
           onBack={() => onSelectTab("resellers")}
           onMutateSuccess={onAdminMutateSuccess}
           onOpenUserDetail={onOpenUserDetail}

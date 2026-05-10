@@ -209,6 +209,7 @@ export function DashboardUserDetailAdmin({
   userId,
   plans,
   isFa,
+  isReseller = false,
   onBack,
   onMutateSuccess,
   onOpenUserDetail,
@@ -216,6 +217,8 @@ export function DashboardUserDetailAdmin({
   userId: number
   plans: DashRecord[]
   isFa: boolean
+  /** When true, «free» payment mode is hidden (reseller pays from wallet / invoice only). */
+  isReseller?: boolean
   onBack: () => void
   onMutateSuccess?: () => void
   onOpenUserDetail?: (id: number) => void
@@ -236,7 +239,9 @@ export function DashboardUserDetailAdmin({
 
   const [planId, setPlanId] = useState("")
   const [volGb, setVolGb] = useState("")
-  const [createMode, setCreateMode] = useState<"free" | "wallet" | "invoice">("free")
+  const [createMode, setCreateMode] = useState<"free" | "wallet" | "invoice">(() =>
+    isReseller ? "wallet" : "free"
+  )
   const [xferTarget, setXferTarget] = useState<Record<number, string>>({})
   const [payMode, setPayMode] = useState<Record<number, "free" | "wallet" | "invoice">>({})
   const [addVolGb, setAddVolGb] = useState<Record<number, string>>({})
@@ -702,7 +707,7 @@ export function DashboardUserDetailAdmin({
                   value={createMode}
                   onChange={(e) => setCreateMode(e.target.value as typeof createMode)}
                 >
-                  <option value="free">{tp("modeFree")}</option>
+                  {!isReseller ? <option value="free">{tp("modeFree")}</option> : null}
                   <option value="wallet">{tp("modeWallet")}</option>
                   <option value="invoice">{tp("modeInvoice")}</option>
                 </select>
@@ -777,7 +782,7 @@ export function DashboardUserDetailAdmin({
             <div className="grid gap-4 md:grid-cols-2">
               {services.map((svc) => {
                 const sid = num(svc.id)
-                const pm = payMode[sid] ?? "free"
+                const pm = payMode[sid] ?? (isReseller ? "wallet" : "free")
                 const expire = svc.expires_at ?? svc.expire_at ?? svc.expired_at ?? svc.expiry ?? ""
                 const subState = String(svc.subscription_state ?? "")
                 const quotaGb = num(svc.quota_gb)
@@ -1012,7 +1017,7 @@ export function DashboardUserDetailAdmin({
                               setPayMode((m) => ({ ...m, [sid]: e.target.value as typeof pm }))
                             }
                           >
-                            <option value="free">{tp("modeFree")}</option>
+                            {!isReseller ? <option value="free">{tp("modeFree")}</option> : null}
                             <option value="wallet">{tp("modeWallet")}</option>
                             <option value="invoice">{tp("modeInvoice")}</option>
                           </select>

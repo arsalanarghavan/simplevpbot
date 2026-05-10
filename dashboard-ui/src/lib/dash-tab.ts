@@ -11,6 +11,7 @@ export type ParseDashOpts = {
 
 /** Map URL slugs (incl. hyphenated) to internal tab keys used by the SPA. */
 const TAB_SLUG_ALIASES: Record<string, string> = {
+  wallet: "reseller_finance",
   "users-bulk": "users_bulk",
   "reseller-bots": "reseller_bots",
   "plan-cats": "plan_cats",
@@ -18,6 +19,7 @@ const TAB_SLUG_ALIASES: Record<string, string> = {
   "bot-ui": "bot_ui",
   "xui-panels": "xui_panels",
   "l2tp-servers": "l2tp_servers",
+  "wholesale-lines": "wholesale_lines",
   "panel-inbounds": "configs",
 }
 

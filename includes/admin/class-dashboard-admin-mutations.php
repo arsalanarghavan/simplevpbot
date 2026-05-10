@@ -113,6 +113,21 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	}
 
 	/**
+	 * Dashboard reseller invoice checkouts: scope cards to site-global + this reseller (same as dashboard card list).
+	 *
+	 * @param array<string, mixed> $p Params (may include __actor_svp_user_id).
+	 * @return int svp_users.id or 0 for default card resolution.
+	 */
+	private static function invoice_card_scope_reseller_from_mutate( array $p ) {
+		$actor = self::dashboard_reseller_actor_id( $p );
+		if ( $actor < 1 || ! class_exists( 'SimpleVPBot_Model_User' ) ) {
+			return 0;
+		}
+		$row = SimpleVPBot_Model_User::find( $actor );
+		return ( $row && SimpleVPBot_Model_User::is_reseller_row( $row ) ) ? $actor : 0;
+	}
+
+	/**
 	 * Apply one mutation from JSON params (already unslashed by REST).
 	 *
 	 * @param string               $op     Operation key.
@@ -208,10 +223,18 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return self::op_users_bulk_job_cancel( $params );
 			case 'users_bulk_job_resume':
 				return self::op_users_bulk_job_resume( $params );
+			case 'reseller_wallet_topup_checkout':
+				return self::op_reseller_wallet_topup_checkout( $params );
 			case 'reseller_wp_provision':
 				return self::op_reseller_wp_provision( $params );
 			case 'reseller_panel_prices_save':
 				return self::op_reseller_panel_prices_save( $params );
+			case 'wholesale_line_save':
+				return self::op_wholesale_line_save( $params );
+			case 'wholesale_line_delete':
+				return self::op_wholesale_line_delete( $params );
+			case 'reseller_wholesale_lines_assign':
+				return self::op_reseller_wholesale_lines_assign( $params );
 			case 'reseller_permissions_save':
 				return self::op_reseller_permissions_save( $params );
 			case 'reseller_bot_tokens_save':
@@ -941,6 +964,158 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	}
 
 	/**
+	 * Turn newlines outside <pre>/<code> into <br> for Telegram HTML.
+	 *
+	 * Splits by <pre> first so inner <code> inside a pre block stays untouched.
+	 *
+	 * @param string $t HTML fragment.
+	 * @return string
+	 */
+	private static function broadcast_newlines_to_br_outside_pre_code( $t ) {
+		$pre_parts = preg_split( '/(<pre\b[^>]*>.*?<\/pre>)/is', (string) $t, -1, PREG_SPLIT_DELIM_CAPTURE );
+		if ( ! is_array( $pre_parts ) ) {
+			return str_replace( "\n", '<br>', (string) $t );
+		}
+		$buf = '';
+		foreach ( $pre_parts as $part ) {
+			if ( '' === $part ) {
+				continue;
+			}
+			if ( preg_match( '/^<pre\b/is', $part ) ) {
+				$buf .= $part;
+				continue;
+			}
+			$code_parts = preg_split( '/(<code\b[^>]*>.*?<\/code>)/is', $part, -1, PREG_SPLIT_DELIM_CAPTURE );
+			if ( ! is_array( $code_parts ) ) {
+				$buf .= str_replace( "\n", '<br>', $part );
+				continue;
+			}
+			foreach ( $code_parts as $cp ) {
+				if ( '' === $cp ) {
+					continue;
+				}
+				if ( preg_match( '/^<code\b/is', $cp ) ) {
+					$buf .= $cp;
+				} else {
+					$buf .= str_replace( "\n", '<br>', $cp );
+				}
+			}
+		}
+		return $buf;
+	}
+
+	/**
+	 * Telegram rejects nested entities inside <code> and <pre>; flatten to escaped plain text (innermost first).
+	 *
+	 * @param string $html HTML fragment (already passed wp_kses).
+	 * @return string
+	 */
+	private static function broadcast_flatten_pre_code_for_telegram( $html ) {
+		$t     = (string) $html;
+		$guard = 0;
+		while ( preg_match( '/<code\b[^>]*>.*?<\/code>/is', $t ) && $guard < 500 ) {
+			++$guard;
+			$t = preg_replace_callback(
+				'/<code\b[^>]*>(.*?)<\/code>/is',
+				static function ( array $m ) {
+					$inner = html_entity_decode( $m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+					$inner = wp_strip_all_tags( $inner );
+					return '<code>' . htmlspecialchars( $inner, ENT_HTML5 | ENT_QUOTES, 'UTF-8', false ) . '</code>';
+				},
+				$t,
+				1
+			);
+		}
+		$guard = 0;
+		while ( preg_match( '/<pre\b[^>]*>.*?<\/pre>/is', $t ) && $guard < 500 ) {
+			++$guard;
+			$t = preg_replace_callback(
+				'/<pre\b[^>]*>(.*?)<\/pre>/is',
+				static function ( array $m ) {
+					$inner = html_entity_decode( $m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+					$inner = wp_strip_all_tags( $inner );
+					return '<pre>' . htmlspecialchars( $inner, ENT_HTML5 | ENT_QUOTES, 'UTF-8', false ) . '</pre>';
+				},
+				$t,
+				1
+			);
+		}
+		return $t;
+	}
+
+	/**
+	 * Telegram expects boolean expandable on blockquote, not arbitrary attribute values from kses.
+	 *
+	 * @param string $html HTML.
+	 * @return string
+	 */
+	private static function broadcast_normalize_blockquote_expandable_for_telegram( $html ) {
+		return preg_replace_callback(
+			'/<blockquote\b[^>]*>/i',
+			static function ( array $m ) {
+				if ( preg_match( '/\bexpandable\b/i', $m[0] ) ) {
+					return '<blockquote expandable>';
+				}
+				return $m[0];
+			},
+			(string) $html
+		);
+	}
+
+	/**
+	 * Telegram only accepts http(s) and tg: in <a href>; unwrap anything else.
+	 *
+	 * @param string $html HTML.
+	 * @return string
+	 */
+	private static function broadcast_normalize_anchors_for_telegram( $html ) {
+		return preg_replace_callback(
+			'/<a\b([^>]*)>(.*?)<\/a>/is',
+			static function ( array $m ) {
+				if ( ! preg_match( '/href\s*=\s*([\'"])([^\'"]*)\1/i', $m[1], $hm ) ) {
+					return $m[2];
+				}
+				$href = trim( html_entity_decode( $hm[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+				if ( '' === $href || ! preg_match( '#\A(https?://|tg:)#i', $href ) ) {
+					return $m[2];
+				}
+				return '<a href="' . esc_attr( $href ) . '">' . $m[2] . '</a>';
+			},
+			(string) $html
+		);
+	}
+
+	/**
+	 * Prefer documented spoiler form; some clients choke on custom tag names from editors.
+	 *
+	 * @param string $html HTML.
+	 * @return string
+	 */
+	private static function broadcast_normalize_spoiler_tags_for_telegram( $html ) {
+		return preg_replace_callback(
+			'/<tg-spoiler\b[^>]*>(.*?)<\/tg-spoiler>/is',
+			static function ( array $m ) {
+				return '<span class="tg-spoiler">' . $m[1] . '</span>';
+			},
+			(string) $html
+		);
+	}
+
+	/**
+	 * Final Telegram HTML fixes after wp_kses (entity / nesting rules).
+	 *
+	 * @param string $html HTML.
+	 * @return string
+	 */
+	private static function broadcast_normalize_for_telegram_html( $html ) {
+		$t = self::broadcast_normalize_spoiler_tags_for_telegram( $html );
+		$t = self::broadcast_normalize_blockquote_expandable_for_telegram( $t );
+		$t = self::broadcast_normalize_anchors_for_telegram( $t );
+		$t = self::broadcast_flatten_pre_code_for_telegram( $t );
+		return $t;
+	}
+
+	/**
 	 * Allow Telegram-safe HTML subset for broadcast body.
 	 *
 	 * @param string $text Raw.
@@ -954,34 +1129,29 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		$t = preg_replace( '/<\/p>\s*<p[^>]*>/i', '<br>', $t );
 		$t = preg_replace( '/<p[^>]*>/i', '', $t );
 		$t = preg_replace( '/<\/p>/i', '<br>', $t );
-		$chunks = preg_split( '/(<pre\b[^>]*>.*?<\/pre>)/is', $t, -1, PREG_SPLIT_DELIM_CAPTURE );
-		$buf    = '';
-		foreach ( $chunks as $chunk ) {
-			if ( '' === $chunk ) {
-				continue;
-			}
-			if ( preg_match( '/^<pre\b/is', $chunk ) ) {
-				$buf .= $chunk;
-			} else {
-				$buf .= str_replace( "\n", '<br>', $chunk );
-			}
-		}
+		$t = self::broadcast_newlines_to_br_outside_pre_code( $t );
 		$allowed = array(
-			'p'        => array(),
-			'b'        => array(),
-			'strong'   => array(),
-			'i'        => array(),
-			'em'       => array(),
-			'u'        => array(),
-			's'        => array(),
-			'strike'   => array(),
-			'del'      => array(),
-			'code'     => array(),
-			'pre'      => array(),
-			'a'        => array( 'href' => array() ),
-			'br'       => array(),
+			'p'          => array(),
+			'b'          => array(),
+			'strong'     => array(),
+			'i'          => array(),
+			'em'         => array(),
+			'u'          => array(),
+			'ins'        => array(),
+			's'          => array(),
+			'strike'     => array(),
+			'del'        => array(),
+			'code'       => array(),
+			'pre'        => array(),
+			'a'          => array( 'href' => array() ),
+			'br'         => array(),
+			'blockquote' => array(
+				'expandable' => true,
+			),
+			'tg-spoiler' => array(),
 		);
-		return wp_kses( $buf, $allowed );
+		$t = wp_kses( $t, $allowed );
+		return self::broadcast_normalize_for_telegram_html( $t );
 	}
 
 	/**
@@ -1341,7 +1511,18 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		if ( $tuid < 1 || $pid < 1 ) {
 			return array( 'ok' => false, 'message' => 'invalid' );
 		}
-		$res = SimpleVPBot_Admin_User_Ops::admin_create_service( $tuid, $pid, $vol, $mode );
+		$actor = self::dashboard_reseller_actor_id( $p );
+		if ( $actor > 0 && class_exists( 'SimpleVPBot_Model_User' ) ) {
+			$actor_row = SimpleVPBot_Model_User::find( $actor );
+			if ( $actor_row && SimpleVPBot_Model_User::is_reseller_row( $actor_row ) ) {
+				$plan_row = SimpleVPBot_Model_Plan::find( $pid );
+				if ( ! $plan_row || (int) ( $plan_row->owner_svp_user_id ?? 0 ) !== $actor ) {
+					return array( 'ok' => false, 'reason' => 'forbidden_plan' );
+				}
+			}
+		}
+		$scope = self::invoice_card_scope_reseller_from_mutate( $p );
+		$res   = SimpleVPBot_Admin_User_Ops::admin_create_service( $tuid, $pid, $vol, $mode, $scope );
 		if ( empty( $res['ok'] ) ) {
 			return array( 'ok' => false, 'reason' => (string) ( $res['reason'] ?? 'failed' ) );
 		}
@@ -1382,7 +1563,8 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			return array( 'ok' => false, 'message' => 'not_found' );
 		}
 		$uid = (int) $svc->user_id;
-		$res = SimpleVPBot_Admin_User_Ops::admin_renew_service( $sid, $mode );
+		$scope = self::invoice_card_scope_reseller_from_mutate( $p );
+		$res   = SimpleVPBot_Admin_User_Ops::admin_renew_service( $sid, $mode, $scope );
 		if ( empty( $res['ok'] ) ) {
 			return array( 'ok' => false, 'reason' => (string) ( $res['reason'] ?? 'failed' ) );
 		}
@@ -1413,7 +1595,8 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			return array( 'ok' => false, 'message' => 'not_found' );
 		}
 		$uid = (int) $svc->user_id;
-		$res = SimpleVPBot_Admin_User_Ops::admin_add_volume( $sid, $gb, $mode );
+		$scope = self::invoice_card_scope_reseller_from_mutate( $p );
+		$res   = SimpleVPBot_Admin_User_Ops::admin_add_volume( $sid, $gb, $mode, $scope );
 		if ( empty( $res['ok'] ) ) {
 			return array( 'ok' => false, 'reason' => (string) ( $res['reason'] ?? 'failed' ) );
 		}
@@ -2507,6 +2690,72 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	}
 
 	/**
+	 * Pending wallet top-up for logged-in reseller (card-to-card + receipt like customers).
+	 *
+	 * @param array<string, mixed> $p amount (toman).
+	 * @return array{ok:bool, message?:string, transaction_id?:int, notify_sent?:bool}
+	 */
+	private static function op_reseller_wallet_topup_checkout( array $p ) {
+		$actor = self::dashboard_reseller_actor_id( $p );
+		if ( $actor < 1 ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		$row = SimpleVPBot_Model_User::find( $actor );
+		if ( ! $row || ! SimpleVPBot_Model_User::is_reseller_row( $row ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		$amt = isset( $p['amount'] ) ? round( (float) $p['amount'], 2 ) : 0.0;
+		if ( ! is_finite( $amt ) || $amt <= 0 || $amt > 1e11 ) {
+			return array( 'ok' => false, 'message' => 'invalid_amount' );
+		}
+		$meta = array(
+			'dashboard_reseller_topup'       => true,
+			'invoice_card_owner_scope_svp_id' => $actor,
+		);
+		$tid = SimpleVPBot_Model_Transaction::insert(
+			array(
+				'user_id'    => $actor,
+				'service_id' => null,
+				'amount'     => $amt,
+				'type'       => 'topup',
+				'status'     => 'pending',
+				'meta_json'  => wp_json_encode( $meta ),
+			)
+		);
+		if ( $tid < 1 ) {
+			return array( 'ok' => false, 'message' => 'insert_failed' );
+		}
+		$cards = SimpleVPBot_Model_Card::active_for_transaction( (int) $tid );
+		if ( empty( $cards ) ) {
+			SimpleVPBot_Model_Transaction::set_status( (int) $tid, 'cancelled' );
+			return array( 'ok' => false, 'message' => 'no_cards' );
+		}
+		$tx_row = SimpleVPBot_Model_Transaction::find( (int) $tid );
+		$sent   = false;
+		if ( $tx_row && class_exists( 'SimpleVPBot_Handler_Buy' ) && class_exists( 'SimpleVPBot_Bot_Runtime' ) ) {
+			$bale_tok       = (string) SimpleVPBot_Settings::get( 'bale_wallet_provider_token', '' );
+			$show_bale_w    = '' !== $bale_tok;
+			$markup_tg      = SimpleVPBot_Keyboards::inline_payment_method( $cards, (int) $tid, false );
+			$markup_bl      = SimpleVPBot_Keyboards::inline_payment_method( $cards, (int) $tid, $show_bale_w );
+			$text_tg        = SimpleVPBot_Handler_Buy::checkout_message_for_tx( $tx_row, '🧾 شارژ کیف پول (داشبورد)' );
+			$text_bl        = $text_tg;
+			if ( ! empty( $row->tg_user_id ) ) {
+				SimpleVPBot_Bot_Runtime::send_message( 'telegram', (int) $row->tg_user_id, $text_tg, array( 'reply_markup' => $markup_tg ) );
+				$sent = true;
+			}
+			if ( ! empty( $row->bale_user_id ) ) {
+				SimpleVPBot_Bot_Runtime::send_message( 'bale', (int) $row->bale_user_id, $text_bl, array( 'reply_markup' => $markup_bl ) );
+				$sent = true;
+			}
+		}
+		return array(
+			'ok'              => true,
+			'transaction_id' => (int) $tid,
+			'notify_sent'     => $sent,
+		);
+	}
+
+	/**
 	 * Create WordPress user and link to reseller svp_users row (or create reseller row).
 	 *
 	 * @param array<string, mixed> $p wp_username, wp_password, email?, svp_user_id? (0 = create new reseller), name fields.
@@ -2602,10 +2851,21 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		if ( $is_admin ) {
 			$rep = SimpleVPBot_Model_Reseller_Panel_Price::replace_all_for_reseller( $rid, $raw );
 			if ( empty( $rep['ok'] ) ) {
-				return array( 'ok' => false, 'message' => isset( $rep['message'] ) ? (string) $rep['message'] : 'save_failed' );
+				$fail = array(
+					'ok'      => false,
+					'message' => isset( $rep['message'] ) ? (string) $rep['message'] : 'save_failed',
+				);
+				if ( ! empty( $rep['skipped_panel_ids'] ) ) {
+					$fail['skipped_panel_ids'] = $rep['skipped_panel_ids'];
+				}
+				return $fail;
 			}
 			self::log_rest_user( $rid, 'reseller_panel_prices_save', array( 'count' => count( $raw ) ) );
-			return array( 'ok' => true );
+			$ok_out = array( 'ok' => true );
+			if ( ! empty( $rep['skipped_panel_ids'] ) ) {
+				$ok_out['skipped_panel_ids'] = $rep['skipped_panel_ids'];
+			}
+			return $ok_out;
 		}
 		if ( (int) ( $row->invited_by ?? 0 ) !== $actor ) {
 			return array( 'ok' => false, 'message' => 'forbidden_scope' );
@@ -2625,6 +2885,131 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		}
 		SimpleVPBot_Model_Reseller_Parent_Panel_Floor::replace_all_for_parent_child( $actor, $rid, $rows );
 		self::log_rest_user( $rid, 'reseller_parent_panel_floors_save', array( 'parent' => $actor, 'count' => count( $rows ) ) );
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * Create/update wholesale catalog line + tiers (site admin).
+	 *
+	 * @param array<string, mixed> $p line_id, label, badge_color, panel_id, tiers[], ….
+	 * @return array{ok:bool, message?:string, line_id?:int}
+	 */
+	private static function op_wholesale_line_save( array $p ) {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		if ( ! class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' ) || ! class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Tier' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$lid = (int) ( $p['line_id'] ?? 0 );
+		$pid = max( 1, (int) ( $p['panel_id'] ?? 1 ) );
+		if ( ! SimpleVPBot_Model_Panel::find( $pid ) ) {
+			return array( 'ok' => false, 'message' => 'bad_panel' );
+		}
+		$dstype = isset( $p['default_service_type'] ) ? sanitize_key( (string) $p['default_service_type'] ) : 'xray';
+		if ( ! in_array( $dstype, array( 'xray', 'l2tp' ), true ) ) {
+			$dstype = 'xray';
+		}
+		$row = array(
+			'label'                  => sanitize_text_field( (string) ( $p['label'] ?? '' ) ),
+			'badge_color'            => sanitize_text_field( (string) ( $p['badge_color'] ?? '' ) ),
+			'panel_id'               => $pid,
+			'default_service_type'   => $dstype,
+			'default_inbound_id'     => max( 0, (int) ( $p['default_inbound_id'] ?? 0 ) ),
+			'default_l2tp_server_id' => max( 0, (int) ( $p['default_l2tp_server_id'] ?? 0 ) ),
+			'active'                 => ! empty( $p['active'] ) ? 1 : 0,
+			'sort_order'             => (int) ( $p['sort_order'] ?? 0 ),
+		);
+		if ( '' === trim( $row['label'] ) ) {
+			return array( 'ok' => false, 'message' => 'invalid_label' );
+		}
+		$tiers_raw = isset( $p['tiers'] ) && is_array( $p['tiers'] ) ? $p['tiers'] : array();
+		$tiers     = array();
+		foreach ( $tiers_raw as $tr ) {
+			if ( ! is_array( $tr ) ) {
+				continue;
+			}
+			$tiers[] = array(
+				'sort_order'      => (int) ( $tr['sort_order'] ?? 0 ),
+				'price_per_gb'    => max( 0.0, (float) ( $tr['price_per_gb'] ?? 0 ) ),
+				'min_total_gb'    => max( 0, (int) ( $tr['min_total_gb'] ?? 0 ) ),
+				'min_total_toman' => max( 0.0, (float) ( $tr['min_total_toman'] ?? 0 ) ),
+			);
+		}
+		usort(
+			$tiers,
+			static function ( $a, $b ) {
+				return (int) ( $a['sort_order'] ?? 0 ) <=> (int) ( $b['sort_order'] ?? 0 );
+			}
+		);
+		if ( empty( $tiers ) ) {
+			return array( 'ok' => false, 'message' => 'tiers_required' );
+		}
+		if ( $lid > 0 ) {
+			$ex = SimpleVPBot_Model_Reseller_Wholesale_Line::find( $lid );
+			if ( ! $ex ) {
+				return array( 'ok' => false, 'message' => 'not_found' );
+			}
+			SimpleVPBot_Model_Reseller_Wholesale_Line::update( $lid, $row );
+			SimpleVPBot_Model_Reseller_Wholesale_Tier::replace_for_line( $lid, $tiers );
+			return array( 'ok' => true, 'line_id' => $lid );
+		}
+		$new_id = SimpleVPBot_Model_Reseller_Wholesale_Line::insert( $row );
+		if ( $new_id < 1 ) {
+			return array( 'ok' => false, 'message' => 'insert_failed' );
+		}
+		SimpleVPBot_Model_Reseller_Wholesale_Tier::replace_for_line( $new_id, $tiers );
+		return array( 'ok' => true, 'line_id' => $new_id );
+	}
+
+	/**
+	 * Delete wholesale line (site admin).
+	 *
+	 * @param array<string, mixed> $p line_id.
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function op_wholesale_line_delete( array $p ) {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		$lid = (int) ( $p['line_id'] ?? 0 );
+		if ( $lid < 1 || ! class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' ) ) {
+			return array( 'ok' => false, 'message' => 'invalid' );
+		}
+		global $wpdb;
+		$ta = SimpleVPBot_Model_Reseller_Wholesale_Assignment::table();
+		$wpdb->delete( $ta, array( 'line_id' => $lid ), array( '%d' ) );
+		SimpleVPBot_Model_Reseller_Wholesale_Tier::delete_all_for_line( $lid );
+		SimpleVPBot_Model_Reseller_Wholesale_Line::delete( $lid );
+		if ( class_exists( 'SimpleVPBot_Model_Plan' ) ) {
+			$plans_t = SimpleVPBot_Model_Plan::table();
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( $wpdb->prepare( "UPDATE {$plans_t} SET wholesale_line_id = NULL WHERE wholesale_line_id = %d", $lid ) );
+		}
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * Assign wholesale lines to a reseller (site admin).
+	 *
+	 * @param array<string, mixed> $p reseller_svp_user_id, line_ids int[].
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function op_reseller_wholesale_lines_assign( array $p ) {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		$rid = (int) ( $p['reseller_svp_user_id'] ?? 0 );
+		if ( $rid < 1 || ! class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Assignment' ) ) {
+			return array( 'ok' => false, 'message' => 'invalid' );
+		}
+		$row = SimpleVPBot_Model_User::find( $rid );
+		if ( ! $row || ! SimpleVPBot_Model_User::is_reseller_row( $row ) ) {
+			return array( 'ok' => false, 'message' => 'not_reseller' );
+		}
+		$ids = isset( $p['line_ids'] ) && is_array( $p['line_ids'] ) ? $p['line_ids'] : array();
+		SimpleVPBot_Model_Reseller_Wholesale_Assignment::replace_for_reseller( $rid, array_map( 'intval', $ids ) );
+		self::log_rest_user( $rid, 'reseller_wholesale_lines_assign', array( 'count' => count( $ids ) ) );
 		return array( 'ok' => true );
 	}
 

@@ -64,7 +64,98 @@ class SimpleVPBot_Cron_Broadcast {
 	}
 
 	/**
+	 * Telegram HTML caption/text → readable plain (for Bale when HTML is not rendered client-side).
+	 *
+	 * @param string $html HTML subset from broadcast sanitizer.
+	 * @return string
+	 */
+	private static function telegram_html_to_plain( $html ) {
+		$t = (string) $html;
+		$t = preg_replace( '/<\/p>\s*/i', "\n\n", $t );
+		$t = preg_replace( '/<br\s*\/?>/i', "\n", $t );
+		$t = preg_replace( '/<\/blockquote>\s*/i', "\n\n", $t );
+		$t = preg_replace( '/<\/pre>\s*/i', "\n\n", $t );
+		$t = wp_strip_all_tags( $t );
+		$t = html_entity_decode( $t, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		return trim( preg_replace( '/\n{3,}/', "\n\n", $t ) );
+	}
+
+	/**
+	 * Whether Telegram rejected HTML and a plain-text resend is worth trying.
+	 *
+	 * @param array<string, mixed> $r       API body.
+	 * @param array<string, mixed> $payload Queue payload (after platform normalize).
+	 * @return bool
+	 */
+	private static function should_retry_telegram_html_as_plain( array $r, array $payload ) {
+		if ( ! empty( $r['ok'] ) ) {
+			return false;
+		}
+		$code = isset( $r['error_code'] ) ? (int) $r['error_code'] : 0;
+		if ( 400 !== $code ) {
+			return false;
+		}
+		$pm = isset( $payload['parse_mode'] ) ? strtoupper( trim( (string) $payload['parse_mode'] ) ) : '';
+		if ( 'HTML' !== $pm ) {
+			return false;
+		}
+		$desc = strtolower( (string) ( $r['description'] ?? '' ) );
+		foreach ( array( 'parse', 'entity', 'entities', 'formatted', 'unsupported', "can't find end", 'unmatched', 'nested', 'byte offset', "can't parse", 'cannot parse', 'invalid entities', 'end tag', 'start tag' ) as $needle ) {
+			if ( false !== strpos( $desc, $needle ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Send one queue row via Telegram client (used for HTML retry as plain).
+	 *
+	 * @param SimpleVPBot_Telegram_Client $c       Client.
+	 * @param string                      $method  API method.
+	 * @param array<string, mixed>        $params  Params.
+	 * @param int                         $timeout Timeout.
+	 * @return array<string, mixed>
+	 */
+	private static function telegram_send_with_method( SimpleVPBot_Telegram_Client $c, $method, array $params, $timeout ) {
+		if ( 'sendMediaGroup' === $method ) {
+			return $c->send_media_group( $params, $timeout );
+		}
+		if ( 'sendPhoto' === $method ) {
+			return $c->send_photo( $params, $timeout );
+		}
+		return $c->send_message( $params, $timeout );
+	}
+
+	/**
+	 * Bale messenger often shows caption/body as plain text; strip HTML so users do not see raw tags.
+	 *
+	 * @param array<string, mixed> $payload Queue payload.
+	 * @param string               $bot tg|bale.
+	 * @return array<string, mixed>
+	 */
+	private static function normalize_broadcast_payload_for_platform( array $payload, $bot ) {
+		if ( 'bale' !== (string) $bot ) {
+			return $payload;
+		}
+		$pm = isset( $payload['parse_mode'] ) ? trim( (string) $payload['parse_mode'] ) : '';
+		if ( '' === $pm || strtoupper( $pm ) !== 'HTML' ) {
+			return $payload;
+		}
+		$text = isset( $payload['text'] ) ? (string) $payload['text'] : '';
+		if ( '' === $text ) {
+			unset( $payload['parse_mode'] );
+			return $payload;
+		}
+		$payload['text'] = self::telegram_html_to_plain( $text );
+		unset( $payload['parse_mode'] );
+		return $payload;
+	}
+
+	/**
 	 * Build API params from stored payload_json.
+	 *
+	 * Albums: only the first InputMediaPhoto may include caption + parse_mode (Telegram/Bale compat).
 	 *
 	 * @param array<string, mixed> $payload Decoded payload.
 	 * @return array{0:string,1:array<string,mixed>} method name and params.
@@ -171,19 +262,22 @@ class SimpleVPBot_Cron_Broadcast {
 				continue;
 			}
 			$bot = (string) $row->bot;
+			$payload = self::normalize_broadcast_payload_for_platform( $payload, $bot );
 			list($method, $api_params) = self::build_send_params( $payload );
 			$ok = false;
 			$r  = array( 'ok' => false, 'description' => 'no_token' );
 			if ( 'tg' === $bot && $tg_tok ) {
 				$c = new SimpleVPBot_Telegram_Client( $tg_tok );
-				if ( 'sendMediaGroup' === $method ) {
-					$r = $c->send_media_group( $api_params, $timeout );
-				} elseif ( 'sendPhoto' === $method ) {
-					$r = $c->send_photo( $api_params, $timeout );
-				} else {
-					$r = $c->send_message( $api_params, $timeout );
-				}
+				$r = self::telegram_send_with_method( $c, $method, $api_params, $timeout );
 				$ok = ! empty( $r['ok'] );
+				if ( ! $ok && self::should_retry_telegram_html_as_plain( $r, $payload ) ) {
+					$fb = $payload;
+					$fb['text'] = self::telegram_html_to_plain( (string) ( $fb['text'] ?? '' ) );
+					unset( $fb['parse_mode'] );
+					list($method_fb, $api_fb) = self::build_send_params( $fb );
+					$r  = self::telegram_send_with_method( $c, $method_fb, $api_fb, $timeout );
+					$ok = ! empty( $r['ok'] );
+				}
 			} elseif ( 'bale' === $bot && $bl_tok ) {
 				$c = new SimpleVPBot_Bale_Client( $bl_tok );
 				if ( 'sendMediaGroup' === $method ) {
