@@ -87,8 +87,12 @@ class SimpleVPBot_Webhook_Diagnostics {
 					continue;
 				}
 				$wsec = trim( (string) ( $row->webhook_secret ?? '' ) );
-				$tg_t = trim( (string) ( $row->telegram_token ?? '' ) );
-				$bl_t = trim( (string) ( $row->bale_token ?? '' ) );
+				$tg_t = class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' )
+					? SimpleVPBot_Model_Reseller_Bot_Profile::token_for_platform( $row, 'telegram' )
+					: '';
+				$bl_t = class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' )
+					? SimpleVPBot_Model_Reseller_Bot_Profile::token_for_platform( $row, 'bale' )
+					: '';
 				$rhdr = trim( (string) ( $row->telegram_secret_token ?? '' ) );
 				$item = array(
 					'reseller_svp_user_id'          => $rid,

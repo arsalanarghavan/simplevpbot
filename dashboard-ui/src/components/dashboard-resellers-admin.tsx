@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next"
 import { KeyRound, Layers, LayoutDashboard, LogIn, Settings2, ShieldCheck } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
@@ -150,6 +151,7 @@ export function DashboardResellersAdmin({
   const [err, setErr] = useState("")
   const [panelPriceErr, setPanelPriceErr] = useState("")
   const [panelPriceNotice, setPanelPriceNotice] = useState("")
+  const [createOpen, setCreateOpen] = useState(false)
   const [form, setForm] = useState({
     first_name: "",
     last_name: "",
@@ -324,6 +326,7 @@ export function DashboardResellersAdmin({
         tg_user_id: "",
         bale_user_id: "",
       })
+      setCreateOpen(false)
       onMutateSuccess?.()
     } finally {
       setBusy(false)
@@ -365,67 +368,89 @@ export function DashboardResellersAdmin({
   const flexRow = dashFlexRowClass(isFa)
   const showWholesaleAssign =
     wholesaleLinesCatalog.length > 0 && !isResellerActor && canManageResellerControls
+  const inputAlignClass = isFa ? "text-right" : "text-left"
 
   return (
     <div className={cn("space-y-4", dashContentClass(isFa))}>
-      <h2 className="text-lg font-medium">{tp("title")}</h2>
-      <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-      <Card>
-        <CardHeader className={cn(isFa && "text-right sm:text-right")}>
-          <CardTitle className="text-base">{tp("createTitle")}</CardTitle>
-          <CardDescription>{tp("createHint")}</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-2 md:grid-cols-2">
-          <Input
-            placeholder={tp("firstName")}
-            className={isFa ? "text-right" : "text-left"}
-            value={form.first_name}
-            onChange={(e) => setForm((p) => ({ ...p, first_name: e.target.value }))}
-          />
-          <Input
-            placeholder={tp("lastName")}
-            className={isFa ? "text-right" : "text-left"}
-            value={form.last_name}
-            onChange={(e) => setForm((p) => ({ ...p, last_name: e.target.value }))}
-          />
-          <Input
-            placeholder={tp("dashboardUsername")}
-            dir="ltr"
-            className="text-left font-mono"
-            value={form.username}
-            onChange={(e) => setForm((p) => ({ ...p, username: e.target.value }))}
-          />
-          <Input
-            placeholder={tp("dashboardPassword")}
-            dir="ltr"
-            className="text-left font-mono"
-            type="password"
-            autoComplete="new-password"
-            value={form.dashboard_password}
-            onChange={(e) => setForm((p) => ({ ...p, dashboard_password: e.target.value }))}
-          />
-          <Input
-            placeholder={tp("phone")}
-            className={isFa ? "text-right" : "text-left"}
-            dir="ltr"
-            value={form.phone}
-            onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
-          />
-          <Input
-            placeholder={tp("tgUserId")}
-            dir="ltr"
-            className="text-left font-mono"
-            value={form.tg_user_id}
-            onChange={(e) => setForm((p) => ({ ...p, tg_user_id: e.target.value }))}
-          />
-          <Input
-            placeholder={tp("baleUserId")}
-            dir="ltr"
-            className="text-left font-mono"
-            value={form.bale_user_id}
-            onChange={(e) => setForm((p) => ({ ...p, bale_user_id: e.target.value }))}
-          />
-          <div className={cn("md:col-span-2", flexRow, isFa ? "justify-end" : "justify-start")}>
+      <div className={cn("flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between", flexRow)}>
+        <div className={cn("space-y-1", isFa && "text-right")}>
+          <h2 className="text-lg font-medium">{tp("title")}</h2>
+          <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
+        </div>
+        <Button
+          type="button"
+          disabled={!canManageResellerControls}
+          onClick={() => {
+            setErr("")
+            setCreateOpen(true)
+          }}
+        >
+          {tp("createTitle")}
+        </Button>
+      </div>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className={cn("sm:max-w-2xl", isFa && "text-right [direction:rtl]")}>
+          <DialogHeader className={cn(isFa && "text-right sm:text-right")}>
+            <DialogTitle>{tp("createTitle")}</DialogTitle>
+            <DialogDescription>{tp("createHint")}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2 md:grid-cols-2">
+            <Input
+              placeholder={tp("firstName")}
+              className={inputAlignClass}
+              value={form.first_name}
+              onChange={(e) => setForm((p) => ({ ...p, first_name: e.target.value }))}
+            />
+            <Input
+              placeholder={tp("lastName")}
+              className={inputAlignClass}
+              value={form.last_name}
+              onChange={(e) => setForm((p) => ({ ...p, last_name: e.target.value }))}
+            />
+            <Input
+              placeholder={tp("dashboardUsername")}
+              dir="ltr"
+              className={cn("font-mono", inputAlignClass)}
+              value={form.username}
+              onChange={(e) => setForm((p) => ({ ...p, username: e.target.value }))}
+            />
+            <Input
+              placeholder={tp("dashboardPassword")}
+              dir="ltr"
+              className={cn("font-mono", inputAlignClass)}
+              type="password"
+              autoComplete="new-password"
+              value={form.dashboard_password}
+              onChange={(e) => setForm((p) => ({ ...p, dashboard_password: e.target.value }))}
+            />
+            <Input
+              placeholder={tp("phone")}
+              dir="ltr"
+              className={inputAlignClass}
+              value={form.phone}
+              onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
+            />
+            <Input
+              placeholder={tp("tgUserId")}
+              dir="ltr"
+              className={cn("font-mono", inputAlignClass)}
+              value={form.tg_user_id}
+              onChange={(e) => setForm((p) => ({ ...p, tg_user_id: e.target.value }))}
+            />
+            <Input
+              placeholder={tp("baleUserId")}
+              dir="ltr"
+              className={cn("font-mono", inputAlignClass)}
+              value={form.bale_user_id}
+              onChange={(e) => setForm((p) => ({ ...p, bale_user_id: e.target.value }))}
+            />
+          </div>
+          {err ? <p className="text-sm text-destructive">{err}</p> : null}
+          <DialogFooter className={cn("gap-2", isFa && "sm:flex-row-reverse")}>
+            <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+              {t("a11y.close")}
+            </Button>
             <Button
               type="button"
               disabled={busy || !canManageResellerControls || !canSubmitCreate}
@@ -433,14 +458,18 @@ export function DashboardResellersAdmin({
             >
               {tp("create")}
             </Button>
-            {err ? <span className="text-sm text-destructive">{err}</span> : null}
-          </div>
-        </CardContent>
-      </Card>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader className={cn("flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between", flexRow)}>
-          <CardTitle className="text-base">{tp("listTitle")}</CardTitle>
+          <div className={cn("space-y-1", isFa && "text-right")}>
+            <CardTitle className="text-base">{tp("listTitle")}</CardTitle>
+            {pagination && pagination.total > 0 ? (
+              <p className="text-xs text-muted-foreground">{tp("listCount", { n: pagination.total })}</p>
+            ) : null}
+          </div>
           {panelPriceNotice ? (
             <p className="text-sm text-amber-900 dark:text-amber-100">{panelPriceNotice}</p>
           ) : null}
@@ -513,14 +542,17 @@ export function DashboardResellersAdmin({
                 })}
               </div>
               <div className="hidden overflow-x-auto rounded-md border md:block">
-                <table className="w-full min-w-[44rem] table-fixed text-sm">
+                <table
+                  className="w-full min-w-[44rem] table-fixed text-sm"
+                  dir={isFa ? "rtl" : "ltr"}
+                >
                   <thead>
                     <tr className="bg-muted/40">
-                      <th className={cn("p-2", isFa ? "text-end" : "text-start")}>{tp("colId")}</th>
-                      <th className={cn("p-2", isFa ? "text-end" : "text-start")}>{tp("colName")}</th>
-                      <th className={cn("p-2", isFa ? "text-end" : "text-start")}>{tp("colStatus")}</th>
-                      <th className={cn("p-2", isFa ? "text-end" : "text-start")}>{tp("colUsers")}</th>
-                      <th className={cn("p-2", isFa ? "text-end" : "text-start")}>{tp("colActions")}</th>
+                      <th className="p-2 text-start">{tp("colId")}</th>
+                      <th className="p-2 text-start">{tp("colName")}</th>
+                      <th className="p-2 text-start">{tp("colStatus")}</th>
+                      <th className="p-2 text-start">{tp("colUsers")}</th>
+                      <th className="p-2 text-start w-[11rem]">{tp("colActions")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -528,22 +560,22 @@ export function DashboardResellersAdmin({
                       const id = n(r.id)
                       return (
                         <tr key={id} className="border-t">
-                          <td className={cn("p-2 font-mono", isFa ? "text-end" : "text-start")} dir="ltr">
+                          <td className="p-2 font-mono text-start" dir="ltr">
                             {id}
                           </td>
-                          <td className={cn("p-2", isFa ? "text-end" : "text-start")}>
+                          <td className="p-2 text-start">
                             <div className="space-y-0.5">
                               <div>{displayName(r)}</div>
                               <div className="text-xs text-muted-foreground">{String(r.phone ?? "—")}</div>
                             </div>
                           </td>
-                          <td className={cn("p-2", isFa ? "text-end" : "text-start")}>
+                          <td className="p-2 text-start">
                             <Badge variant={statusBadgeVariant(String(r.status ?? ""))} className="font-normal">
                               {resellerStatusLabel(t, r.status)}
                             </Badge>
                           </td>
-                          <td className={cn("p-2 tabular-nums", isFa ? "text-end" : "text-start")}>{directUsersCount.get(id) ?? 0}</td>
-                          <td className={cn("p-2", isFa ? "text-end" : "text-start")}>
+                          <td className="p-2 tabular-nums text-start">{directUsersCount.get(id) ?? 0}</td>
+                          <td className="p-2 text-start">
                             <TooltipProvider>
                               <div className={cn("flex flex-wrap gap-1", isFa && "flex-row-reverse justify-end")}>
                                 <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" onClick={() => onOpenUserDetail(id)}><KeyRound className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>{tp("manage")}</TooltipContent></Tooltip>
@@ -600,8 +632,8 @@ export function DashboardResellersAdmin({
           }
         }}
       >
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader>
+        <DialogContent className={cn("max-h-[85vh] overflow-y-auto sm:max-w-2xl", isFa && "text-right [direction:rtl]")}>
+          <DialogHeader className={cn(isFa && "text-right sm:text-right")}>
             <DialogTitle className={cn("flex items-center gap-2", isFa && "flex-row-reverse")}>
               <span>{tp("panelPricesTitle")}</span>
               {isResellerActor ? (
@@ -644,24 +676,48 @@ export function DashboardResellersAdmin({
                 <div
                   key={row.panel_id}
                   className={cn(
-                    "flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2.5",
-                    isFa && "flex-row-reverse"
+                    "flex flex-col gap-2 rounded-md border border-border/60 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between",
+                    isFa && "sm:flex-row-reverse"
                   )}
                 >
                   <span className="min-w-0 flex-1 text-sm font-medium leading-snug">{label}</span>
-                  <Switch
-                    id={`panel-access-${row.panel_id}`}
-                    checked={priceRows[idx]?.panel_access ?? false}
-                    onCheckedChange={(checked) => {
-                      setPriceRows((prev) => prev.map((r, i) => (i === idx ? { ...r, panel_access: checked } : r)))
-                    }}
-                    aria-label={tp("panelAccessToggleAria", { label })}
-                  />
+                  <div className={cn("flex flex-wrap items-center gap-3", isFa && "flex-row-reverse justify-end")}>
+                    <Switch
+                      id={`panel-access-${row.panel_id}`}
+                      checked={priceRows[idx]?.panel_access ?? false}
+                      onCheckedChange={(checked) => {
+                        setPriceRows((prev) => prev.map((r, i) => (i === idx ? { ...r, panel_access: checked } : r)))
+                      }}
+                      aria-label={tp("panelAccessToggleAria", { label })}
+                    />
+                    {(priceRows[idx]?.panel_access ?? false) ? (
+                      <div className={cn("flex min-w-[9rem] flex-col gap-1", isFa && "items-end")}>
+                        <Label htmlFor={`panel-price-${row.panel_id}`} className="text-xs text-muted-foreground">
+                          {t("pricePerGb")}
+                        </Label>
+                        <Input
+                          id={`panel-price-${row.panel_id}`}
+                          type="text"
+                          inputMode="decimal"
+                          className={cn("h-8 w-full max-w-[10rem]", isFa && "text-right")}
+                          value={priceRows[idx]?.price_per_gb ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setPriceRows((prev) =>
+                              prev.map((r, i) => (i === idx ? { ...r, price_per_gb: v } : r))
+                            )
+                          }}
+                          placeholder={tp("panelPricesIncludePanelFloor")}
+                          disabled={busy}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               )
             })}
           </div>
-          <DialogFooter>
+          <DialogFooter className={cn("gap-2", isFa && "sm:flex-row-reverse")}>
             <Button type="button" variant="outline" onClick={() => setPriceResellerId(null)}>
               {t("a11y.close")}
             </Button>
@@ -680,8 +736,8 @@ export function DashboardResellersAdmin({
           }
         }}
       >
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
+        <DialogContent className={cn("max-h-[85vh] overflow-y-auto sm:max-w-lg", isFa && "text-right [direction:rtl]")}>
+          <DialogHeader className={cn(isFa && "text-right sm:text-right")}>
             <DialogTitle>{tp("wholesaleLinesDialogTitle", { id: wholesaleAssignId ?? 0 })}</DialogTitle>
             <DialogDescription>{tp("wholesaleLinesAssignHint")}</DialogDescription>
           </DialogHeader>
@@ -710,7 +766,7 @@ export function DashboardResellersAdmin({
               )
             })}
           </div>
-          <DialogFooter>
+          <DialogFooter className={cn("gap-2", isFa && "sm:flex-row-reverse")}>
             <Button type="button" variant="outline" onClick={() => setWholesaleAssignId(null)}>
               {t("a11y.close")}
             </Button>
@@ -722,8 +778,8 @@ export function DashboardResellersAdmin({
       </Dialog>
 
       <Dialog open={permResellerId != null} onOpenChange={(o) => !o && setPermResellerId(null)}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
+        <DialogContent className={cn("max-h-[85vh] overflow-y-auto sm:max-w-lg", isFa && "text-right [direction:rtl]")}>
+          <DialogHeader className={cn(isFa && "text-right sm:text-right")}>
             <DialogTitle>{tp("permissionsDialogTitle")}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-2 py-2">
@@ -738,7 +794,7 @@ export function DashboardResellersAdmin({
               </label>
             ))}
           </div>
-          <DialogFooter>
+          <DialogFooter className={cn("gap-2", isFa && "sm:flex-row-reverse")}>
             <Button type="button" variant="outline" onClick={() => setPermResellerId(null)}>
               {t("a11y.close")}
             </Button>

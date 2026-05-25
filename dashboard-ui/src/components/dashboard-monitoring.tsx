@@ -275,42 +275,44 @@ export function DashboardMonitoring({
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("monitoringPage.siteHost")}</CardTitle>
-          <CardDescription>
-            {host?.checkedAt ? formatDateTime(host.checkedAt, isFa) : "—"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="rounded-lg border border-border bg-card/50 p-3">
-              <p className="text-xs text-muted-foreground">{t("dashboardOverview.hostLoad")}</p>
-              <p className="mt-1 font-mono text-sm tabular-nums">
-                {host?.loadAvg?.length === 3
-                  ? `${formatNumber(host.loadAvg[0], isFa)} / ${formatNumber(host.loadAvg[1], isFa)} / ${formatNumber(host.loadAvg[2], isFa)}`
-                  : "—"}
-              </p>
+      {host != null ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("monitoringPage.siteHost")}</CardTitle>
+            <CardDescription>
+              {host?.checkedAt ? formatDateTime(host.checkedAt, isFa) : "—"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="rounded-lg border border-border bg-card/50 p-3">
+                <p className="text-xs text-muted-foreground">{t("dashboardOverview.hostLoad")}</p>
+                <p className="mt-1 font-mono text-sm tabular-nums">
+                  {host?.loadAvg?.length === 3
+                    ? `${formatNumber(host.loadAvg[0], isFa)} / ${formatNumber(host.loadAvg[1], isFa)} / ${formatNumber(host.loadAvg[2], isFa)}`
+                    : "—"}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border bg-card/50 p-3">
+                <p className="text-xs text-muted-foreground">{t("dashboardOverview.hostMem")}</p>
+                <p className="mt-1 text-sm tabular-nums">
+                  {formatBytes(memUse, isFa)} / {memLimit > 0 ? formatBytes(memLimit, isFa) : "—"}
+                </p>
+                {memLimit > 0 ? <Progress className="mt-2 h-2" value={memPct} /> : null}
+              </div>
+              <div className="rounded-lg border border-border bg-card/50 p-3">
+                <p className="text-xs text-muted-foreground">{t("dashboardOverview.hostDisk")}</p>
+                <p className="mt-1 text-sm tabular-nums">
+                  {diskTotal > 0
+                    ? `${formatBytes(diskUsed, isFa)} / ${formatBytes(diskTotal, isFa)}`
+                    : "—"}
+                </p>
+                {diskTotal > 0 ? <Progress className="mt-2 h-2" value={diskPct} /> : null}
+              </div>
             </div>
-            <div className="rounded-lg border border-border bg-card/50 p-3">
-              <p className="text-xs text-muted-foreground">{t("dashboardOverview.hostMem")}</p>
-              <p className="mt-1 text-sm tabular-nums">
-                {formatBytes(memUse, isFa)} / {memLimit > 0 ? formatBytes(memLimit, isFa) : "—"}
-              </p>
-              {memLimit > 0 ? <Progress className="mt-2 h-2" value={memPct} /> : null}
-            </div>
-            <div className="rounded-lg border border-border bg-card/50 p-3">
-              <p className="text-xs text-muted-foreground">{t("dashboardOverview.hostDisk")}</p>
-              <p className="mt-1 text-sm tabular-nums">
-                {diskTotal > 0
-                  ? `${formatBytes(diskUsed, isFa)} / ${formatBytes(diskTotal, isFa)}`
-                  : "—"}
-              </p>
-              {diskTotal > 0 ? <Progress className="mt-2 h-2" value={diskPct} /> : null}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>

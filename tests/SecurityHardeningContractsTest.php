@@ -18,10 +18,11 @@ class SecurityHardeningContractsTest extends TestCase {
 	 * Reseller dashboard state must use safe settings whitelist.
 	 */
 	public function test_reseller_state_uses_safe_settings_whitelist(): void {
-		$file = dirname( __DIR__ ) . '/includes/api/class-rest-dashboard.php';
-		$code = (string) file_get_contents( $file );
-		$this->assertStringContainsString( 'private static function reseller_safe_settings', $code );
-		$this->assertStringContainsString( "'settings'              => \$reseller_settings", $code );
+		$rest = (string) file_get_contents( dirname( __DIR__ ) . '/includes/api/class-rest-dashboard.php' );
+		$set  = (string) file_get_contents( dirname( __DIR__ ) . '/includes/class-settings.php' );
+		$this->assertStringContainsString( 'dashboard_slice_for_reseller_operator', $rest );
+		$this->assertStringContainsString( 'function dashboard_slice_for_reseller_operator', $set );
+		$this->assertStringContainsString( "'telegram_bot_username'", $set );
 	}
 
 	/**

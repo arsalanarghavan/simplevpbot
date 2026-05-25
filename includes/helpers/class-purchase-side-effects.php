@@ -24,6 +24,15 @@ class SimpleVPBot_Purchase_Side_Effects {
 		if ( ! $tx || 'approved' !== (string) $tx->status ) {
 			return;
 		}
+		$meta = json_decode( (string) $tx->meta_json, true );
+		if ( ! is_array( $meta ) ) {
+			$meta = array();
+		}
+		if ( ! empty( $meta['side_effects_applied'] ) ) {
+			return;
+		}
+		$meta['side_effects_applied'] = true;
+		SimpleVPBot_Model_Transaction::update( (int) $tx->id, array( 'meta_json' => wp_json_encode( $meta ) ) );
 		SimpleVPBot_Referral_Service::maybe_credit_from_transaction( $tx );
 		$tx2 = SimpleVPBot_Model_Transaction::find( (int) $tx_id );
 		if ( $tx2 ) {

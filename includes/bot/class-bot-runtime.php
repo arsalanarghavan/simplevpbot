@@ -21,7 +21,18 @@ class SimpleVPBot_Bot_Runtime {
 	 * @return SimpleVPBot_Bot_Client|null
 	 */
 	public static function client( $platform ) {
-		$t = self::bot_token_for_current_context( $platform );
+		return self::client_for_reseller( $platform, 0 );
+	}
+
+	/**
+	 * API client for a specific reseller (0 = current context or site default).
+	 *
+	 * @param string $platform          telegram|bale.
+	 * @param int    $reseller_svp_user_id Reseller id (0 = use webhook context / main).
+	 * @return SimpleVPBot_Bot_Client|null
+	 */
+	public static function client_for_reseller( $platform, $reseller_svp_user_id = 0 ) {
+		$t = self::bot_token_for_reseller( $platform, (int) $reseller_svp_user_id );
 		if ( '' === $t ) {
 			return null;
 		}
@@ -41,12 +52,8 @@ class SimpleVPBot_Bot_Runtime {
 		$plat = ( 'bale' === $platform ) ? 'bale' : 'telegram';
 		if ( class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot() ) {
 			$prof = SimpleVPBot_Bot_Context::reseller_profile();
-			if ( $prof ) {
-				if ( 'bale' === $plat ) {
-					$t = trim( (string) ( $prof->bale_token ?? '' ) );
-				} else {
-					$t = trim( (string) ( $prof->telegram_token ?? '' ) );
-				}
+			if ( $prof && class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+				$t = SimpleVPBot_Model_Reseller_Bot_Profile::token_for_platform( $prof, $plat );
 				if ( '' !== $t ) {
 					return $t;
 				}
@@ -69,6 +76,72 @@ class SimpleVPBot_Bot_Runtime {
 	 * @param array<string, mixed> $extra Extra params (reply_markup parse_mode).
 	 * @return array<string, mixed>|null
 	 */
+	/**
+	 * Bot token for reseller id (0 = current context or site default).
+	 *
+	 * @param string $platform             telegram|bale.
+	 * @param int    $reseller_svp_user_id Reseller svp_users.id.
+	 * @return string
+	 */
+	public static function bot_token_for_reseller( $platform, $reseller_svp_user_id = 0 ) {
+		$rid = (int) $reseller_svp_user_id;
+		if ( $rid < 1 && class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot() ) {
+			return self::bot_token_for_current_context( $platform );
+		}
+		if ( $rid > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $rid );
+			if ( $prof ) {
+				$t = SimpleVPBot_Model_Reseller_Bot_Profile::token_for_platform( $prof, $platform );
+				if ( '' !== $t ) {
+					return $t;
+				}
+			}
+			return '';
+		}
+		return self::bot_token_for_current_context( $platform );
+	}
+
+	/**
+	 * Send using a specific reseller bot token (falls back to site bot when reseller id is 0).
+	 *
+	 * @param string               $platform             Platform.
+	 * @param int                  $chat_id              Chat id.
+	 * @param string               $text                 Text.
+	 * @param int                  $reseller_svp_user_id Reseller id (0 = main / context).
+	 * @param array<string, mixed> $extra                Extra params.
+	 * @return array<string, mixed>|null
+	 */
+	public static function send_message_for_reseller( $platform, $chat_id, $text, $reseller_svp_user_id = 0, array $extra = array() ) {
+		$c = self::client_for_reseller( $platform, (int) $reseller_svp_user_id );
+		if ( ! $c ) {
+			if ( (int) $reseller_svp_user_id > 0 ) {
+				return self::send_message( $platform, $chat_id, $text, $extra );
+			}
+			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+				SimpleVPBot_Logger::error(
+					'send_message_for_reseller: no bot API client',
+					array(
+						'platform'             => $platform,
+						'chat_id'              => (int) $chat_id,
+						'reseller_svp_user_id' => (int) $reseller_svp_user_id,
+					)
+				);
+			}
+			return null;
+		}
+		if ( 'bale' === $platform ) {
+			$text = self::scrub_bale_text( (string) $text );
+		}
+		$params = array_merge(
+			array(
+				'chat_id' => $chat_id,
+				'text'    => $text,
+			),
+			$extra
+		);
+		return $c->send_message( $params );
+	}
+
 	public static function send_message( $platform, $chat_id, $text, array $extra = array() ) {
 		$c = self::client( $platform );
 		if ( ! $c ) {
@@ -100,6 +173,22 @@ class SimpleVPBot_Bot_Runtime {
 	}
 
 	/**
+	 * Send message and append support contact footer when text mentions پشتیبانی.
+	 *
+	 * @param string              $platform Platform.
+	 * @param int                 $chat_id Chat id.
+	 * @param string              $text Message.
+	 * @param array<string,mixed> $extra Extra API params.
+	 * @return mixed|null
+	 */
+	public static function send_message_with_support( $platform, $chat_id, $text, array $extra = array() ) {
+		if ( class_exists( 'SimpleVPBot_Support_Contacts' ) ) {
+			$text = SimpleVPBot_Support_Contacts::append_to_message( (string) $text, $platform );
+		}
+		return self::send_message( $platform, $chat_id, $text, $extra );
+	}
+
+	/**
 	 * Bale: avoid disallowed product wording; keep VPS framing.
 	 *
 	 * @param string $text Text.
@@ -111,6 +200,32 @@ class SimpleVPBot_Bot_Runtime {
 		$t = str_ireplace( 'وی‌پی‌ان', 'VPS', $t );
 		$t = str_ireplace( ' وي پي ان ', ' VPS ', $t );
 		return $t;
+	}
+
+	/**
+	 * Prepare photo caption for Telegram/Bale (scrub + length limit).
+	 *
+	 * @param string $platform telegram|bale.
+	 * @param string $caption  Raw caption.
+	 * @param int    $max_len  Max characters (Telegram limit 1024).
+	 * @return string
+	 */
+	public static function prepare_photo_caption( $platform, $caption, $max_len = 1024 ) {
+		$caption = (string) $caption;
+		if ( 'bale' === $platform ) {
+			$caption = self::scrub_bale_text( $caption );
+		}
+		$max_len = max( 1, (int) $max_len );
+		if ( function_exists( 'mb_strlen' ) && function_exists( 'mb_substr' ) ) {
+			if ( mb_strlen( $caption, 'UTF-8' ) > $max_len ) {
+				return mb_substr( $caption, 0, $max_len - 1, 'UTF-8' ) . '…';
+			}
+			return $caption;
+		}
+		if ( strlen( $caption ) > $max_len ) {
+			return substr( $caption, 0, $max_len - 3 ) . '...';
+		}
+		return $caption;
 	}
 
 	/**
@@ -210,13 +325,11 @@ class SimpleVPBot_Bot_Runtime {
 		if ( ! $c ) {
 			return null;
 		}
-		if ( 'bale' === $platform && '' !== (string) $caption ) {
-			$caption = self::scrub_bale_text( (string) $caption );
-		}
+		$caption = self::prepare_photo_caption( $platform, (string) $caption );
 		$params = array(
 			'chat_id' => $chat_id,
 			'photo'   => $path,
-			'caption' => (string) $caption,
+			'caption' => $caption,
 		);
 		foreach ( $extra as $k => $v ) {
 			if ( is_array( $v ) ) {
@@ -243,6 +356,7 @@ class SimpleVPBot_Bot_Runtime {
 		if ( ! $c ) {
 			return null;
 		}
+		$caption = self::prepare_photo_caption( $platform, (string) $caption );
 		$params = array_merge(
 			array(
 				'chat_id' => $chat_id,

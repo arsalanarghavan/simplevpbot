@@ -4,6 +4,7 @@ import { EllipsisVerticalIcon } from "lucide-react"
 import { useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
 import {
   Sheet,
   SheetContent,
@@ -31,10 +33,12 @@ import {
 import { DataPagination } from "@/components/data-pagination"
 import { postAdminMutate, type AdminMutateResult } from "@/lib/dash-admin-mutate"
 import type { PaginationMeta } from "@/lib/dash-pagination"
-import { formatNumber, formatNumericString } from "@/lib/format-locale"
+import { formatNumber } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
+
+type AuthMode = "bearer" | "cookie" | "incomplete"
 
 function num(v: unknown): number {
   const n = Number(v)
@@ -45,6 +49,13 @@ function isActiveRow(r: DashRecord): boolean {
   return r.active === true || r.active === 1 || r.active === "1"
 }
 
+function panelAuthMode(r: DashRecord): AuthMode {
+  const m = String(r.auth_mode ?? "")
+  if (m === "bearer" || m === "cookie" || m === "incomplete") return m
+  if (r.has_api_token === true || r.has_api_token === 1 || r.has_api_token === "1") return "bearer"
+  return "incomplete"
+}
+
 type FormState = {
   xp_id: number
   xp_label: string
@@ -53,9 +64,11 @@ type FormState = {
   xp_panel_password: string
   xp_panel_api_base: string
   xp_panel_login_secret: string
+  xp_panel_api_token: string
   xp_subscription_public_base: string
   xp_sort_order: number
   xp_active: boolean
+  xp_has_api_token: boolean
 }
 
 function emptyForm(): FormState {
@@ -67,13 +80,16 @@ function emptyForm(): FormState {
     xp_panel_password: "",
     xp_panel_api_base: "panel/api",
     xp_panel_login_secret: "",
+    xp_panel_api_token: "",
     xp_subscription_public_base: "",
     xp_sort_order: 0,
     xp_active: true,
+    xp_has_api_token: false,
   }
 }
 
 function formFromRow(r: DashRecord): FormState {
+  const hasToken = r.has_api_token === true || r.has_api_token === 1 || r.has_api_token === "1"
   return {
     xp_id: num(r.id),
     xp_label: String(r.label ?? ""),
@@ -81,11 +97,124 @@ function formFromRow(r: DashRecord): FormState {
     xp_panel_username: String(r.panel_username ?? ""),
     xp_panel_password: "",
     xp_panel_api_base: String(r.panel_api_base ?? "panel/api"),
-    xp_panel_login_secret: String(r.panel_login_secret ?? ""),
+    xp_panel_login_secret: "",
+    xp_panel_api_token: "",
     xp_subscription_public_base: String(r.subscription_public_base ?? ""),
     xp_sort_order: num(r.sort_order),
     xp_active: isActiveRow(r),
+    xp_has_api_token: hasToken,
   }
+}
+
+function probeLabelKey(name: string): string {
+  if (name === "server_status") return "probe_server_status"
+  if (name === "inbounds_list") return "probe_inbounds_list"
+  if (name === "inbounds_onlines") return "probe_inbounds_onlines"
+  return name
+}
+
+function PanelTestResults({
+  testRes,
+  tp,
+  isFa,
+}: {
+  testRes: AdminMutateResult
+  tp: (k: string, opts?: Record<string, string | number>) => string
+  isFa: boolean
+}) {
+  const data = testRes.data as Record<string, unknown> | undefined
+  const diag = (data?.diag ?? {}) as Record<string, unknown>
+  const probes = (data?.probes ?? {}) as Record<string, Record<string, unknown>>
+  const suggested = data?.suggested_base != null ? String(data.suggested_base) : ""
+
+  const authMode = String(diag.auth_mode ?? "")
+  const authLabel =
+    authMode === "bearer"
+      ? tp("authBearer")
+      : authMode === "cookie"
+        ? tp("authCookie")
+        : authMode === "incomplete"
+          ? tp("authIncomplete")
+          : authMode
+
+  const probeHintLabel = (hint: string) => {
+    if (!hint) return "—"
+    const key = `probe_${hint}`
+    const translated = tp(key)
+    return translated !== key ? translated : hint
+  }
+
+  const mainProbes = ["server_status", "inbounds_list", "inbounds_onlines"] as const
+
+  return (
+    <div className="space-y-3 text-sm">
+      <p className={testRes.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}>
+        {testRes.ok ? tp("testOk") : testRes.message || tp("testFail")}
+      </p>
+      {authMode ? (
+        <p className="text-muted-foreground">
+          {tp("testAuthMode")}: <span className="font-medium text-foreground">{authLabel}</span>
+        </p>
+      ) : null}
+      {suggested ? (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+          <p className="font-medium">{tp("testSuggestedBase")}</p>
+          <p className="mt-1 font-mono" dir="ltr">
+            {suggested}
+          </p>
+        </div>
+      ) : null}
+      {Object.keys(probes).length > 0 ? (
+        <div className="overflow-x-auto rounded-md border border-border">
+          <table
+            className={cn(
+              "w-full min-w-[20rem] border-collapse text-xs [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
+              isFa ? "text-right" : "text-left"
+            )}
+          >
+            <thead>
+              <tr className="bg-muted/40">
+                <th className="p-2 font-medium">{tp("testProbeName")}</th>
+                <th className="p-2 font-medium">{tp("testProbeHttp")}</th>
+                <th className="p-2 font-medium">{tp("testProbeHint")}</th>
+                <th className="p-2 font-medium">{tp("testProbeMsg")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {mainProbes.map((key) => {
+                const row = probes[key]
+                if (!row) return null
+                return (
+                  <tr key={key}>
+                    <td className="p-2">{tp(probeLabelKey(key))}</td>
+                    <td className="p-2 font-mono tabular-nums" dir="ltr">
+                      {formatNumber(num(row.http), isFa)}
+                    </td>
+                    <td className="p-2">
+                      <Badge variant={row.ok ? "default" : "destructive"} className="font-normal">
+                        {probeHintLabel(String(row.hint ?? ""))}
+                      </Badge>
+                    </td>
+                    <td className="max-w-[10rem] truncate p-2 text-muted-foreground" title={String(row.msg ?? "")}>
+                      {String(row.msg ?? "")}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {data != null ? (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">{tp("testRawJson")}</summary>
+          <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-muted/40 p-2" dir="ltr">
+            {JSON.stringify(data, null, 2)}
+          </pre>
+        </details>
+      ) : null}
+    </div>
+  )
 }
 
 export function DashboardPanelsAdmin({
@@ -116,6 +245,12 @@ export function DashboardPanelsAdmin({
   const [testLoading, setTestLoading] = useState(false)
   const [testPanelId, setTestPanelId] = useState(0)
   const [testRes, setTestRes] = useState<AdminMutateResult | null>(null)
+
+  const authBadge = (mode: AuthMode) => {
+    if (mode === "bearer") return <Badge variant="default">{tp("authBearer")}</Badge>
+    if (mode === "cookie") return <Badge variant="secondary">{tp("authCookie")}</Badge>
+    return <Badge variant="outline">{tp("authIncomplete")}</Badge>
+  }
 
   const run = useCallback(
     async (params: Record<string, unknown>) => {
@@ -171,6 +306,7 @@ export function DashboardPanelsAdmin({
       xp_panel_username: form.xp_panel_username.trim(),
       xp_panel_api_base: form.xp_panel_api_base.trim() || "panel/api",
       xp_panel_login_secret: form.xp_panel_login_secret.trim(),
+      xp_panel_api_token: form.xp_panel_api_token.trim(),
       xp_subscription_public_base: form.xp_subscription_public_base.trim(),
       xp_sort_order: form.xp_sort_order,
       xp_active: form.xp_active ? 1 : 0,
@@ -180,6 +316,7 @@ export function DashboardPanelsAdmin({
         xp_action: "add",
         ...base,
         xp_panel_password: form.xp_panel_password,
+        xp_panel_api_token: form.xp_panel_api_token,
       })
       return
     }
@@ -191,8 +328,14 @@ export function DashboardPanelsAdmin({
     if (form.xp_panel_password.trim() !== "") {
       payload.xp_panel_password = form.xp_panel_password
     }
+    if (form.xp_panel_api_token.trim() !== "") {
+      payload.xp_panel_api_token = form.xp_panel_api_token
+    }
     void run(payload)
   }
+
+  const tokenFilled = form.xp_panel_api_token.trim() !== ""
+  const classicAuthClass = cn(tokenFilled && "opacity-60")
 
   return (
     <div className={cn("space-y-6", isFa && "text-right")}>
@@ -218,7 +361,7 @@ export function DashboardPanelsAdmin({
         <div className="w-full max-w-full overflow-x-auto rounded-md border border-border">
           <table
             className={cn(
-              "w-full min-w-[32rem] border-collapse text-sm [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
+              "w-full min-w-[40rem] border-collapse text-sm [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
               isFa ? "text-right" : "text-left"
             )}
           >
@@ -227,6 +370,8 @@ export function DashboardPanelsAdmin({
                 <th className="p-2 font-medium">#</th>
                 <th className="p-2 font-medium">{tp("colLabel")}</th>
                 <th className="p-2 font-medium">{tp("colUrl")}</th>
+                <th className="p-2 font-medium">{tp("colAuth")}</th>
+                <th className="p-2 font-medium">{tp("colApiBase")}</th>
                 <th className="p-2 font-medium">{tp("colActive")}</th>
                 <th className="p-2 w-10" />
               </tr>
@@ -234,12 +379,22 @@ export function DashboardPanelsAdmin({
             <tbody>
               {panels.map((r) => {
                 const id = num(r.id)
+                const act = isActiveRow(r)
+                const auth = panelAuthMode(r)
                 return (
                   <tr key={id}>
                     <td className="p-2 font-mono text-xs tabular-nums">{formatNumber(id, isFa)}</td>
                     <td className="p-2">{String(r.label ?? "")}</td>
-                    <td className="max-w-[14rem] break-all p-2 text-xs">{String(r.panel_url ?? "")}</td>
-                    <td className="p-2 tabular-nums">{formatNumericString(String(r.active ?? ""), isFa)}</td>
+                    <td className="max-w-[12rem] break-all p-2 text-xs">{String(r.panel_url ?? "—")}</td>
+                    <td className="p-2">{authBadge(auth)}</td>
+                    <td className="p-2 font-mono text-xs" dir="ltr">
+                      {String(r.panel_api_base ?? "panel/api")}
+                    </td>
+                    <td className="p-2">
+                      <Badge variant={act ? "default" : "secondary"}>
+                        {act ? tp("statusActive") : tp("statusInactive")}
+                      </Badge>
+                    </td>
                     <td className="p-2">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -249,7 +404,7 @@ export function DashboardPanelsAdmin({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align={isFa ? "start" : "end"}>
                           <DropdownMenuItem onClick={() => void run({ xp_action: "toggle", xp_id: id })}>
-                            {tp("toggle")}
+                            {act ? tp("toggleDeactivate") : tp("toggleActivate")}
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => void runPanelTest(id)}>
                             {tp("testConnection")}
@@ -283,72 +438,107 @@ export function DashboardPanelsAdmin({
           <SheetHeader>
             <SheetTitle>{mode === "add" ? tp("sheetAdd") : tp("sheetEdit")}</SheetTitle>
           </SheetHeader>
-          <div className="flex-1 space-y-3 overflow-y-auto px-4 pb-4">
-            <div className="space-y-2">
-              <Label>{tp("fieldLabel")}</Label>
-              <Input value={form.xp_label} onChange={(e) => setForm((f) => ({ ...f, xp_label: e.target.value }))} />
+          <div className="flex-1 space-y-4 overflow-y-auto px-4 pb-4">
+            <div className="space-y-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{tp("sectionGeneral")}</p>
+              <div className="space-y-2">
+                <Label>{tp("fieldLabel")}</Label>
+                <Input value={form.xp_label} onChange={(e) => setForm((f) => ({ ...f, xp_label: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>{tp("fieldUrl")}</Label>
+                <Input value={form.xp_panel_url} onChange={(e) => setForm((f) => ({ ...f, xp_panel_url: e.target.value }))} />
+                <p className="text-xs text-muted-foreground">{tp("urlWebBaseHint")}</p>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>{tp("fieldUrl")}</Label>
-              <Input value={form.xp_panel_url} onChange={(e) => setForm((f) => ({ ...f, xp_panel_url: e.target.value }))} />
+
+            <Separator />
+
+            <div className="space-y-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{tp("sectionAuth")}</p>
+              <p className="text-xs text-muted-foreground">{tp("authEitherHint")}</p>
+              <div className="space-y-2">
+                <Label>{tp("fieldApiToken")}</Label>
+                <Input
+                  type="password"
+                  autoComplete="off"
+                  value={form.xp_panel_api_token}
+                  onChange={(e) => setForm((f) => ({ ...f, xp_panel_api_token: e.target.value }))}
+                  placeholder={mode === "edit" ? tp("apiTokenKeep") : ""}
+                />
+                <p className="text-xs text-muted-foreground">{tp("apiTokenHint")}</p>
+                {mode === "edit" && form.xp_has_api_token && !tokenFilled ? (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">{tp("tokenConfigured")}</p>
+                ) : null}
+              </div>
+              <div className={cn("space-y-3 rounded-md border border-border/60 p-3", classicAuthClass)}>
+                <div className="space-y-2">
+                  <Label>{tp("fieldUser")}</Label>
+                  <Input
+                    value={form.xp_panel_username}
+                    onChange={(e) => setForm((f) => ({ ...f, xp_panel_username: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{tp("fieldPassword")}</Label>
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    value={form.xp_panel_password}
+                    onChange={(e) => setForm((f) => ({ ...f, xp_panel_password: e.target.value }))}
+                    placeholder={mode === "edit" ? tp("passwordKeep") : ""}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{tp("fieldLoginSecret")}</Label>
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    value={form.xp_panel_login_secret}
+                    onChange={(e) => setForm((f) => ({ ...f, xp_panel_login_secret: e.target.value }))}
+                  />
+                </div>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>{tp("fieldUser")}</Label>
-              <Input
-                value={form.xp_panel_username}
-                onChange={(e) => setForm((f) => ({ ...f, xp_panel_username: e.target.value }))}
-              />
+
+            <Separator />
+
+            <div className="space-y-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{tp("sectionAdvanced")}</p>
+              <div className="space-y-2">
+                <Label>{tp("fieldApiBase")}</Label>
+                <Input
+                  value={form.xp_panel_api_base}
+                  onChange={(e) => setForm((f) => ({ ...f, xp_panel_api_base: e.target.value }))}
+                  dir="ltr"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>{tp("fieldSubBase")}</Label>
+                <Input
+                  value={form.xp_subscription_public_base}
+                  onChange={(e) => setForm((f) => ({ ...f, xp_subscription_public_base: e.target.value }))}
+                  dir="ltr"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>{tp("fieldSort")}</Label>
+                <Input
+                  type="number"
+                  value={form.xp_sort_order}
+                  onChange={(e) => setForm((f) => ({ ...f, xp_sort_order: num(e.target.value) }))}
+                />
+              </div>
+              <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
+                <input
+                  type="checkbox"
+                  className="size-4 rounded border-input"
+                  checked={form.xp_active}
+                  onChange={(e) => setForm((f) => ({ ...f, xp_active: e.target.checked }))}
+                />
+                {tp("fieldActive")}
+              </label>
             </div>
-            <div className="space-y-2">
-              <Label>{tp("fieldPassword")}</Label>
-              <Input
-                type="password"
-                autoComplete="off"
-                value={form.xp_panel_password}
-                onChange={(e) => setForm((f) => ({ ...f, xp_panel_password: e.target.value }))}
-                placeholder={mode === "edit" ? tp("passwordKeep") : ""}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{tp("fieldApiBase")}</Label>
-              <Input
-                value={form.xp_panel_api_base}
-                onChange={(e) => setForm((f) => ({ ...f, xp_panel_api_base: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{tp("fieldLoginSecret")}</Label>
-              <Input
-                type="password"
-                autoComplete="off"
-                value={form.xp_panel_login_secret}
-                onChange={(e) => setForm((f) => ({ ...f, xp_panel_login_secret: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{tp("fieldSubBase")}</Label>
-              <Input
-                value={form.xp_subscription_public_base}
-                onChange={(e) => setForm((f) => ({ ...f, xp_subscription_public_base: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{tp("fieldSort")}</Label>
-              <Input
-                type="number"
-                value={form.xp_sort_order}
-                onChange={(e) => setForm((f) => ({ ...f, xp_sort_order: num(e.target.value) }))}
-              />
-            </div>
-            <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
-              <input
-                type="checkbox"
-                className="size-4 rounded border-input"
-                checked={form.xp_active}
-                onChange={(e) => setForm((f) => ({ ...f, xp_active: e.target.checked }))}
-              />
-              {tp("fieldActive")}
-            </label>
           </div>
           <SheetFooter className="flex-row gap-2 border-t p-4">
             <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
@@ -370,16 +560,7 @@ export function DashboardPanelsAdmin({
           {testLoading ? (
             <p className="text-sm text-muted-foreground">{tp("testRunning")}</p>
           ) : testRes ? (
-            <div className="space-y-2 text-sm">
-              <p className={testRes.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}>
-                {testRes.ok ? tp("testOk") : testRes.message || tp("testFail")}
-              </p>
-              {testRes.data != null ? (
-                <pre className="max-h-48 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-xs" dir="ltr">
-                  {JSON.stringify(testRes.data, null, 2)}
-                </pre>
-              ) : null}
-            </div>
+            <PanelTestResults testRes={testRes} tp={tp} isFa={isFa} />
           ) : null}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setTestOpen(false)}>

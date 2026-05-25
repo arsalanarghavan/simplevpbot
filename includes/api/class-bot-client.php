@@ -53,6 +53,9 @@ abstract class SimpleVPBot_Bot_Client {
 			'body'    => wp_json_encode( $params ),
 			'method'  => 'POST',
 		);
+		if ( class_exists( 'SimpleVPBot_Telegram_Http' ) ) {
+			$args = SimpleVPBot_Telegram_Http::apply_proxy_to_args( $args, $url );
+		}
 		$res = wp_remote_post( $url, $args );
 		if ( is_wp_error( $res ) ) {
 			return array( 'ok' => false, 'result' => null, 'description' => $res->get_error_message() );
@@ -62,6 +65,26 @@ abstract class SimpleVPBot_Bot_Client {
 			return array( 'ok' => false, 'result' => null, 'description' => 'invalid_json' );
 		}
 		return $body;
+	}
+
+	/**
+	 * MIME type for multipart file uploads based on extension.
+	 *
+	 * @param string $path Local file path.
+	 * @return string
+	 */
+	protected static function multipart_mime_for_path( $path ) {
+		$lp = strtolower( (string) $path );
+		if ( false !== strpos( $lp, '.png' ) ) {
+			return 'image/png';
+		}
+		if ( false !== strpos( $lp, '.webp' ) ) {
+			return 'image/webp';
+		}
+		if ( false !== strpos( $lp, '.gif' ) ) {
+			return 'image/gif';
+		}
+		return 'image/jpeg';
 	}
 
 	/**
@@ -81,7 +104,7 @@ abstract class SimpleVPBot_Bot_Client {
 				$fn   = basename( $value );
 				$data = file_get_contents( $value ); // phpcs:ignore
 				$body .= "Content-Disposition: form-data; name=\"{$name}\"; filename=\"{$fn}\"\r\n";
-				$body .= "Content-Type: application/octet-stream\r\n\r\n";
+				$body .= 'Content-Type: ' . self::multipart_mime_for_path( $value ) . "\r\n\r\n";
 				$body .= $data . "\r\n";
 			} else {
 				$body .= "Content-Disposition: form-data; name=\"{$name}\"\r\n\r\n";
@@ -89,14 +112,15 @@ abstract class SimpleVPBot_Bot_Client {
 			}
 		}
 		$body .= "--{$boundary}--\r\n";
-		$res = wp_remote_post(
-			$url,
-			array(
-				'timeout' => 120,
-				'headers' => array( 'Content-Type' => 'multipart/form-data; boundary=' . $boundary ),
-				'body'    => $body,
-			)
+		$mp_args = array(
+			'timeout' => 120,
+			'headers' => array( 'Content-Type' => 'multipart/form-data; boundary=' . $boundary ),
+			'body'    => $body,
 		);
+		if ( class_exists( 'SimpleVPBot_Telegram_Http' ) ) {
+			$mp_args = SimpleVPBot_Telegram_Http::apply_proxy_to_args( $mp_args, $url );
+		}
+		$res = wp_remote_post( $url, $mp_args );
 		if ( is_wp_error( $res ) ) {
 			return array( 'ok' => false, 'description' => $res->get_error_message() );
 		}
@@ -232,5 +256,25 @@ abstract class SimpleVPBot_Bot_Client {
 	 */
 	public function answer_pre_checkout_query( array $p ) {
 		return $this->call( 'answerPreCheckoutQuery', $p );
+	}
+
+	/**
+	 * getChatMember.
+	 *
+	 * @param array<string, mixed> $p Params chat_id, user_id.
+	 * @return array<string, mixed>
+	 */
+	public function get_chat_member( array $p ) {
+		return $this->call( 'getChatMember', $p, 25 );
+	}
+
+	/**
+	 * pinChatMessage.
+	 *
+	 * @param array<string, mixed> $p Params.
+	 * @return array<string, mixed>
+	 */
+	public function pin_chat_message( array $p ) {
+		return $this->call( 'pinChatMessage', $p, 25 );
 	}
 }

@@ -60,12 +60,24 @@ class SimpleVPBot_Cron_Backup {
 			? SimpleVPBot_Jalali_Date::format_datetime_precise( $now )
 			: gmdate( 'Y-m-d H:i:s', $now );
 
-		$panel_tmp_paths = array();
-		$panel_entries   = array();
-		$labels_ok       = array();
+		$panel_tmp_paths   = array();
+		$panel_entries     = array();
+		$panel_failures    = array();
+		$labels_ok         = array();
+		$panels_expected   = 0;
 
 		$panels = class_exists( 'SimpleVPBot_Model_Panel' ) ? SimpleVPBot_Model_Panel::all_active_ordered() : array();
 		if ( ! empty( $panels ) ) {
+			foreach ( $panels as $row ) {
+				if ( ! is_object( $row ) ) {
+					continue;
+				}
+				$pid = (int) ( $row->id ?? 0 );
+				if ( $pid < 1 ) {
+					continue;
+				}
+				$panels_expected++;
+			}
 			foreach ( $panels as $row ) {
 				if ( ! is_object( $row ) ) {
 					continue;
@@ -85,23 +97,7 @@ class SimpleVPBot_Cron_Backup {
 				$zip_name = 'panel/panel-' . $pid . '-' . $safe . '.db';
 				$tmp_path = $dir . 'panel-' . $pid . '-' . $stamp . '.db';
 
-				$res = SimpleVPBot_Xui_Client::run_with_panel(
-					$pid,
-					function () use ( $tmp_path ) {
-						if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
-							return array( 'ok' => false, 'step' => 'login' );
-						}
-						$db = SimpleVPBot_Xui_Client::get_db_binary();
-						if ( false === $db || '' === $db ) {
-							return array( 'ok' => false, 'step' => 'download' );
-						}
-						// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_read_file_put_contents
-						if ( false === file_put_contents( $tmp_path, $db ) ) {
-							return array( 'ok' => false, 'step' => 'write' );
-						}
-						return array( 'ok' => true );
-					}
-				);
+				$res = self::download_panel_db_to_path( $pid, $tmp_path );
 				if ( is_array( $res ) && ! empty( $res['ok'] ) && is_readable( $tmp_path ) ) {
 					$panel_tmp_paths[] = $tmp_path;
 					$panel_entries[]   = array(
@@ -112,6 +108,11 @@ class SimpleVPBot_Cron_Backup {
 					SimpleVPBot_Logger::info( 'backup: panel db ok', array( 'panel_id' => $pid, 'label' => $label ) );
 				} else {
 					$step = is_array( $res ) && isset( $res['step'] ) ? (string) $res['step'] : 'unknown';
+					$panel_failures[] = array(
+						'panel_id' => $pid,
+						'label'    => $label,
+						'step'     => $step,
+					);
 					SimpleVPBot_Logger::error(
 						'backup: panel db failed',
 						array( 'panel_id' => $pid, 'label' => $label, 'step' => $step )
@@ -124,24 +125,9 @@ class SimpleVPBot_Cron_Backup {
 		} else {
 			$legacy_url = trim( (string) ( $s['panel_url'] ?? '' ) );
 			if ( '' !== $legacy_url ) {
-				$tmp_path = $dir . 'panel-legacy-' . $stamp . '.db';
-				$res      = SimpleVPBot_Xui_Client::run_with_panel(
-					0,
-					function () use ( $tmp_path ) {
-						if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
-							return array( 'ok' => false, 'step' => 'login' );
-						}
-						$db = SimpleVPBot_Xui_Client::get_db_binary();
-						if ( false === $db || '' === $db ) {
-							return array( 'ok' => false, 'step' => 'download' );
-						}
-						// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_read_file_put_contents
-						if ( false === file_put_contents( $tmp_path, $db ) ) {
-							return array( 'ok' => false, 'step' => 'write' );
-						}
-						return array( 'ok' => true );
-					}
-				);
+				$panels_expected = 1;
+				$tmp_path        = $dir . 'panel-legacy-' . $stamp . '.db';
+				$res             = self::download_panel_db_to_path( 0, $tmp_path );
 				if ( is_array( $res ) && ! empty( $res['ok'] ) && is_readable( $tmp_path ) ) {
 					$panel_tmp_paths[] = $tmp_path;
 					$panel_entries[]   = array(
@@ -152,6 +138,11 @@ class SimpleVPBot_Cron_Backup {
 					SimpleVPBot_Logger::info( 'backup: legacy panel db ok' );
 				} else {
 					$step = is_array( $res ) && isset( $res['step'] ) ? (string) $res['step'] : 'unknown';
+					$panel_failures[] = array(
+						'panel_id' => 0,
+						'label'    => 'legacy',
+						'step'     => $step,
+					);
 					SimpleVPBot_Logger::error( 'backup: legacy panel db failed', array( 'step' => $step ) );
 					if ( is_readable( $tmp_path ) ) {
 						@unlink( $tmp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -160,7 +151,7 @@ class SimpleVPBot_Cron_Backup {
 			}
 		}
 
-		$zip_result = SimpleVPBot_Backup_Export::build_zip( $stamp, $panel_entries );
+		$zip_result = SimpleVPBot_Backup_Export::build_zip( $stamp, $panel_entries, $panel_failures, $panels_expected );
 		foreach ( $panel_tmp_paths as $p ) {
 			if ( is_string( $p ) && is_readable( $p ) ) {
 				@unlink( $p ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -185,8 +176,12 @@ class SimpleVPBot_Cron_Backup {
 			}
 		}
 
-		$out['built'] = true;
-		$out['zip']   = basename( $filepath );
+		$out['built']              = true;
+		$out['zip']                = basename( $filepath );
+		$out['panel_db_ok']        = count( $panel_entries );
+		$out['panel_db_failed']    = count( $panel_failures );
+		$out['panels_expected']    = $panels_expected;
+		$out['panel_db_failures']  = $panel_failures;
 		update_option( 'simplevpbot_last_backup_built_at', $now );
 
 		if ( ! empty( $s['backup_store_on_site'] ) ) {
@@ -250,7 +245,7 @@ class SimpleVPBot_Cron_Backup {
 			SimpleVPBot_Logger::warning( 'backup: bale channel send enabled but bale_token is empty' );
 		}
 
-		$caption = self::build_caption( $jalali_human, $labels_ok );
+		$caption = self::build_caption( $jalali_human, $labels_ok, $panel_failures );
 		$sent    = 0;
 		$fail    = 0;
 
@@ -339,23 +334,109 @@ class SimpleVPBot_Cron_Backup {
 	}
 
 	/**
+	 * Download panel SQLite to a temp path (login + getDb retries).
+	 *
+	 * @param int    $panel_id Panel id (0 = legacy settings).
+	 * @param string $tmp_path Destination path.
+	 * @return array{ok:bool, step?:string}
+	 */
+	private static function download_panel_db_to_path( $panel_id, $tmp_path ) {
+		$outer_attempts = 2;
+		$last           = array( 'ok' => false, 'step' => 'unknown' );
+		for ( $o = 0; $o < $outer_attempts; $o++ ) {
+			if ( $o > 0 && class_exists( 'SimpleVPBot_Xui_Client' ) ) {
+				SimpleVPBot_Xui_Client::clear_session();
+			}
+			$last = SimpleVPBot_Xui_Client::run_with_panel(
+				(int) $panel_id,
+				function () use ( $tmp_path, $panel_id ) {
+					if ( ! SimpleVPBot_Xui_Client::login_with_cookie_session( 6, 300000 ) ) {
+						return array( 'ok' => false, 'step' => 'login' );
+					}
+					$db = SimpleVPBot_Xui_Client::get_db_binary_with_retries( 3 );
+					if ( false === $db || '' === $db ) {
+						$step = SimpleVPBot_Xui_Client::last_get_db_step();
+						if ( '' === $step ) {
+							$step = 'download';
+						}
+						SimpleVPBot_Logger::error(
+							'backup: getDb failed',
+							array(
+								'panel_id'  => (int) $panel_id,
+								'step'      => $step,
+								'auth_flow' => (string) ( SimpleVPBot_Xui_Client::get_last_auth_diag()['auth_flow'] ?? '' ),
+							)
+						);
+						return array( 'ok' => false, 'step' => $step );
+					}
+					// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_read_file_put_contents
+					if ( false === file_put_contents( $tmp_path, $db ) ) {
+						return array( 'ok' => false, 'step' => 'write' );
+					}
+					return array( 'ok' => true );
+				}
+			);
+			if ( is_array( $last ) && ! empty( $last['ok'] ) ) {
+				return $last;
+			}
+			if ( $o + 1 < $outer_attempts ) {
+				usleep( 600000 );
+			}
+		}
+		return is_array( $last ) ? $last : array( 'ok' => false, 'step' => 'unknown' );
+	}
+
+	/**
 	 * Telegram/Bale caption with human time and panel labels.
 	 *
-	 * @param string             $jalali_human Human-readable timestamp.
-	 * @param array<int, string> $labels_ok    Panel labels included in zip.
+	 * @param string                          $jalali_human Human-readable timestamp.
+	 * @param array<int, string>              $labels_ok    Panel labels included in zip.
+	 * @param array<int, array<string,mixed>> $failures     Panels that failed getDb.
 	 * @return string
 	 */
-	private static function build_caption( $jalali_human, array $labels_ok ) {
+	private static function build_caption( $jalali_human, array $labels_ok, array $failures = array() ) {
 		$base = '📦 SimpleVPBot ' . (string) $jalali_human;
-		if ( empty( $labels_ok ) ) {
+		if ( empty( $labels_ok ) && empty( $failures ) ) {
 			$tail = "\n📂 " . __( 'Panels: (no panel DB in zip — plugin tables only)', 'simplevpbot' );
-		} else {
+		} elseif ( ! empty( $labels_ok ) && empty( $failures ) ) {
 			$show = array_slice( $labels_ok, 0, 8 );
 			$tail = "\n📂 " . __( 'Panels:', 'simplevpbot' ) . ' ' . implode( ', ', $show );
 			$rest = count( $labels_ok ) - count( $show );
 			if ( $rest > 0 ) {
 				$tail .= ' +' . $rest;
 			}
+		} elseif ( ! empty( $labels_ok ) ) {
+			$show = array_slice( $labels_ok, 0, 6 );
+			$tail = "\n📂 " . __( 'Panels OK:', 'simplevpbot' ) . ' ' . implode( ', ', $show );
+			$fail_labels = array();
+			foreach ( $failures as $f ) {
+				if ( ! is_array( $f ) ) {
+					continue;
+				}
+				$lbl = trim( (string) ( $f['label'] ?? '' ) );
+				if ( '' === $lbl ) {
+					$lbl = 'panel-' . (int) ( $f['panel_id'] ?? 0 );
+				}
+				$step = trim( (string) ( $f['step'] ?? '' ) );
+				$fail_labels[] = '' !== $step ? $lbl . '(' . $step . ')' : $lbl;
+			}
+			if ( ! empty( $fail_labels ) ) {
+				$tail .= "\n⚠️ " . __( 'Panel DB missing:', 'simplevpbot' ) . ' ' . implode( ', ', array_slice( $fail_labels, 0, 6 ) );
+			}
+		} else {
+			$fail_labels = array();
+			foreach ( $failures as $f ) {
+				if ( ! is_array( $f ) ) {
+					continue;
+				}
+				$lbl = trim( (string) ( $f['label'] ?? '' ) );
+				if ( '' === $lbl ) {
+					$lbl = 'panel-' . (int) ( $f['panel_id'] ?? 0 );
+				}
+				$step = trim( (string) ( $f['step'] ?? '' ) );
+				$fail_labels[] = '' !== $step ? $lbl . '(' . $step . ')' : $lbl;
+			}
+			$tail = "\n⚠️ " . __( 'Panel DB failed (plugin tables only):', 'simplevpbot' ) . ' ' . implode( ', ', array_slice( $fail_labels, 0, 8 ) );
 		}
 		$out = $base . $tail;
 		if ( strlen( $out ) > 1000 ) {

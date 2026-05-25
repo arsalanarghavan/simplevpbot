@@ -15,6 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class SimpleVPBot_Xui_Client {
 
 	const COOKIE_TRANSIENT_LEGACY = 'simplevpbot_xui_cookie';
+	const CSRF_TRANSIENT_LEGACY   = 'simplevpbot_xui_csrf';
 
 	/**
 	 * Bound panel id for this request: 0 = legacy options (panel_url in settings); >=1 = row in svp_panels.
@@ -24,6 +25,34 @@ class SimpleVPBot_Xui_Client {
 	private static $bound_panel_id = 0;
 
 	/**
+	 * Auth webBasePath base URL (no trailing slash) that succeeded for CSRF/login this request.
+	 *
+	 * @var string
+	 */
+	private static $resolved_auth_base = '';
+
+	/**
+	 * Last auth flow used: bearer | modern_cookie | legacy_cookie.
+	 *
+	 * @var string
+	 */
+	private static $last_auth_flow = '';
+
+	/**
+	 * Last CSRF/login HTTP attempt metadata (for admin diag / alerts).
+	 *
+	 * @var array<string, mixed>
+	 */
+	private static $last_auth_diag = array(
+		'auth_flow'        => '',
+		'csrf_skipped'     => false,
+		'csrf_url'         => '',
+		'csrf_http_code'   => 0,
+		'login_url'        => '',
+		'login_http_code'  => 0,
+	);
+
+	/**
 	 * Set bound panel; returns previous bound id for nesting.
 	 *
 	 * @param int $panel_id 0 for legacy settings-only.
@@ -31,7 +60,20 @@ class SimpleVPBot_Xui_Client {
 	 */
 	public static function bind_panel( $panel_id ) {
 		$prev                 = self::$bound_panel_id;
-		self::$bound_panel_id = max( 0, (int) $panel_id );
+		$next                 = max( 0, (int) $panel_id );
+		if ( $prev !== $next ) {
+			self::$resolved_auth_base = '';
+			self::$last_auth_flow     = '';
+			self::$last_auth_diag     = array(
+				'auth_flow'       => '',
+				'csrf_skipped'    => false,
+				'csrf_url'        => '',
+				'csrf_http_code'  => 0,
+				'login_url'       => '',
+				'login_http_code' => 0,
+			);
+		}
+		self::$bound_panel_id = $next;
 		return (int) $prev;
 	}
 
@@ -64,19 +106,303 @@ class SimpleVPBot_Xui_Client {
 	}
 
 	/**
+	 * Transient key for stored CSRF token (one per panel).
+	 *
+	 * @return string
+	 */
+	private static function csrf_transient_name() {
+		if ( self::$bound_panel_id < 1 ) {
+			return self::CSRF_TRANSIENT_LEGACY;
+		}
+		return 'simplevpbot_xui_csrf_p' . self::$bound_panel_id;
+	}
+
+	/**
+	 * Transient key for resolved auth webBasePath (per panel).
+	 *
+	 * @return string
+	 */
+	private static function auth_base_transient_name() {
+		if ( self::$bound_panel_id < 1 ) {
+			return 'simplevpbot_xui_authbase';
+		}
+		return 'simplevpbot_xui_authbase_p' . self::$bound_panel_id;
+	}
+
+	/**
+	 * Normalize stored panel URL (trim, drop erroneous trailing /panel).
+	 *
+	 * @param string $url Raw panel URL.
+	 * @return string Untrailingslashit normalized URL or empty.
+	 */
+	public static function normalize_panel_url( $url ) {
+		$url = trim( (string) $url );
+		if ( '' === $url ) {
+			return '';
+		}
+		$url = untrailingslashit( $url );
+		if ( preg_match( '#/panel$#i', $url ) ) {
+			$url = untrailingslashit( (string) preg_replace( '#/panel$#i', '', $url ) );
+		}
+		return $url;
+	}
+
+	/**
+	 * Browser-like headers for panel auth probes (filterable).
+	 *
+	 * @param array<string, string> $extra Extra headers.
+	 * @return array<string, string>
+	 */
+	private static function browser_like_headers( array $extra = array() ) {
+		$base = array(
+			'Accept'          => 'application/json, text/html, */*',
+			'User-Agent'      => 'SimpleVPBot/1.0 (+https://wordpress.org; 3x-ui-panel-client)',
+			'Accept-Language' => 'en-US,en;q=0.9',
+		);
+		return array_merge(
+			$base,
+			(array) apply_filters( 'simplevpbot_xui_browser_headers', array(), self::$bound_panel_id ),
+			$extra
+		);
+	}
+
+	/**
+	 * Ordered auth base URL candidates (untrailingslashit).
+	 *
+	 * @return array<int, string>
+	 */
+	private static function auth_base_candidates() {
+		$root = untrailingslashit( self::panel_root() );
+		if ( '' === $root ) {
+			return array();
+		}
+		$out  = array();
+		$seen = array();
+		$add  = static function ( $base ) use ( &$out, &$seen ) {
+			$base = untrailingslashit( (string) $base );
+			if ( '' === $base || isset( $seen[ $base ] ) ) {
+				return;
+			}
+			$seen[ $base ] = true;
+			$out[]         = $base;
+		};
+		$cached = get_transient( self::auth_base_transient_name() );
+		if ( is_string( $cached ) && '' !== $cached ) {
+			$add( $cached );
+		}
+		$add( $root );
+		foreach ( self::discover_auth_bases_from_index( $root ) as $base ) {
+			$add( $base );
+		}
+		return $out;
+	}
+
+	/**
+	 * Probe panel index HTML/redirects for webBasePath prefixes.
+	 *
+	 * @param string $root Panel root (untrailingslashit).
+	 * @return array<int, string>
+	 */
+	private static function discover_auth_bases_from_index( $root ) {
+		$root = untrailingslashit( (string) $root );
+		if ( '' === $root ) {
+			return array();
+		}
+		$found = array();
+		$res   = wp_remote_get(
+			trailingslashit( $root ),
+			array(
+				'timeout'     => 20,
+				'redirection' => 5,
+				'headers'     => self::browser_like_headers(),
+			)
+		);
+		if ( is_wp_error( $res ) ) {
+			return array();
+		}
+		$parsed_root = wp_parse_url( $root );
+		$origin      = '';
+		if ( ! empty( $parsed_root['scheme'] ) && ! empty( $parsed_root['host'] ) ) {
+			$origin = $parsed_root['scheme'] . '://' . $parsed_root['host'];
+			if ( ! empty( $parsed_root['port'] ) ) {
+				$origin .= ':' . $parsed_root['port'];
+			}
+		}
+		$body = (string) wp_remote_retrieve_body( $res );
+		if ( '' !== $body && preg_match_all( '#(?:href|src)=["\']([^"\']+)/(login|assets|panel|csrf-token)["\']#i', $body, $matches, PREG_SET_ORDER ) ) {
+			foreach ( $matches as $m ) {
+				$prefix = (string) ( $m[1] ?? '' );
+				if ( '' === $prefix ) {
+					continue;
+				}
+				if ( 0 === strpos( $prefix, 'http://' ) || 0 === strpos( $prefix, 'https://' ) ) {
+					$base = untrailingslashit( $prefix );
+				} elseif ( '' !== $origin ) {
+					$base = untrailingslashit( $origin . '/' . trim( $prefix, '/' ) );
+				} else {
+					continue;
+				}
+				if ( $base !== $root ) {
+					$found[] = $base;
+				}
+			}
+		}
+		return array_values( array_unique( $found ) );
+	}
+
+	/**
+	 * Merge Set-Cookie into an existing Cookie header value.
+	 *
+	 * @param string $existing Existing Cookie header.
+	 * @param string $from_res New cookies from HTTP response.
+	 * @return string
+	 */
+	private static function merge_cookie_headers( $existing, $from_res ) {
+		$jar = array();
+		foreach ( array_filter( array_map( 'trim', explode( ';', (string) $existing ) ) ) as $part ) {
+			if ( preg_match( '/^([^=]+)=(.*)$/', $part, $m ) ) {
+				$jar[ trim( $m[1] ) ] = trim( $m[2] );
+			}
+		}
+		foreach ( array_filter( array_map( 'trim', explode( ';', (string) $from_res ) ) ) as $part ) {
+			if ( preg_match( '/^([^=]+)=(.*)$/', $part, $m ) ) {
+				$jar[ trim( $m[1] ) ] = trim( $m[2] );
+			}
+		}
+		if ( empty( $jar ) ) {
+			return (string) $existing;
+		}
+		$parts = array();
+		foreach ( $jar as $k => $v ) {
+			$parts[] = $k . '=' . $v;
+		}
+		return implode( '; ', $parts );
+	}
+
+	/**
+	 * GET panel index to obtain session cookie before CSRF/login.
+	 *
+	 * @param string $base   Auth base (untrailingslashit).
+	 * @param string $cookie In/out accumulated Cookie header.
+	 */
+	private static function warm_up_auth_session( $base, &$cookie ) {
+		$base = untrailingslashit( (string) $base );
+		if ( '' === $base ) {
+			return;
+		}
+		$url     = trailingslashit( $base );
+		$headers = self::browser_like_headers();
+		if ( '' !== $cookie ) {
+			$headers['Cookie'] = $cookie;
+		}
+		$res = wp_remote_get(
+			$url,
+			array(
+				'timeout'     => 30,
+				'redirection' => 3,
+				'headers'     => $headers,
+			)
+		);
+		if ( is_wp_error( $res ) ) {
+			return;
+		}
+		$new = self::cookie_header_from_response( $res );
+		if ( '' !== $new ) {
+			$cookie = self::merge_cookie_headers( $cookie, $new );
+		}
+	}
+
+	/**
+	 * Resolved auth base for login/csrf (cached per request + transient).
+	 *
+	 * @return string Untrailingslashit base or empty.
+	 */
+	private static function active_auth_base() {
+		if ( '' !== self::$resolved_auth_base ) {
+			return self::$resolved_auth_base;
+		}
+		$cached = get_transient( self::auth_base_transient_name() );
+		if ( is_string( $cached ) && '' !== $cached ) {
+			self::$resolved_auth_base = untrailingslashit( $cached );
+			return self::$resolved_auth_base;
+		}
+		$cands = self::auth_base_candidates();
+		if ( ! empty( $cands ) ) {
+			return untrailingslashit( (string) $cands[0] );
+		}
+		return '';
+	}
+
+	/**
+	 * Last auth HTTP diag (csrf/login URLs, status codes, flow).
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function get_last_auth_diag() {
+		$flow = '' !== self::$last_auth_flow ? self::$last_auth_flow : (string) ( self::$last_auth_diag['auth_flow'] ?? '' );
+		return array_merge(
+			array(
+				'auth_flow'       => $flow,
+				'csrf_skipped'    => false,
+				'csrf_url'        => '',
+				'csrf_http_code'  => 0,
+				'login_url'       => '',
+				'login_http_code' => 0,
+			),
+			self::$last_auth_diag,
+			array( 'auth_flow' => $flow )
+		);
+	}
+
+	/**
+	 * Whether this panel has a Bearer API token configured.
+	 *
+	 * @return bool
+	 */
+	public static function has_api_token() {
+		$c = self::panel_credentials();
+		return '' !== trim( (string) ( $c['panel_api_token'] ?? '' ) );
+	}
+
+	/**
+	 * Headers for probe/diagnostic HTTP calls (Bearer or session cookie).
+	 *
+	 * @return array<string, string>
+	 */
+	public static function auth_headers_for_requests() {
+		$headers = array( 'Accept' => 'application/json' );
+		$creds   = self::panel_credentials();
+		$token   = trim( (string) ( $creds['panel_api_token'] ?? '' ) );
+		if ( '' !== $token ) {
+			$headers['Authorization'] = 'Bearer ' . $token;
+			return $headers;
+		}
+		$cookie = self::cookie_header();
+		if ( '' !== $cookie ) {
+			$headers['Cookie'] = $cookie;
+		}
+		return $headers;
+	}
+
+	/**
 	 * Resolved URL, user, password, api base, login secret, subscription base for the current binding.
 	 *
 	 * @return array{panel_url:string,panel_username:string,panel_password:string,panel_api_base:string,panel_login_secret:string,subscription_public_base:string}
 	 */
 	private static function panel_credentials() {
+		$norm_url = static function ( $raw ) {
+			$n = self::normalize_panel_url( $raw );
+			return '' !== $n ? trailingslashit( $n ) : '';
+		};
 		if ( self::$bound_panel_id < 1 ) {
 			$s = SimpleVPBot_Settings::all();
 			return array(
-				'panel_url'                 => (string) ( $s['panel_url'] ?? '' ),
+				'panel_url'                 => $norm_url( $s['panel_url'] ?? '' ),
 				'panel_username'            => (string) ( $s['panel_username'] ?? '' ),
 				'panel_password'            => (string) ( $s['panel_password'] ?? '' ),
 				'panel_api_base'            => (string) ( $s['panel_api_base'] ?? 'panel/api' ),
 				'panel_login_secret'        => (string) ( $s['panel_login_secret'] ?? '' ),
+				'panel_api_token'           => (string) ( $s['panel_api_token'] ?? '' ),
 				'subscription_public_base' => (string) ( $s['subscription_public_base'] ?? '' ),
 			);
 		}
@@ -84,11 +410,12 @@ class SimpleVPBot_Xui_Client {
 			$row = SimpleVPBot_Model_Panel::find( self::$bound_panel_id );
 			if ( $row && is_object( $row ) ) {
 				return array(
-					'panel_url'                 => (string) ( $row->panel_url ?? '' ),
+					'panel_url'                 => $norm_url( $row->panel_url ?? '' ),
 					'panel_username'            => (string) ( $row->panel_username ?? '' ),
 					'panel_password'            => (string) ( $row->panel_password ?? '' ),
 					'panel_api_base'            => (string) ( $row->panel_api_base ?? 'panel/api' ),
 					'panel_login_secret'        => (string) ( $row->panel_login_secret ?? '' ),
+					'panel_api_token'           => (string) ( $row->panel_api_token ?? '' ),
 					'subscription_public_base' => (string) ( $row->subscription_public_base ?? '' ),
 				);
 			}
@@ -99,6 +426,7 @@ class SimpleVPBot_Xui_Client {
 			'panel_password'            => '',
 			'panel_api_base'            => 'panel/api',
 			'panel_login_secret'        => '',
+			'panel_api_token'           => '',
 			'subscription_public_base' => '',
 		);
 	}
@@ -115,7 +443,7 @@ class SimpleVPBot_Xui_Client {
 			$api = 'panel/api';
 		}
 		return array(
-			'panel_url'      => untrailingslashit( trim( (string) ( $c['panel_url'] ?? '' ) ) ),
+			'panel_url'      => untrailingslashit( (string) ( $c['panel_url'] ?? '' ) ),
 			'panel_api_base' => $api,
 		);
 	}
@@ -127,7 +455,7 @@ class SimpleVPBot_Xui_Client {
 	 */
 	public static function panel_root() {
 		$c = self::panel_credentials();
-		return trailingslashit( trim( (string) ( $c['panel_url'] ?? '' ) ) );
+		return (string) ( $c['panel_url'] ?? '' );
 	}
 
 	/**
@@ -178,7 +506,66 @@ class SimpleVPBot_Xui_Client {
 	 * @return string
 	 */
 	public static function diag_login_url() {
-		return untrailingslashit( self::panel_root() ) . '/login';
+		$base = self::active_auth_base();
+		if ( '' === $base ) {
+			$base = untrailingslashit( self::panel_root() );
+		}
+		return '' !== $base ? $base . '/login' : '';
+	}
+
+	/**
+	 * Diagnostic: URL used for CSRF token fetch.
+	 *
+	 * @return string
+	 */
+	public static function diag_csrf_url() {
+		$base = self::active_auth_base();
+		if ( '' === $base ) {
+			$base = untrailingslashit( self::panel_root() );
+		}
+		return '' !== $base ? $base . '/csrf-token' : '';
+	}
+
+	/**
+	 * Check if 2FA is enabled on the panel (no authentication required).
+	 * Used by login to determine if twoFactorCode is needed.
+	 *
+	 * @return bool|null True if enabled, false if disabled, null if check failed.
+	 */
+	public static function is_2fa_enabled() {
+		$base = self::active_auth_base();
+		if ( '' === $base ) {
+			$base = untrailingslashit( self::panel_root() );
+		}
+		if ( '' === $base ) {
+			return null;
+		}
+		$url = $base . '/getTwoFactorEnable';
+		$headers = array();
+		if ( ! self::has_api_token() ) {
+			$csrf = self::ensure_csrf_token();
+			if ( is_array( $csrf ) ) {
+				$headers['Cookie']       = (string) $csrf['cookie'];
+				$headers['X-CSRF-Token'] = (string) $csrf['token'];
+			}
+		}
+		$res = wp_remote_post( $url, array(
+			'timeout'     => 30,
+			'redirection' => 0,
+			'headers'     => $headers,
+		) );
+		if ( is_wp_error( $res ) ) {
+			SimpleVPBot_Logger::info( 'getTwoFactorEnable check failed', array( 'err' => $res->get_error_message(), 'url' => $url ) );
+			return null;
+		}
+		$code = (int) wp_remote_retrieve_response_code( $res );
+		$raw  = (string) wp_remote_retrieve_body( $res );
+		$json = json_decode( $raw, true );
+		if ( ! is_array( $json ) || empty( $json['success'] ) ) {
+			SimpleVPBot_Logger::info( 'getTwoFactorEnable check returned non-success', array( 'code' => $code, 'response' => mb_substr( $raw, 0, 200 ) ) );
+			return null;
+		}
+		return ! empty( $json['obj'] );
 	}
 
 	/**
@@ -186,6 +573,10 @@ class SimpleVPBot_Xui_Client {
 	 */
 	public static function clear_session() {
 		delete_transient( self::cookie_transient_name() );
+		delete_transient( self::csrf_transient_name() );
+		delete_transient( self::auth_base_transient_name() );
+		self::$resolved_auth_base = '';
+		self::$last_auth_flow     = '';
 	}
 
 	/**
@@ -196,13 +587,37 @@ class SimpleVPBot_Xui_Client {
 	 * @return bool
 	 */
 	public static function login_with_retries( $max_attempts = 6, $delay_us = 350000 ) {
+		if ( self::has_api_token() ) {
+			return '' !== self::panel_root();
+		}
+		return self::login_with_cookie_session( $max_attempts, $delay_us );
+	}
+
+	/**
+	 * Cookie/session login only (required for server/getDb even when API token is set).
+	 *
+	 * @param int $max_attempts Attempts.
+	 * @param int $delay_us     Microseconds before retry 2+.
+	 * @return bool
+	 */
+	public static function login_with_cookie_session( $max_attempts = 6, $delay_us = 350000 ) {
+		$c    = self::panel_credentials();
+		$user = trim( (string) ( $c['panel_username'] ?? '' ) );
+		$pass = trim( (string) ( $c['panel_password'] ?? '' ) );
+		if ( '' === $user || '' === $pass || '' === self::panel_root() ) {
+			SimpleVPBot_Logger::error(
+				'x-ui cookie login skipped: missing panel_url/user/pass',
+				array( 'panel_id' => self::$bound_panel_id )
+			);
+			return false;
+		}
 		$max = max( 1, min( 12, (int) $max_attempts ) );
 		for ( $i = 0; $i < $max; $i++ ) {
 			if ( $i > 0 ) {
 				self::clear_session();
 				usleep( max( 50000, (int) $delay_us + ( $i - 1 ) * 100000 ) );
 			}
-			if ( self::login() ) {
+			if ( self::login_via_cookie_session() ) {
 				return true;
 			}
 		}
@@ -256,96 +671,16 @@ class SimpleVPBot_Xui_Client {
 	}
 
 	/**
-	 * Lines describing which endpoint this binding uses (admin Telegram alerts).
+	 * Extract Set-Cookie headers as a Cookie request header value.
 	 *
-	 * @return array<int, string>
+	 * @param array|\WP_Error $res HTTP result.
+	 * @return string
 	 */
-	public static function probe_alert_detail_lines() {
-		$d    = self::diag_binding_labels();
-		$root = untrailingslashit( trim( (string) ( $d['panel_url'] ?? '' ) ) );
-		$api  = trim( (string) ( $d['panel_api_base'] ?? 'panel/api' ), " \t\n\r\0\x0B/" );
-		if ( '' === $api ) {
-			$api = 'panel/api';
-		}
-		$login_url = self::diag_login_url();
-		$bid       = (int) self::$bound_panel_id;
-		$host      = $root ? (string) wp_parse_url( $root . '/', PHP_URL_HOST ) : '';
-
-		$lines = array();
-		if ( $bid > 0 ) {
-			$lines[] = '🆔 ' . __( 'شناسهٔ رکورد پنل در ربات:', 'simplevpbot' ) . ' ' . $bid;
-		} else {
-			$lines[] = '📂 ' . __( 'منبع: «تنظیمات افزونه → پنل X-UI» (نه جدول پنل‌ها)', 'simplevpbot' );
-		}
-		if ( '' !== $host ) {
-			$lines[] = '🌐 ' . __( 'میزبان:', 'simplevpbot' ) . ' ' . $host;
-		}
-		if ( '' !== $root ) {
-			$lines[] = '🔗 ' . __( 'Panel URL ذخیره‌شده:', 'simplevpbot' ) . ' ' . $root;
-		}
-		$lines[] = '📡 ' . __( 'panel_api_base:', 'simplevpbot' ) . ' ' . $api;
-		$lines[] = '🔐 ' . __( 'درخواست ورود ربات:', 'simplevpbot' ) . ' POST ' . $login_url;
-
-		return $lines;
-	}
-
-	/**
-	 * Login and store cookie.
-	 *
-	 * @return bool
-	 */
-	public static function login() {
-		$c    = self::panel_credentials();
-		$user = (string) ( $c['panel_username'] ?? '' );
-		$pass = (string) ( $c['panel_password'] ?? '' );
-		if ( '' === $user || '' === $pass || '' === self::panel_root() ) {
-			SimpleVPBot_Logger::error( 'x-ui login skipped: missing panel_url/user/pass', array( 'panel_id' => self::$bound_panel_id ) );
-			return false;
-		}
-		$url = untrailingslashit( self::panel_root() ) . '/login';
-		$body = array(
-			'username'    => $user,
-			'password'    => $pass,
-			'loginSecret' => (string) ( $c['panel_login_secret'] ?? '' ),
-		);
-		// 3x-ui accepts JSON or form; send form first (ShouldBind prefers form when CT is form-encoded).
-		$res = self::wp_remote_post_login(
-			$url,
-			array(
-				'body' => $body,
-			)
-		);
+	private static function cookie_header_from_response( $res ) {
+		$parts = array();
 		if ( is_wp_error( $res ) ) {
-			SimpleVPBot_Logger::error( 'x-ui login failed (form)', array( 'err' => $res->get_error_message(), 'url' => $url ) );
-			return false;
+			return '';
 		}
-		$code = (int) wp_remote_retrieve_response_code( $res );
-		$raw  = (string) wp_remote_retrieve_body( $res );
-		$json = json_decode( $raw, true );
-		$ok   = is_array( $json ) ? ! empty( $json['success'] ) : false;
-		if ( ! $ok && 200 === $code ) {
-			// Some 3x-ui forks return 200 with HTML login page (meaning auth fail); treat as fail.
-			$ok = false;
-		}
-		if ( ! $ok ) {
-			// Retry with JSON body (older forks).
-			$res = self::wp_remote_post_login(
-				$url,
-				array(
-					'headers' => array( 'Content-Type' => 'application/json' ),
-					'body'    => wp_json_encode( $body ),
-				)
-			);
-			if ( is_wp_error( $res ) ) {
-				SimpleVPBot_Logger::error( 'x-ui login failed (json)', array( 'err' => $res->get_error_message(), 'url' => $url ) );
-				return false;
-			}
-			$code = (int) wp_remote_retrieve_response_code( $res );
-			$raw  = (string) wp_remote_retrieve_body( $res );
-			$json = json_decode( $raw, true );
-			$ok   = is_array( $json ) ? ! empty( $json['success'] ) : false;
-		}
-		$parts   = array();
 		$cookies = wp_remote_retrieve_cookies( $res );
 		if ( ! empty( $cookies ) ) {
 			foreach ( $cookies as $cobj ) {
@@ -369,20 +704,330 @@ class SimpleVPBot_Xui_Client {
 				}
 			}
 		}
-		if ( ! $ok || empty( $parts ) ) {
-			SimpleVPBot_Logger::error(
-				'x-ui login rejected',
+		return implode( '; ', array_unique( $parts ) );
+	}
+
+	/**
+	 * Fetch and store the v3 CSRF token and its matching session cookie.
+	 *
+	 * @return array{token:string,cookie:string}|false
+	 */
+	private static function ensure_csrf_token() {
+		$token  = get_transient( self::csrf_transient_name() );
+		$cookie = self::cookie_header();
+		if ( is_string( $token ) && '' !== $token && '' !== $cookie ) {
+			return array( 'token' => $token, 'cookie' => $cookie );
+		}
+
+		$bases = self::auth_base_candidates();
+		$cached_base = get_transient( self::auth_base_transient_name() );
+		if ( is_string( $cached_base ) && '' !== $cached_base ) {
+			array_unshift( $bases, untrailingslashit( $cached_base ) );
+		}
+		$seen = array();
+		$last_code = 0;
+		$last_url  = '';
+
+		foreach ( $bases as $base ) {
+			$base = untrailingslashit( (string) $base );
+			if ( '' === $base || isset( $seen[ $base ] ) ) {
+				continue;
+			}
+			$seen[ $base ] = true;
+
+			$cookie_try = $cookie;
+			self::warm_up_auth_session( $base, $cookie_try );
+
+			$url = $base . '/csrf-token';
+			$headers = self::browser_like_headers();
+			if ( '' !== $cookie_try ) {
+				$headers['Cookie'] = $cookie_try;
+			}
+
+			$res = wp_remote_get(
+				$url,
 				array(
-					'url'          => $url,
-					'http_code'    => $code,
-					'response'     => mb_substr( $raw, 0, 400 ),
-					'has_cookies'  => ! empty( $parts ),
-					'panel_id'     => self::$bound_panel_id,
+					'timeout'     => 30,
+					'redirection' => 3,
+					'headers'     => $headers,
 				)
 			);
+
+			$last_url  = $url;
+			$last_code = is_wp_error( $res ) ? 0 : (int) wp_remote_retrieve_response_code( $res );
+
+			if ( is_wp_error( $res ) ) {
+				continue;
+			}
+
+			$raw  = (string) wp_remote_retrieve_body( $res );
+			$json = json_decode( $raw, true );
+			if ( 200 !== $last_code || ! is_array( $json ) || empty( $json['success'] ) || empty( $json['obj'] ) || ! is_string( $json['obj'] ) ) {
+				continue;
+			}
+
+			$new_cookie = self::cookie_header_from_response( $res );
+			if ( '' !== $new_cookie ) {
+				$cookie_try = self::merge_cookie_headers( $cookie_try, $new_cookie );
+			}
+			if ( '' === $cookie_try ) {
+				continue;
+			}
+
+			$token = (string) $json['obj'];
+			self::$resolved_auth_base = $base;
+			set_transient( self::auth_base_transient_name(), $base, 12 * HOUR_IN_SECONDS );
+			set_transient( self::cookie_transient_name(), $cookie_try, 12 * HOUR_IN_SECONDS );
+			set_transient( self::csrf_transient_name(), $token, 12 * HOUR_IN_SECONDS );
+			self::$last_auth_diag['csrf_url']       = $url;
+			self::$last_auth_diag['csrf_http_code'] = $last_code;
+			return array( 'token' => $token, 'cookie' => $cookie_try );
+		}
+
+		self::$last_auth_diag['csrf_url']       = $last_url;
+		self::$last_auth_diag['csrf_http_code'] = $last_code;
+		SimpleVPBot_Logger::info(
+			'x-ui csrf-token unavailable (will try legacy login if configured)',
+			array(
+				'url'       => $last_url,
+				'http_code' => $last_code,
+				'panel_id'  => self::$bound_panel_id,
+				'bases'     => array_keys( $seen ),
+			)
+		);
+		return false;
+	}
+
+	/**
+	 * Lines describing which endpoint this binding uses (admin Telegram alerts).
+	 *
+	 * @return array<int, string>
+	 */
+	public static function probe_alert_detail_lines() {
+		$d    = self::diag_binding_labels();
+		$root = untrailingslashit( trim( (string) ( $d['panel_url'] ?? '' ) ) );
+		$api  = trim( (string) ( $d['panel_api_base'] ?? 'panel/api' ), " \t\n\r\0\x0B/" );
+		if ( '' === $api ) {
+			$api = 'panel/api';
+		}
+		$auth_diag = self::get_last_auth_diag();
+		$csrf_url  = '' !== (string) ( $auth_diag['csrf_url'] ?? '' ) ? (string) $auth_diag['csrf_url'] : self::diag_csrf_url();
+		$login_url = '' !== (string) ( $auth_diag['login_url'] ?? '' ) ? (string) $auth_diag['login_url'] : self::diag_login_url();
+		$bid       = (int) self::$bound_panel_id;
+		$host      = $root ? (string) wp_parse_url( $root . '/', PHP_URL_HOST ) : '';
+
+		$lines = array();
+		if ( $bid > 0 ) {
+			$lines[] = '🆔 ' . __( 'شناسهٔ رکورد پنل در ربات:', 'simplevpbot' ) . ' ' . $bid;
+		} else {
+			$lines[] = '📂 ' . __( 'منبع: «تنظیمات افزونه → پنل X-UI» (نه جدول پنل‌ها)', 'simplevpbot' );
+		}
+		if ( '' !== $host ) {
+			$lines[] = '🌐 ' . __( 'میزبان:', 'simplevpbot' ) . ' ' . $host;
+		}
+		if ( '' !== $root ) {
+			$lines[] = '🔗 ' . __( 'Panel URL ذخیره‌شده:', 'simplevpbot' ) . ' ' . $root;
+		}
+		$lines[] = '📡 ' . __( 'panel_api_base:', 'simplevpbot' ) . ' ' . $api;
+		if ( '' !== $csrf_url ) {
+			$csrf_code = (int) ( $auth_diag['csrf_http_code'] ?? 0 );
+			$lines[] = '🔑 ' . __( 'CSRF:', 'simplevpbot' ) . ' GET ' . $csrf_url
+				. ( $csrf_code > 0 ? ' → HTTP ' . $csrf_code : '' );
+		}
+		if ( '' !== $login_url ) {
+			$login_code = (int) ( $auth_diag['login_http_code'] ?? 0 );
+			$lines[] = '🔐 ' . __( 'ورود:', 'simplevpbot' ) . ' POST ' . $login_url
+				. ( $login_code > 0 ? ' → HTTP ' . $login_code : '' );
+		}
+
+		return $lines;
+	}
+
+	/**
+	 * Login and store cookie (Bearer → modern CSRF cookie → legacy loginSecret).
+	 *
+	 * @return bool
+	 */
+	public static function login() {
+		if ( self::has_api_token() ) {
+			self::$last_auth_flow                 = 'bearer';
+			self::$last_auth_diag['auth_flow']    = 'bearer';
+			self::$last_auth_diag['csrf_skipped'] = true;
+			return '' !== self::panel_root();
+		}
+		return self::login_via_cookie_session();
+	}
+
+	/**
+	 * Establish panel session via CSRF/cookie (never Bearer token).
+	 *
+	 * @return bool
+	 */
+	private static function login_via_cookie_session() {
+		$c = self::panel_credentials();
+		$user = (string) ( $c['panel_username'] ?? '' );
+		$pass = (string) ( $c['panel_password'] ?? '' );
+		if ( '' === $user || '' === $pass || '' === self::panel_root() ) {
+			SimpleVPBot_Logger::error( 'x-ui login skipped: missing panel_url/user/pass', array( 'panel_id' => self::$bound_panel_id ) );
 			return false;
 		}
-		set_transient( self::cookie_transient_name(), implode( '; ', $parts ), 12 * HOUR_IN_SECONDS );
+
+		$csrf = self::ensure_csrf_token();
+		if ( is_array( $csrf ) && self::login_modern_cookie( $csrf, $c ) ) {
+			self::$last_auth_flow                 = 'modern_cookie';
+			self::$last_auth_diag['auth_flow']    = 'modern_cookie';
+			self::$last_auth_diag['csrf_skipped'] = false;
+			return true;
+		}
+
+		delete_transient( self::csrf_transient_name() );
+		if ( self::login_legacy_cookie( $c ) ) {
+			self::$last_auth_flow                 = 'legacy_cookie';
+			self::$last_auth_diag['auth_flow']    = 'legacy_cookie';
+			self::$last_auth_diag['csrf_skipped'] = true;
+			return true;
+		}
+
+		SimpleVPBot_Logger::error(
+			'x-ui login rejected (modern + legacy)',
+			array(
+				'panel_id'   => self::$bound_panel_id,
+				'csrf_code'  => (int) ( self::$last_auth_diag['csrf_http_code'] ?? 0 ),
+				'login_code' => (int) ( self::$last_auth_diag['login_http_code'] ?? 0 ),
+			)
+		);
+		return false;
+	}
+
+	/**
+	 * Modern 3x-ui login with CSRF token (twoFactorCode).
+	 *
+	 * @param array{token:string,cookie:string} $csrf CSRF bundle.
+	 * @param array<string, string>           $c    Panel credentials.
+	 * @return bool
+	 */
+	private static function login_modern_cookie( array $csrf, array $c ) {
+		$base = self::$resolved_auth_base;
+		if ( '' === $base ) {
+			$base = untrailingslashit( self::panel_root() );
+		}
+		$url  = $base . '/login';
+		$body = array(
+			'username'      => (string) ( $c['panel_username'] ?? '' ),
+			'password'      => (string) ( $c['panel_password'] ?? '' ),
+			'twoFactorCode' => (string) ( $c['panel_login_secret'] ?? '' ),
+		);
+		$ok = self::attempt_login_post(
+			$url,
+			$body,
+			array(
+				'Cookie'           => (string) $csrf['cookie'],
+				'X-CSRF-Token'     => (string) $csrf['token'],
+				'X-Requested-With' => 'XMLHttpRequest',
+			),
+			(string) $csrf['cookie'],
+			true
+		);
+		if ( $ok ) {
+			set_transient( self::auth_base_transient_name(), untrailingslashit( $base ), 12 * HOUR_IN_SECONDS );
+		}
+		return $ok;
+	}
+
+	/**
+	 * Legacy panel login without CSRF (loginSecret + optional twoFactorCode).
+	 *
+	 * @param array<string, string> $c Panel credentials.
+	 * @return bool
+	 */
+	private static function login_legacy_cookie( array $c ) {
+		$user   = (string) ( $c['panel_username'] ?? '' );
+		$pass   = (string) ( $c['panel_password'] ?? '' );
+		$secret = (string) ( $c['panel_login_secret'] ?? '' );
+		foreach ( self::auth_base_candidates() as $base ) {
+			$base = untrailingslashit( (string) $base );
+			if ( '' === $base ) {
+				continue;
+			}
+			self::$resolved_auth_base = $base;
+			$url                      = $base . '/login';
+			$body                     = array(
+				'username'    => $user,
+				'password'    => $pass,
+				'loginSecret' => $secret,
+			);
+			if ( '' !== $secret ) {
+				$body['twoFactorCode'] = $secret;
+			}
+			if ( self::attempt_login_post( $url, $body, array(), '', false ) ) {
+				set_transient( self::auth_base_transient_name(), $base, 12 * HOUR_IN_SECONDS );
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * POST /login (form then JSON) and persist session cookie on success.
+	 *
+	 * @param string               $url             Full login URL.
+	 * @param array<string, mixed> $body            Request body fields.
+	 * @param array<string, string> $extra_headers  Extra HTTP headers.
+	 * @param string               $fallback_cookie Cookie if response omits Set-Cookie.
+	 * @param bool                 $store_csrf      Store CSRF transient after success (modern flow only).
+	 * @return bool
+	 */
+	private static function attempt_login_post( $url, array $body, array $extra_headers = array(), $fallback_cookie = '', $store_csrf = false ) {
+		$auth_headers = self::browser_like_headers( $extra_headers );
+		$res          = self::wp_remote_post_login(
+			$url,
+			array(
+				'headers' => $auth_headers,
+				'body'    => $body,
+			)
+		);
+		if ( is_wp_error( $res ) ) {
+			self::$last_auth_diag['login_url']       = $url;
+			self::$last_auth_diag['login_http_code'] = 0;
+			return false;
+		}
+		$code = (int) wp_remote_retrieve_response_code( $res );
+		self::$last_auth_diag['login_url']       = $url;
+		self::$last_auth_diag['login_http_code'] = $code;
+		$raw  = (string) wp_remote_retrieve_body( $res );
+		$json = json_decode( $raw, true );
+		$ok   = is_array( $json ) ? ! empty( $json['success'] ) : false;
+		if ( ! $ok && 200 === $code ) {
+			$ok = false;
+		}
+		if ( ! $ok ) {
+			$res = self::wp_remote_post_login(
+				$url,
+				array(
+					'headers' => array_merge( $auth_headers, array( 'Content-Type' => 'application/json' ) ),
+					'body'    => wp_json_encode( $body ),
+				)
+			);
+			if ( is_wp_error( $res ) ) {
+				return false;
+			}
+			$code = (int) wp_remote_retrieve_response_code( $res );
+			self::$last_auth_diag['login_http_code'] = $code;
+			$raw  = (string) wp_remote_retrieve_body( $res );
+			$json = json_decode( $raw, true );
+			$ok   = is_array( $json ) ? ! empty( $json['success'] ) : false;
+		}
+		$cookie = self::cookie_header_from_response( $res );
+		if ( '' === $cookie && '' !== $fallback_cookie ) {
+			$cookie = $fallback_cookie;
+		}
+		if ( ! $ok || '' === $cookie ) {
+			return false;
+		}
+		set_transient( self::cookie_transient_name(), $cookie, 12 * HOUR_IN_SECONDS );
+		if ( $store_csrf && ! empty( $extra_headers['X-CSRF-Token'] ) ) {
+			set_transient( self::csrf_transient_name(), (string) $extra_headers['X-CSRF-Token'], 12 * HOUR_IN_SECONDS );
+		}
 		return true;
 	}
 
@@ -409,18 +1054,29 @@ class SimpleVPBot_Xui_Client {
 	 * @param bool                 $binary Binary response.
 	 * @param int                  $retry Retry budget (401 re-login).
 	 * @param string               $scope "api"|"panel".
+	 * @param bool                 $session_only Use cookie session only (no Bearer); for server/getDb.
 	 * @return array{ok:bool, code:int, body:string|array|null, json:array|null, url:string}
 	 */
-	public static function request( $path, $method = 'GET', array $body = array(), $binary = false, $retry = 2, $scope = 'api' ) {
+	public static function request( $path, $method = 'GET', array $body = array(), $binary = false, $retry = 2, $scope = 'api', $session_only = false ) {
 		$path = ltrim( (string) $path, '/' );
 		$url  = self::resolve_url( $path, $scope );
 		$args = array(
 			'timeout' => 90,
-			'headers' => array(),
+			'headers' => array( 'Accept' => $binary ? 'application/octet-stream,*/*' : 'application/json' ),
 		);
-		$cookie = self::cookie_header();
-		if ( $cookie ) {
-			$args['headers']['Cookie'] = $cookie;
+		$creds = self::panel_credentials();
+		$token = $session_only ? '' : (string) ( $creds['panel_api_token'] ?? '' );
+		if ( '' !== $token ) {
+			$args['headers']['Authorization'] = 'Bearer ' . $token;
+		} else {
+			$cookie = self::cookie_header();
+			if ( $cookie ) {
+				$args['headers']['Cookie'] = $cookie;
+			}
+			$csrf = get_transient( self::csrf_transient_name() );
+			if ( is_string( $csrf ) && '' !== $csrf ) {
+				$args['headers']['X-CSRF-Token'] = $csrf;
+			}
 		}
 		if ( 'POST' === $method ) {
 			$args['method']                  = 'POST';
@@ -456,16 +1112,21 @@ class SimpleVPBot_Xui_Client {
 			}
 			break;
 		}
-		if ( 401 === $code && $retry > 0 ) {
+		$json = json_decode( $raw, true );
+		if ( in_array( $code, array( 401, 403 ), true ) && $retry > 0 ) {
+			$creds = self::panel_credentials();
+			$token = $session_only ? '' : (string) ( $creds['panel_api_token'] ?? '' );
+			if ( '' !== $token && ! $session_only ) {
+				return array( 'ok' => false, 'code' => $code, 'body' => $raw, 'json' => is_array( $json ) ? $json : null, 'url' => $url );
+			}
 			self::clear_session();
-			if ( self::login_with_retries( 4, 300000 ) ) {
-				return self::request( $path, $method, $body, $binary, $retry - 1, $scope );
+			if ( self::login_with_cookie_session( 4, 300000 ) ) {
+				return self::request( $path, $method, $body, $binary, $retry - 1, $scope, $session_only );
 			}
 		}
 		if ( $binary ) {
 			return array( 'ok' => 200 === $code, 'code' => $code, 'body' => $raw, 'json' => null, 'url' => $url );
 		}
-		$json = json_decode( $raw, true );
 		return array( 'ok' => $code >= 200 && $code < 300, 'code' => $code, 'body' => $raw, 'json' => is_array( $json ) ? $json : null, 'url' => $url );
 	}
 
@@ -476,6 +1137,9 @@ class SimpleVPBot_Xui_Client {
 	 */
 	public static function inbounds_list() {
 		$r = self::request( 'inbounds/list', 'GET' );
+		if ( ! self::api_http_ok( $r ) ) {
+			return null;
+		}
 		$j = ( is_array( $r['json'] ?? null ) ) ? $r['json'] : null;
 		if ( ! $j ) {
 			return null;
@@ -498,10 +1162,52 @@ class SimpleVPBot_Xui_Client {
 	 */
 	public static function inbound_get( $id ) {
 		$r = self::request( 'inbounds/get/' . (int) $id, 'GET' );
+		if ( ! self::api_http_ok( $r ) ) {
+			return null;
+		}
 		if ( ! empty( $r['json']['obj'] ) && is_array( $r['json']['obj'] ) ) {
 			return $r['json']['obj'];
 		}
 		return null;
+	}
+
+	/**
+	 * Panel JSON message field when present.
+	 *
+	 * @param mixed $json Decoded panel response.
+	 * @return string
+	 */
+	public static function panel_json_msg( $json ) {
+		return is_array( $json ) ? trim( (string) ( $json['msg'] ?? '' ) ) : '';
+	}
+
+	/**
+	 * Whether addClient HTTP + JSON indicate success.
+	 *
+	 * @param array{ok?:bool,code?:int,json?:array|null} $request_result From add_client_request().
+	 * @return bool
+	 */
+	public static function add_client_request_ok( array $request_result ) {
+		if ( empty( $request_result['ok'] ) ) {
+			return false;
+		}
+		return self::response_is_success( $request_result['json'] ?? null );
+	}
+
+	/**
+	 * Add client to inbound (full request result for callers that need HTTP + JSON).
+	 *
+	 * @param array<string, mixed> $payload Payload (id + settings string per panel).
+	 * @return array{ok:bool,code:int,json:array|null,body:string}
+	 */
+	public static function add_client_request( array $payload ) {
+		$r = self::request( 'inbounds/addClient', 'POST', $payload );
+		return array(
+			'ok'   => ! empty( $r['ok'] ),
+			'code' => (int) ( $r['code'] ?? 0 ),
+			'json' => is_array( $r['json'] ?? null ) ? $r['json'] : null,
+			'body' => (string) ( $r['body'] ?? '' ),
+		);
 	}
 
 	/**
@@ -511,7 +1217,7 @@ class SimpleVPBot_Xui_Client {
 	 * @return array|null Response obj.
 	 */
 	public static function add_client( array $payload ) {
-		$r = self::request( 'inbounds/addClient', 'POST', $payload );
+		$r = self::add_client_request( $payload );
 		return $r['json'];
 	}
 
@@ -528,59 +1234,184 @@ class SimpleVPBot_Xui_Client {
 	}
 
 	/**
-	 * Try updateClient with single-client settings, then full inbound settings, for each path id (UUID then email, etc.).
+	 * Merge desired client fields into fresh inbound settings (preserves sibling clients).
+	 *
+	 * @param array<string, mixed> $inbound       Inbound row from panel.
+	 * @param string               $email         Target client email.
+	 * @param array<string, mixed> $single_client Patched client row to apply.
+	 * @return array<string, mixed>|null Decoded settings or null when client missing.
+	 */
+	private static function merge_client_into_inbound_settings( $inbound, $email, array $single_client ) {
+		if ( ! is_array( $inbound ) ) {
+			return null;
+		}
+		$settings = isset( $inbound['settings'] ) ? $inbound['settings'] : '';
+		$dec      = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
+		if ( ! is_array( $dec ) || empty( $dec['clients'] ) || ! is_array( $dec['clients'] ) ) {
+			return null;
+		}
+		$want    = (string) $email;
+		$matched = false;
+		foreach ( $dec['clients'] as &$cl ) {
+			if ( ! is_array( $cl ) || ! isset( $cl['email'] ) || (string) $cl['email'] !== $want ) {
+				continue;
+			}
+			$cl          = array_merge( $cl, $single_client );
+			$cl['email'] = $want;
+			self::ensure_client_panel_id( $cl );
+			$matched = true;
+			break;
+		}
+		unset( $cl );
+		if ( $matched ) {
+			self::ensure_client_panel_id( $cl );
+		}
+		return $matched ? $dec : null;
+	}
+
+	/**
+	 * Lowercase inbound protocol string (3x-ui v2.9.4).
+	 *
+	 * @param array<string, mixed>|null $inbound Inbound row.
+	 * @return string
+	 */
+	private static function normalize_inbound_protocol( $inbound ) {
+		if ( ! is_array( $inbound ) ) {
+			return 'vless';
+		}
+		return strtolower( trim( (string) ( $inbound['protocol'] ?? 'vless' ) ) );
+	}
+
+	/**
+	 * 3x-ui v2.9.4 updateClient payload: settings with exactly one client in `clients`.
+	 *
+	 * @param array<string, mixed> $single_client Patched client row.
+	 * @return array{clients:array<int, array<string, mixed>>}
+	 */
+	private static function build_update_client_settings_payload( array $single_client ) {
+		return array( 'clients' => array( $single_client ) );
+	}
+
+	/**
+	 * updateClient per 3x-ui v2.9.4: POST body must contain only the target client in settings.clients[0].
+	 * Panel merges that row into stored inbound settings (sibling clients are not wiped).
 	 *
 	 * @param int                  $inbound_id          Inbound id.
-	 * @param array<string, mixed> $full_settings_dec   Decoded inbound `settings` (e.g. clients + other keys).
-	 * @param array<string, mixed> $single_client       One client object after edits.
-	 * @param array<int, string>   $path_id_candidates  Values for /updateClient/{id} URL (UUID, email, …).
+	 * @param array<string, mixed> $full_settings_dec   Caller context (used to merge patched fields for target email).
+	 * @param array<string, mixed> $single_client       Patched client row.
+	 * @param array<int, string>   $path_id_candidates  Extra values for /updateClient/{id} URL.
 	 * @return array|null Last JSON response from panel (for logging).
 	 */
 	public static function update_inbound_client_sequential( $inbound_id, array $full_settings_dec, array $single_client, array $path_id_candidates ) {
-		$iid = (int) $inbound_id;
-		$ids = array();
+		$iid          = (int) $inbound_id;
+		$ids          = array();
+		$target_email = isset( $single_client['email'] ) ? trim( (string) $single_client['email'] ) : '';
+		$single_work  = $single_client;
+		if ( '' !== $target_email ) {
+			$single_work['email'] = $target_email;
+		}
+		if ( '' !== $target_email && ! empty( $full_settings_dec['clients'] ) && is_array( $full_settings_dec['clients'] ) ) {
+			foreach ( $full_settings_dec['clients'] as $cl ) {
+				if ( ! is_array( $cl ) || ! isset( $cl['email'] ) || (string) $cl['email'] !== $target_email ) {
+					continue;
+				}
+				$single_work          = array_merge( $cl, $single_work );
+				$single_work['email'] = $target_email;
+				break;
+			}
+		}
+
+		$inbound  = self::inbound_get( $iid );
+		$protocol = self::normalize_inbound_protocol( $inbound );
+		self::ensure_client_protocol_fields( $single_work, $protocol );
+
+		$path_primary = is_array( $inbound ) ? self::resolve_client_path_id_for_update( '', $inbound, $target_email ) : null;
+		if ( is_string( $path_primary ) && '' !== $path_primary ) {
+			$ids[] = $path_primary;
+		}
 		foreach ( $path_id_candidates as $c ) {
 			$t = trim( (string) $c );
 			if ( '' !== $t && ! in_array( $t, $ids, true ) ) {
 				$ids[] = $t;
 			}
 		}
+		if ( empty( $ids ) ) {
+			return null;
+		}
+
 		$last = null;
-		foreach ( $ids as $pid ) {
-			$last = self::update_client(
-				$pid,
-				array(
-					'id'       => $iid,
-					'settings' => wp_json_encode( array( 'clients' => array( $single_client ) ) ),
-				)
-			);
-			if ( self::response_is_success( $last ) ) {
-				return $last;
+		for ( $attempt = 0; $attempt < 4; $attempt++ ) {
+			if ( $attempt > 0 ) {
+				usleep( 320000 + $attempt * 120000 );
+				self::clear_session();
+				self::login_with_retries( 4, 280000 );
+				if ( '' !== $target_email && ! empty( $single_client ) ) {
+					$fresh = self::inbound_get( $iid );
+					if ( is_array( $fresh ) ) {
+						$inbound  = $fresh;
+						$protocol = self::normalize_inbound_protocol( $inbound );
+						$panel_cl = self::inbound_client_by_email( $fresh, $target_email );
+						if ( is_array( $panel_cl ) ) {
+							$single_work          = array_merge( $panel_cl, $single_client );
+							$single_work['email'] = $target_email;
+						}
+					}
+				}
 			}
-			$last = self::update_client(
-				$pid,
-				array(
-					'id'       => $iid,
-					'settings' => wp_json_encode( $full_settings_dec ),
-				)
-			);
-			if ( self::response_is_success( $last ) ) {
-				return $last;
+			self::ensure_client_protocol_fields( $single_work, $protocol );
+			$payload_dec = self::build_update_client_settings_payload( $single_work );
+			foreach ( $ids as $pid ) {
+				$last = self::update_client(
+					$pid,
+					array(
+						'id'       => $iid,
+						'settings' => wp_json_encode( $payload_dec ),
+					)
+				);
+				if ( self::response_is_success( $last ) ) {
+					return $last;
+				}
 			}
 		}
 		return $last;
 	}
 
 	/**
+	 * Whether an API request result is HTTP-success and panel JSON reports success when present.
+	 *
+	 * @param array{ok?:bool,code?:int,json?:array|null} $r Request result from request().
+	 * @return bool
+	 */
+	public static function api_http_ok( $r ) {
+		if ( ! is_array( $r ) || empty( $r['ok'] ) ) {
+			return false;
+		}
+		$j = $r['json'] ?? null;
+		if ( is_array( $j ) && array_key_exists( 'success', $j ) ) {
+			return ! empty( $j['success'] );
+		}
+		return true;
+	}
+
+	/**
 	 * Delete client.
 	 *
-	 * @param int    $inbound_id Inbound id.
-	 * @param string $client_id Client id.
+	 * @param int    $inbound_id     Inbound id.
+	 * @param string $client_id      Client UUID/password for /delClient/{id}.
+	 * @param string $email_fallback Optional email for /delClientByEmail/{email} when UUID path fails.
 	 * @return array|null
 	 */
-	public static function del_client( $inbound_id, $client_id ) {
+	public static function del_client( $inbound_id, $client_id, $email_fallback = '' ) {
 		$r = self::request( 'inbounds/' . (int) $inbound_id . '/delClient/' . rawurlencode( (string) $client_id ), 'POST', array() );
-		return $r['json'];
+		if ( self::response_is_success( $r['json'] ?? null ) ) {
+			return $r['json'];
+		}
+		$em = trim( (string) $email_fallback );
+		if ( '' === $em || $em === (string) $client_id ) {
+			return $r['json'];
+		}
+		$r2 = self::request( 'inbounds/' . (int) $inbound_id . '/delClientByEmail/' . rawurlencode( $em ), 'POST', array() );
+		return $r2['json'];
 	}
 
 	/**
@@ -648,21 +1479,191 @@ class SimpleVPBot_Xui_Client {
 		return $r['json'];
 	}
 
+	/** Last getDb failure step for backup diagnostics. */
+	private static $last_get_db_step = '';
+
 	/**
-	 * Download DB file bytes — GET {api_root}server/getDb.
+	 * Whether bytes look like a SQLite 3 database file.
+	 *
+	 * @param string $raw Raw body.
+	 * @return bool
+	 */
+	public static function is_sqlite_bytes( $raw ) {
+		$raw = (string) $raw;
+		if ( strlen( $raw ) < 512 ) {
+			return false;
+		}
+		return 0 === strncmp( $raw, 'SQLite format 3', 15 );
+	}
+
+	/**
+	 * Last getDb diagnostic step (login, download, invalid_response, …).
+	 *
+	 * @return string
+	 */
+	public static function last_get_db_step() {
+		return (string) self::$last_get_db_step;
+	}
+
+	/**
+	 * Parse getDb HTTP response into validated SQLite bytes or false.
+	 *
+	 * @param array{ok?:bool, code?:int, body?:string} $r Request result.
+	 * @return string|false
+	 */
+	private static function parse_db_binary_response( $r ) {
+		$code = (int) ( $r['code'] ?? 0 );
+		$raw  = is_string( $r['body'] ?? null ) ? (string) $r['body'] : '';
+		if ( empty( $r['ok'] ) || '' === $raw ) {
+			self::$last_get_db_step = 401 === $code || 403 === $code ? 'auth' : 'http_' . $code;
+			return false;
+		}
+		$trim = ltrim( $raw );
+		if ( '' !== $trim && ( '{' === $trim[0] || '[' === $trim[0] ) ) {
+			self::$last_get_db_step = 'invalid_response';
+			return false;
+		}
+		if ( ! self::is_sqlite_bytes( $raw ) ) {
+			self::$last_get_db_step = 'invalid_response';
+			return false;
+		}
+		self::$last_get_db_step = '';
+		return $raw;
+	}
+
+	/**
+	 * Download DB file bytes — GET {api_root}server/getDb (session cookie required).
 	 *
 	 * @return string|false
 	 */
 	public static function get_db_binary() {
-		$r = self::request( 'server/getDb', 'GET', array(), true, 1, 'api' );
-		if ( ! empty( $r['ok'] ) && is_string( $r['body'] ) && '' !== $r['body'] ) {
-			return $r['body'];
+		$r = self::request( 'server/getDb', 'GET', array(), true, 2, 'api', true );
+		$db = self::parse_db_binary_response( $r );
+		if ( false !== $db ) {
+			return $db;
 		}
-		$r2 = self::request( 'server/getDb', 'POST', array(), true, 1, 'api' );
-		if ( ! empty( $r2['ok'] ) && is_string( $r2['body'] ) && '' !== $r2['body'] ) {
-			return $r2['body'];
+		$r2 = self::request( 'server/getDb', 'POST', array(), true, 1, 'api', true );
+		return self::parse_db_binary_response( $r2 );
+	}
+
+	/**
+	 * Download panel DB with retries (transient getDb failures).
+	 *
+	 * @param int $attempts Attempt count (minimum 1).
+	 * @return string|false
+	 */
+	public static function get_db_binary_with_retries( $attempts = 3 ) {
+		$max = max( 1, (int) $attempts );
+		for ( $i = 0; $i < $max; $i++ ) {
+			$db = self::get_db_binary();
+			if ( false !== $db && '' !== $db ) {
+				return $db;
+			}
+			if ( $i + 1 < $max ) {
+				usleep( 400000 + $i * 300000 );
+			}
 		}
 		return false;
+	}
+
+	/**
+	 * Import panel SQLite via POST server/importDB (multipart field "db").
+	 *
+	 * @param string $db_path Absolute path to .db file.
+	 * @return array{ok:bool, message?:string, code?:int}
+	 */
+	public static function import_db_from_path( $db_path ) {
+		$db_path = (string) $db_path;
+		if ( '' === $db_path || ! is_readable( $db_path ) ) {
+			return array( 'ok' => false, 'message' => 'unreadable_db' );
+		}
+		$size = (int) @filesize( $db_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		if ( $size < 512 ) {
+			return array( 'ok' => false, 'message' => 'db_too_small' );
+		}
+		return self::import_db_multipart( $db_path, 'x-ui.db' );
+	}
+
+	/**
+	 * Multipart POST server/importDB.
+	 *
+	 * @param string $db_path   Local .db path.
+	 * @param string $filename  Filename sent to panel.
+	 * @param int    $retry     Re-login retries on 401/403.
+	 * @return array{ok:bool, message?:string, code?:int}
+	 */
+	private static function import_db_multipart( $db_path, $filename, $retry = 2 ) {
+		$url      = self::resolve_url( 'server/importDB', 'api' );
+		$boundary = '----' . wp_generate_password( 16, false, false );
+		$data     = (string) file_get_contents( $db_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		if ( '' === $data ) {
+			return array( 'ok' => false, 'message' => 'read_failed' );
+		}
+		$fn   = preg_replace( '/[^a-zA-Z0-9._-]/', '', (string) $filename );
+		if ( '' === $fn ) {
+			$fn = 'x-ui.db';
+		}
+		$body  = "--{$boundary}\r\n";
+		$body .= "Content-Disposition: form-data; name=\"db\"; filename=\"{$fn}\"\r\n";
+		$body .= "Content-Type: application/octet-stream\r\n\r\n";
+		$body .= $data . "\r\n";
+		$body .= "--{$boundary}--\r\n";
+
+		$headers = array(
+			'Content-Type' => 'multipart/form-data; boundary=' . $boundary,
+			'Accept'       => 'application/json',
+		);
+		$creds = self::panel_credentials();
+		$token = (string) ( $creds['panel_api_token'] ?? '' );
+		if ( '' !== $token ) {
+			$headers['Authorization'] = 'Bearer ' . $token;
+		} else {
+			$cookie = self::cookie_header();
+			if ( $cookie ) {
+				$headers['Cookie'] = $cookie;
+			}
+			$csrf = get_transient( self::csrf_transient_name() );
+			if ( is_string( $csrf ) && '' !== $csrf ) {
+				$headers['X-CSRF-Token'] = $csrf;
+			}
+		}
+
+		$res  = wp_remote_post(
+			$url,
+			array(
+				'timeout' => 180,
+				'method'  => 'POST',
+				'headers' => $headers,
+				'body'    => $body,
+			)
+		);
+		if ( is_wp_error( $res ) ) {
+			return array( 'ok' => false, 'message' => $res->get_error_message(), 'code' => 0 );
+		}
+		$code = (int) wp_remote_retrieve_response_code( $res );
+		$raw  = (string) wp_remote_retrieve_body( $res );
+		$json = json_decode( $raw, true );
+		if ( in_array( $code, array( 401, 403 ), true ) && $retry > 0 && '' === $token ) {
+			self::clear_session();
+			if ( self::login_with_retries( 4, 300000 ) ) {
+				return self::import_db_multipart( $db_path, $filename, $retry - 1 );
+			}
+		}
+		if ( $code >= 200 && $code < 300 && self::response_is_success( $json ) ) {
+			return array( 'ok' => true, 'code' => $code );
+		}
+		$msg = is_array( $json ) ? self::panel_json_msg( $json ) : '';
+		if ( '' === $msg ) {
+			$msg = trim( $raw );
+		}
+		if ( strlen( $msg ) > 200 ) {
+			$msg = substr( $msg, 0, 197 ) . '…';
+		}
+		return array(
+			'ok'      => false,
+			'message' => '' !== $msg ? $msg : 'import_failed',
+			'code'    => $code,
+		);
 	}
 
 	/**
@@ -808,7 +1809,166 @@ class SimpleVPBot_Xui_Client {
 	}
 
 	/**
-	 * ID for /updateClient/{id}: prefer DB, else first UUID in inbound for this email.
+	 * Ensure a panel client row has a non-empty UUID in `id` (from id, password, subId).
+	 *
+	 * @param array<string, mixed> $client Client row (by reference).
+	 * @return bool True when `id` is set to a likely UUID.
+	 */
+	public static function ensure_client_panel_id( array &$client ) {
+		if ( ! is_array( $client ) ) {
+			return false;
+		}
+		$parsed = self::parse_uuid_value( $client['id'] ?? null );
+		if ( is_string( $parsed ) ) {
+			$client['id'] = $parsed;
+			return true;
+		}
+		$cur = trim( (string) ( $client['id'] ?? '' ) );
+		if ( self::is_likely_client_uuid( $cur ) ) {
+			$client['id'] = $cur;
+			return true;
+		}
+		foreach ( array( 'password', 'subId' ) as $k ) {
+			if ( ! array_key_exists( $k, $client ) ) {
+				continue;
+			}
+			$pv = self::parse_uuid_value( $client[ $k ] );
+			if ( is_string( $pv ) ) {
+				$client['id'] = $pv;
+				return true;
+			}
+			$t = trim( (string) $client[ $k ] );
+			if ( self::is_likely_client_uuid( $t ) ) {
+				$client['id'] = $t;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Normalize `id` on every client in a settings blob (legacy helper).
+	 *
+	 * @param array<string, mixed> $settings_dec Decoded inbound settings.
+	 * @return void
+	 */
+	public static function sanitize_settings_clients_for_update( array &$settings_dec ) {
+		if ( empty( $settings_dec['clients'] ) || ! is_array( $settings_dec['clients'] ) ) {
+			return;
+		}
+		foreach ( $settings_dec['clients'] as &$cl ) {
+			if ( is_array( $cl ) ) {
+				self::ensure_client_panel_id( $cl );
+			}
+		}
+		unset( $cl );
+	}
+
+	/**
+	 * Fill protocol-required client fields for 3x-ui v2.9.4 updateClient (clients[0] validation).
+	 *
+	 * @param array<string, mixed> $client   Client row (by reference).
+	 * @param string               $protocol Inbound protocol (lowercase).
+	 * @return bool True when required primary field is non-empty.
+	 */
+	public static function ensure_client_protocol_fields( array &$client, $protocol ) {
+		if ( ! is_array( $client ) ) {
+			return false;
+		}
+		$protocol = strtolower( trim( (string) $protocol ) );
+		self::ensure_client_panel_id( $client );
+		$uuid = trim( (string) ( $client['id'] ?? '' ) );
+		if ( ! self::is_likely_client_uuid( $uuid ) ) {
+			$uuid = '';
+		}
+		switch ( $protocol ) {
+			case 'trojan':
+				$pw = trim( (string) ( $client['password'] ?? '' ) );
+				if ( '' === $pw && '' !== $uuid ) {
+					$client['password'] = $uuid;
+					$pw                 = $uuid;
+				}
+				if ( '' === $pw ) {
+					foreach ( array( 'password', 'subId' ) as $k ) {
+						$t = trim( (string) ( $client[ $k ] ?? '' ) );
+						if ( '' !== $t ) {
+							$client['password'] = $t;
+							$pw                 = $t;
+							break;
+						}
+					}
+				}
+				return '' !== $pw;
+			case 'shadowsocks':
+				return '' !== trim( (string) ( $client['email'] ?? '' ) );
+			case 'hysteria':
+			case 'hysteria2':
+				$auth = trim( (string) ( $client['auth'] ?? '' ) );
+				if ( '' === $auth && '' !== $uuid ) {
+					$client['auth'] = $uuid;
+					$auth           = $uuid;
+				}
+				return '' !== $auth;
+			default:
+				if ( '' !== $uuid ) {
+					$client['id'] = $uuid;
+					return true;
+				}
+				return self::ensure_client_panel_id( $client );
+		}
+	}
+
+	/**
+	 * Path segment for /updateClient/{id} per 3x-ui v2.9.4 getClientPrimaryKey.
+	 *
+	 * @param string               $db_id   Stored xui id (optional hint).
+	 * @param array<string, mixed> $inbound Inbound row.
+	 * @param string               $email   Client email tag.
+	 * @return string|null
+	 */
+	public static function resolve_client_path_id_for_update( $db_id, $inbound, $email ) {
+		$protocol = self::normalize_inbound_protocol( $inbound );
+		$sid      = trim( (string) $db_id );
+		$cl       = self::inbound_client_by_email( $inbound, $email );
+		if ( is_array( $cl ) ) {
+			$row = $cl;
+			self::ensure_client_protocol_fields( $row, $protocol );
+			switch ( $protocol ) {
+				case 'trojan':
+					$key = trim( (string) ( $row['password'] ?? '' ) );
+					break;
+				case 'shadowsocks':
+					$key = trim( (string) ( $row['email'] ?? $email ) );
+					break;
+				case 'hysteria':
+				case 'hysteria2':
+					$key = trim( (string) ( $row['auth'] ?? '' ) );
+					break;
+				default:
+					$key = trim( (string) ( $row['id'] ?? '' ) );
+			}
+			if ( '' !== $key ) {
+				return $key;
+			}
+		}
+		if ( self::is_likely_client_uuid( $sid ) && 0 !== strcasecmp( $sid, 'array' ) ) {
+			return $sid;
+		}
+		if ( 'shadowsocks' === $protocol ) {
+			$em = trim( (string) $email );
+			if ( '' !== $em ) {
+				return $em;
+			}
+		}
+		if ( 'trojan' === $protocol && '' !== $sid ) {
+			return $sid;
+		}
+		$em = trim( (string) $email );
+		return '' !== $em ? $em : null;
+	}
+
+	/**
+	 * ID for /updateClient/{id} (alias of resolve_client_path_id_for_update).
 	 *
 	 * @param string               $db_id  Stored xui id.
 	 * @param array<string, mixed> $inbound Inbound.
@@ -816,16 +1976,8 @@ class SimpleVPBot_Xui_Client {
 	 * @return string|null
 	 */
 	public static function resolve_client_key_for_update( $db_id, $inbound, $email ) {
-		$sid = trim( (string) $db_id );
-		if ( self::is_likely_client_uuid( $sid ) && 0 !== strcasecmp( $sid, 'array' ) ) {
-			return $sid;
-		}
-		$cl = self::inbound_client_by_email( $inbound, $email );
-		if ( is_array( $cl ) && ! empty( $cl['id'] ) ) {
-			$u = self::parse_uuid_value( $cl['id'] );
-			return is_string( $u ) ? $u : (string) $cl['id'];
-		}
-		return null;
+		$path = self::resolve_client_path_id_for_update( $db_id, $inbound, $email );
+		return ( is_string( $path ) && '' !== $path ) ? $path : null;
 	}
 
 	/**

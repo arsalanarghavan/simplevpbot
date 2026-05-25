@@ -102,7 +102,41 @@ class SimpleVPBot_Texts {
 	 */
 	public static function get_for_user( $key, $user, $default = '' ) {
 		$loc = self::locale_for_user( $user );
+		$rid = 0;
+		if ( $user && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			$rid = SimpleVPBot_Bot_Reseller_Scope::resolve_reseller_id_for_notify( $user, null );
+		}
+		if ( $rid < 1 && class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot() ) {
+			$rid = (int) SimpleVPBot_Bot_Context::reseller_svp_user_id();
+		}
+		if ( $rid > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			$ov = SimpleVPBot_Model_Reseller_Bot_Profile::get_text_override( $rid, $key, $loc );
+			if ( '' !== $ov ) {
+				return $ov;
+			}
+		}
 		return self::get( $key, $default, $loc );
+	}
+
+	/**
+	 * Text for current webhook bot (reseller overrides when in reseller context).
+	 *
+	 * @param string $key     Key.
+	 * @param string $default Fallback.
+	 * @return string
+	 */
+	public static function get_in_bot_context( $key, $default = '' ) {
+		if ( class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot() ) {
+			$rid = (int) SimpleVPBot_Bot_Context::reseller_svp_user_id();
+			if ( $rid > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+				$loc = self::site_default_locale();
+				$ov  = SimpleVPBot_Model_Reseller_Bot_Profile::get_text_override( $rid, $key, $loc );
+				if ( '' !== $ov ) {
+					return $ov;
+				}
+			}
+		}
+		return self::get( $key, $default );
 	}
 
 	/**
@@ -124,5 +158,19 @@ class SimpleVPBot_Texts {
 			$tpl = str_replace( '{' . $k . '}', (string) $v, $tpl );
 		}
 		return $tpl;
+	}
+
+	/**
+	 * Localized label for keyboards/handlers.
+	 *
+	 * @param string      $key     Text key.
+	 * @param object|null $user    Bot user row.
+	 * @param string      $default Fallback.
+	 * @return string
+	 */
+	public static function label( $key, $user = null, $default = '' ) {
+		return ( $user && is_object( $user ) )
+			? self::get_for_user( $key, $user, $default )
+			: self::get( $key, $default );
 	}
 }

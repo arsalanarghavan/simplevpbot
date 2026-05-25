@@ -76,7 +76,13 @@ class SimpleVPBot_Handler_Service {
 		$from_id  = isset( $ctx['from_id'] ) ? (int) $ctx['from_id'] : 0;
 
 		$svc = SimpleVPBot_Model_Service::find( $svc_id );
+		if ( $svc && class_exists( 'SimpleVPBot_Feature_L2tp' ) && ! SimpleVPBot_Feature_L2tp::service_visible( $svc ) ) {
+			$svc = null;
+		}
 		if ( ! self::service_caller_can_manage( $platform, $from_id, $user, $svc ) ) {
+			if ( ! $svc ) {
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.not_found', $user ) );
+			}
 			return;
 		}
 		$owner_uid = (int) $svc->user_id;
@@ -106,24 +112,24 @@ class SimpleVPBot_Handler_Service {
 			$new = SimpleVPBot_L2TP_Provisioner::rotate_password( $svc );
 			if ( $new ) {
 				$svc_fresh = SimpleVPBot_Model_Service::find( (int) $svc->id ) ?: $svc;
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '🔑 رمز جدید برای سرویس L2TP ساخته شد.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.l2tp_password_ok', $user ) );
 				self::show_l2tp_credentials( $platform, $chat_id, $svc_fresh );
 			} else {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ تغییر رمز ناموفق بود. با پشتیبانی تماس بگیرید.' );
+				SimpleVPBot_Bot_Runtime::send_message_with_support( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.l2tp_password_fail', $user ) );
 			}
 			return;
 		}
 		if ( SimpleVPBot_Model_Service::is_l2tp( $svc ) && in_array( $action, array( 'u', 'ip', 'f' ), true ) ) {
 			if ( 'f' === $action ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get( 'faq.l2tp', "❓ اتصال L2TP\n➖➖➖➖➖➖➖➖\n• در ویندوز: Settings → VPN → Add → نوع L2TP/IPsec with pre-shared key.\n• در iOS/اندروید: Settings → VPN → Add VPN → L2TP.\n• اگر وصل نشد اینترنت/فایروال پورت UDP 500/4500/1701 را چک کنید." ) );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'faq.l2tp', $user ) );
 				return;
 			}
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, 'ℹ️ این گزینه برای سرویس L2TP در دسترس نیست.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.l2tp_option_na', $user ) );
 			return;
 		}
 		if ( 'us' === $action ) {
 			$text   = self::build_usage_panel_text( $svc );
-			$markup = SimpleVPBot_Keyboards::inline_subscription_back_only( $svc_id );
+			$markup = SimpleVPBot_Keyboards::inline_subscription_back_only( $svc_id, $user );
 			if ( $msg_id <= 0 ) {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $text, array( 'reply_markup' => $markup ) );
 			} else {
@@ -142,9 +148,9 @@ class SimpleVPBot_Handler_Service {
 			$data   = self::get_portal_service_data( $svc, $owner_uid );
 			$text   = self::build_usage_panel_text( $svc );
 			if ( 'bale' === $platform ) {
-				$markup = SimpleVPBot_Keyboards::inline_bale_portal_back( $svc_id, $portal );
+				$markup = SimpleVPBot_Keyboards::inline_bale_portal_back( $svc_id, $portal, $user );
 			} else {
-				$markup = SimpleVPBot_Keyboards::inline_telegram_config_extras( $svc_id, $data, $portal );
+				$markup = SimpleVPBot_Keyboards::inline_telegram_config_extras( $svc_id, $data, $portal, $user );
 			}
 			if ( $msg_id <= 0 ) {
 				SimpleVPBot_Bot_Runtime::send_message(
@@ -188,7 +194,7 @@ class SimpleVPBot_Handler_Service {
 			$primary  = (string) ( $data['primary_link'] ?? $import );
 			$port_btn = (string) ( $data['portal_url'] ?? $portal );
 			if ( '' === $primary && empty( $data['config_uris'] ) && '' === $port_btn ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⚠️ لینک اتصال یافت نشد.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.link_not_found', $user ) );
 				return;
 			}
 			self::telegram_send_config_unified( $chat_id, $data, $portal, $svc_id );
@@ -199,28 +205,28 @@ class SimpleVPBot_Handler_Service {
 				self::svc_panel_id_xui( $svc ),
 				function () use ( $platform, $chat_id, $svc, $svc_id ) {
 					if ( ! SimpleVPBot_Xui_Client::login_with_retries( 5, 300000 ) ) {
-						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ ورود به پنل ناموفق است.' );
+						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.panel_login_fail', $user ) );
 						return;
 					}
 					$new = SimpleVPBot_Xui_Client::get_new_uuid();
 					if ( ! $new || ! SimpleVPBot_Xui_Client::is_likely_client_uuid( (string) $new ) ) {
-						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ دریافت UUID جدید ناموفق بود.' );
+						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.uuid_fail', $user ) );
 						return;
 					}
 					$inbound = SimpleVPBot_Xui_Client::inbound_get( (int) $svc->inbound_id );
 					if ( ! $inbound ) {
-						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ اینباند پنل یافت نشد.' );
+						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.inbound_not_found', $user ) );
 						return;
 					}
 					$old_key = SimpleVPBot_Xui_Client::resolve_client_key_for_update( (string) $svc->xui_client_id, $inbound, (string) $svc->email );
 					if ( ! $old_key || ! SimpleVPBot_Xui_Client::is_likely_client_uuid( (string) $old_key ) ) {
-						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ شناسه کلاینت در پنل یافت نشد (ایمیل یا UUID نامعتبر).' );
+						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.client_id_invalid', $user ) );
 						return;
 					}
 					$settings = isset( $inbound['settings'] ) ? $inbound['settings'] : '';
 					$dec      = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
 					if ( empty( $dec['clients'] ) || ! is_array( $dec['clients'] ) ) {
-						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ فهرست کلاینت خالی است.' );
+						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.client_list_empty', $user ) );
 						return;
 					}
 					$found          = false;
@@ -235,7 +241,7 @@ class SimpleVPBot_Handler_Service {
 					}
 					unset( $cl );
 					if ( ! $found || ! is_array( $updated_client ) ) {
-						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ کلاینت این سرویس روی پنل پیدا نشد.' );
+						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.client_not_found', $user ) );
 						return;
 					}
 					$path_ids = array( (string) $old_key );
@@ -253,11 +259,11 @@ class SimpleVPBot_Handler_Service {
 								'msg'   => is_array( $res ) ? (string) ( $res['msg'] ?? '' ) : '',
 							)
 						);
-						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ بروزرسانی روی پنل انجام نشد.' );
+						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.panel_update_fail', $user ) );
 						return;
 					}
 					SimpleVPBot_Model_Service::update( $svc_id, array( 'xui_client_id' => $new, 'xui_client_uuid' => $new ) );
-					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '🔑 کلید (UUID) جدید ساخته شد و روی سرویس ثبت گردید.' );
+					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.uuid_regenerated', $user ) );
 				}
 			);
 			return;
@@ -270,13 +276,13 @@ class SimpleVPBot_Handler_Service {
 					SimpleVPBot_Xui_Client::inbound_get( (int) $svc->inbound_id );
 				}
 			);
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '🔄 اطلاعات سرور به‌روز شد.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.servers_refreshed', $user ) );
 			return;
 		}
 		if ( 'ar' === $action ) {
 			$on = ! (int) $svc->autorenew;
 			SimpleVPBot_Model_Service::update( $svc_id, array( 'autorenew' => $on ? 1 : 0 ) );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $on ? '🔁 تمدید خودکار: ✅ روشن' : '🔁 تمدید خودکار: ❌ خاموش' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $on ? SimpleVPBot_Texts::get_for_user( 'msg.svc.auto_renew_on', $user ) : SimpleVPBot_Texts::get_for_user( 'msg.svc.auto_renew_off', $user ) );
 			return;
 		}
 		if ( 'al' === $action ) {
@@ -289,12 +295,12 @@ class SimpleVPBot_Handler_Service {
 		}
 		if ( 'n' === $action ) {
 			SimpleVPBot_State::set( (int) $user->id, 'svc_note_' . $svc_id, array() );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '📝 یادداشت نمایش (نام روی پنل X-UI) را ارسال کنید:' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.prompt_panel_note', $user ) );
 			return;
 		}
 		if ( 'rn' === $action ) {
 			SimpleVPBot_State::set( (int) $user->id, 'svc_rename_' . $svc_id, array() );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '✏️ نام نمایشی این سرویس (در ربات و لیست سرویس‌ها) را ارسال کنید:' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.prompt_display_name', $user ) );
 			return;
 		}
 		if ( 'ip' === $action ) {
@@ -320,27 +326,27 @@ class SimpleVPBot_Handler_Service {
 			return;
 		}
 		if ( 'f' === $action ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get( 'faq.connection', 'FAQ' ) );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'faq.connection', $user ) );
 			return;
 		}
 		if ( 'su' === $action ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '🆘 با ادمین تماس بگیرید یا از بخش پشتیبانی تیکت بفرستید.' );
+			SimpleVPBot_Bot_Runtime::send_message_with_support( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.support_contact_admin', $user ) );
 			return;
 		}
 		if ( 'r' === $action ) {
 			if ( SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ تمدید با پرداخت از این مسیر فقط برای سرویس‌های Xray است؛ برای L2TP با پشتیبانی تماس بگیرید.' );
+				SimpleVPBot_Bot_Runtime::send_message_with_support( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.renew_xray_only', $user ) );
 				return;
 			}
 			$plan = SimpleVPBot_Model_Service::effective_plan_for_pricing( $svc );
 			if ( ! $plan ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ پلن سرویس برای صدور فاکتور تنظیم نشده. در تنظیمات عمومی، «پلن پیش‌فرض سرویس‌های بدون پلن» را روی یک پلن Xray فعال بگذارید.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.default_plan_missing', $user ) );
 				return;
 			}
 			if ( self::is_platform_admin_managing_other_users_service( $platform, $from_id, $user, $svc ) ) {
 				$rows = SimpleVPBot_Handler_Admin_Hub::admin_service_payment_mode_inline_rows( 'renew', $svc_id, null );
 				if ( empty( $rows ) ) {
-					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ خطای داخلی دکمه‌ها.' );
+					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.internal_button_error', $user ) );
 					return;
 				}
 				$amount = SimpleVPBot_Service_Renew::checkout_price_renew( $svc, $plan );
@@ -366,7 +372,7 @@ class SimpleVPBot_Handler_Service {
 		}
 		if ( 'v' === $action ) {
 			if ( SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ افزایش حجم از این مسیر فقط برای Xray است.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.volume_xray_only', $user ) );
 				return;
 			}
 			$pid = SimpleVPBot_Model_Service::effective_plan_id_for_pricing( $svc );
@@ -379,17 +385,17 @@ class SimpleVPBot_Handler_Service {
 				return;
 			}
 			SimpleVPBot_State::set( (int) $user->id, 'svc_addvol_' . $svc_id, array( 'plan_id' => $pid ) );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '➕ چند گیگابایت به سقف حجم اضافه شود؟ فقط عدد (گیگ) بفرستید؛ مثلاً 10' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.prompt_add_volume_gb', $user ) );
 			return;
 		}
 		if ( 'sl' === $action ) {
 			if ( SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ این گزینه برای این نوع سرویس نیست.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.option_wrong_type', $user ) );
 				return;
 			}
 			$unit = (float) SimpleVPBot_Settings::get( 'price_per_extra_user', 0 );
 			if ( $unit <= 0 ) {
-				SimpleVPBot_Bot_Runtime::send_message(
+				SimpleVPBot_Bot_Runtime::send_message_with_support(
 					$platform,
 					$chat_id,
 					"👥 افزایش کاربر\n" . SimpleVPBot_Service_Alerts::text_sep() . "🧒 هنوز قیمتش توسط ادمین تنظیم نشده.\n✋ بعداً دوباره امتحان کن یا از پشتیبانی بپرس."
@@ -416,9 +422,12 @@ class SimpleVPBot_Handler_Service {
 			return;
 		}
 		if ( 'b' === $action ) {
+			if ( $owner_uid > 0 && class_exists( 'SimpleVPBot_Service_Reconcile' ) ) {
+				SimpleVPBot_Service_Reconcile::reconcile_for_user( $owner_uid );
+			}
 			$list   = SimpleVPBot_Model_Service::by_user( $owner_uid );
-			$mk     = SimpleVPBot_Keyboards::inline_service_list( $list );
-			$caption = '🧰 سرویس‌های شما';
+			$mk     = SimpleVPBot_Keyboards::inline_service_list( $list, $user );
+			$caption = SimpleVPBot_Texts::get_for_user( 'msg.svc.list_title', $user );
 			if ( $msg_id <= 0 ) {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $caption, array( 'reply_markup' => $mk ) );
 			} else {
@@ -435,7 +444,7 @@ class SimpleVPBot_Handler_Service {
 		if ( 'tx' === $action ) {
 			$res = SimpleVPBot_Service_Transfer::create_code( $svc_id, $owner_uid );
 			if ( empty( $res['ok'] ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ امکان تولید کد انتقال نیست.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.transfer_code_fail', $user ) );
 				return;
 			}
 			$code = (string) ( $res['code'] ?? '' );
@@ -630,7 +639,7 @@ class SimpleVPBot_Handler_Service {
 		$svc  = SimpleVPBot_Model_Service::find( $sid );
 		if ( ! $svc || ! self::service_caller_can_manage( $platform, $from_id, $user, $svc ) ) {
 			SimpleVPBot_State::clear( (int) $user->id );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ سرویس نامعتبر است.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.invalid_service', $user ) );
 			return;
 		}
 		if ( 'ip' === $kind && SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
@@ -640,12 +649,12 @@ class SimpleVPBot_Handler_Service {
 		if ( 'pct' === $kind ) {
 			$d = trim( SimpleVPBot_Bot_Runtime::normalize_digits( $raw ) );
 			if ( ! preg_match( '/^\d+$/', $d ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ فقط یک عدد ۱ تا ۹۹ بفرستید.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.alert_days_1_99', $user ) );
 				return;
 			}
 			$n = (int) $d;
 			if ( $n < 1 || $n > 99 ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ عدد باید بین ۱ تا ۹۹ باشد.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.alert_days_range', $user ) );
 				return;
 			}
 			SimpleVPBot_Model_Service::update( $sid, array( 'alert_low_pct' => $n ) );
@@ -666,7 +675,7 @@ class SimpleVPBot_Handler_Service {
 			}
 			$days = array_values( array_unique( $days ) );
 			if ( empty( $days ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ حداقل یک روز معتبر بفرستید، مثل ۳,۱,۰' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.alert_days_min', $user ) );
 				return;
 			}
 			SimpleVPBot_Model_Service::update( $sid, array( 'alert_expiry_days' => implode( ',', $days ) ) );
@@ -674,12 +683,12 @@ class SimpleVPBot_Handler_Service {
 		} else {
 			$d = trim( SimpleVPBot_Bot_Runtime::normalize_digits( $raw ) );
 			if ( ! preg_match( '/^\d+$/', $d ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ فقط یک عدد ۵۰ تا ۱۰۰ بفرستید.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.alert_pct_50_100', $user ) );
 				return;
 			}
 			$n = (int) $d;
 			if ( $n < 50 || $n > 100 ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ عدد باید بین ۵۰ تا ۱۰۰ باشد.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.alert_pct_range', $user ) );
 				return;
 			}
 			SimpleVPBot_Model_Service::update( $sid, array( 'alert_ip_fill_pct' => $n ) );
@@ -724,38 +733,48 @@ class SimpleVPBot_Handler_Service {
 		$svc  = SimpleVPBot_Model_Service::find( $sid );
 		if ( ! $plan || ! (int) $plan->active || ! $svc || ! self::service_caller_can_manage( $platform, $from_id, $user, $svc ) || SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
 			SimpleVPBot_State::clear( (int) $user->id );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ جلسه نامعتبر است. دوباره از منوی سرویس شروع کنید.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.invalid_session', $user ) );
 			return;
 		}
 		if ( ! preg_match( '/^\d+$/u', $raw ) ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ فقط یک عدد صحیح بفرستید (مثلا 10).' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.integer_only', $user ) );
 			return;
 		}
 		$gb = (int) $raw;
 		if ( $gb < 1 ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ حداقل ۱ گیگ است.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.min_1_gb', $user ) );
 			return;
 		}
 		if ( SimpleVPBot_Model_Plan::is_per_gb( $plan ) && ! SimpleVPBot_Model_Plan::is_volume_in_range( $plan, $gb ) ) {
 			$min = (int) ( $plan->traffic_gb_min ?? 0 );
 			$max = (int) ( $plan->traffic_gb_max ?? 0 );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, "⛔ برای این پلن حجم اضافه باید بین {$min} و {$max} گیگ باشد." );
+			SimpleVPBot_Bot_Runtime::send_message(
+				$platform,
+				$chat_id,
+				SimpleVPBot_Texts::format(
+					SimpleVPBot_Texts::get_for_user( 'msg.svc.volume_range', $user ),
+					array(
+						'min' => (string) $min,
+						'max' => (string) $max,
+					)
+				)
+			);
 			return;
 		}
 		if ( ! SimpleVPBot_Model_Plan::is_per_gb( $plan ) && $gb > 512 ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ حداکثر ۵۱۲ گیگ در هر درخواست.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.max_512_gb', $user ) );
 			return;
 		}
 		$amount = SimpleVPBot_Service_Renew::checkout_price_add_volume( $plan, $gb );
 		if ( $amount <= 0 ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ مبلغ نامعتبر است. با ادمین تماس بگیرید.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.invalid_amount', $user ) );
 			return;
 		}
 		SimpleVPBot_State::clear( (int) $user->id );
 		if ( self::is_platform_admin_managing_other_users_service( $platform, $from_id, $user, $svc ) ) {
 			$rows = SimpleVPBot_Handler_Admin_Hub::admin_service_payment_mode_inline_rows( 'vol', $sid, $gb );
 			if ( empty( $rows ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ خطای داخلی دکمه‌ها.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.internal_button_error', $user ) );
 				return;
 			}
 			$am_fa = SimpleVPBot_Bot_Persian_Text::format_toman_fa( (float) $amount );
@@ -800,28 +819,28 @@ class SimpleVPBot_Handler_Service {
 		$svc  = SimpleVPBot_Model_Service::find( $sid );
 		if ( ! $plan || ! (int) $plan->active || ! $svc || ! self::service_caller_can_manage( $platform, $from_id, $user, $svc ) || SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
 			SimpleVPBot_State::clear( (int) $user->id );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ جلسه نامعتبر است. دوباره از منوی سرویس شروع کنید.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.invalid_session', $user ) );
 			return;
 		}
 		if ( ! preg_match( '/^\d+$/u', $raw ) ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ فقط یک عدد بفرستید مثل ۲.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.slots_integer', $user ) );
 			return;
 		}
 		$n = (int) $raw;
 		if ( $n < 1 || $n > 50 ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ عدد باید بین ۱ تا ۵۰ باشد.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.slots_range', $user ) );
 			return;
 		}
 		$amount = SimpleVPBot_Service_Renew::checkout_price_add_user_slots( $n );
 		if ( $amount <= 0 ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ قیمت هر کاربر اضافه در تنظیمات صفر است. با ادمین تماس بگیرید.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.extra_user_price_zero', $user ) );
 			return;
 		}
 		SimpleVPBot_State::clear( (int) $user->id );
 		if ( self::is_platform_admin_managing_other_users_service( $platform, $from_id, $user, $svc ) ) {
 			$rows = SimpleVPBot_Handler_Admin_Hub::admin_service_payment_mode_inline_rows( 'slots', $sid, $n );
 			if ( empty( $rows ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ خطای داخلی دکمه‌ها.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.internal_button_error', $user ) );
 				return;
 			}
 			$am_fa = SimpleVPBot_Bot_Persian_Text::format_toman_fa( (float) $amount );
@@ -863,43 +882,43 @@ class SimpleVPBot_Handler_Service {
 		$svc = SimpleVPBot_Model_Service::find( $sid );
 		if ( ! $svc || ! self::service_caller_can_manage( $platform, $from_id, $user, $svc ) ) {
 			SimpleVPBot_State::clear( (int) $user->id );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ سرویس نامعتبر است.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.invalid_service', $user ) );
 			return;
 		}
 		if ( '' === $text ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ متن خالی است.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.empty_text', $user ) );
 			return;
 		}
 		if ( SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
 			SimpleVPBot_Model_Service::update( $sid, array( 'remark' => $text ) );
 			SimpleVPBot_State::clear( (int) $user->id );
 			$is_rename = ( 0 === strpos( $state, 'svc_rename_' ) );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $is_rename ? '✅ نام نمایشی به‌روز شد.' : '✅ یادداشت به‌روز شد.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $is_rename ? SimpleVPBot_Texts::get_for_user( 'msg.svc.display_name_updated', $user ) : SimpleVPBot_Texts::get_for_user( 'msg.svc.note_updated', $user ) );
 			return;
 		}
 		$is_rename = ( 0 === strpos( $state, 'svc_rename_' ) );
 		if ( $is_rename ) {
 			SimpleVPBot_Model_Service::update( $sid, array( 'remark' => $text ) );
 			SimpleVPBot_State::clear( (int) $user->id );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '✅ نام نمایشی در ربات به‌روز شد.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.display_name_bot_updated', $user ) );
 			return;
 		}
 		SimpleVPBot_Xui_Client::run_with_panel(
 			self::svc_panel_id_xui( $svc ),
 			function () use ( $platform, $chat_id, $user, $svc, $sid, $text ) {
 				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 5, 300000 ) ) {
-					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ ورود به پنل ناموفق است. بعداً دوباره تلاش کنید.' );
+					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.panel_login_retry', $user ) );
 					return;
 				}
 				$inbound = SimpleVPBot_Xui_Client::inbound_get( (int) $svc->inbound_id );
 				if ( ! $inbound ) {
-					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ اینباند پنل یافت نشد.' );
+					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.inbound_not_found', $user ) );
 					return;
 				}
 				$settings = isset( $inbound['settings'] ) ? $inbound['settings'] : '';
 				$dec      = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
 				if ( empty( $dec['clients'] ) || ! is_array( $dec['clients'] ) ) {
-					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ فهرست کلاینت روی پنل خالی است.' );
+					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.client_list_empty_panel', $user ) );
 					return;
 				}
 				$updated_client = null;
@@ -913,13 +932,13 @@ class SimpleVPBot_Handler_Service {
 				unset( $cl );
 				if ( ! is_array( $updated_client ) ) {
 					SimpleVPBot_State::clear( (int) $user->id );
-					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ کلاینت روی پنل پیدا نشد.' );
+					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.client_not_found_panel', $user ) );
 					return;
 				}
 				$old_key = SimpleVPBot_Xui_Client::resolve_client_key_for_update( (string) $svc->xui_client_id, $inbound, (string) $svc->email );
 				if ( ! $old_key ) {
 					SimpleVPBot_State::clear( (int) $user->id );
-					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ شناسه کلاینت روی پنل پیدا نشد.' );
+					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.client_id_not_found_panel', $user ) );
 					return;
 				}
 				$path_ids = array( (string) $old_key );
@@ -938,12 +957,12 @@ class SimpleVPBot_Handler_Service {
 							'panel_msg' => is_array( $res ) ? (string) ( $res['msg'] ?? '' ) : '',
 						)
 					);
-					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ بروزرسانی روی پنل انجام نشد.' );
+					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.panel_update_fail', $user ) );
 					return;
 				}
 				SimpleVPBot_Model_Service::update( $sid, array( 'remark' => $text ) );
 				SimpleVPBot_State::clear( (int) $user->id );
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '✅ یادداشت روی پنل و نام نمایشی در ربات به‌روز شد.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.note_and_name_updated', $user ) );
 			}
 		);
 	}
@@ -1187,6 +1206,7 @@ class SimpleVPBot_Handler_Service {
 			'volume_exhausted'     => $volume_exhausted ? 1 : 0,
 			'panel_client_enabled' => $panel_enabled ? 1 : 0,
 			'deleted'              => 0,
+			'usage_live_panel'     => 1,
 			'down_gb'              => number_format( $dn_gb, 2 ),
 			'up_gb'                => number_format( $up_gb, 2 ),
 			'used_gb'              => number_format( $us_gb, 2 ),
@@ -1260,19 +1280,30 @@ class SimpleVPBot_Handler_Service {
 	private static function build_usage_panel_text( $svc ) {
 		$v   = self::collect_usage_stats( $svc );
 		if ( ! empty( $v['deleted'] ) ) {
-			return '⛔ این سرویس دیگر روی پنل نیست و از لیست شما حذف شد.';
+			return SimpleVPBot_Texts::get_for_user( 'msg.svc.deleted_from_panel', $user );
 		}
-		$tpl = SimpleVPBot_Texts::get( 'msg.subscription_panel', self::default_usage_template_fa() );
+		$owner = isset( $svc->user_id ) ? SimpleVPBot_Model_User::find( (int) $svc->user_id ) : null;
+		$tpl   = SimpleVPBot_Texts::get_for_user( 'msg.subscription_panel', $owner );
+		if ( '' === $tpl ) {
+			$tpl = SimpleVPBot_Texts::get_for_user( 'msg.subscription_panel', $owner, self::default_usage_template_fa() );
+		}
 		$txt = SimpleVPBot_Texts::format( $tpl, $v );
 		$ufn = isset( $v['usage_footer_notes'] ) ? trim( (string) $v['usage_footer_notes'] ) : '';
 		if ( '' !== $ufn ) {
 			$txt .= "\n\n" . $ufn;
 		}
-		if ( ! empty( $v['panel_unreachable'] ) ) {
-			$txt .= "\n\n⚠️ اتصال زنده به پنل برقرار نشد؛ جزئیات ترافیک پنل در دسترس نیست و بخشی از اعداد از آخرین ذخیرهٔ ربات است.";
+		if ( ! empty( $v['usage_live_panel'] ) ) {
+			$txt .= "\n\n" . SimpleVPBot_Texts::get_for_user( 'msg.svc.usage_live_footer', $owner );
+		} elseif ( ! empty( $v['panel_unreachable'] ) ) {
+			$txt .= "\n\n" . SimpleVPBot_Texts::get_for_user( 'msg.svc.usage_cache_footer', $owner );
+		} else {
+			$txt .= "\n\n" . SimpleVPBot_Texts::get_for_user( 'msg.svc.usage_stale_footer', $owner );
 		}
 		if ( ! empty( $v['panel_sync_uncertain'] ) ) {
-			$txt .= "\n\n⚠️ سرویس در این لحظه روی پنل در لیست کلاینت‌ها دیده نشد؛ اشتراک شما در ربات حذف نشده است. اگر این پیام تکرار شد با پشتیبانی تماس بگیرید.";
+			$txt .= "\n\n" . SimpleVPBot_Texts::get_for_user( 'msg.svc.usage_sync_uncertain', $owner );
+		}
+		if ( class_exists( 'SimpleVPBot_Support_Contacts' ) ) {
+			$txt = SimpleVPBot_Support_Contacts::append_to_message( $txt, null );
 		}
 		return $txt;
 	}
@@ -1335,7 +1366,16 @@ class SimpleVPBot_Handler_Service {
 		$idx   = 1;
 		$n_uri = count( $uris );
 		foreach ( $uris as $u ) {
-			$title = $n_uri > 1 ? "🧾 <b>کانفیگ {$idx}</b>" : '🧾 <b>کانفیگ</b>';
+			$frag = class_exists( 'SimpleVPBot_Config_Link' )
+				? SimpleVPBot_Config_Link::uri_fragment_label( (string) $u )
+				: '';
+			if ( '' !== $frag ) {
+				$title = '🧾 <b>' . esc_html( $frag ) . '</b>';
+			} elseif ( $n_uri > 1 ) {
+				$title = "🧾 <b>کانفیگ {$idx}</b>";
+			} else {
+				$title = '🧾 <b>کانفیگ</b>';
+			}
 			$lines[] = $title . "\n" . '<code>' . esc_html( (string) $u ) . '</code>';
 			$idx++;
 			if ( $idx > 20 ) {
@@ -1416,11 +1456,12 @@ class SimpleVPBot_Handler_Service {
 				'telegram_send_config_unified failed',
 				array( 'chat_id' => (int) $chat_id, 'service_id' => (int) $service_id )
 			);
-			SimpleVPBot_Bot_Runtime::send_message(
+			SimpleVPBot_Bot_Runtime::send_message_with_support(
 				'telegram',
 				(int) $chat_id,
 				'⛔ ارسال کانفیگ/QR در تلگرام انجام نشد. دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.' . ( $plain ? "\n\n" . $plain : '' )
 			);
+			return;
 		}
 	}
 
@@ -1438,13 +1479,13 @@ class SimpleVPBot_Handler_Service {
 		$from_id  = isset( $ctx['from_id'] ) ? (int) $ctx['from_id'] : 0;
 		$svc      = SimpleVPBot_Model_Service::find( $sid );
 		if ( ! self::service_caller_can_manage( $platform, $from_id, $user, $svc ) ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ دسترسی نامعتبر است.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.invalid_access', $user ) );
 			return;
 		}
 		$data = self::get_portal_service_data( $svc, (int) $svc->user_id );
 		$uris = isset( $data['config_uris'] ) && is_array( $data['config_uris'] ) ? $data['config_uris'] : array();
 		if ( ! isset( $uris[ $idx ] ) ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ این کانفیگ دیگر در دسترس نیست. منوی سرویس را دوباره باز کنید.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.config_unavailable', $user ) );
 			return;
 		}
 		$line  = (string) $uris[ $idx ];
@@ -1573,7 +1614,7 @@ class SimpleVPBot_Handler_Service {
 	private static function show_l2tp_credentials( $platform, $chat_id, $svc ) {
 		$c = SimpleVPBot_Model_Service::l2tp_credentials( $svc );
 		if ( ! $c || '' === $c['username'] ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ اطلاعات اتصال یافت نشد. با پشتیبانی تماس بگیرید.' );
+			SimpleVPBot_Bot_Runtime::send_message_with_support( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.connection_info_missing', $user ) );
 			return;
 		}
 		$exp = $svc->expires_at ? self::format_datetime_fa( (string) $svc->expires_at ) : 'بدون انقضا';

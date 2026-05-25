@@ -26,19 +26,19 @@ class SimpleVPBot_Handler_Account {
 		$kb = array(
 			'inline_keyboard' => array(
 				array(
-					array( 'text' => SimpleVPBot_Texts::get( 'btn.account.sync', '🔗 سینک' ), 'callback_data' => 'sync:g' ),
-					array( 'text' => '🔑 ورود کد', 'callback_data' => 'sync:i' ),
+					array( 'text' => SimpleVPBot_Texts::get_for_user( 'btn.account.sync', $user ), 'callback_data' => 'sync:g' ),
+					array( 'text' => SimpleVPBot_Texts::get_for_user( 'btn.account.enter_code', $user ), 'callback_data' => 'sync:i' ),
 				),
 			),
 		);
 		$txt = SimpleVPBot_Texts::format(
-			"👤 اطلاعات حساب\n➖➖➖➖➖➖➖➖\n🆔 شناسه: {id}\n👑 نقش: {role}\n💰 موجودی: {bal}\n📡 سرویس فعال: {n}\n\n🌐 صفحهٔ شما برای دیدن سرویس و لینک:\n{portal}\n",
+			SimpleVPBot_Texts::get_for_user( 'msg.account.info_template', $user ),
 			array(
-				'id'   => (string) $user->id,
-				'role' => (string) $user->role,
-				'bal'  => number_format( (float) $user->balance ),
-				'n'    => (string) $n,
-				'portal' => SimpleVPBot_Portal_Link::build_url( (int) $user->id ),
+				'id'       => (string) $user->id,
+				'role'     => (string) $user->role,
+				'balance'  => number_format( (float) $user->balance ),
+				'n'        => (string) $n,
+				'portal'   => SimpleVPBot_Portal_Link::build_url( (int) $user->id ),
 			)
 		);
 		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $txt, array( 'reply_markup' => $kb ) );

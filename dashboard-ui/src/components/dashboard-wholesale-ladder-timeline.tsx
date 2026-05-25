@@ -103,6 +103,14 @@ export function WholesaleLadderTimeline({
                         const current = curIdx >= 0 && idx === curIdx
                         const future = curIdx >= 0 && idx > curIdx
                         const thresh = tierThresholdLabel(tier, isFa)
+                        const currentPrice =
+                          curIdx >= 0 && tiers[curIdx] ? num(tiers[curIdx]!.price_per_gb) : price
+                        const savings =
+                          future && currentPrice > 0 && price < currentPrice
+                            ? currentPrice - price
+                            : 0
+                        const savingsPct =
+                          savings > 0 && currentPrice > 0 ? (savings / currentPrice) * 100 : 0
 
                         return (
                           <div key={tid || idx} className="flex min-w-[5.5rem] flex-1 flex-col items-center">
@@ -154,7 +162,14 @@ export function WholesaleLadderTimeline({
                                 {thresh}
                               </p>
                             ) : null}
-                            {future ? (
+                            {future && savings > 0 ? (
+                              <p className="mt-0.5 max-w-[8.5rem] text-center text-[10px] font-medium text-emerald-700 dark:text-emerald-400 leading-tight">
+                                {t("plansAdmin.ladderTierSavings", {
+                                  amount: formatNumber(savings, isFa),
+                                  pct: formatNumber(Math.round(savingsPct * 10) / 10, isFa),
+                                })}
+                              </p>
+                            ) : future ? (
                               <p className="mt-0.5 max-w-[7rem] text-center text-[10px] text-muted-foreground">
                                 {t("plansAdmin.ladderTierCheaperHint")}
                               </p>

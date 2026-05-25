@@ -146,6 +146,49 @@ class SimpleVPBot_Model_Panel_Inbound_Client {
 	}
 
 	/**
+	 * Cached panel clients that likely belong to $user_id and have no svp_services row yet.
+	 *
+	 * @param int $user_id svp_users.id.
+	 * @return array<int, object>
+	 */
+	public static function candidates_for_user_reconcile( $user_id ) {
+		global $wpdb;
+		$uid = (int) $user_id;
+		if ( $uid < 1 || ! class_exists( 'SimpleVPBot_Model_User' ) ) {
+			return array();
+		}
+		$user = SimpleVPBot_Model_User::find( $uid );
+		if ( ! $user || 'approved' !== (string) ( $user->status ?? '' ) ) {
+			return array();
+		}
+		$c_tbl = self::table();
+		$s_tbl = SimpleVPBot_Model_Service::table();
+		$tg    = (int) ( $user->tg_user_id ?? 0 );
+		$bl    = (int) ( $user->bale_user_id ?? 0 );
+		$like  = $wpdb->esc_like( 'u' . $uid . '_' ) . '%';
+		$conds = array( 'c.email LIKE %s' );
+		$args  = array( $like );
+		if ( $tg > 0 ) {
+			$conds[] = 'c.tg_id = %s';
+			$args[]  = (string) $tg;
+		}
+		if ( $bl > 0 && (string) $bl !== (string) $tg ) {
+			$conds[] = 'c.tg_id = %s';
+			$args[]  = (string) $bl;
+		}
+		$match_sql = implode( ' OR ', $conds );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$sql = "SELECT c.* FROM {$c_tbl} c
+			LEFT JOIN {$s_tbl} s ON s.panel_id = c.panel_id AND s.inbound_id = c.inbound_id
+				AND s.email = c.email AND s.deleted_at IS NULL
+			WHERE s.id IS NULL AND ( {$match_sql} )
+			ORDER BY c.panel_id ASC, c.inbound_id ASC, c.email ASC
+			LIMIT 200";
+		$rows = $wpdb->get_results( $wpdb->prepare( $sql, $args ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
 	 * Delete one client row from cache.
 	 *
 	 * @param int    $panel_id   Panel id.

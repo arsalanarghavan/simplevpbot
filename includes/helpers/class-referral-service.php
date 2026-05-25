@@ -88,11 +88,26 @@ class SimpleVPBot_Referral_Service {
 	 * @return int Sanitized inviter id or 0.
 	 */
 	public static function validate_inviter_id( $inviter_id, $new_user_id = 0 ) {
-		$rid = (int) $inviter_id;
-		if ( $rid < 1 || $rid === (int) $new_user_id ) {
+		$rid = self::validate_bind_inviter_id( $inviter_id, $new_user_id );
+		if ( $rid < 1 ) {
 			return 0;
 		}
 		if ( ! SimpleVPBot_Settings::get( 'referral_enabled', false ) ) {
+			return 0;
+		}
+		return $rid;
+	}
+
+	/**
+	 * Whether inviter id is allowed for invited_by binding (ignores referral_enabled).
+	 *
+	 * @param int $inviter_id Candidate svp_users.id.
+	 * @param int $new_user_id New user id if already created (0 when not yet inserted).
+	 * @return int Sanitized inviter id or 0.
+	 */
+	public static function validate_bind_inviter_id( $inviter_id, $new_user_id = 0 ) {
+		$rid = (int) $inviter_id;
+		if ( $rid < 1 || $rid === (int) $new_user_id ) {
 			return 0;
 		}
 		$u = SimpleVPBot_Model_User::find( $rid );
@@ -112,12 +127,29 @@ class SimpleVPBot_Referral_Service {
 	 * @param int    $user_id    svp_users.id.
 	 * @return string URL or empty if username not configured.
 	 */
-	public static function invite_link_for_platform( $platform, $user_id ) {
+	public static function invite_link_for_platform( $platform, $user_id, $reseller_svp_user_id = 0 ) {
 		$uid = (int) $user_id;
 		if ( $uid < 1 ) {
 			return '';
 		}
 		$payload = 'ref_' . $uid;
+		$rid     = (int) $reseller_svp_user_id;
+		if ( $rid < 1 && class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot() ) {
+			$rid = (int) SimpleVPBot_Bot_Context::reseller_svp_user_id();
+		}
+		if ( $rid < 1 && class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+			$rid = (int) SimpleVPBot_Reseller_Branding::nearest_reseller_id_for_user( $uid );
+		}
+		if ( $rid > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $rid );
+			$u    = SimpleVPBot_Model_Reseller_Bot_Profile::bot_username_for_platform( $prof, $platform );
+			if ( '' !== $u ) {
+				if ( 'bale' === $platform ) {
+					return 'https://ble.ir/' . rawurlencode( $u ) . '?start=' . rawurlencode( $payload );
+				}
+				return 'https://t.me/' . rawurlencode( $u ) . '?start=' . rawurlencode( $payload );
+			}
+		}
 		if ( 'bale' === $platform ) {
 			$u = trim( (string) SimpleVPBot_Settings::get( 'bale_bot_username', '' ), "@ \t\n\r\0\x0B" );
 			if ( '' === $u ) {

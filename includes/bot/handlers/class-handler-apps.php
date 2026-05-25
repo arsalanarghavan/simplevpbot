@@ -20,21 +20,21 @@ class SimpleVPBot_Handler_Apps {
 	 * @param string $platform Platform.
 	 * @param int    $chat_id Chat id.
 	 */
-	public static function show( $platform, $chat_id ) {
+	public static function show( $platform, $chat_id, $user = null ) {
 		$rows = array(
 			array(
-				array( 'text' => '🤖 v2rayNG', 'url' => SimpleVPBot_Texts::get( 'app.v2rayng', '#' ) ),
-				array( 'text' => '🍎 Shadowrocket', 'url' => SimpleVPBot_Texts::get( 'app.shadowrocket', '#' ) ),
+				array( 'text' => SimpleVPBot_Texts::label( 'btn.apps.v2rayng', $user ), 'url' => SimpleVPBot_Texts::get( 'app.v2rayng', '#', SimpleVPBot_Texts::locale_for_user( $user ) ) ),
+				array( 'text' => SimpleVPBot_Texts::label( 'btn.apps.shadowrocket', $user ), 'url' => SimpleVPBot_Texts::get( 'app.shadowrocket', '#', SimpleVPBot_Texts::locale_for_user( $user ) ) ),
 			),
 			array(
-				array( 'text' => '🪟 v2rayN', 'url' => SimpleVPBot_Texts::get( 'app.v2rayn', '#' ) ),
-				array( 'text' => '🖥 V2rayU', 'url' => SimpleVPBot_Texts::get( 'app.v2rayu', '#' ) ),
+				array( 'text' => SimpleVPBot_Texts::label( 'btn.apps.v2rayn', $user ), 'url' => SimpleVPBot_Texts::get( 'app.v2rayn', '#', SimpleVPBot_Texts::locale_for_user( $user ) ) ),
+				array( 'text' => SimpleVPBot_Texts::label( 'btn.apps.v2rayu', $user ), 'url' => SimpleVPBot_Texts::get( 'app.v2rayu', '#', SimpleVPBot_Texts::locale_for_user( $user ) ) ),
 			),
 		);
 		SimpleVPBot_Bot_Runtime::send_message(
 			$platform,
 			$chat_id,
-			"📱 دانلود اپلیکیشن‌ها\n➖➖➖➖➖➖➖➖\nیکی را انتخاب کنید:",
+			SimpleVPBot_Texts::get_for_user( 'msg.apps.pick', $user ),
 			array( 'reply_markup' => array( 'inline_keyboard' => $rows ) )
 		);
 	}

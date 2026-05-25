@@ -188,7 +188,7 @@ class SimpleVPBot_State {
 		self::clear( (int) $user->id );
 		$notify = ( 0 === strpos( $st, 'svc_' ) ) || 'receipt_upload' === $st || 'buy_choose_traffic' === $st || 'buy_discount' === $st;
 		if ( $notify && $chat_id > 0 ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, (int) $chat_id, 'ℹ️ درخواست قبلی لغو شد.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, (int) $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.state.cancelled', $user ) );
 		}
 		return true;
 	}

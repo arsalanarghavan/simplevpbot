@@ -40,6 +40,230 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 	}
 
 	/**
+	 * Decrypt stored bot token (legacy plaintext still accepted).
+	 *
+	 * @param string $stored Raw DB value.
+	 * @return string
+	 */
+	public static function decrypt_token_field( $stored ) {
+		$s = trim( (string) $stored );
+		if ( '' === $s ) {
+			return '';
+		}
+		if ( class_exists( 'SimpleVPBot_Secret_Box' ) && 0 === strpos( $s, 'v1:' ) ) {
+			return trim( (string) SimpleVPBot_Secret_Box::decrypt( $s ) );
+		}
+		return $s;
+	}
+
+	/**
+	 * Encrypt token for DB storage.
+	 *
+	 * @param string $plain Plain token.
+	 * @return string
+	 */
+	public static function encrypt_token_field( $plain ) {
+		$s = trim( (string) $plain );
+		if ( '' === $s ) {
+			return '';
+		}
+		if ( class_exists( 'SimpleVPBot_Secret_Box' ) ) {
+			$enc = SimpleVPBot_Secret_Box::encrypt( $s );
+			return '' !== $enc ? $enc : $s;
+		}
+		return $s;
+	}
+
+	/**
+	 * @param object|null $prof Profile row.
+	 * @param string      $platform telegram|bale.
+	 * @return string
+	 */
+	public static function token_for_platform( $prof, $platform ) {
+		if ( ! $prof || ! is_object( $prof ) ) {
+			return '';
+		}
+		$raw = 'bale' === $platform
+			? ( $prof->bale_token ?? '' )
+			: ( $prof->telegram_token ?? '' );
+		return self::decrypt_token_field( $raw );
+	}
+
+	/**
+	 * @param object|null $prof Profile row.
+	 * @param string      $platform telegram|bale.
+	 * @return string Username without @.
+	 */
+	public static function bot_username_for_platform( $prof, $platform ) {
+		if ( ! $prof || ! is_object( $prof ) ) {
+			return '';
+		}
+		$col = 'bale' === $platform ? 'bale_bot_username' : 'telegram_bot_username';
+		return trim( (string) ( $prof->{$col} ?? '' ), "@ \t\n\r\0\x0B" );
+	}
+
+	/**
+	 * Persist @username from getMe after webhook setup.
+	 *
+	 * @param int    $reseller_svp_user_id Id.
+	 * @param string $platform             telegram|bale.
+	 * @param string $username             Bot username.
+	 */
+	public static function save_bot_username( $reseller_svp_user_id, $platform, $username ) {
+		global $wpdb;
+		$r = (int) $reseller_svp_user_id;
+		if ( $r < 1 ) {
+			return;
+		}
+		$uname = trim( (string) $username, "@ \t\n\r\0\x0B" );
+		$col   = 'bale' === $platform ? 'bale_bot_username' : 'telegram_bot_username';
+		$row   = self::find_by_reseller( $r );
+		if ( ! $row ) {
+			self::ensure_webhook_secret( $r );
+			$row = self::find_by_reseller( $r );
+		}
+		if ( ! $row ) {
+			return;
+		}
+		$wpdb->update(
+			self::table(),
+			array(
+				$col         => mb_substr( $uname, 0, 128, 'UTF-8' ),
+				'updated_at' => current_time( 'mysql' ),
+			),
+			array( 'reseller_svp_user_id' => $r ),
+			array( '%s', '%s' ),
+			array( '%d' )
+		);
+	}
+
+	/**
+	 * Text keys resellers may override via dashboard (whitelist).
+	 *
+	 * @return array<int, string>
+	 */
+	public static function allowed_text_override_keys() {
+		return array(
+			'msg.welcome',
+			'btn.support.contact',
+			'btn.support.faq',
+		);
+	}
+
+	/**
+	 * Current overrides for API / dashboard form (site default locale).
+	 *
+	 * @param int $reseller_svp_user_id Id.
+	 * @return array<string, string> key => value
+	 */
+	public static function editable_text_overrides_for_api( $reseller_svp_user_id ) {
+		$rid = (int) $reseller_svp_user_id;
+		if ( $rid < 1 ) {
+			return array();
+		}
+		$loc = class_exists( 'SimpleVPBot_Texts' ) ? SimpleVPBot_Texts::site_default_locale() : 'fa';
+		$out = array();
+		foreach ( self::allowed_text_override_keys() as $key ) {
+			$out[ $key ] = self::get_text_override( $rid, $key, $loc );
+		}
+		return $out;
+	}
+
+	/**
+	 * @param int    $reseller_svp_user_id Id.
+	 * @return array<string, array<string, string>>
+	 */
+	public static function get_text_overrides( $reseller_svp_user_id ) {
+		$row = self::find_by_reseller( (int) $reseller_svp_user_id );
+		if ( ! $row || empty( $row->text_overrides_json ) ) {
+			return array();
+		}
+		$j = json_decode( (string) $row->text_overrides_json, true );
+		return is_array( $j ) ? $j : array();
+	}
+
+	/**
+	 * @param int    $reseller_svp_user_id Id.
+	 * @param string $key                  Text key.
+	 * @param string $locale               fa|en.
+	 * @return string
+	 */
+	public static function get_text_override( $reseller_svp_user_id, $key, $locale = 'fa' ) {
+		$all = self::get_text_overrides( $reseller_svp_user_id );
+		$loc = class_exists( 'SimpleVPBot_Model_Text' )
+			? SimpleVPBot_Model_Text::normalize_locale( $locale )
+			: ( ( 'en' === $locale ) ? 'en' : 'fa' );
+		$k   = (string) $key;
+		if ( isset( $all[ $loc ][ $k ] ) && '' !== trim( (string) $all[ $loc ][ $k ] ) ) {
+			return (string) $all[ $loc ][ $k ];
+		}
+		if ( isset( $all[ $k ] ) && is_string( $all[ $k ] ) && '' !== trim( $all[ $k ] ) ) {
+			return (string) $all[ $k ];
+		}
+		return '';
+	}
+
+	/**
+	 * Merge text overrides (per locale map).
+	 *
+	 * @param int                  $reseller_svp_user_id Id.
+	 * @param array<string, mixed> $overrides            locale => { key => value } or key => value.
+	 */
+	public static function save_text_overrides( $reseller_svp_user_id, array $overrides ) {
+		global $wpdb;
+		$r = (int) $reseller_svp_user_id;
+		if ( $r < 1 ) {
+			return;
+		}
+		$allowed = array_flip( self::allowed_text_override_keys() );
+		$cur     = self::get_text_overrides( $r );
+		foreach ( $overrides as $lk => $lv ) {
+			if ( is_array( $lv ) ) {
+				$loc = class_exists( 'SimpleVPBot_Model_Text' )
+					? SimpleVPBot_Model_Text::normalize_locale( (string) $lk )
+					: ( ( 'en' === $lk ) ? 'en' : 'fa' );
+				if ( ! isset( $cur[ $loc ] ) || ! is_array( $cur[ $loc ] ) ) {
+					$cur[ $loc ] = array();
+				}
+				foreach ( $lv as $tk => $tv ) {
+					$k = (string) $tk;
+					if ( ! isset( $allowed[ $k ] ) ) {
+						continue;
+					}
+					$cur[ $loc ][ $k ] = (string) $tv;
+				}
+			} else {
+				$k = (string) $lk;
+				if ( ! isset( $allowed[ $k ] ) ) {
+					continue;
+				}
+				$cur[ $k ] = (string) $lv;
+			}
+		}
+		$row = self::find_by_reseller( $r );
+		if ( ! $row ) {
+			self::ensure_webhook_secret( $r );
+			$row = self::find_by_reseller( $r );
+		}
+		if ( ! $row ) {
+			return;
+		}
+		$wpdb->update(
+			self::table(),
+			array(
+				'text_overrides_json' => (string) wp_json_encode( $cur ),
+				'updated_at'          => current_time( 'mysql' ),
+			),
+			array( 'reseller_svp_user_id' => $r ),
+			array( '%s', '%s' ),
+			array( '%d' )
+		);
+		if ( class_exists( 'SimpleVPBot_Texts' ) ) {
+			SimpleVPBot_Texts::clear_cache();
+		}
+	}
+
+	/**
 	 * Encode admin id list as JSON for DB.
 	 *
 	 * @param array<int, int> $ids Ids.
@@ -326,13 +550,15 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 	 * @param string      $tg_token             Telegram bot token.
 	 * @param string      $bale_token           Bale token.
 	 * @param string|null $brand_name           Display brand for config fragment (optional).
-	 * @return void
 	 */
 	public static function upsert_tokens( $reseller_svp_user_id, $tg_token, $bale_token, $brand_name = null ) {
 		global $wpdb;
 		$r   = (int) $reseller_svp_user_id;
-		$tg  = sanitize_text_field( (string) $tg_token );
-		$bl  = sanitize_text_field( (string) $bale_token );
+		if ( $r < 1 ) {
+			return;
+		}
+		$tg  = self::encrypt_token_field( sanitize_text_field( (string) $tg_token ) );
+		$bl  = self::encrypt_token_field( sanitize_text_field( (string) $bale_token ) );
 		$t   = self::table();
 		$now = current_time( 'mysql' );
 		$ex  = self::find_by_reseller( $r );
@@ -388,6 +614,64 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 			$t,
 			$insert,
 			array( '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s' )
+		);
+	}
+
+	/**
+	 * Save branding fields (logo, theme, custom domain).
+	 *
+	 * @param int                  $reseller_svp_user_id Reseller id.
+	 * @param array<string, mixed> $fields               logo_url?, favicon_url?, theme_primary?, theme_accent?, custom_domain?.
+	 */
+	public static function save_branding_fields( $reseller_svp_user_id, array $fields ) {
+		global $wpdb;
+		$r = (int) $reseller_svp_user_id;
+		if ( $r < 1 ) {
+			return;
+		}
+		self::ensure_webhook_secret( $r );
+		$ex = self::find_by_reseller( $r );
+		if ( ! $ex ) {
+			self::upsert_tokens( $r, '', '', null );
+			$ex = self::find_by_reseller( $r );
+		}
+		if ( ! $ex ) {
+			return;
+		}
+		$data = array( 'updated_at' => current_time( 'mysql' ) );
+		$fmt  = array( '%s' );
+		if ( array_key_exists( 'logo_url', $fields ) ) {
+			$data['logo_url'] = esc_url_raw( (string) $fields['logo_url'] );
+			$fmt[]            = '%s';
+		}
+		if ( array_key_exists( 'favicon_url', $fields ) ) {
+			$data['favicon_url'] = esc_url_raw( (string) $fields['favicon_url'] );
+			$fmt[]               = '%s';
+		}
+		if ( array_key_exists( 'theme_primary', $fields ) ) {
+			$data['theme_primary'] = sanitize_text_field( (string) $fields['theme_primary'] );
+			$fmt[]                 = '%s';
+		}
+		if ( array_key_exists( 'theme_accent', $fields ) ) {
+			$data['theme_accent'] = sanitize_text_field( (string) $fields['theme_accent'] );
+			$fmt[]                = '%s';
+		}
+		if ( array_key_exists( 'custom_domain', $fields ) ) {
+			$host = strtolower( trim( (string) $fields['custom_domain'] ) );
+			$host = preg_replace( '#^https?://#', '', $host );
+			$host = preg_replace( '#/.*$#', '', $host );
+			$data['custom_domain'] = sanitize_text_field( (string) $host );
+			$fmt[]                 = '%s';
+		}
+		if ( count( $data ) < 2 ) {
+			return;
+		}
+		$wpdb->update(
+			self::table(),
+			$data,
+			array( 'reseller_svp_user_id' => $r ),
+			$fmt,
+			array( '%d' )
 		);
 	}
 
@@ -457,6 +741,7 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 				"SELECT u.id AS reseller_svp_user_id, u.first_name AS reseller_first_name, u.last_name AS reseller_last_name,
 					u.username AS reseller_username, u.status AS reseller_status,
 					p.brand_name, p.enabled, p.telegram_token, p.bale_token, p.telegram_secret_token,
+					p.telegram_bot_username, p.bale_bot_username, p.text_overrides_json,
 					p.admin_telegram_ids, p.admin_bale_ids
 				FROM {$u} u
 				LEFT JOIN {$p} p ON p.reseller_svp_user_id = u.id

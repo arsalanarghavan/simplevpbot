@@ -144,4 +144,65 @@ class SimpleVPBot_Model_Panel_Online_Daily {
 		}
 		return $series;
 	}
+
+	/**
+	 * Sum of max_online per calendar day for the last N days, limited to given panel ids.
+	 *
+	 * @param int   $days Number of calendar days including today (1–90).
+	 * @param int[] $panel_ids Panel ids (empty = empty series with dates filled).
+	 * @return array<int, array{date:string,totalMaxOnline:int}>
+	 */
+	public static function daily_totals_last_days_for_panels( $days = 7, $panel_ids = array() ) {
+		$days = max( 1, min( 90, (int) $days ) );
+		$pids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', is_array( $panel_ids ) ? $panel_ids : array() ),
+					static function ( $v ) {
+						return $v > 0;
+					}
+				)
+			)
+		);
+		try {
+			$end = new DateTimeImmutable( 'today', wp_timezone() );
+		} catch ( \Exception $e ) {
+			$end = new DateTimeImmutable( 'today' );
+		}
+		$start = $end->modify( '-' . ( $days - 1 ) . ' days' );
+		$from  = $start->format( 'Y-m-d' );
+		$to    = $end->format( 'Y-m-d' );
+		$by_date = array();
+		if ( ! empty( $pids ) ) {
+			global $wpdb;
+			$t       = self::table();
+			$in_list = implode( ',', array_map( 'absint', $pids ) );
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$rows = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT stat_date, SUM(max_online) AS total FROM {$t} WHERE panel_id IN ({$in_list}) AND stat_date >= %s AND stat_date <= %s GROUP BY stat_date ORDER BY stat_date ASC",
+					$from,
+					$to
+				),
+				ARRAY_A
+			);
+			if ( is_array( $rows ) ) {
+				foreach ( $rows as $r ) {
+					if ( ! is_array( $r ) || ! isset( $r['stat_date'] ) ) {
+						continue;
+					}
+					$by_date[ (string) $r['stat_date'] ] = isset( $r['total'] ) ? (int) $r['total'] : 0;
+				}
+			}
+		}
+		$series = array();
+		for ( $d = $start; $d <= $end; $d = $d->modify( '+1 day' ) ) {
+			$key      = $d->format( 'Y-m-d' );
+			$series[] = array(
+				'date'           => $key,
+				'totalMaxOnline' => isset( $by_date[ $key ] ) ? $by_date[ $key ] : 0,
+			);
+		}
+		return $series;
+	}
 }

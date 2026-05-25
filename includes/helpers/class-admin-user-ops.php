@@ -108,6 +108,9 @@ class SimpleVPBot_Admin_User_Ops {
 		if ( ! $plan || ! (int) $plan->active ) {
 			return array( 'ok' => false, 'reason' => 'bad_plan' );
 		}
+		if ( class_exists( 'SimpleVPBot_Feature_L2tp' ) && ! SimpleVPBot_Feature_L2tp::plan_visible( $plan ) ) {
+			return array( 'ok' => false, 'reason' => 'bad_plan' );
+		}
 		if ( SimpleVPBot_Model_Plan::is_per_gb( $plan ) ) {
 			if ( null === $volume_gb || (int) $volume_gb < 1 || ! SimpleVPBot_Model_Plan::is_volume_in_range( $plan, (int) $volume_gb ) ) {
 				return array( 'ok' => false, 'reason' => 'volume_out_of_range' );

@@ -87,6 +87,179 @@ class SimpleVPBot_Backup_Export {
 	}
 
 	/**
+	 * Whether a basename is an allowed on-site backup zip name.
+	 *
+	 * @param string $filename Basename only.
+	 * @return bool
+	 */
+	public static function is_valid_site_backup_filename( $filename ) {
+		$name = basename( (string) $filename );
+		if ( '' === $name || $name !== (string) $filename ) {
+			return false;
+		}
+		return (bool) preg_match( '/^simplevpbot-backup-[a-zA-Z0-9_-]+\.zip$/', $name );
+	}
+
+	/**
+	 * Absolute path to a site-stored backup if valid and inside backup dir.
+	 *
+	 * @param string $filename Basename from list.
+	 * @return string Empty if invalid.
+	 */
+	public static function resolve_site_backup_path( $filename ) {
+		if ( ! self::is_valid_site_backup_filename( $filename ) ) {
+			return '';
+		}
+		$name = basename( (string) $filename );
+		$dir  = self::site_backup_dir();
+		$path = $dir . $name;
+		if ( ! is_readable( $path ) || ! is_file( $path ) ) {
+			return '';
+		}
+		$real_dir  = realpath( $dir );
+		$real_path = realpath( $path );
+		if ( false === $real_dir || false === $real_path || 0 !== strpos( $real_path, $real_dir ) ) {
+			return '';
+		}
+		return $real_path;
+	}
+
+	/**
+	 * Read manifest.json from zip (best-effort).
+	 *
+	 * @param string $zip_abs Absolute zip path.
+	 * @return array<string, mixed>|null
+	 */
+	public static function read_zip_manifest( $zip_abs ) {
+		if ( ! class_exists( 'ZipArchive' ) || ! is_readable( $zip_abs ) ) {
+			return null;
+		}
+		$z = new ZipArchive();
+		if ( true !== $z->open( $zip_abs ) ) {
+			return null;
+		}
+		$mj = $z->getFromName( 'wordpress/manifest.json' );
+		$z->close();
+		if ( false === $mj || '' === $mj ) {
+			return null;
+		}
+		$manifest = json_decode( (string) $mj, true );
+		return is_array( $manifest ) ? $manifest : null;
+	}
+
+	/**
+	 * Summarize panel DB coverage for list UI.
+	 *
+	 * @param string $zip_abs Absolute zip path.
+	 * @return array{has_panel_db:bool, panel_db_status:string, panel_db_detail:string, panels_expected:int, panel_db_files:array<int,string>, panel_db_failures:array<int,array<string,mixed>>}
+	 */
+	public static function zip_panel_db_summary( $zip_abs ) {
+		$empty = array(
+			'has_panel_db'        => false,
+			'panel_db_status'     => 'na',
+			'panel_db_detail'     => '',
+			'panels_expected'     => 0,
+			'panel_db_files'      => array(),
+			'panel_db_failures'   => array(),
+		);
+		$manifest = self::read_zip_manifest( $zip_abs );
+		if ( null === $manifest ) {
+			return $empty;
+		}
+		$files = isset( $manifest['panel_db_files'] ) && is_array( $manifest['panel_db_files'] )
+			? array_values( array_filter( array_map( 'strval', $manifest['panel_db_files'] ) ) )
+			: array();
+		$failures = isset( $manifest['panel_db_failures'] ) && is_array( $manifest['panel_db_failures'] )
+			? $manifest['panel_db_failures']
+			: array();
+		$expected = max( 0, (int) ( $manifest['panels_expected'] ?? 0 ) );
+		if ( $expected < 1 && ( ! empty( $files ) || ! empty( $failures ) ) ) {
+			$expected = count( $files ) + count( $failures );
+		}
+		$has = ! empty( $files );
+		$status = 'na';
+		if ( $expected > 0 ) {
+			if ( count( $files ) >= $expected && empty( $failures ) ) {
+				$status = 'full';
+			} elseif ( $has ) {
+				$status = 'partial';
+			} else {
+				$status = 'none';
+			}
+		} elseif ( $has ) {
+			$status = 'full';
+		}
+		$detail = '';
+		if ( 'partial' === $status || 'none' === $status ) {
+			$parts = array();
+			foreach ( $failures as $f ) {
+				if ( ! is_array( $f ) ) {
+					continue;
+				}
+				$lbl  = trim( (string) ( $f['label'] ?? '' ) );
+				$step = trim( (string) ( $f['step'] ?? '' ) );
+				if ( '' === $lbl ) {
+					$lbl = 'panel-' . (int) ( $f['panel_id'] ?? 0 );
+				}
+				$parts[] = '' !== $step ? $lbl . ' (' . $step . ')' : $lbl;
+			}
+			$detail = implode( ', ', array_slice( $parts, 0, 6 ) );
+			$rest   = count( $parts ) - 6;
+			if ( $rest > 0 ) {
+				$detail .= ' +' . $rest;
+			}
+		}
+		return array(
+			'has_panel_db'      => $has,
+			'panel_db_status'   => $status,
+			'panel_db_detail'   => $detail,
+			'panels_expected'   => $expected,
+			'panel_db_files'    => $files,
+			'panel_db_failures' => $failures,
+		);
+	}
+
+	/**
+	 * List site-stored backup zips (newest first).
+	 *
+	 * @return array<int, array{filename:string, size_bytes:int, created_at:string, has_panel_db:bool, panel_db_status:string, panel_db_detail:string}>
+	 */
+	public static function list_site_backup_files() {
+		$dir  = self::site_backup_dir();
+		$list = glob( $dir . 'simplevpbot-backup-*.zip' );
+		if ( ! is_array( $list ) ) {
+			return array();
+		}
+		usort(
+			$list,
+			static function ( $a, $b ) {
+				return (int) @filemtime( $b ) - (int) @filemtime( $a ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+		);
+		$rows = array();
+		foreach ( $list as $path ) {
+			if ( ! is_string( $path ) || ! is_file( $path ) ) {
+				continue;
+			}
+			$name = basename( $path );
+			if ( ! self::is_valid_site_backup_filename( $name ) ) {
+				continue;
+			}
+			$mtime  = (int) @filemtime( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			$panel  = self::zip_panel_db_summary( $path );
+			$rows[] = array(
+				'filename'         => $name,
+				'size_bytes'       => (int) @filesize( $path ), // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				'created_at'       => $mtime > 0 ? gmdate( 'c', $mtime ) : '',
+				'has_panel_db'     => ! empty( $panel['has_panel_db'] ),
+				'panel_db_status'  => (string) ( $panel['panel_db_status'] ?? 'na' ),
+				'panel_db_detail'  => (string) ( $panel['panel_db_detail'] ?? '' ),
+			);
+		}
+		return $rows;
+	}
+
+	/**
 	 * List all plugin tables (wp_*svp_*).
 	 *
 	 * @return array<int, string>
@@ -125,6 +298,148 @@ class SimpleVPBot_Backup_Export {
 			return null;
 		}
 		return (string) $m[1];
+	}
+
+	/**
+	 * Parse one export INSERT line into table, columns, and raw SQL values.
+	 *
+	 * @param string $line One INSERT line from plugin-tables.sql.
+	 * @return array{table:string,columns:array<int,string>,values:array<int,mixed>}|null
+	 */
+	public static function parse_insert_line( $line ) {
+		$line = trim( (string) $line );
+		if ( ! preg_match(
+			'/^\s*INSERT\s+INTO\s+`([^`]+)`\s*\(([^)]+)\)\s*VALUES\s*\((.*)\)\s*;?\s*$/is',
+			$line,
+			$m
+		) ) {
+			return null;
+		}
+		$table = (string) $m[1];
+		if ( ! self::is_allowed_table_name( $table ) ) {
+			return null;
+		}
+		$col_raw = (string) $m[2];
+		$val_raw = (string) $m[3];
+		$columns = array();
+		if ( preg_match_all( '/`([^`]+)`/', $col_raw, $cm ) ) {
+			foreach ( $cm[1] as $c ) {
+				$columns[] = (string) $c;
+			}
+		}
+		if ( empty( $columns ) ) {
+			return null;
+		}
+		$values = self::parse_sql_values_list( $val_raw );
+		if ( null === $values || count( $values ) !== count( $columns ) ) {
+			return null;
+		}
+		return array(
+			'table'   => $table,
+			'columns' => $columns,
+			'values'  => $values,
+		);
+	}
+
+	/**
+	 * Parse VALUES (...) list from export SQL (NULL, numbers, quoted strings).
+	 *
+	 * @param string $values_part Content inside outer parentheses.
+	 * @return array<int, mixed>|null
+	 */
+	public static function parse_sql_values_list( $values_part ) {
+		$s   = (string) $values_part;
+		$len = strlen( $s );
+		$i   = 0;
+		$out = array();
+		while ( $i < $len ) {
+			while ( $i < $len && ( ' ' === $s[ $i ] || "\t" === $s[ $i ] || ',' === $s[ $i ] ) ) {
+				++$i;
+			}
+			if ( $i >= $len ) {
+				break;
+			}
+			if ( $i + 4 <= $len && 0 === strcasecmp( substr( $s, $i, 4 ), 'NULL' ) ) {
+				$next = $i + 4;
+				if ( $next >= $len || ',' === $s[ $next ] || ')' === $s[ $next ] ) {
+					$out[] = null;
+					$i     = $next;
+					continue;
+				}
+			}
+			if ( "'" === $s[ $i ] ) {
+				++$i;
+				$buf = '';
+				while ( $i < $len ) {
+					$ch = $s[ $i ];
+					if ( "'" === $ch ) {
+						if ( $i + 1 < $len && "'" === $s[ $i + 1 ] ) {
+							$buf .= "'";
+							$i   += 2;
+							continue;
+						}
+						++$i;
+						break;
+					}
+					$buf .= $ch;
+					++$i;
+				}
+				$out[] = $buf;
+				continue;
+			}
+			$start = $i;
+			while ( $i < $len && ',' !== $s[ $i ] && ')' !== $s[ $i ] ) {
+				++$i;
+			}
+			$token = trim( substr( $s, $start, $i - $start ) );
+			if ( '' === $token ) {
+				return null;
+			}
+			if ( is_numeric( $token ) ) {
+				$out[] = strpos( $token, '.' ) !== false ? (float) $token : (int) $token;
+			} else {
+				$out[] = $token;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Parse full plugin-tables.sql dump into rows grouped by table.
+	 *
+	 * @param string $sql SQL dump body.
+	 * @return array<string, array<int, array<string, mixed>>>
+	 */
+	public static function parse_sql_dump( $sql ) {
+		$by_table = array();
+		$lines    = preg_split( "/\R/u", (string) $sql );
+		if ( ! is_array( $lines ) ) {
+			return $by_table;
+		}
+		foreach ( $lines as $line ) {
+			$line = trim( (string) $line );
+			if ( '' === $line || 0 === strpos( $line, '--' ) ) {
+				continue;
+			}
+			$up = strtoupper( $line );
+			if ( 0 === strpos( $up, 'SET ' ) || 0 !== strpos( $up, 'INSERT ' ) ) {
+				continue;
+			}
+			$parsed = self::parse_insert_line( $line );
+			if ( null === $parsed ) {
+				continue;
+			}
+			$table = $parsed['table'];
+			$row   = array();
+			foreach ( $parsed['columns'] as $idx => $col ) {
+				$row[ $col ] = $parsed['values'][ $idx ];
+			}
+			if ( ! isset( $by_table[ $table ] ) ) {
+				$by_table[ $table ] = array();
+			}
+			$by_table[ $table ][] = $row;
+		}
+		return $by_table;
 	}
 
 	/**
@@ -198,16 +513,33 @@ class SimpleVPBot_Backup_Export {
 	 * @param array<int, string> $tables Tables included.
 	 * @return array<string, mixed>
 	 */
-	public static function build_manifest( array $tables, array $panel_zip_names = array() ) {
+	public static function build_manifest( array $tables, array $panel_zip_names = array(), array $panel_db_failures = array(), $panels_expected = 0 ) {
 		$names = array_values( array_filter( array_map( 'strval', $panel_zip_names ) ) );
+		$fail  = array();
+		foreach ( $panel_db_failures as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$fail[] = array(
+				'panel_id' => (int) ( $row['panel_id'] ?? 0 ),
+				'label'    => (string) ( $row['label'] ?? '' ),
+				'step'     => (string) ( $row['step'] ?? '' ),
+			);
+		}
+		$expected = max( 0, (int) $panels_expected );
+		if ( $expected < 1 && ( ! empty( $names ) || ! empty( $fail ) ) ) {
+			$expected = count( $names ) + count( $fail );
+		}
 		return array(
-			'format_version'   => self::MANIFEST_VERSION,
-			'plugin_version'   => defined( 'SIMPLEVPBOT_VERSION' ) ? SIMPLEVPBOT_VERSION : '',
-			'db_version'       => (string) get_option( 'simplevpbot_db_version', '' ),
-			'generated_at_utc' => gmdate( 'c' ),
-			'tables'           => array_values( $tables ),
-			'has_panel_db'     => ! empty( $names ),
-			'panel_db_files'   => $names,
+			'format_version'      => self::MANIFEST_VERSION,
+			'plugin_version'      => defined( 'SIMPLEVPBOT_VERSION' ) ? SIMPLEVPBOT_VERSION : '',
+			'db_version'          => (string) get_option( 'simplevpbot_db_version', '' ),
+			'generated_at_utc'    => gmdate( 'c' ),
+			'tables'              => array_values( $tables ),
+			'has_panel_db'        => ! empty( $names ),
+			'panel_db_files'      => $names,
+			'panels_expected'     => $expected,
+			'panel_db_failures'   => $fail,
 		);
 	}
 
@@ -231,7 +563,7 @@ class SimpleVPBot_Backup_Export {
 	 * @param array<int, array{path:string, zip_name:string}> $panel_db_entries Absolute path + path inside zip (e.g. panel/panel-1-main.db).
 	 * @return string|\WP_Error Absolute path to .zip
 	 */
-	public static function build_zip( $stamp, array $panel_db_entries = array() ) {
+	public static function build_zip( $stamp, array $panel_db_entries = array(), array $panel_db_failures = array(), $panels_expected = 0 ) {
 		$stamp = preg_replace( '/[^a-zA-Z0-9_-]/', '', (string) $stamp );
 		if ( '' === $stamp ) {
 			return new WP_Error( 'svp_bad_stamp', 'Invalid backup stamp.' );
@@ -265,7 +597,7 @@ class SimpleVPBot_Backup_Export {
 			$zip_names[]     = $inn;
 		}
 
-		$manifest = self::build_manifest( $tables, $zip_names );
+		$manifest = self::build_manifest( $tables, $zip_names, $panel_db_failures, $panels_expected );
 
 		if ( ! class_exists( 'ZipArchive' ) ) {
 			return new WP_Error( 'svp_no_zip', 'ZipArchive not available.' );

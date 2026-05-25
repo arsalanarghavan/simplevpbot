@@ -1,9 +1,21 @@
 "use client"
 
-import { EllipsisVerticalIcon } from "lucide-react"
+import {
+  Banknote,
+  CalendarRange,
+  Check,
+  EllipsisVerticalIcon,
+  Hash,
+  Layers,
+  Percent,
+  Tag,
+  User,
+  X,
+} from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
+import { DashboardDateTimePicker } from "@/components/dashboard-datetime-picker"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -45,6 +57,25 @@ import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
 
+type DiscountType = "percent" | "fixed_toman" | "percent_per_gb" | "fixed_per_gb"
+
+type UsageSummary = {
+  total_redemptions?: number
+  total_discount_toman?: number
+  active_codes?: number
+}
+
+type RedemptionRow = {
+  id?: number
+  svp_user_id?: number
+  user_name?: string
+  user_username?: string
+  subtotal_toman?: number
+  discount_toman?: number
+  volume_gb?: number | null
+  created_at?: string
+}
+
 function num(v: unknown): number {
   const n = Number(v)
   return Number.isFinite(n) ? n : 0
@@ -54,15 +85,34 @@ function isDiscountActive(d: DashRecord): boolean {
   return d.active === true || d.active === 1 || d.active === "1"
 }
 
+function parsePlanIds(v: unknown): number[] {
+  if (Array.isArray(v)) {
+    return v.map((x) => num(x)).filter((x) => x > 0)
+  }
+  if (typeof v === "string" && v.trim()) {
+    try {
+      const j = JSON.parse(v) as unknown
+      if (Array.isArray(j)) return j.map((x) => num(x)).filter((x) => x > 0)
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
 type DiscountFormState = {
   svpc_id: number
   svpc_code: string
-  svpc_type: "percent" | "fixed_toman"
+  svpc_type: DiscountType
   svpc_value: number
   svpc_max_uses: string
   svpc_valid_from: string
   svpc_valid_until: string
   svpc_min_order: string
+  svpc_max_order: string
+  svpc_max_discount: string
+  svpc_restricted_user_id: string
+  svpc_allowed_plan_ids: number[]
   svpc_active: boolean
   svpc_allow_new: boolean
   svpc_allow_renew: boolean
@@ -80,6 +130,10 @@ function emptyForm(): DiscountFormState {
     svpc_valid_from: "",
     svpc_valid_until: "",
     svpc_min_order: "",
+    svpc_max_order: "",
+    svpc_max_discount: "",
+    svpc_restricted_user_id: "",
+    svpc_allowed_plan_ids: [],
     svpc_active: true,
     svpc_allow_new: true,
     svpc_allow_renew: true,
@@ -88,24 +142,37 @@ function emptyForm(): DiscountFormState {
   }
 }
 
-function dtToInput(v: unknown): string {
+function dtToApi(v: unknown): string {
   if (v == null || v === "") return ""
   const s = String(v).trim()
   if (!s) return ""
-  return s.replace("T", " ").slice(0, 16)
+  if (s.length >= 19) return s.slice(0, 19).replace("T", " ")
+  return s.replace("T", " ").slice(0, 16) + ":00"
+}
+
+function parseDiscountType(v: unknown): DiscountType {
+  const s = String(v ?? "percent")
+  if (s === "fixed_toman" || s === "percent_per_gb" || s === "fixed_per_gb") return s
+  return "percent"
 }
 
 function formFromRow(d: DashRecord): DiscountFormState {
   const maxu = d.max_uses
+  const restricted = num(d.restricted_svp_user_id)
   return {
     svpc_id: num(d.id),
     svpc_code: String(d.code ?? ""),
-    svpc_type: d.discount_type === "fixed_toman" ? "fixed_toman" : "percent",
+    svpc_type: parseDiscountType(d.discount_type),
     svpc_value: num(d.discount_value),
     svpc_max_uses: maxu == null || maxu === "" ? "" : String(maxu),
-    svpc_valid_from: dtToInput(d.valid_from),
-    svpc_valid_until: dtToInput(d.valid_until),
+    svpc_valid_from: dtToApi(d.valid_from),
+    svpc_valid_until: dtToApi(d.valid_until),
     svpc_min_order: d.min_order_toman == null || d.min_order_toman === "" ? "" : String(d.min_order_toman),
+    svpc_max_order: d.max_order_toman == null || d.max_order_toman === "" ? "" : String(d.max_order_toman),
+    svpc_max_discount:
+      d.max_discount_toman == null || d.max_discount_toman === "" ? "" : String(d.max_discount_toman),
+    svpc_restricted_user_id: restricted > 0 ? String(restricted) : "",
+    svpc_allowed_plan_ids: parsePlanIds(d.allowed_plan_ids),
     svpc_active: isDiscountActive(d),
     svpc_allow_new: !!(d.allow_new_purchase === true || d.allow_new_purchase === 1 || d.allow_new_purchase === "1"),
     svpc_allow_renew: !!(d.allow_renew_same === true || d.allow_renew_same === 1 || d.allow_renew_same === "1"),
@@ -115,6 +182,7 @@ function formFromRow(d: DashRecord): DiscountFormState {
 }
 
 function formToPayload(f: DiscountFormState): Record<string, unknown> {
+  const restricted = f.svpc_restricted_user_id.trim()
   return {
     svpc_id: f.svpc_id,
     svpc_code: f.svpc_code,
@@ -124,6 +192,10 @@ function formToPayload(f: DiscountFormState): Record<string, unknown> {
     svpc_valid_from: f.svpc_valid_from.trim(),
     svpc_valid_until: f.svpc_valid_until.trim(),
     svpc_min_order: f.svpc_min_order.trim(),
+    svpc_max_order: f.svpc_max_order.trim(),
+    svpc_max_discount: f.svpc_max_discount.trim(),
+    svpc_restricted_user_id: restricted === "" ? 0 : num(restricted),
+    svpc_allowed_plan_ids: f.svpc_allowed_plan_ids,
     svpc_active: f.svpc_active ? 1 : 0,
     svpc_allow_new: f.svpc_allow_new ? 1 : 0,
     svpc_allow_renew: f.svpc_allow_renew ? 1 : 0,
@@ -135,8 +207,18 @@ function formToPayload(f: DiscountFormState): Record<string, unknown> {
 const selectClass =
   "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
 
+function typeLabelKey(dtype: string): string {
+  if (dtype === "fixed_toman") return "typeFixed"
+  if (dtype === "percent_per_gb") return "typePercentPerGb"
+  if (dtype === "fixed_per_gb") return "typeFixedPerGb"
+  return "typePercent"
+}
+
 export function DashboardDiscountsAdmin({
   discountCodes,
+  discountUsageSummary,
+  plans,
+  usersList,
   pagination,
   isFa,
   onMutateSuccess,
@@ -144,6 +226,9 @@ export function DashboardDiscountsAdmin({
   onPerPageChange,
 }: {
   discountCodes: DashRecord[]
+  discountUsageSummary?: UsageSummary | null
+  plans: DashRecord[]
+  usersList: DashRecord[]
   pagination: PaginationMeta | null
   isFa: boolean
   onMutateSuccess?: () => void
@@ -160,24 +245,32 @@ export function DashboardDiscountsAdmin({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DashRecord | null>(null)
+  const [usageTarget, setUsageTarget] = useState<DashRecord | null>(null)
+  const [usageRows, setUsageRows] = useState<RedemptionRow[]>([])
+  const [usageLoading, setUsageLoading] = useState(false)
+  const [userFilter, setUserFilter] = useState("")
+
+  const planNameById = useMemo(() => {
+    const m = new Map<number, string>()
+    for (const p of plans) {
+      const id = num(p.id)
+      if (id > 0) m.set(id, String(p.name ?? p.title ?? `#${id}`))
+    }
+    return m
+  }, [plans])
 
   const stats = useMemo(() => {
     let active = 0
-    let percent = 0
-    let fixed = 0
     for (const d of discountCodes) {
       if (isDiscountActive(d)) active += 1
-      if (String(d.discount_type ?? "") === "fixed_toman") fixed += 1
-      else percent += 1
     }
     return {
       total: pagination?.total ?? discountCodes.length,
       active,
-      inactive: discountCodes.length - active,
-      percent,
-      fixed,
+      totalRedemptions: num(discountUsageSummary?.total_redemptions),
+      totalDiscountToman: num(discountUsageSummary?.total_discount_toman),
     }
-  }, [discountCodes, pagination])
+  }, [discountCodes, pagination, discountUsageSummary])
 
   const filtered = useMemo(() => {
     if (filter === "active") return discountCodes.filter(isDiscountActive)
@@ -185,8 +278,22 @@ export function DashboardDiscountsAdmin({
     return discountCodes
   }, [discountCodes, filter])
 
+  const filteredUsers = useMemo(() => {
+    const q = userFilter.trim().toLowerCase()
+    if (!q) return usersList.slice(0, 80)
+    return usersList
+      .filter((u) => {
+        const id = String(u.id ?? "")
+        const name = `${u.first_name ?? ""} ${u.last_name ?? ""}`.toLowerCase()
+        const un = String(u.username ?? "").toLowerCase()
+        return id.includes(q) || name.includes(q) || un.includes(q)
+      })
+      .slice(0, 80)
+  }, [usersList, userFilter])
+
   const openAdd = useCallback(() => {
     setError(null)
+    setUserFilter("")
     setFormMode("add")
     setForm(emptyForm())
     setSheetOpen(true)
@@ -194,10 +301,35 @@ export function DashboardDiscountsAdmin({
 
   const openEdit = useCallback((d: DashRecord) => {
     setError(null)
+    setUserFilter("")
     setFormMode("edit")
     setForm(formFromRow(d))
     setSheetOpen(true)
   }, [])
+
+  const openUsage = useCallback(async (d: DashRecord) => {
+    const id = num(d.id)
+    if (id < 1) return
+    setUsageTarget(d)
+    setUsageRows([])
+    setUsageLoading(true)
+    try {
+      const res = await postAdminMutate("discount_redemptions", { code_id: id, limit: 20 })
+      if (res.ok && Array.isArray(res.rows)) {
+        setUsageRows(res.rows as RedemptionRow[])
+      }
+    } finally {
+      setUsageLoading(false)
+    }
+  }, [])
+
+  const mutateErrorMessage = useCallback(
+    (msg: string | undefined) => {
+      if (msg === "plan_overlap") return tp("errorPlanOverlap")
+      return msg || tp("mutateError")
+    },
+    [tp]
+  )
 
   const onSaveSheet = useCallback(async () => {
     setSaving(true)
@@ -209,7 +341,7 @@ export function DashboardDiscountsAdmin({
       }
       const res = await postAdminMutate("discount_save", payload)
       if (!res.ok) {
-        setError(res.message || tp("mutateError"))
+        setError(mutateErrorMessage(res.message))
         return
       }
       setSheetOpen(false)
@@ -217,7 +349,7 @@ export function DashboardDiscountsAdmin({
     } finally {
       setSaving(false)
     }
-  }, [form, formMode, onMutateSuccess, tp])
+  }, [form, formMode, mutateErrorMessage, onMutateSuccess])
 
   const onConfirmDelete = useCallback(async () => {
     if (!deleteTarget) return
@@ -227,7 +359,7 @@ export function DashboardDiscountsAdmin({
     try {
       const res = await postAdminMutate("discount_delete", { svpc_delete_id: id })
       if (!res.ok) {
-        setError(res.message || tp("mutateError"))
+        setError(mutateErrorMessage(res.message))
         return
       }
       setDeleteTarget(null)
@@ -235,10 +367,25 @@ export function DashboardDiscountsAdmin({
     } finally {
       setSaving(false)
     }
-  }, [deleteTarget, onMutateSuccess, tp])
+  }, [deleteTarget, mutateErrorMessage, onMutateSuccess])
+
+  const togglePlanId = (planId: number) => {
+    setForm((f) => {
+      const has = f.svpc_allowed_plan_ids.includes(planId)
+      return {
+        ...f,
+        svpc_allowed_plan_ids: has
+          ? f.svpc_allowed_plan_ids.filter((x) => x !== planId)
+          : [...f.svpc_allowed_plan_ids, planId],
+      }
+    })
+  }
+
+  const filterLabel =
+    filter === "active" ? tp("filterActive") : filter === "inactive" ? tp("filterInactive") : tp("filterAll")
 
   return (
-    <div className={cn("space-y-6", isFa && "text-right")}>
+    <div className={cn("mx-auto w-full max-w-7xl space-y-6", isFa && "text-right")}>
       <div>
         <h2 className="text-lg font-medium">{tp("title")}</h2>
         <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
@@ -253,7 +400,7 @@ export function DashboardDiscountsAdmin({
         </div>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>{tp("statsTotal")}</CardDescription>
@@ -268,20 +415,14 @@ export function DashboardDiscountsAdmin({
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>{tp("statsInactive")}</CardDescription>
-            <CardTitle className="text-2xl tabular-nums">{formatNumber(stats.inactive, isFa)}</CardTitle>
+            <CardDescription>{tp("statsTotalRedemptions")}</CardDescription>
+            <CardTitle className="text-2xl tabular-nums">{formatNumber(stats.totalRedemptions, isFa)}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>{tp("statsPercent")}</CardDescription>
-            <CardTitle className="text-2xl tabular-nums">{formatNumber(stats.percent, isFa)}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{tp("statsFixed")}</CardDescription>
-            <CardTitle className="text-2xl tabular-nums">{formatNumber(stats.fixed, isFa)}</CardTitle>
+            <CardDescription>{tp("statsTotalDiscount")}</CardDescription>
+            <CardTitle className="text-2xl tabular-nums">{formatNumber(stats.totalDiscountToman, isFa)}</CardTitle>
           </CardHeader>
         </Card>
       </div>
@@ -290,48 +431,53 @@ export function DashboardDiscountsAdmin({
         <p className="text-xs text-muted-foreground">{tp("statsPageBreakdown")}</p>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <Label className="text-muted-foreground">{tp("filterLabel")}</Label>
-          <select
-            className={selectClass + " w-auto min-w-[8rem]"}
-            value={filter}
-            onChange={(e) => setFilter(e.target.value as typeof filter)}
-          >
-            <option value="all">{tp("filterAll")}</option>
-            <option value="active">{tp("filterActive")}</option>
-            <option value="inactive">{tp("filterInactive")}</option>
-          </select>
-        </div>
-        <Button type="button" size="sm" onClick={openAdd}>
-          {tp("addCode")}
-        </Button>
-      </div>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] lg:items-start">
+        <div className="min-w-0 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Label className="text-muted-foreground">{tp("filterLabel")}</Label>
+              <select
+                className={selectClass + " w-auto min-w-[8rem]"}
+                value={filter}
+                onChange={(e) => setFilter(e.target.value as typeof filter)}
+              >
+                <option value="all">{tp("filterAll")}</option>
+                <option value="active">{tp("filterActive")}</option>
+                <option value="inactive">{tp("filterInactive")}</option>
+              </select>
+            </div>
+            <Button type="button" size="sm" className="lg:hidden" onClick={openAdd}>
+              {tp("addCode")}
+            </Button>
+          </div>
 
-      <Separator />
+          <Separator />
 
-      {filtered.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{tp("empty")}</p>
-      ) : (
-        <ul className="space-y-3">
-          {filtered.map((d) => {
-            const id = num(d.id)
-            const act = isDiscountActive(d)
-            const dtype = String(d.discount_type ?? "percent")
-            return (
-              <li key={id}>
+          {filtered.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{tp("empty")}</p>
+          ) : (
+            <ul className="space-y-3">
+              {filtered.map((d) => {
+                const id = num(d.id)
+                const act = isDiscountActive(d)
+                const dtype = String(d.discount_type ?? "percent")
+                const planIds = parsePlanIds(d.allowed_plan_ids)
+                const restricted = num(d.restricted_svp_user_id)
+                return (
+                  <li key={id}>
                 <Card>
                   <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
                     <div className="min-w-0 space-y-1">
                       <CardTitle className="font-mono text-base">{String(d.code ?? "")}</CardTitle>
                       <CardDescription>
-                        {dtype === "fixed_toman" ? tp("typeFixed") : tp("typePercent")} · {tp("value")}:{" "}
-                        {formatNumber(num(d.discount_value), isFa)}
+                        {tp(typeLabelKey(dtype))} · {tp("value")}: {formatNumber(num(d.discount_value), isFa)}
                         {" · "}
                         {tp("uses")}: {formatNumber(num(d.uses_count), isFa)}
                         {d.max_uses != null && d.max_uses !== ""
                           ? ` / ${formatNumber(num(d.max_uses), isFa)}`
                           : ` / ${tp("unlimited")}`}
+                        {" · "}
+                        {tp("cardTotalDiscount")}: {formatNumber(num(d.total_discount_toman), isFa)}
                       </CardDescription>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
@@ -343,6 +489,7 @@ export function DashboardDiscountsAdmin({
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align={isFa ? "start" : "end"}>
+                          <DropdownMenuItem onClick={() => void openUsage(d)}>{tp("usageDetails")}</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => openEdit(d)}>{tp("edit")}</DropdownMenuItem>
                           <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(d)}>
                             {tp("delete")}
@@ -360,6 +507,23 @@ export function DashboardDiscountsAdmin({
                       {tp("validUntil")}: {formatDateTime(d.valid_until as string | undefined, isFa)}
                     </span>
                     <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
+                      {restricted > 0 ? (
+                        <span>
+                          {tp("restrictedUser")}: #{formatNumber(restricted, isFa)}
+                        </span>
+                      ) : (
+                        <span>{tp("allUsers")}</span>
+                      )}
+                      {planIds.length > 0 ? (
+                        <span>
+                          {tp("allowedPlans")}:{" "}
+                          {planIds.map((pid) => planNameById.get(pid) ?? `#${pid}`).join(", ")}
+                        </span>
+                      ) : (
+                        <span>{tp("allPlans")}</span>
+                      )}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
                       <span>{flagLabel(d, "allow_new_purchase", tp("flagNew"))}</span>
                       <span>{flagLabel(d, "allow_renew_same", tp("flagRenew"))}</span>
                       <span>{flagLabel(d, "allow_add_volume", tp("flagVol"))}</span>
@@ -367,18 +531,50 @@ export function DashboardDiscountsAdmin({
                     </div>
                   </CardContent>
                 </Card>
-              </li>
-            )
-          })}
-        </ul>
-      )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
 
-      <DataPagination
-        meta={pagination}
-        isFa={isFa}
-        onPageChange={onPageChange}
-        onPerPageChange={onPerPageChange}
-      />
+          <DataPagination
+            meta={pagination}
+            isFa={isFa}
+            onPageChange={onPageChange}
+            onPerPageChange={onPerPageChange}
+          />
+        </div>
+
+        <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">{tp("title")}</CardTitle>
+              <CardDescription>{filterLabel}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">{tp("statsTotal")}</span>
+                <span className="font-medium tabular-nums">{formatNumber(stats.total, isFa)}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">{tp("statsActive")}</span>
+                <span className="font-medium tabular-nums">{formatNumber(stats.active, isFa)}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">{tp("statsTotalRedemptions")}</span>
+                <span className="font-medium tabular-nums">{formatNumber(stats.totalRedemptions, isFa)}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">{tp("statsTotalDiscount")}</span>
+                <span className="font-medium tabular-nums">{formatNumber(stats.totalDiscountToman, isFa)}</span>
+              </div>
+              <Button type="button" className="mt-2 w-full" onClick={openAdd}>
+                {tp("addCode")}
+              </Button>
+            </CardContent>
+          </Card>
+        </aside>
+      </div>
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className={cn("flex w-full flex-col gap-0 overflow-y-auto sm:max-w-md", isFa && "text-right")}>
@@ -401,15 +597,12 @@ export function DashboardDiscountsAdmin({
               <select
                 className={selectClass}
                 value={form.svpc_type}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    svpc_type: e.target.value === "fixed_toman" ? "fixed_toman" : "percent",
-                  }))
-                }
+                onChange={(e) => setForm((f) => ({ ...f, svpc_type: parseDiscountType(e.target.value) }))}
               >
                 <option value="percent">{tp("typePercent")}</option>
                 <option value="fixed_toman">{tp("typeFixed")}</option>
+                <option value="percent_per_gb">{tp("typePercentPerGb")}</option>
+                <option value="fixed_per_gb">{tp("typeFixedPerGb")}</option>
               </select>
             </div>
             <div className="space-y-2">
@@ -431,29 +624,91 @@ export function DashboardDiscountsAdmin({
               />
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <DashboardDateTimePicker
+                label={tp("fieldValidFrom")}
+                isFa={isFa}
+                value={form.svpc_valid_from}
+                onChange={(v) => setForm((f) => ({ ...f, svpc_valid_from: v }))}
+              />
+              <DashboardDateTimePicker
+                label={tp("fieldValidUntil")}
+                isFa={isFa}
+                value={form.svpc_valid_until}
+                onChange={(v) => setForm((f) => ({ ...f, svpc_valid_until: v }))}
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>{tp("fieldValidFrom")}</Label>
+                <Label>{tp("fieldMinOrder")}</Label>
                 <Input
-                  placeholder={tp("placeholderDatetimeLocal")}
-                  value={form.svpc_valid_from}
-                  onChange={(e) => setForm((f) => ({ ...f, svpc_valid_from: e.target.value }))}
+                  value={form.svpc_min_order}
+                  onChange={(e) => setForm((f) => ({ ...f, svpc_min_order: e.target.value }))}
                 />
               </div>
               <div className="space-y-2">
-                <Label>{tp("fieldValidUntil")}</Label>
+                <Label>{tp("fieldMaxOrder")}</Label>
                 <Input
-                  placeholder={tp("placeholderDatetimeLocal")}
-                  value={form.svpc_valid_until}
-                  onChange={(e) => setForm((f) => ({ ...f, svpc_valid_until: e.target.value }))}
+                  value={form.svpc_max_order}
+                  onChange={(e) => setForm((f) => ({ ...f, svpc_max_order: e.target.value }))}
                 />
               </div>
             </div>
             <div className="space-y-2">
-              <Label>{tp("fieldMinOrder")}</Label>
+              <Label>{tp("fieldMaxDiscount")}</Label>
               <Input
-                value={form.svpc_min_order}
-                onChange={(e) => setForm((f) => ({ ...f, svpc_min_order: e.target.value }))}
+                value={form.svpc_max_discount}
+                onChange={(e) => setForm((f) => ({ ...f, svpc_max_discount: e.target.value }))}
               />
+            </div>
+            <div className="space-y-2 border-t pt-2">
+              <Label>{tp("fieldRestrictedUser")}</Label>
+              <Input
+                placeholder={tp("userSearchPlaceholder")}
+                value={userFilter}
+                onChange={(e) => setUserFilter(e.target.value)}
+              />
+              <select
+                className={selectClass}
+                value={form.svpc_restricted_user_id}
+                onChange={(e) => setForm((f) => ({ ...f, svpc_restricted_user_id: e.target.value }))}
+              >
+                <option value="">{tp("allUsers")}</option>
+                {filteredUsers.map((u) => {
+                  const uid = num(u.id)
+                  const label = `${uid} — ${String(u.first_name ?? "")} ${String(u.last_name ?? "")}`.trim()
+                  return (
+                    <option key={uid} value={String(uid)}>
+                      {label || `#${uid}`}
+                    </option>
+                  )
+                })}
+              </select>
+            </div>
+            <div className="space-y-2 border-t pt-2">
+              <p className="text-xs font-medium text-muted-foreground">{tp("fieldAllowedPlans")}</p>
+              <p className="text-xs text-muted-foreground">{tp("allowedPlansHint")}</p>
+              <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
+                {plans.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{tp("noPlans")}</p>
+                ) : (
+                  plans.map((p) => {
+                    const pid = num(p.id)
+                    if (pid < 1) return null
+                    const checked = form.svpc_allowed_plan_ids.includes(pid)
+                    return (
+                      <label key={pid} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="size-4 rounded border-input"
+                          checked={checked}
+                          onChange={() => togglePlanId(pid)}
+                        />
+                        {String(p.name ?? p.title ?? `#${pid}`)}
+                      </label>
+                    )
+                  })
+                )}
+              </div>
             </div>
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -527,6 +782,53 @@ export function DashboardDiscountsAdmin({
             </Button>
             <Button type="button" variant="destructive" disabled={saving} onClick={() => void onConfirmDelete()}>
               {tp("deleteConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(usageTarget)} onOpenChange={(o) => !o && setUsageTarget(null)}>
+        <DialogContent className={cn("max-w-lg", isFa && "text-right [direction:rtl]")}>
+          <DialogHeader className={cn(isFa && "text-right sm:text-right")}>
+            <DialogTitle>{tp("usageDialogTitle")}</DialogTitle>
+            <DialogDescription>
+              {usageTarget ? String(usageTarget.code ?? "") : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {usageLoading ? (
+            <p className="text-sm text-muted-foreground">{tp("usageLoading")}</p>
+          ) : usageRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{tp("usageEmpty")}</p>
+          ) : (
+            <div className="max-h-80 overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-muted-foreground">
+                    <th className="py-1 text-start">{tp("usageColDate")}</th>
+                    <th className="py-1 text-start">{tp("usageColUser")}</th>
+                    <th className="py-1 text-end">{tp("usageColDiscount")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {usageRows.map((row) => (
+                    <tr key={row.id ?? `${row.created_at}-${row.svp_user_id}`} className="border-b border-border/50">
+                      <td className="py-1.5">{formatDateTime(row.created_at, isFa)}</td>
+                      <td className="py-1.5">
+                        #{formatNumber(num(row.svp_user_id), isFa)}
+                        {row.user_name ? ` · ${row.user_name}` : ""}
+                      </td>
+                      <td className="py-1.5 text-end tabular-nums">
+                        {formatNumber(num(row.discount_toman), isFa)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setUsageTarget(null)}>
+              {tp("cancel")}
             </Button>
           </DialogFooter>
         </DialogContent>

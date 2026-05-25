@@ -483,7 +483,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'text_key'      => 'btn.admin.op.wh_tg',
 				'glass_default' => false,
 				'max_len'       => 256,
-				'legacy'        => array( 'Set WH TG' ),
+				'legacy'        => array( 'Set WH TG', '🔗 تنظیم وب‌هوک تلگرام' ),
 				'route'         => array( 'settings_op' => 'wtg' ),
 			),
 			'op.bot.wh_bl'        => array(
@@ -492,7 +492,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'text_key'      => 'btn.admin.op.wh_bl',
 				'glass_default' => false,
 				'max_len'       => 256,
-				'legacy'        => array( 'Set WH Bl' ),
+				'legacy'        => array( 'Set WH Bl', '🔗 تنظیم وب‌هوک بله' ),
 				'route'         => array( 'settings_op' => 'wbl' ),
 			),
 			'wiz.pan.u'           => array(
@@ -734,6 +734,79 @@ class SimpleVPBot_UI_Action_Registry {
 	}
 
 	/**
+	 * Bot text key for an inline service menu slot (must match class-keyboards.php i18n_btn keys).
+	 *
+	 * @param string $slot Template slot id (e.g. svc_xray.panel).
+	 * @return string
+	 */
+	private static function svc_inline_slot_text_key( $slot ) {
+		switch ( (string) $slot ) {
+			case 'svc_xray.panel':
+				return 'btn.service.show_panel';
+			case 'svc_xray.usage':
+				return 'btn.svc.show_usage';
+			case 'svc_xray.config':
+				return 'btn.svc.config_qr';
+			case 'svc_xray.regen':
+				return 'btn.svc.regenerate_key';
+			case 'svc_xray.refresh':
+				return 'btn.svc.update_servers';
+			case 'svc_xray.renew':
+				return 'btn.svc.renew_short';
+			case 'svc_xray.volume':
+				return 'btn.svc.add_volume';
+			case 'svc_xray.slots':
+				return 'btn.svc.add_users';
+			case 'svc_xray.rename':
+				return 'btn.svc.rename';
+			case 'svc_xray.note':
+				return 'btn.svc.panel_note';
+			case 'svc_xray.alerts':
+				return 'btn.svc.alerts';
+			case 'svc_xray.ip':
+				return 'btn.svc.active_connections';
+			case 'svc_xray.faq':
+				return 'btn.svc.faq_short';
+			case 'svc_xray.transfer':
+				return 'btn.svc.transfer';
+			case 'svc_xray.support':
+				return 'btn.svc.support';
+			case 'svc_xray.back':
+				return 'btn.common.back';
+			case 'svc_xray.del_admin':
+				return 'btn.admin.delete_service_soft';
+			case 'svc_l2tp.conn':
+				return 'btn.svc.show_connection';
+			case 'svc_l2tp.usage':
+				return 'btn.svc.show_usage';
+			case 'svc_l2tp.portal':
+				return 'btn.common.web_panel';
+			case 'svc_l2tp.pass':
+				return 'btn.svc.change_password';
+			case 'svc_l2tp.renew':
+				return 'btn.svc.renew';
+			case 'svc_l2tp.autorenew':
+				return 'btn.svc.auto_renew';
+			case 'svc_l2tp.alerts':
+				return 'btn.svc.alerts';
+			case 'svc_l2tp.rename':
+				return 'btn.svc.rename';
+			case 'svc_l2tp.faq':
+				return 'btn.svc.faq';
+			case 'svc_l2tp.support':
+				return 'btn.svc.support';
+			case 'svc_l2tp.transfer':
+				return 'btn.svc.transfer';
+			case 'svc_l2tp.del_admin':
+				return 'btn.admin.delete_service_soft';
+			case 'svc_l2tp.back':
+				return 'btn.common.back';
+			default:
+				return '';
+		}
+	}
+
+	/**
 	 * Xray service menu slots (inline_template).
 	 *
 	 * @return array<string, array<string, mixed>>
@@ -760,10 +833,12 @@ class SimpleVPBot_UI_Action_Registry {
 		);
 		$out = array();
 		foreach ( $slots as $id ) {
+			$tk      = self::svc_inline_slot_text_key( $id );
 			$out[ $id ] = array(
 				'surface'       => 'svc_menu_xray',
 				'kind'          => 'inline_template',
 				'template_slot' => $id,
+				'text_key'      => $tk,
 				'glass_default' => true,
 				'max_len'       => 64,
 			);
@@ -794,10 +869,12 @@ class SimpleVPBot_UI_Action_Registry {
 		);
 		$out = array();
 		foreach ( $slots as $id ) {
+			$tk      = self::svc_inline_slot_text_key( $id );
 			$out[ $id ] = array(
 				'surface'       => 'svc_menu_l2tp',
 				'kind'          => 'inline_template',
 				'template_slot' => $id,
+				'text_key'      => $tk,
 				'glass_default' => true,
 				'max_len'       => 64,
 			);

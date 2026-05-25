@@ -17,11 +17,20 @@ export async function postDashboardMediaUpload(file: File): Promise<MediaUploadR
     credentials: "include",
     body: fd,
   })
+  const text = await res.text()
   let json: Record<string, unknown> = {}
-  try {
-    json = (await res.json()) as Record<string, unknown>
-  } catch {
-    return { ok: false, message: "bad_json" }
+  if (text.trim()) {
+    try {
+      json = JSON.parse(text) as Record<string, unknown>
+    } catch {
+      const snippet = text.replace(/\s+/g, " ").trim().slice(0, 120)
+      return {
+        ok: false,
+        message: snippet ? `bad_json (${res.status}: ${snippet})` : `bad_json (${res.status})`,
+      }
+    }
+  } else if (!res.ok) {
+    return { ok: false, message: `http_${res.status}` }
   }
   if (!json.ok) {
     return { ok: false, message: typeof json.message === "string" ? json.message : "upload_failed" }

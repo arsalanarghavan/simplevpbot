@@ -127,6 +127,24 @@ class SimpleVPBot_Service_Panel_Transfer {
 				'remark'          => (string) ( $plan->name ?? $svc->remark ?? '' ),
 			)
 		);
+		$verify = SimpleVPBot_Model_Service::find( $sid );
+		if (
+			! $verify
+			|| (int) ( $verify->panel_id ?? 0 ) !== $tpid
+			|| (int) ( $verify->inbound_id ?? 0 ) !== $tiid
+			|| (string) ( $verify->email ?? '' ) !== $new_email
+		) {
+			self::delete_target_client( $tpid, $tiid, $new_email );
+			SimpleVPBot_Logger::error(
+				'panel transfer: DB update failed after panel steps',
+				array(
+					'service_id'      => $sid,
+					'target_panel_id' => $tpid,
+					'target_email'    => $new_email,
+				)
+			);
+			return array( 'ok' => false, 'reason' => 'transfer_db_failed' );
+		}
 		if ( class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
 			SimpleVPBot_Service_Admin_Ops::configs_sync_inbounds_after_mutation( $spid, array( $siid ) );
 			SimpleVPBot_Service_Admin_Ops::configs_sync_inbounds_after_mutation( $tpid, array( $tiid ) );
@@ -217,10 +235,7 @@ class SimpleVPBot_Service_Panel_Transfer {
 				if ( '' === (string) $cid ) {
 					$cid = (string) $email;
 				}
-				$res = SimpleVPBot_Xui_Client::del_client( (int) $inbound_id, (string) $cid );
-				if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) && '' !== (string) $email && (string) $email !== (string) $cid ) {
-					$res = SimpleVPBot_Xui_Client::del_client( (int) $inbound_id, (string) $email );
-				}
+				$res = SimpleVPBot_Xui_Client::del_client( (int) $inbound_id, (string) $cid, (string) $email );
 				return SimpleVPBot_Xui_Client::response_is_success( $res )
 					? array( 'ok' => true )
 					: array( 'ok' => false, 'reason' => 'source_delete' );
@@ -235,7 +250,7 @@ class SimpleVPBot_Service_Panel_Transfer {
 				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 4, 220000 ) ) {
 					return null;
 				}
-				SimpleVPBot_Xui_Client::del_client( (int) $inbound_id, (string) $email );
+				SimpleVPBot_Xui_Client::del_client( (int) $inbound_id, (string) $email, (string) $email );
 				return null;
 			}
 		);

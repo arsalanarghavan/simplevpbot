@@ -46,7 +46,7 @@ function emptyTiers(): TierForm[] {
 export function DashboardWholesaleLinesAdmin({
   catalog,
   panels,
-  l2tpServers,
+  l2tpServers: _l2tpServers,
   isFa,
   onMutateSuccess,
 }: {
@@ -66,9 +66,7 @@ export function DashboardWholesaleLinesAdmin({
   const [label, setLabel] = useState("")
   const [badgeColor, setBadgeColor] = useState("#6366f1")
   const [panelId, setPanelId] = useState(() => num(panels[0]?.id) || 1)
-  const [serviceType, setServiceType] = useState<"xray" | "l2tp">("xray")
   const [inboundId, setInboundId] = useState("")
-  const [l2tpServerId, setL2tpServerId] = useState(0)
   const [sortOrder, setSortOrder] = useState(0)
   const [active, setActive] = useState(true)
   const [tiers, setTiers] = useState<TierForm[]>(emptyTiers)
@@ -83,9 +81,7 @@ export function DashboardWholesaleLinesAdmin({
     setLabel("")
     setBadgeColor("#6366f1")
     setPanelId(num(panels[0]?.id) || 1)
-    setServiceType("xray")
     setInboundId("")
-    setL2tpServerId(0)
     setSortOrder(0)
     setActive(true)
     setTiers(emptyTiers())
@@ -98,10 +94,7 @@ export function DashboardWholesaleLinesAdmin({
     setLabel(String(row.label ?? ""))
     setBadgeColor(String(row.badge_color ?? "#6366f1"))
     setPanelId(num(row.panel_id) || 1)
-    const st = String(row.default_service_type ?? "xray").toLowerCase() === "l2tp" ? "l2tp" : "xray"
-    setServiceType(st)
     setInboundId(String(num(row.default_inbound_id)))
-    setL2tpServerId(num(row.default_l2tp_server_id))
     setSortOrder(num(row.sort_order))
     setActive(row.active === true || row.active === 1 || row.active === "1")
     const tr = Array.isArray(row.tiers) ? (row.tiers as DashRecord[]) : []
@@ -133,9 +126,9 @@ export function DashboardWholesaleLinesAdmin({
         label: label.trim(),
         badge_color: badgeColor.trim(),
         panel_id: panelId,
-        default_service_type: serviceType,
-        default_inbound_id: serviceType === "xray" ? Math.max(0, parseInt(inboundId.trim(), 10) || 0) : 0,
-        default_l2tp_server_id: serviceType === "l2tp" ? Math.max(0, l2tpServerId) : 0,
+        default_service_type: "xray",
+        default_inbound_id: Math.max(0, parseInt(inboundId.trim(), 10) || 0),
+        default_l2tp_server_id: 0,
         sort_order: sortOrder,
         active: active ? 1 : 0,
         tiers: tierPayload,
@@ -272,38 +265,9 @@ export function DashboardWholesaleLinesAdmin({
               </select>
             </div>
             <div className="space-y-2">
-              <Label>{tp("serviceType")}</Label>
-              <select
-                className={selectClass}
-                value={serviceType}
-                onChange={(e) => setServiceType(e.target.value === "l2tp" ? "l2tp" : "xray")}
-              >
-                <option value="xray">Xray</option>
-                <option value="l2tp">L2TP</option>
-              </select>
+              <Label>{tp("inboundId")}</Label>
+              <Input value={inboundId} onChange={(e) => setInboundId(e.target.value)} dir="ltr" className="font-mono" />
             </div>
-            {serviceType === "xray" ? (
-              <div className="space-y-2">
-                <Label>{tp("inboundId")}</Label>
-                <Input value={inboundId} onChange={(e) => setInboundId(e.target.value)} dir="ltr" className="font-mono" />
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <Label>{tp("l2tpServer")}</Label>
-                <select
-                  className={selectClass}
-                  value={l2tpServerId || ""}
-                  onChange={(e) => setL2tpServerId(num(e.target.value))}
-                >
-                  <option value="0">—</option>
-                  {l2tpServers.map((s) => (
-                    <option key={String(s.id)} value={String(s.id)}>
-                      #{num(s.id)} {String(s.label ?? s.ssh_host ?? "")}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>{tp("sortOrder")}</Label>

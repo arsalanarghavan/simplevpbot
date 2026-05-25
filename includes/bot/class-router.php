@@ -86,6 +86,19 @@ class SimpleVPBot_Router {
 
 		$user = self::resolve_user( $plat, $from_id, $from );
 		self::log_incoming_bot_update( $plat, $update, $user, $from_id, $chat_id, $cb, $text );
+
+		$cb_data = '';
+		if ( $cb && isset( $cb['data'] ) ) {
+			$cb_data = (string) $cb['data'];
+		}
+		$cmd_pre = '';
+		if ( $text && preg_match( '#^/([a-zA-Z0-9_]+)(?:@[a-zA-Z0-9_]+)?(\s|$)#u', $text, $cmd_m ) ) {
+			$cmd_pre = strtolower( $cmd_m[1] );
+		}
+		if ( self::maybe_block_required_channel( $plat, $from_id, $chat_id, $user, $cmd_pre, $cb_data, $cb ) ) {
+			return;
+		}
+
 		if ( $cb ) {
 			SimpleVPBot_Handler_Callback::handle(
 				array(
@@ -386,6 +399,43 @@ class SimpleVPBot_Router {
 			$user = SimpleVPBot_Model_User::find_by_telegram( $from_id );
 		}
 		return $user;
+	}
+
+	/**
+	 * Block non-admins until they join the required channel (when enabled).
+	 *
+	 * @param string                    $plat     Platform.
+	 * @param int                       $from_id  From user id.
+	 * @param int                       $chat_id  Chat id.
+	 * @param object|null               $user     User row.
+	 * @param string                    $cmd      Command name if any.
+	 * @param string                    $cb_data  Callback data.
+	 * @param array<string, mixed>|null $cb       Callback query.
+	 * @return bool True when update was handled (caller should return).
+	 */
+	private static function maybe_block_required_channel( $plat, $from_id, $chat_id, $user, $cmd, $cb_data, $cb ) {
+		if ( self::is_platform_admin( $plat, $from_id ) ) {
+			return false;
+		}
+		if ( ! class_exists( 'SimpleVPBot_Required_Channel' ) || ! SimpleVPBot_Required_Channel::should_gate( $plat ) ) {
+			return false;
+		}
+		if ( 'chjoin:verify' === $cb_data ) {
+			return false;
+		}
+		if ( SimpleVPBot_Required_Channel::user_passes( $plat, $from_id ) ) {
+			return false;
+		}
+		SimpleVPBot_Required_Channel::send_prompt( $plat, $chat_id, $user );
+		if ( $cb && is_array( $cb ) && isset( $cb['id'] ) && class_exists( 'SimpleVPBot_Bot_Runtime' ) ) {
+			SimpleVPBot_Bot_Runtime::answer_callback_query(
+				$plat,
+				array(
+					'callback_query_id' => (string) $cb['id'],
+				)
+			);
+		}
+		return true;
 	}
 
 	/**

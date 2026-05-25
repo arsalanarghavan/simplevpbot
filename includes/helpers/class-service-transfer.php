@@ -247,11 +247,8 @@ class SimpleVPBot_Service_Transfer {
 	 * @param array<string, mixed> $extra Extra.
 	 */
 	private static function notify_user_both_bots( $user, $text, array $extra = array() ) {
-		if ( ! empty( $user->tg_user_id ) ) {
-			SimpleVPBot_Bot_Runtime::send_message( 'telegram', (int) $user->tg_user_id, $text, $extra );
-		}
-		if ( ! empty( $user->bale_user_id ) ) {
-			SimpleVPBot_Bot_Runtime::send_message( 'bale', (int) $user->bale_user_id, $text, $extra );
+		if ( class_exists( 'SimpleVPBot_User_Notify' ) ) {
+			SimpleVPBot_User_Notify::send_to_user( $user, $text, $extra );
 		}
 	}
 }

@@ -81,18 +81,8 @@ class SimpleVPBot_Cron_Idle_Offers {
 	 * @param string $text   Message.
 	 */
 	private static function notify_user_row( $user, $text ) {
-		$tg_tok = (string) SimpleVPBot_Settings::get( 'telegram_token', '' );
-		$bl_tok = (string) SimpleVPBot_Settings::get( 'bale_token', '' );
-		if ( $tg_tok && ! empty( $user->tg_user_id ) ) {
-			( new SimpleVPBot_Telegram_Client( $tg_tok ) )->send_message( array( 'chat_id' => (int) $user->tg_user_id, 'text' => $text ) );
-		}
-		if ( $bl_tok && ! empty( $user->bale_user_id ) ) {
-			( new SimpleVPBot_Bale_Client( $bl_tok ) )->send_message(
-				array(
-					'chat_id' => (int) $user->bale_user_id,
-					'text'    => class_exists( 'SimpleVPBot_Bot_Runtime' ) ? SimpleVPBot_Bot_Runtime::scrub_bale_text( $text ) : $text,
-				)
-			);
+		if ( class_exists( 'SimpleVPBot_User_Notify' ) ) {
+			SimpleVPBot_User_Notify::send_to_user( $user, $text );
 		}
 	}
 }

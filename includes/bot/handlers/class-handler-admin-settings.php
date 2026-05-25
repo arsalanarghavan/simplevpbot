@@ -23,6 +23,15 @@ class SimpleVPBot_Handler_Admin_Settings {
 	public static function handle_op( array $ctx, $code ) {
 		$platform = (string) $ctx['platform'];
 		$chat_id  = (int) $ctx['chat_id'];
+		$user     = isset( $ctx['user'] ) ? $ctx['user'] : null;
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			&& SimpleVPBot_Bot_Reseller_Scope::deny_global_settings_bot_action(
+				$platform,
+				$chat_id,
+				$user && ! empty( $user->id ) ? (int) $user->id : 0
+			) ) {
+			return;
+		}
 		$code     = (string) $code;
 		if ( 'pan' === $code ) {
 			$r = SimpleVPBot_Service_Admin_Ops::test_panel();
@@ -35,9 +44,20 @@ class SimpleVPBot_Handler_Admin_Settings {
 		} else {
 			return;
 		}
-		$msg = ! empty( $r['ok'] ) ? ( '✅ ' . (string) ( $r['data']['message'] ?? 'OK' ) ) : ( '⛔ ' . (string) ( $r['message'] ?? 'err' ) );
-		if ( ! empty( $r['data'] ) && is_array( $r['data'] ) && empty( $r['ok'] ) ) {
-			$msg .= "\n" . mb_substr( wp_json_encode( $r['data'] ), 0, 2000 );
+		$base = (string) ( ! empty( $r['ok'] ) ? ( $r['data']['message'] ?? 'OK' ) : ( $r['message'] ?? 'err' ) );
+		if ( ! empty( $r['ok'] ) ) {
+			$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.op_ok', $user, array( 'message' => $base ) );
+		} elseif ( ! empty( $r['data'] ) && is_array( $r['data'] ) ) {
+			$msg = SimpleVPBot_Bot_Admin_Texts::msg(
+				'msg.admin.op_fail_details',
+				$user,
+				array(
+					'message' => $base,
+					'details' => mb_substr( wp_json_encode( $r['data'] ), 0, 2000 ),
+				)
+			);
+		} else {
+			$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.op_fail', $user, array( 'message' => $base ) );
 		}
 		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $msg );
 	}
@@ -54,6 +74,10 @@ class SimpleVPBot_Handler_Admin_Settings {
 		if ( ! $user ) {
 			return;
 		}
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			&& SimpleVPBot_Bot_Reseller_Scope::deny_global_settings_bot_action( $platform, $chat_id, (int) $user->id ) ) {
+			return;
+		}
 		$map  = self::wizard_map();
 		$key  = (string) $a . ':' . (string) $b;
 		$info = isset( $map[ $key ] ) ? $map[ $key ] : null;
@@ -62,50 +86,39 @@ class SimpleVPBot_Handler_Admin_Settings {
 		}
 		$st = (string) $info['st'];
 		SimpleVPBot_State::set( (int) $user->id, $st, array() );
-		$prompt = (string) ( $info['prompt'] ?? 'مقدار جدید را ارسال کنید. /cancel' );
+		$prompt_key = (string) ( $info['prompt_key'] ?? 'msg.admin.wiz.default' );
+		$prompt     = SimpleVPBot_Bot_Admin_Texts::msg( $prompt_key, $user );
 		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $prompt );
 	}
 
 	/**
-	 * @return array<string, array{st: string, prompt: string}>
+	 * @return array<string, array{st: string, prompt_key: string}>
 	 */
 	private static function wizard_map() {
 		return array(
-			'gen:at' => array(
-				'st'     => 'admin_set_g_at',
-				'prompt' => "📥 آیدی ادمین‌های تلگرام (هر خط یک عدد):\n/cancel",
-			),
-			'gen:ab' => array(
-				'st'     => 'admin_set_g_ab',
-				'prompt' => "📥 آیدی ادمین‌های بله (هر خط یک عدد):\n/cancel",
-			),
-			'gen:pp' => array(
-				'st'     => 'admin_set_g_pp',
-				'prompt' => "📄 شناسه صفحه پورتال وب (عدد؛ 0=پیش‌فرض /info):\n/cancel",
-			),
-			'gen:dp' => array(
-				'st'     => 'admin_set_g_dp',
-				'prompt' => "📦 پلن پیش‌فرض سرویس‌های بدون پلن — شناسه پلن Xray فعال (0=خاموش):\n/cancel",
-			),
-			'bot:tt' => array( 'st' => 'admin_set_b_tt', 'prompt' => "🤖 Telegram token:\n/cancel" ),
-			'bot:bt' => array( 'st' => 'admin_set_b_bt', 'prompt' => "🤖 Bale token:\n/cancel" ),
-			'bot:ts' => array( 'st' => 'admin_set_b_ts', 'prompt' => "Secret مسیر Webhook تلگرام:\n/cancel" ),
-			'bot:bs' => array( 'st' => 'admin_set_b_bs', 'prompt' => "Secret مسیر Webhook بله:\n/cancel" ),
-			'bot:th' => array( 'st' => 'admin_set_b_th', 'prompt' => "Telegram secret header (اختیاری):\n/cancel" ),
-			'bot:bw' => array( 'st' => 'admin_set_b_bw', 'prompt' => "Bale wallet provider token:\n/cancel" ),
-			'pan:u'  => array( 'st' => 'admin_set_p_u', 'prompt' => "🖥 Panel URL (3x-ui):\n/cancel" ),
-			'pan:n'  => array( 'st' => 'admin_set_p_n', 'prompt' => "🖥 نام کاربری پنل:\n/cancel" ),
-			'pan:p'  => array( 'st' => 'admin_set_p_p', 'prompt' => "🖥 رمز پنل:\n/cancel" ),
-			'pan:a'  => array( 'st' => 'admin_set_p_a', 'prompt' => "🖥 API base path (مثلاً panel/api):\n/cancel" ),
-			'pan:l'  => array( 'st' => 'admin_set_p_l', 'prompt' => "🖥 Login secret (اختیاری):\n/cancel" ),
-			'pan:s'  => array( 'st' => 'admin_set_p_s', 'prompt' => "🌐 subscription public base:\n/cancel" ),
-			'not:l'  => array( 'st' => 'admin_set_n_l', 'prompt' => "🔔 آستانه حجم کم (٪) — حداقل ۱:\n/cancel" ),
-			'not:e'  => array( 'st' => 'admin_set_n_e', 'prompt' => "🔔 روزهای هشدار (با کاما مثل 3,1):\n/cancel" ),
-			'not:d'  => array( 'st' => 'admin_set_n_d', 'prompt' => "🔔 تعداد کاربر هم‌زمان پیش‌فرض (≥0):\n/cancel" ),
-			'not:p'  => array( 'st' => 'admin_set_n_p', 'prompt' => "🔔 قیمت هر کاربر اضافه (تومان):\n/cancel" ),
-			'cry:ak' => array( 'st' => 'admin_set_cry_ak', 'prompt' => "₿ NOWPayments API key:\n/cancel" ),
-			'cry:in' => array( 'st' => 'admin_set_cry_in', 'prompt' => "₿ NOWPayments IPN secret:\n/cancel" ),
-			'cry:cu' => array( 'st' => 'admin_set_cry_cu', 'prompt' => "₿ pay_currency (مثل usdttrc20):\n/cancel" ),
+			'gen:at' => array( 'st' => 'admin_set_g_at', 'prompt_key' => 'msg.admin.wiz.gen_at' ),
+			'gen:ab' => array( 'st' => 'admin_set_g_ab', 'prompt_key' => 'msg.admin.wiz.gen_ab' ),
+			'gen:pp' => array( 'st' => 'admin_set_g_pp', 'prompt_key' => 'msg.admin.wiz.gen_pp' ),
+			'gen:dp' => array( 'st' => 'admin_set_g_dp', 'prompt_key' => 'msg.admin.wiz.gen_dp' ),
+			'bot:tt' => array( 'st' => 'admin_set_b_tt', 'prompt_key' => 'msg.admin.wiz.bot_tt' ),
+			'bot:bt' => array( 'st' => 'admin_set_b_bt', 'prompt_key' => 'msg.admin.wiz.bot_bt' ),
+			'bot:ts' => array( 'st' => 'admin_set_b_ts', 'prompt_key' => 'msg.admin.wiz.bot_ts' ),
+			'bot:bs' => array( 'st' => 'admin_set_b_bs', 'prompt_key' => 'msg.admin.wiz.bot_bs' ),
+			'bot:th' => array( 'st' => 'admin_set_b_th', 'prompt_key' => 'msg.admin.wiz.bot_th' ),
+			'bot:bw' => array( 'st' => 'admin_set_b_bw', 'prompt_key' => 'msg.admin.wiz.bot_bw' ),
+			'pan:u'  => array( 'st' => 'admin_set_p_u', 'prompt_key' => 'msg.admin.wiz.pan_u' ),
+			'pan:n'  => array( 'st' => 'admin_set_p_n', 'prompt_key' => 'msg.admin.wiz.pan_n' ),
+			'pan:p'  => array( 'st' => 'admin_set_p_p', 'prompt_key' => 'msg.admin.wiz.pan_p' ),
+			'pan:a'  => array( 'st' => 'admin_set_p_a', 'prompt_key' => 'msg.admin.wiz.pan_a' ),
+			'pan:l'  => array( 'st' => 'admin_set_p_l', 'prompt_key' => 'msg.admin.wiz.pan_l' ),
+			'pan:s'  => array( 'st' => 'admin_set_p_s', 'prompt_key' => 'msg.admin.wiz.pan_s' ),
+			'not:l'  => array( 'st' => 'admin_set_n_l', 'prompt_key' => 'msg.admin.wiz.not_l' ),
+			'not:e'  => array( 'st' => 'admin_set_n_e', 'prompt_key' => 'msg.admin.wiz.not_e' ),
+			'not:d'  => array( 'st' => 'admin_set_n_d', 'prompt_key' => 'msg.admin.wiz.not_d' ),
+			'not:p'  => array( 'st' => 'admin_set_n_p', 'prompt_key' => 'msg.admin.wiz.not_p' ),
+			'cry:ak' => array( 'st' => 'admin_set_cry_ak', 'prompt_key' => 'msg.admin.wiz.cry_ak' ),
+			'cry:in' => array( 'st' => 'admin_set_cry_in', 'prompt_key' => 'msg.admin.wiz.cry_in' ),
+			'cry:cu' => array( 'st' => 'admin_set_cry_cu', 'prompt_key' => 'msg.admin.wiz.cry_cu' ),
 		);
 	}
 
@@ -123,7 +136,7 @@ class SimpleVPBot_Handler_Admin_Settings {
 
 		if ( 'admin_txt_edit' === $st && isset( $data['key'] ) ) {
 			if ( '' === $text ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⏳ متن جدید را بفرستید یا /cancel' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.prompt_edit_text', $user ) );
 				return true;
 			}
 			$key = (string) $data['key'];
@@ -131,9 +144,9 @@ class SimpleVPBot_Handler_Admin_Settings {
 				SimpleVPBot_Model_Text::set( $key, $text, 'general' );
 				SimpleVPBot_Texts::clear_cache();
 				SimpleVPBot_State::clear( (int) $user->id );
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '✅ متن «' . $key . '» ذخیره شد.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.text_saved', $user, array( 'key' => $key ) ) );
 			} else {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ محتوا نامعتبر.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.content_invalid', $user ) );
 			}
 			return true;
 		}
@@ -143,7 +156,7 @@ class SimpleVPBot_Handler_Admin_Settings {
 				return false;
 			}
 			if ( ! is_numeric( SimpleVPBot_Bot_Runtime::normalize_digits( $text ) ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ فقط عدد svp_users.id را بفرستید یا /cancel' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.prompt_user_id_only', $user ) );
 				return true;
 			}
 			$uid   = (int) trim( SimpleVPBot_Bot_Runtime::normalize_digits( $text ) );
@@ -156,9 +169,17 @@ class SimpleVPBot_Handler_Admin_Settings {
 			$r     = SimpleVPBot_Service_Admin_Ops::inbound_link( $iid, $email, $uid, $pn );
 			SimpleVPBot_State::clear( (int) $user->id );
 			if ( ! empty( $r['ok'] ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '✅ ' . (string) ( $r['data']['message'] ?? 'لینک انجام شد.' ) );
+				SimpleVPBot_Bot_Runtime::send_message(
+					$platform,
+					$chat_id,
+					SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.link_ok', $user, array( 'message' => (string) ( $r['data']['message'] ?? 'لینک انجام شد.' ) ) )
+				);
 			} else {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ ' . (string) ( $r['message'] ?? 'ناموفق' ) );
+				SimpleVPBot_Bot_Runtime::send_message(
+					$platform,
+					$chat_id,
+					SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.error_generic', $user, array( 'reason' => (string) ( $r['message'] ?? 'ناموفق' ) ) )
+				);
 			}
 			return true;
 		}
@@ -174,6 +195,10 @@ class SimpleVPBot_Handler_Admin_Settings {
 		if ( 0 !== strpos( $st, 'admin_set_' ) || '' === $text ) {
 			return false;
 		}
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			&& SimpleVPBot_Bot_Reseller_Scope::deny_global_settings_bot_action( $platform, $chat_id, (int) $user->id ) ) {
+			return true;
+		}
 
 		$ok  = false;
 		$msg = '';
@@ -181,18 +206,18 @@ class SimpleVPBot_Handler_Admin_Settings {
 			case 'admin_set_g_at':
 				$ids = SimpleVPBot_Admin_Actions::parse_id_lines( $text );
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'general', array( 'admin_telegram_ids' => implode( "\n", $ids ) ) );
-				$msg = '✅ آیدی ادمین تلگرام به‌روز شد (' . count( $ids ) . ' مورد).';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_gen_at', $user, array( 'count' => (string) count( $ids ) ) );
 				break;
 			case 'admin_set_g_ab':
 				$ids = SimpleVPBot_Admin_Actions::parse_id_lines( $text );
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'general', array( 'admin_bale_ids' => implode( "\n", $ids ) ) );
-				$msg = '✅ آیدی ادمین بله به‌روز شد (' . count( $ids ) . ' مورد).';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_gen_ab', $user, array( 'count' => (string) count( $ids ) ) );
 				break;
 			case 'admin_set_g_pp':
 				if ( is_numeric( SimpleVPBot_Bot_Runtime::normalize_digits( $text ) ) ) {
 					$pp  = (int) trim( SimpleVPBot_Bot_Runtime::normalize_digits( $text ) );
 					$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'general', array( 'portal_page_id' => max( 0, $pp ) ) );
-					$msg = '✅ portal_page_id=' . (int) max( 0, $pp );
+					$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_gen_pp', $user, array( 'value' => (string) (int) max( 0, $pp ) ) );
 				}
 				break;
 			case 'admin_set_g_dp':
@@ -200,78 +225,78 @@ class SimpleVPBot_Handler_Admin_Settings {
 					$dp  = (int) trim( SimpleVPBot_Bot_Runtime::normalize_digits( $text ) );
 					$dp  = max( 0, $dp );
 					$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'general', array( 'default_service_plan_id' => $dp ) );
-					$msg = '✅ default_service_plan_id=' . $dp;
+					$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_gen_dp', $user, array( 'value' => (string) $dp ) );
 				}
 				break;
 			case 'admin_set_b_tt':
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'bots', array( 'telegram_token' => $text ) );
-				$msg = '✅ توکن تلگرام ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_bot_tt', $user );
 				break;
 			case 'admin_set_b_bt':
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'bots', array( 'bale_token' => $text ) );
-				$msg = '✅ توکن بله ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_bot_bt', $user );
 				break;
 			case 'admin_set_b_ts':
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'bots', array( 'telegram_webhook_secret' => $text ) );
-				$msg = '✅ Webhook secret تلگرام ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_bot_ts', $user );
 				break;
 			case 'admin_set_b_bs':
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'bots', array( 'bale_webhook_secret' => $text ) );
-				$msg = '✅ Webhook secret بله ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_bot_bs', $user );
 				break;
 			case 'admin_set_b_th':
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'bots', array( 'telegram_secret_header' => $text ) );
-				$msg = '✅ header ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_bot_th', $user );
 				break;
 			case 'admin_set_b_bw':
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'bots', array( 'bale_wallet_provider_token' => $text ) );
-				$msg = '✅ توکن کیف پول بله ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_bot_bw', $user );
 				break;
 			case 'admin_set_p_u':
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'panel', array( 'panel_url' => $text ) );
-				$msg = '✅ آدرس پنل ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_pan_u', $user );
 				break;
 			case 'admin_set_p_n':
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'panel', array( 'panel_username' => $text ) );
-				$msg = '✅ نام کاربری ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_pan_n', $user );
 				break;
 			case 'admin_set_p_p':
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'panel', array( 'panel_password' => $text ) );
-				$msg = '✅ رمز پنل ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_pan_p', $user );
 				break;
 			case 'admin_set_p_a':
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'panel', array( 'panel_api_base' => $text ? $text : 'panel/api' ) );
-				$msg = '✅ API base ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_pan_a', $user );
 				break;
 			case 'admin_set_p_l':
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'panel', array( 'panel_login_secret' => $text ) );
-				$msg = '✅ login secret ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_pan_l', $user );
 				break;
 			case 'admin_set_p_s':
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'panel', array( 'subscription_public_base' => $text ) );
-				$msg = '✅ آدرس subscription ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_pan_s', $user );
 				break;
 			case 'admin_set_n_l':
 				$t = (int) trim( SimpleVPBot_Bot_Runtime::normalize_digits( $text ) );
 				if ( $t > 0 ) {
 					$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'notifications', array( 'notify_low_traffic_percent' => $t ) );
-					$msg = '✅ آستانه ٪' . $t;
+					$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_not_l', $user, array( 'value' => (string) $t ) );
 				}
 				break;
 			case 'admin_set_n_e':
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'notifications', array( 'notify_expiry_days' => $text ) );
-				$msg = '✅ روزها ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_not_e', $user );
 				break;
 			case 'admin_set_n_d':
 				$t = (int) trim( SimpleVPBot_Bot_Runtime::normalize_digits( $text ) );
 				if ( $t >= 0 ) {
 					$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'plans_catalog', array( 'default_concurrent_users' => $t ) );
-					$msg = '✅ default concurrent = ' . $t;
+					$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_not_d', $user, array( 'value' => (string) $t ) );
 				}
 				break;
 			case 'admin_set_n_p':
 				$ok  = SimpleVPBot_Admin_Actions::apply_settings_merge( 'plans_catalog', array( 'price_per_extra_user' => str_replace( ',', '.', $text ) ) );
-				$msg = '✅ قیمت ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_not_p', $user );
 				break;
 			case 'admin_set_cry_ak':
 				$all = SimpleVPBot_Settings::all();
@@ -279,7 +304,7 @@ class SimpleVPBot_Handler_Admin_Settings {
 				SimpleVPBot_Settings::update( $all );
 				SimpleVPBot_Texts::clear_cache();
 				$ok  = true;
-				$msg = '✅ API key ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_cry_ak', $user );
 				break;
 			case 'admin_set_cry_in':
 				$all = SimpleVPBot_Settings::all();
@@ -287,7 +312,7 @@ class SimpleVPBot_Handler_Admin_Settings {
 				SimpleVPBot_Settings::update( $all );
 				SimpleVPBot_Texts::clear_cache();
 				$ok  = true;
-				$msg = '✅ IPN secret ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_cry_in', $user );
 				break;
 			case 'admin_set_cry_cu':
 				$all = SimpleVPBot_Settings::all();
@@ -295,7 +320,7 @@ class SimpleVPBot_Handler_Admin_Settings {
 				SimpleVPBot_Settings::update( $all );
 				SimpleVPBot_Texts::clear_cache();
 				$ok  = true;
-				$msg = '✅ pay_currency ذخیره شد.';
+				$msg = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.wiz.ok_cry_cu', $user );
 				break;
 		}
 		if ( $ok && '' !== $msg ) {
@@ -304,7 +329,7 @@ class SimpleVPBot_Handler_Admin_Settings {
 			return true;
 		}
 		if ( 0 === strpos( $st, 'admin_set_' ) && '' !== $text ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ مقدار نامعتبر یا ذخیره ناموفق. /cancel' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.settings_invalid', $user ) );
 			return true;
 		}
 		return false;
@@ -332,31 +357,31 @@ class SimpleVPBot_Handler_Admin_Settings {
 		if ( ! $user || ! $user->id ) {
 			return;
 		}
-		$code     = (string) $code;
-		$uid      = (int) $user->id;
-		$prompt   = '';
-		$st       = '';
+		$code       = (string) $code;
+		$uid        = (int) $user->id;
+		$prompt_key = '';
+		$st         = '';
 		if ( 'pc' === $code ) {
-			$st     = 'admin_w_pc';
-			$prompt = "➕ دسته پلن — دو خط بفرستید:\n۱) slug (a-z0-9_)\n۲) برچسب\n/cancel";
+			$st         = 'admin_w_pc';
+			$prompt_key = 'msg.admin.wiz.pc';
 		} elseif ( 'pl' === $code ) {
-			$st     = 'admin_w_pl';
-			$prompt = "➕ پلن Xray (قیمت ثابت) — ۷ خط پشت‌سرهم:\n"
-				. "۱ نام · ۲ slug دسته · ۳ مدت (روز) · ۴ ترافیک GB · ۵ قیمت · ۶ inbound_id · ۷ تعداد کلاینت\n"
-				. "مثال (هر مقدار در یک خط):\nپلن آزمایشی\nnormal\n30\n20\n100000\n1\n1\n/cancel";
+			$st         = 'admin_w_pl';
+			$prompt_key = 'msg.admin.wiz.pl';
 		} elseif ( 'cd' === $code ) {
-			$st     = 'admin_w_cd';
-			$prompt = "➕ کارت — یک خط با | جدا کنید:\n"
-				. 'شماره|صاحب|بانک|روش(c2c|crypto|crypto_auto)|سقف_روزانه|اولویت[|یادداشت اختیاری]' . "\n/cancel";
+			$st         = 'admin_w_cd';
+			$prompt_key = 'msg.admin.wiz.cd';
 		} elseif ( 'l2' === $code ) {
-			$st     = 'admin_w_l2';
-			$prompt = "➕ سرور L2TP — یک خط با | (احراز رمز SSH):\n"
-				. "label|ssh_host|port|ssh_user|l2tp_host|ssh_password|psk\n/cancel";
+			if ( class_exists( 'SimpleVPBot_Feature_L2tp' ) && ! SimpleVPBot_Feature_L2tp::enabled() ) {
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.unavailable', $user ) );
+				return;
+			}
+			$st         = 'admin_w_l2';
+			$prompt_key = 'msg.admin.wiz.l2';
 		} else {
 			return;
 		}
 		SimpleVPBot_State::set( $uid, $st, array() );
-		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $prompt );
+		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( $prompt_key, $user ) );
 	}
 
 	/**
@@ -375,7 +400,7 @@ class SimpleVPBot_Handler_Admin_Settings {
 		if ( 'admin_w_pc' === $st ) {
 			$lines = self::lines_nonempty( $text );
 			if ( count( $lines ) < 2 ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ دو خط لازم است: slug و label.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.category_lines', $user ) );
 				return true;
 			}
 			$res = SimpleVPBot_Service_Admin_Catalog::apply_plan_category_action(
@@ -390,9 +415,9 @@ class SimpleVPBot_Handler_Admin_Settings {
 			);
 			SimpleVPBot_State::clear( (int) $user->id );
 			if ( ! empty( $res['ok'] ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '✅ دسته اضافه شد.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.category_added', $user ) );
 			} else {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ خطا: ' . (string) ( $res['code'] ?? '—' ) );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.error_code', $user, array( 'code' => (string) ( $res['code'] ?? '—' ) ) ) );
 			}
 			return true;
 		}
@@ -400,7 +425,7 @@ class SimpleVPBot_Handler_Admin_Settings {
 		if ( 'admin_w_pl' === $st ) {
 			$lines = self::lines_nonempty( $text );
 			if ( count( $lines ) < 7 ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ ۷ خط لازم است (نام… تا تعداد کلاینت).' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.plan_lines', $user ) );
 				return true;
 			}
 			$post = array(
@@ -424,10 +449,10 @@ class SimpleVPBot_Handler_Admin_Settings {
 			$res = SimpleVPBot_Service_Admin_Catalog::apply_plan_action( 'add', 0, $post );
 			SimpleVPBot_State::clear( (int) $user->id );
 			if ( $res && ! empty( $res['ok'] ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '✅ پلن اضافه شد.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.plan_added', $user ) );
 			} else {
 				$c = ( $res && is_array( $res ) && isset( $res['code'] ) ) ? (string) $res['code'] : 'invalid';
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ داده‌ نامعتبر یا حذف/به‌روز: ' . $c );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.plan_invalid', $user, array( 'code' => $c ) ) );
 			}
 			return true;
 		}
@@ -435,7 +460,7 @@ class SimpleVPBot_Handler_Admin_Settings {
 		if ( 'admin_w_cd' === $st ) {
 			$segs = array_map( 'trim', explode( '|', $text ) );
 			if ( count( $segs ) < 6 ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ حداقل ۶ بخش با | لازم است.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.card_lines', $user ) );
 				return true;
 			}
 			$method = SimpleVPBot_Service_Admin_Catalog::sanitize_card_method_key( (string) $segs[3] );
@@ -452,14 +477,19 @@ class SimpleVPBot_Handler_Admin_Settings {
 				)
 			);
 			SimpleVPBot_State::clear( (int) $user->id );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '✅ کارت اضافه شد.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.card_added', $user ) );
 			return true;
 		}
 
 		if ( 'admin_w_l2' === $st ) {
+			if ( class_exists( 'SimpleVPBot_Feature_L2tp' ) && ! SimpleVPBot_Feature_L2tp::enabled() ) {
+				SimpleVPBot_State::clear( (int) $user->id );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.unavailable', $user ) );
+				return true;
+			}
 			$segs = array_map( 'trim', explode( '|', $text ) );
 			if ( count( $segs ) < 7 ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ ۷ بخش با | لازم است.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.l2tp_lines', $user ) );
 				return true;
 			}
 			$post = array(
@@ -478,7 +508,7 @@ class SimpleVPBot_Handler_Admin_Settings {
 			$row = SimpleVPBot_Service_Admin_Catalog::sanitize_l2tp_post( null, $post );
 			SimpleVPBot_Model_L2TP_Server::insert( $row );
 			SimpleVPBot_State::clear( (int) $user->id );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '✅ سرور L2TP اضافه شد.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.l2tp_added', $user ) );
 			return true;
 		}
 		return false;

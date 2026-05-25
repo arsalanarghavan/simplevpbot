@@ -202,7 +202,31 @@ class SimpleVPBot_Crypto_Payment {
 			return new WP_REST_Response( array( 'error' => 'bad_order' ), 400 );
 		}
 		$tx_id = (int) $oid;
-		$res   = SimpleVPBot_Receipt_Processor::fulfill_purchase_by_transaction( $tx_id, 'nowpayments' );
+		$tx    = SimpleVPBot_Model_Transaction::find( $tx_id );
+		if ( ! $tx || 'purchase' !== (string) $tx->type ) {
+			return new WP_REST_Response( array( 'error' => 'bad_tx' ), 400 );
+		}
+		if ( 'approved' === (string) $tx->status ) {
+			return new WP_REST_Response( array( 'ok' => true, 'note' => 'already_approved' ), 200 );
+		}
+		$tx_meta = json_decode( (string) $tx->meta_json, true );
+		if ( ! is_array( $tx_meta ) ) {
+			$tx_meta = array();
+		}
+		$expected_pid = isset( $tx_meta['nowpayments_payment_id'] ) ? (string) $tx_meta['nowpayments_payment_id'] : '';
+		$incoming_pid = isset( $data['payment_id'] ) ? (string) $data['payment_id'] : '';
+		if ( '' !== $expected_pid && '' !== $incoming_pid && $expected_pid !== $incoming_pid ) {
+			SimpleVPBot_Logger::error(
+				'crypto_ipn payment_id mismatch',
+				array(
+					'tx_id'    => $tx_id,
+					'expected' => $expected_pid,
+					'incoming' => $incoming_pid,
+				)
+			);
+			return new WP_REST_Response( array( 'error' => 'payment_id_mismatch' ), 409 );
+		}
+		$res = SimpleVPBot_Receipt_Processor::fulfill_purchase_by_transaction( $tx_id, 'nowpayments' );
 		if ( empty( $res['ok'] ) ) {
 			SimpleVPBot_Logger::error(
 				'crypto_ipn fulfill failed',

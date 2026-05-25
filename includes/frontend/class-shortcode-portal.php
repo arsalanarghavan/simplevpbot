@@ -44,7 +44,7 @@ class SimpleVPBot_Shortcode_Portal {
 		$sid = SimpleVPBot_Portal_Link::current_service_id();
 		if ( $sid > 0 ) {
 			$svc = SimpleVPBot_Model_Service::find( $sid );
-			if ( ! $svc ) {
+			if ( ! $svc || ( class_exists( 'SimpleVPBot_Feature_L2tp' ) && ! SimpleVPBot_Feature_L2tp::service_visible( $svc ) ) ) {
 				return '<div class="svp-error">' . esc_html__( 'این اشتراک در سیستم ثبت نیست یا حذف شده است.', 'simplevpbot' ) . '</div>';
 			}
 			// HMAC already binds (user_id, service_id); do not require svc.user_id === uid — DB drift or
@@ -62,6 +62,9 @@ class SimpleVPBot_Shortcode_Portal {
 			$list = array( $svc );
 		} else {
 			$list = SimpleVPBot_Model_Service::by_user( $uid );
+			if ( class_exists( 'SimpleVPBot_Feature_L2tp' ) ) {
+				$list = SimpleVPBot_Feature_L2tp::filter_services( (array) $list );
+			}
 		}
 		if ( empty( $list ) ) {
 			return '<div class="svp-empty">' . esc_html__( 'سرویسی ثبت نشده است.', 'simplevpbot' ) . '</div>';
@@ -136,6 +139,9 @@ class SimpleVPBot_Shortcode_Portal {
 	 * @return string
 	 */
 	private static function render_service_card( $svc, $user_id = 0 ) {
+		if ( class_exists( 'SimpleVPBot_Feature_L2tp' ) && ! SimpleVPBot_Feature_L2tp::service_visible( $svc ) ) {
+			return '';
+		}
 		if ( SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
 			return self::render_l2tp_card( $svc, (int) $user_id );
 		}
@@ -206,7 +212,12 @@ class SimpleVPBot_Shortcode_Portal {
 				if ( '' === $uri ) {
 					continue;
 				}
-				$tag = count( $uris ) > 1 ? ( $remark . ' · ' . $idx ) : $remark;
+				$tag = class_exists( 'SimpleVPBot_Config_Link' )
+					? SimpleVPBot_Config_Link::uri_fragment_label( $uri )
+					: '';
+				if ( '' === $tag ) {
+					$tag = count( $uris ) > 1 ? trim( $remark . ' · ' . $idx ) : $remark;
+				}
 				$out .= '<div class="svp-cfg">';
 				$out .= '<span class="svp-cfg__tag">' . esc_html( $tag ) . '</span>';
 				$out .= '<code class="svp-cfg__code">' . esc_html( $uri ) . '</code>';

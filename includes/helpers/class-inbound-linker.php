@@ -104,6 +104,227 @@ class SimpleVPBot_Inbound_Linker {
 		return $b > 0 ? $b : 0;
 	}
 
+	/** Mis-scaled cap marker (51200 GB shown in UI after bad rebuild/sync). */
+	const MISCALE_CAP_MARKER_GB = 51200;
+
+	/**
+	 * Whether stored quota bytes match the known 51200 GB cap bug.
+	 *
+	 * @param int $bytes svp_services.total_traffic or panel-equivalent bytes.
+	 * @return bool
+	 */
+	public static function is_51200_cap_bug_bytes( $bytes ) {
+		$b = (int) $bytes;
+		if ( $b <= 0 ) {
+			return false;
+		}
+		$gb = class_exists( 'SimpleVPBot_Service_Renew' )
+			? (int) SimpleVPBot_Service_Renew::BYTES_PER_GB
+			: 1073741824;
+		if ( $b === self::MISCALE_CAP_MARKER_GB ) {
+			return true;
+		}
+		$exact = (int) ( self::MISCALE_CAP_MARKER_GB * $gb );
+		if ( $b === $exact ) {
+			return true;
+		}
+		if ( $b > $exact && $b < $exact + $gb ) {
+			return true;
+		}
+		$as_gb = (int) floor( $b / $gb );
+		return self::MISCALE_CAP_MARKER_GB === $as_gb;
+	}
+
+	/** Bytes mistakenly applied when an earlier repair tool guessed 50 GB (51200÷1024 fallacy). */
+	const WRONG_FALLBACK_GB = 50;
+
+	/**
+	 * Whether quota bytes equal the mistaken 50 GB fallback from the old repair tool.
+	 *
+	 * @param int $bytes Stored quota bytes.
+	 * @return bool
+	 */
+	public static function is_wrong_50gb_fallback_bytes( $bytes ) {
+		$gb = class_exists( 'SimpleVPBot_Service_Renew' )
+			? (int) SimpleVPBot_Service_Renew::BYTES_PER_GB
+			: 1073741824;
+		return (int) $bytes === (int) ( self::WRONG_FALLBACK_GB * $gb );
+	}
+
+	/**
+	 * Valid human traffic_gb for plans / remarks (excludes the 51200 bug marker).
+	 *
+	 * @param int $gb Gigabytes.
+	 * @return bool
+	 */
+	public static function is_valid_traffic_gb( $gb ) {
+		$g = (int) $gb;
+		return $g >= 1 && $g <= 2048 && self::MISCALE_CAP_MARKER_GB !== $g;
+	}
+
+	/**
+	 * Parse "· 100 GB" style volume from service remark (per-GB purchases).
+	 *
+	 * @param string $remark Service remark.
+	 * @return int GB or 0.
+	 */
+	public static function volume_gb_from_service_remark( $remark ) {
+		$r = trim( (string) $remark );
+		if ( '' === $r || ! preg_match( '/·\s*(\d{1,4})\s*GB\b/i', $r, $m ) ) {
+			return 0;
+		}
+		$g = (int) $m[1];
+		return self::is_valid_traffic_gb( $g ) ? $g : 0;
+	}
+
+	/**
+	 * Resolve correct quota bytes for 51200-cap repair. Never guesses — returns false when unknown.
+	 *
+	 * @param object $svc               Service row (plan_traffic_gb, plan_pricing_type, remark).
+	 * @param int    $panel_id          Panel id.
+	 * @param int    $inbound_id        Resolved inbound id.
+	 * @param string $email             Client email.
+	 * @param bool   $allow_panel_live  When false, skip live panel API (dry-run / preview).
+	 * @return array{bytes:int,source:string}|false
+	 */
+	public static function resolve_quota_bytes_for_51200_repair( $svc, $panel_id, $inbound_id, $email, $allow_panel_live = true ) {
+		$gb_u    = class_exists( 'SimpleVPBot_Service_Renew' )
+			? (int) SimpleVPBot_Service_Renew::BYTES_PER_GB
+			: 1073741824;
+		$plan_gb = isset( $svc->plan_traffic_gb ) ? (int) $svc->plan_traffic_gb : 0;
+		$pricing = isset( $svc->plan_pricing_type ) ? (string) $svc->plan_pricing_type : 'fixed';
+
+		if ( 'per_gb' !== $pricing && self::is_valid_traffic_gb( $plan_gb ) ) {
+			return array(
+				'bytes'  => self::cap_traffic_bytes( $plan_gb * $gb_u ),
+				'source' => 'plan_traffic_gb',
+			);
+		}
+
+		$remark_gb = self::volume_gb_from_service_remark( isset( $svc->remark ) ? (string) $svc->remark : '' );
+		if ( $remark_gb > 0 ) {
+			if ( 'per_gb' === $pricing && class_exists( 'SimpleVPBot_Model_Plan' ) ) {
+				$min = isset( $svc->plan_traffic_gb_min ) ? (int) $svc->plan_traffic_gb_min : 0;
+				$max = isset( $svc->plan_traffic_gb_max ) ? (int) $svc->plan_traffic_gb_max : 0;
+				if ( $min >= 1 && $max >= $min && ( $remark_gb < $min || $remark_gb > $max ) ) {
+					$remark_gb = 0;
+				}
+			}
+			if ( $remark_gb > 0 ) {
+				return array(
+					'bytes'  => self::cap_traffic_bytes( $remark_gb * $gb_u ),
+					'source' => 'remark_volume_gb',
+				);
+			}
+		}
+
+		$cached = self::cached_client_limit_bytes( (int) $panel_id, (int) $inbound_id, (string) $email );
+		if ( $cached > 0 ) {
+			return array(
+				'bytes'  => $cached,
+				'source' => 'cache_limit_bytes',
+			);
+		}
+
+		if ( $allow_panel_live ) {
+			$live = self::panel_live_quota_bytes( (int) $panel_id, (int) $inbound_id, (string) $email );
+			if ( $live > 0 ) {
+				return array(
+					'bytes'  => $live,
+					'source' => 'panel_live',
+				);
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Cached limit_bytes for a panel client (skipped when it still shows the 51200 bug).
+	 *
+	 * @param int    $panel_id   Panel id.
+	 * @param int    $inbound_id Inbound id.
+	 * @param string $email      Client email.
+	 * @return int Bytes or 0.
+	 */
+	private static function cached_client_limit_bytes( $panel_id, $inbound_id, $email ) {
+		if ( ! class_exists( 'SimpleVPBot_Model_Panel_Inbound_Client' ) ) {
+			return 0;
+		}
+		global $wpdb;
+		$t = SimpleVPBot_Model_Panel_Inbound_Client::table();
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$row = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT limit_bytes FROM {$t} WHERE panel_id = %d AND inbound_id = %d AND email = %s LIMIT 1",
+				(int) $panel_id,
+				(int) $inbound_id,
+				(string) $email
+			)
+		);
+		$b = (int) $row;
+		if ( $b <= 0 || self::is_51200_cap_bug_bytes( $b ) || self::is_wrong_50gb_fallback_bytes( $b ) ) {
+			return 0;
+		}
+		return self::cap_traffic_bytes( $b );
+	}
+
+	/**
+	 * Read live quota from panel inbound JSON + getClientTraffics.
+	 *
+	 * @param int    $panel_id   Panel id.
+	 * @param int    $inbound_id Inbound id.
+	 * @param string $email      Client email.
+	 * @return int Bytes or 0.
+	 */
+	private static function panel_live_quota_bytes( $panel_id, $inbound_id, $email ) {
+		if ( ! class_exists( 'SimpleVPBot_Xui_Client' ) ) {
+			return 0;
+		}
+		$em    = trim( (string) $email );
+		$bytes = 0;
+		$ok    = SimpleVPBot_Xui_Client::run_with_panel(
+			(int) $panel_id,
+			static function () use ( $inbound_id, $em, &$bytes ) {
+				if ( ! SimpleVPBot_Xui_Client::login() ) {
+					return false;
+				}
+				$inb = SimpleVPBot_Xui_Client::inbound_get( (int) $inbound_id );
+				$cl  = SimpleVPBot_Xui_Client::inbound_client_by_email( $inb, $em );
+				if ( ! is_array( $cl ) ) {
+					return false;
+				}
+				$bytes = self::resolve_quota_bytes( $cl['totalGB'] ?? 0, $em );
+				return true;
+			}
+		);
+		if ( ! $ok || $bytes <= 0 || self::is_51200_cap_bug_bytes( $bytes ) || self::is_wrong_50gb_fallback_bytes( $bytes ) ) {
+			return 0;
+		}
+		return self::cap_traffic_bytes( (int) $bytes );
+	}
+
+	/**
+	 * Target bytes after fixing the 51200 cap bug (plan only; 0 = unknown — do not guess).
+	 *
+	 * @param int $bytes            Current (buggy) bytes.
+	 * @param int $plan_traffic_gb  Plan traffic_gb when linked (optional).
+	 * @return int
+	 */
+	public static function correct_51200_cap_bytes( $bytes, $plan_traffic_gb = 0 ) {
+		if ( ! self::is_51200_cap_bug_bytes( $bytes ) ) {
+			return (int) $bytes;
+		}
+		$gb      = class_exists( 'SimpleVPBot_Service_Renew' )
+			? (int) SimpleVPBot_Service_Renew::BYTES_PER_GB
+			: 1073741824;
+		$plan_gb = (int) $plan_traffic_gb;
+		if ( self::is_valid_traffic_gb( $plan_gb ) ) {
+			return self::cap_traffic_bytes( $plan_gb * $gb );
+		}
+		return 0;
+	}
+
 	/**
 	 * One-shot DB repair: cap `svp_services.total_traffic` rows above MAX (Xray + L2TP).
 	 *
@@ -283,8 +504,7 @@ class SimpleVPBot_Inbound_Linker {
 				continue;
 			}
 
-			$candidate = self::candidate_text( $c );
-			$resolved  = self::resolve_user_from_candidate( $candidate );
+			$resolved = self::resolve_user_id_from_panel_client_detail( $c );
 			if ( 'ambiguous' === $resolved['status'] ) {
 				$stats['ambiguous']++;
 				$stats['details'][] = array( 'email' => $email, 'status' => 'ambiguous' );
@@ -315,6 +535,99 @@ class SimpleVPBot_Inbound_Linker {
 		}
 
 		return $stats;
+	}
+
+	/**
+	 * Resolve svp_users.id from a 3x-ui client row (tgId, bot email, remark, text ids).
+	 *
+	 * @param array<string, mixed> $client Panel client array.
+	 * @return int|null User id or null when none/ambiguous.
+	 */
+	public static function resolve_user_id_from_panel_client( array $client ) {
+		$resolved = self::resolve_user_id_from_panel_client_detail( $client );
+		if ( 'ok' === $resolved['status'] && ! empty( $resolved['user_id'] ) ) {
+			return (int) $resolved['user_id'];
+		}
+		return null;
+	}
+
+	/**
+	 * @param array<string, mixed> $client Panel client array.
+	 * @return array{status:string,user_id?:int}
+	 */
+	public static function resolve_user_id_from_panel_client_detail( array $client ) {
+		$found_ids = array();
+
+		$tg = (int) ( $client['tgId'] ?? $client['tg_id'] ?? 0 );
+		if ( $tg > 0 ) {
+			$u = SimpleVPBot_Model_User::find_unique_approved_by_chat_id( $tg );
+			if ( $u ) {
+				$found_ids[] = (int) $u->id;
+			}
+		}
+
+		$email = trim( (string) ( $client['email'] ?? '' ) );
+		if ( '' !== $email && preg_match( '/^u(\d+)_/i', $email, $em ) ) {
+			$uid = (int) $em[1];
+			if ( self::is_approved_user_id( $uid ) ) {
+				$found_ids[] = $uid;
+			}
+		}
+
+		foreach ( array( 'remark', 'comment', 'memo', 'note', 'desc' ) as $rk ) {
+			$uid = self::user_id_from_bot_remark_label( (string) ( $client[ $rk ] ?? '' ) );
+			if ( $uid > 0 ) {
+				$found_ids[] = $uid;
+			}
+		}
+
+		$text_res = self::resolve_user_from_candidate( self::candidate_text( $client ) );
+		if ( 'ambiguous' === $text_res['status'] ) {
+			return array( 'status' => 'ambiguous' );
+		}
+		if ( 'ok' === $text_res['status'] && ! empty( $text_res['user_id'] ) ) {
+			$found_ids[] = (int) $text_res['user_id'];
+		}
+
+		$found_ids = array_values( array_unique( array_filter( array_map( 'intval', $found_ids ) ) ) );
+		if ( count( $found_ids ) > 1 ) {
+			return array( 'status' => 'ambiguous' );
+		}
+		if ( 1 === count( $found_ids ) ) {
+			return array( 'status' => 'ok', 'user_id' => $found_ids[0] );
+		}
+		return array( 'status' => 'none' );
+	}
+
+	/**
+	 * @param int $user_id svp_users.id.
+	 * @return bool
+	 */
+	private static function is_approved_user_id( $user_id ) {
+		$uid = (int) $user_id;
+		if ( $uid < 1 ) {
+			return false;
+		}
+		$u = SimpleVPBot_Model_User::find( $uid );
+		return $u && is_object( $u ) && 'approved' === (string) ( $u->status ?? '' );
+	}
+
+	/**
+	 * Bot panel remark prefix `#123_slug` → user id.
+	 *
+	 * @param string $text Remark or comment.
+	 * @return int
+	 */
+	private static function user_id_from_bot_remark_label( $text ) {
+		$t = trim( (string) $text );
+		if ( '' === $t ) {
+			return 0;
+		}
+		if ( preg_match( '/^#(\d+)_/i', $t, $m ) ) {
+			$uid = (int) $m[1];
+			return self::is_approved_user_id( $uid ) ? $uid : 0;
+		}
+		return 0;
 	}
 
 	/**

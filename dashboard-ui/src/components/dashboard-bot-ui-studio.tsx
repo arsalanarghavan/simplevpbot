@@ -440,7 +440,7 @@ export function DashboardBotUiStudio({
   }, [onMutateSuccess, tp])
 
   return (
-    <div className={cn("mx-auto max-w-5xl space-y-6", isFa && "text-right")}>
+    <div className={cn("mx-auto w-full max-w-7xl space-y-6", isFa && "text-right")}>
       <div>
         <h2 className="text-lg font-medium">{tp("title")}</h2>
         <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>

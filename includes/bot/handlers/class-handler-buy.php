@@ -41,36 +41,58 @@ class SimpleVPBot_Handler_Buy {
 		if ( ! $tx ) {
 			return '';
 		}
-		$meta   = json_decode( (string) $tx->meta_json, true );
-		$meta   = is_array( $meta ) ? $meta : array();
-		$tid    = (int) $tx->id;
-		$amount = (float) $tx->amount;
-		$lines  = array();
+		$uid_bal = (int) ( $tx->user_id ?? 0 );
+		$ub      = $uid_bal > 0 ? SimpleVPBot_Model_User::find( $uid_bal ) : null;
+		$meta    = json_decode( (string) $tx->meta_json, true );
+		$meta    = is_array( $meta ) ? $meta : array();
+		$tid     = (int) $tx->id;
+		$amount  = (float) $tx->amount;
+		$lines   = array();
 		if ( $title_line !== '' ) {
 			$lines[] = $title_line;
 		}
 		$brand = class_exists( 'SimpleVPBot_Bot_Context' ) ? trim( (string) SimpleVPBot_Bot_Context::active_brand_name() ) : '';
 		if ( '' !== $brand ) {
-			$lines[] = '🧾 سفارش ' . $brand . ' #' . SimpleVPBot_Bot_Persian_Text::digits_to_fa( (string) $tid );
+			$lines[] = SimpleVPBot_Texts::format(
+				SimpleVPBot_Texts::get_for_user( 'msg.buy.order_brand', $ub ),
+				array(
+					'brand' => $brand,
+					'id'    => SimpleVPBot_Bot_Persian_Text::digits_to_fa( (string) $tid ),
+				)
+			);
 		} else {
-			$lines[] = '🧾 سفارش #' . SimpleVPBot_Bot_Persian_Text::digits_to_fa( (string) $tid );
+			$lines[] = SimpleVPBot_Texts::format(
+				SimpleVPBot_Texts::get_for_user( 'msg.buy.order', $ub ),
+				array( 'id' => SimpleVPBot_Bot_Persian_Text::digits_to_fa( (string) $tid ) )
+			);
 		}
 		if ( ! empty( $meta['discount_code'] ) ) {
 			$sub  = isset( $meta['subtotal_toman'] ) ? (float) $meta['subtotal_toman'] : $amount;
 			$disc = isset( $meta['discount_toman'] ) ? (float) $meta['discount_toman'] : 0.0;
-			$lines[] = '🏷 کد: ' . (string) $meta['discount_code'] . ' · تخفیف: ' . SimpleVPBot_Bot_Persian_Text::format_toman_fa( $disc ) . ' تومان';
-			$lines[] = 'قبل از تخفیف: ' . SimpleVPBot_Bot_Persian_Text::format_toman_fa( $sub ) . ' تومان';
+			$lines[] = SimpleVPBot_Texts::format(
+				SimpleVPBot_Texts::get_for_user( 'msg.buy.discount_line', $ub ),
+				array(
+					'code'     => (string) $meta['discount_code'],
+					'discount' => SimpleVPBot_Bot_Persian_Text::format_toman_fa( $disc ),
+				)
+			);
+			$lines[] = SimpleVPBot_Texts::format(
+				SimpleVPBot_Texts::get_for_user( 'msg.buy.before_discount', $ub ),
+				array( 'subtotal' => SimpleVPBot_Bot_Persian_Text::format_toman_fa( $sub ) )
+			);
 		}
-		$lines[] = '💵 قابل پرداخت: ' . SimpleVPBot_Bot_Persian_Text::format_toman_fa( $amount ) . ' تومان';
-		$uid_bal = (int) ( $tx->user_id ?? 0 );
-		if ( $uid_bal > 0 ) {
-			$ub = SimpleVPBot_Model_User::find( $uid_bal );
-			if ( $ub ) {
-				$lines[] = '💼 موجودی کیف پول شما: ' . SimpleVPBot_Bot_Persian_Text::format_toman_fa( (float) $ub->balance ) . ' تومان';
-			}
+		$lines[] = SimpleVPBot_Texts::format(
+			SimpleVPBot_Texts::get_for_user( 'msg.buy.payable', $ub ),
+			array( 'amount' => SimpleVPBot_Bot_Persian_Text::format_toman_fa( $amount ) )
+		);
+		if ( $ub ) {
+			$lines[] = SimpleVPBot_Texts::format(
+				SimpleVPBot_Texts::get_for_user( 'msg.buy.wallet_balance', $ub ),
+				array( 'balance' => SimpleVPBot_Bot_Persian_Text::format_toman_fa( (float) $ub->balance ) )
+			);
 		}
 		$lines[] = '';
-		$lines[] = 'روش پرداخت را انتخاب کنید:';
+		$lines[] = SimpleVPBot_Texts::get_for_user( 'msg.buy.pick_payment', $ub );
 		return implode( "\n", $lines );
 	}
 
@@ -96,17 +118,18 @@ class SimpleVPBot_Handler_Buy {
 				}
 			}
 		}
-		$pay              = SimpleVPBot_Keyboards::inline_payment_method( $cards, (int) $tid, $show_bale_wallet, $show_site_wallet );
+		$ub               = ( $tx_chk && (int) $tx_chk->user_id > 0 ) ? SimpleVPBot_Model_User::find( (int) $tx_chk->user_id ) : null;
+		$pay              = SimpleVPBot_Keyboards::inline_payment_method( $cards, (int) $tid, $show_bale_wallet, $show_site_wallet, $ub );
 		$rows             = isset( $pay['inline_keyboard'] ) && is_array( $pay['inline_keyboard'] ) ? $pay['inline_keyboard'] : array();
 		array_unshift(
 			$rows,
 			array(
 				array(
-					'text'          => SimpleVPBot_Keyboards::glass_button_text( '🏷 کد تخفیف' ),
+					'text'          => SimpleVPBot_Keyboards::i18n_btn( 'btn.pay.discount_code', $ub ),
 					'callback_data' => 'buy:dc:' . (int) $tid,
 				),
 				array(
-					'text'          => SimpleVPBot_Keyboards::glass_button_text( '↩️ حذف تخفیف' ),
+					'text'          => SimpleVPBot_Keyboards::i18n_btn( 'btn.pay.remove_discount', $ub ),
 					'callback_data' => 'buy:dd:' . (int) $tid,
 				),
 			)
@@ -126,6 +149,10 @@ class SimpleVPBot_Handler_Buy {
 	 * @return int Transaction id or 0 on failure.
 	 */
 	public static function send_purchase_checkout( $platform, $chat_id, $user_id, $amount, array $meta, $initiator_svp_user_id = null ) {
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			$meta = SimpleVPBot_Bot_Reseller_Scope::enrich_checkout_meta( $meta );
+		}
+		$user   = SimpleVPBot_Model_User::find( (int) $user_id );
 		$svc_id = isset( $meta['service_id'] ) ? (int) $meta['service_id'] : 0;
 		$tid    = SimpleVPBot_Model_Transaction::insert(
 			array(
@@ -138,11 +165,11 @@ class SimpleVPBot_Handler_Buy {
 			)
 		);
 		if ( ! $tid ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, (int) $chat_id, '⛔ ثبت سفارش ناموفق بود.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, (int) $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.order_failed', $user ) );
 			return 0;
 		}
 		$initiator = null !== $initiator_svp_user_id ? (int) $initiator_svp_user_id : (int) $user_id;
-		$buyer     = SimpleVPBot_Model_User::find( (int) $user_id );
+		$buyer     = $user;
 		$is_reseller_ctx = class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot();
 		if ( ! $is_reseller_ctx && $buyer && (int) $initiator === (int) $user_id && SimpleVPBot_Router::is_svp_user_bot_admin( $buyer ) ) {
 			$ful = SimpleVPBot_Receipt_Processor::fulfill_purchase_by_transaction( (int) $tid, 'admin_self_checkout' );
@@ -157,7 +184,7 @@ class SimpleVPBot_Handler_Buy {
 		}
 		$cards = SimpleVPBot_Model_Card::active_for_transaction( (int) $tid );
 		if ( empty( $cards ) ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, (int) $chat_id, '⛔ کارتی ثبت نشده. ادمین را مطلع کنید.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, (int) $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.no_cards', $user ) );
 			return 0;
 		}
 		$tx_row = SimpleVPBot_Model_Transaction::find( (int) $tid );
@@ -217,6 +244,7 @@ class SimpleVPBot_Handler_Buy {
 			SimpleVPBot_Bot_Runtime::answer_pre_checkout_query( 'bale', $qid, false, 'سفارش یافت نشد.' );
 			return;
 		}
+		// Bale IRR uses whole Rial; invoice is toman×10 (fractional toman amounts round to nearest toman).
 		$rial = (int) round( (float) $tx->amount, 0 ) * 10;
 		if ( $rial !== $total ) {
 			SimpleVPBot_Bot_Runtime::answer_pre_checkout_query( 'bale', $qid, false, 'مبلغ با سفارش مطابقت ندارد.' );
@@ -250,7 +278,26 @@ class SimpleVPBot_Handler_Buy {
 		if ( isset( $sp['total_amount'] ) && (int) $sp['total_amount'] !== $rial ) {
 			return;
 		}
-		SimpleVPBot_Receipt_Processor::fulfill_purchase_by_transaction( (int) $tx->id, 'bale_wallet' );
+		$ful = SimpleVPBot_Receipt_Processor::fulfill_purchase_by_transaction( (int) $tx->id, 'bale_wallet' );
+		if ( ! empty( $ful['ok'] ) ) {
+			return;
+		}
+		SimpleVPBot_Logger::error(
+			'bale_wallet fulfill failed',
+			array(
+				'tx_id'  => (int) $tx->id,
+				'reason' => (string) ( $ful['reason'] ?? '' ),
+				'from'   => $from_id,
+			)
+		);
+		$chat_id = (int) ( $ctx['chat_id'] ?? 0 );
+		if ( $chat_id > 0 ) {
+			SimpleVPBot_Bot_Runtime::send_message_with_support(
+				$platform,
+				$chat_id,
+				'⛔ تکمیل سفارش ناموفق بود. مبلغ از کیف پول بله کسر شده است؛ لطفاً با پشتیبانی تماس بگیرید و شماره سفارش را ارسال کنید: #' . (int) $tx->id
+			);
+		}
 	}
 
 	/**
@@ -273,7 +320,7 @@ class SimpleVPBot_Handler_Buy {
 				|| (int) $tx->user_id !== (int) $user->id
 				|| 'pending' !== (string) $tx->status
 				|| 'purchase' !== (string) $tx->type ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ سفارش نامعتبر است.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.invalid_order', $user ) );
 				return;
 			}
 			SimpleVPBot_State::set(
@@ -286,7 +333,7 @@ class SimpleVPBot_Handler_Buy {
 					'platform'          => $platform,
 				)
 			);
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '🏷 کد تخفیف را بفرستید. برای انصراف «لغو» بفرستید یا از منوی اصلی یک گزینه را انتخاب کنید.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.prompt_discount', $user ) );
 			return;
 		}
 		if ( 'dd' === $act && isset( $parts[2] ) ) {
@@ -323,12 +370,15 @@ class SimpleVPBot_Handler_Buy {
 			$cid     = (int) $parts[2];
 			$cat_row = SimpleVPBot_Model_Plan_Category::find( $cid );
 			if ( ! $cat_row || ! (int) $cat_row->active ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ این دسته در دسترس نیست یا غیرفعال شده است.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.category_unavailable', $user ) );
 				return;
 			}
 			$panel_id = max( 1, (int) ( $cat_row->panel_id ?? 1 ) );
 			$cat      = (string) $cat_row->slug;
-			$plans    = SimpleVPBot_Model_Plan::by_category( $cat, $panel_id );
+			$plans = self::plans_for_category( $cat, $panel_id );
+			if ( class_exists( 'SimpleVPBot_Feature_L2tp' ) ) {
+				$plans = SimpleVPBot_Feature_L2tp::filter_plans( (array) $plans );
+			}
 			self::send_plan_picker_for_plans( $platform, $chat_id, (string) $cat_row->label, $plans );
 			return;
 		}
@@ -344,25 +394,35 @@ class SimpleVPBot_Handler_Buy {
 			}
 			$cat_row = SimpleVPBot_Model_Plan_Category::find_by_panel_slug( $panel_id, $cat );
 			if ( ! $cat_row || ! (int) $cat_row->active ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ این دسته در دسترس نیست یا غیرفعال شده است.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.category_unavailable', $user ) );
 				return;
 			}
-			$plans = SimpleVPBot_Model_Plan::by_category( $cat, $panel_id );
+			$plans = self::plans_for_category( $cat, $panel_id );
+			if ( class_exists( 'SimpleVPBot_Feature_L2tp' ) ) {
+				$plans = SimpleVPBot_Feature_L2tp::filter_plans( (array) $plans );
+			}
 			self::send_plan_picker_for_plans( $platform, $chat_id, (string) $cat_row->label, $plans );
 			return;
 		}
 		if ( 'p' === $act && isset( $parts[2] ) ) {
 			$pid  = (int) $parts[2];
 			$plan = SimpleVPBot_Model_Plan::find( $pid );
-			if ( ! $plan || ! (int) $plan->active ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ این پلن در دسترس نیست یا غیرفعال شده است.' );
+			if ( ! self::plan_available_in_context( $plan ) || ( class_exists( 'SimpleVPBot_Feature_L2tp' ) && ! SimpleVPBot_Feature_L2tp::plan_visible( $plan ) ) ) {
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.plan_unavailable', $user ) );
 				return;
 			}
 			if ( SimpleVPBot_Model_Plan::is_per_gb( $plan ) ) {
 				$min = (int) ( $plan->traffic_gb_min ?? 0 );
 				$max = (int) ( $plan->traffic_gb_max ?? 0 );
 				if ( $min < 1 || $max < 1 || $min > $max || (float) ( $plan->price_per_gb ?? 0 ) <= 0 ) {
-					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ پلن «' . (string) $plan->name . '» اشتباه پیکربندی شده (قیمت به ازای هر گیگابایت یا محدودهٔ حجم). با ادمین تماس بگیرید.' );
+					SimpleVPBot_Bot_Runtime::send_message(
+						$platform,
+						$chat_id,
+						SimpleVPBot_Texts::format(
+							SimpleVPBot_Texts::get_for_user( 'msg.buy.plan_misconfigured', $user ),
+							array( 'name' => (string) $plan->name )
+						)
+					);
 					return;
 				}
 				SimpleVPBot_State::set( (int) $user->id, 'buy_choose_traffic', array( 'plan_id' => $pid ) );
@@ -408,8 +468,8 @@ class SimpleVPBot_Handler_Buy {
 		if ( 'cf' === $act && isset( $parts[2] ) ) {
 			$pid  = (int) $parts[2];
 			$plan = SimpleVPBot_Model_Plan::find( $pid );
-			if ( ! $plan || ! (int) $plan->active ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ این پلن در دسترس نیست یا غیرفعال شده است.' );
+			if ( ! self::plan_available_in_context( $plan ) ) {
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.plan_unavailable', $user ) );
 				return;
 			}
 			$vol_chosen = isset( $parts[3] ) ? (int) $parts[3] : null;
@@ -417,7 +477,7 @@ class SimpleVPBot_Handler_Buy {
 			$meta       = array( 'plan_id' => $pid );
 			if ( SimpleVPBot_Model_Plan::is_per_gb( $plan ) ) {
 				if ( null === $vol_chosen || $vol_chosen < 1 || ! SimpleVPBot_Model_Plan::is_volume_in_range( $plan, $vol_chosen ) ) {
-					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ حجم انتخاب‌شده معتبر نیست.' );
+					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.volume_invalid', $user ) );
 					return;
 				}
 				$amount = SimpleVPBot_Model_Plan::total_price( $plan, $vol_chosen );
@@ -440,7 +500,7 @@ class SimpleVPBot_Handler_Buy {
 				|| 'purchase' !== (string) $tx->type
 				|| ! $card
 				|| ! (int) $card->active ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ این بخش خرید منقضی یا نامعتبر است.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.section_expired', $user ) );
 				return;
 			}
 			self::send_purchase_step_invoice(
@@ -458,12 +518,12 @@ class SimpleVPBot_Handler_Buy {
 				|| (int) $tx->user_id !== (int) $user->id
 				|| 'pending' !== (string) $tx->status
 				|| 'purchase' !== (string) $tx->type ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ سفارش خرید نامعتبر است.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.purchase_invalid', $user ) );
 				return;
 			}
 			$need = round( (float) $tx->amount, 2 );
 			if ( $need <= 0 ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ مبلغ سفارش نامعتبر است.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.amount_invalid', $user ) );
 				return;
 			}
 			if ( ! SimpleVPBot_Model_User::decrement_balance_if_sufficient( (int) $user->id, $need ) ) {
@@ -477,7 +537,7 @@ class SimpleVPBot_Handler_Buy {
 			$ful = SimpleVPBot_Receipt_Processor::fulfill_purchase_by_transaction( (int) $tx->id, 'site_wallet' );
 			if ( empty( $ful['ok'] ) ) {
 				SimpleVPBot_Model_User::increment_balance( (int) $user->id, $need );
-				SimpleVPBot_Bot_Runtime::send_message(
+				SimpleVPBot_Bot_Runtime::send_message_with_support(
 					$platform,
 					$chat_id,
 					'⛔ تکمیل سفارش ناموفق بود. مبلغ به کیف پول شما بازگردانده شد. با پشتیبانی تماس بگیرید.'
@@ -491,24 +551,24 @@ class SimpleVPBot_Handler_Buy {
 			$tx_id = (int) $parts[2];
 			$tx    = SimpleVPBot_Model_Transaction::find( $tx_id );
 			if ( 'bale' !== $platform ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ پرداخت کیف پول فقط در بله در دسترس است.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.wallet_bale_only', $user ) );
 				return;
 			}
 			$ptok = (string) SimpleVPBot_Settings::get( 'bale_wallet_provider_token', '' );
 			if ( $ptok === '' ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ پرداخت کیف پول در حال حاضر غیرفعال است.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.wallet_disabled', $user ) );
 				return;
 			}
 			if ( ! $tx || (int) $tx->user_id !== (int) $user->id || 'pending' !== (string) $tx->status || 'purchase' !== (string) $tx->type ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ سفارش خرید نامعتبر است.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.purchase_invalid', $user ) );
 				return;
 			}
 			$meta  = json_decode( (string) $tx->meta_json, true );
 			$meta  = is_array( $meta ) ? $meta : array();
 			$pid   = ! empty( $meta['plan_id'] ) ? (int) $meta['plan_id'] : 0;
 			$plan  = $pid ? SimpleVPBot_Model_Plan::find( $pid ) : null;
-			if ( ! $plan || ! (int) $plan->active ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ پلن این سفارش در دسترس نیست.' );
+			if ( ! self::plan_available_in_context( $plan ) ) {
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.plan_missing', $user ) );
 				return;
 			}
 			$label = mb_substr( (string) $plan->name, 0, 32 );
@@ -541,7 +601,7 @@ class SimpleVPBot_Handler_Buy {
 				)
 			);
 			if ( ! $res || empty( $res['ok'] ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ ارسال فاکتور ممکن نشد. کمی بعد دوباره تلاش کنید.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.invoice_failed', $user ) );
 			}
 			return;
 		}
@@ -560,12 +620,12 @@ class SimpleVPBot_Handler_Buy {
 					'card_id'        => $card_id,
 				)
 			);
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '📸 لطفاً تصویر رسید کارت‌به‌کارت را همینجا ارسال کنید.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.send_receipt_photo', $user ) );
 			return;
 		}
 		if ( 'x' === $act ) {
 			SimpleVPBot_State::clear( (int) $user->id );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '❌ لغو شد.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.cancelled', $user ) );
 		}
 	}
 
@@ -596,12 +656,12 @@ class SimpleVPBot_Handler_Buy {
 			$tid = (int) ( $sd['transaction_id'] ?? 0 );
 			if ( $tid < 1 ) {
 				SimpleVPBot_State::clear( (int) $user->id );
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ جلسه نامعتبر بود.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.session_invalid', $user ) );
 				return;
 			}
 			if ( '' === $raw || 'لغو' === $raw || 'انصراف' === $raw ) {
 				SimpleVPBot_State::clear( (int) $user->id );
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '❌ ورود کد تخفیف لغو شد.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.discount_cancelled', $user ) );
 				return;
 			}
 			$res = SimpleVPBot_Discount_Service::apply_to_pending_transaction( $tid, $raw );
@@ -614,6 +674,10 @@ class SimpleVPBot_Handler_Buy {
 					'not_started'        => 'کد هنوز فعال نشده است.',
 					'max_uses'           => 'سقف استفاده از این کد پر شده است.',
 					'below_min_order'    => 'مبلغ سفارش برای این کد کافی نیست.',
+					'above_max_order'    => 'مبلغ سفارش برای این کد بیش از حد مجاز است.',
+					'user_not_allowed'   => 'این کد برای حساب شما نیست.',
+					'plan_not_allowed'   => 'این کد برای پلن انتخاب‌شده قابل استفاده نیست.',
+					'volume_required'    => 'این کد فقط برای خرید/افزایش حجم (گیگ) است.',
 					'bad_status'         => 'این سفارش دیگر قابل تخفیف نیست.',
 				);
 				$msg = isset( $map[ $reason ] ) ? $map[ $reason ] : 'کد تایید نشد (' . $reason . ').';
@@ -660,7 +724,7 @@ class SimpleVPBot_Handler_Buy {
 			);
 			return;
 		}
-		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, 'ℹ️ از دکمه‌های منو استفاده کنید.' );
+		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.use_menu', $user ) );
 	}
 
 	/**
@@ -676,13 +740,13 @@ class SimpleVPBot_Handler_Buy {
 		$sd       = SimpleVPBot_State::data( $user );
 		$pid      = (int) ( $sd['plan_id'] ?? 0 );
 		$plan     = $pid ? SimpleVPBot_Model_Plan::find( $pid ) : null;
-		if ( ! $plan || ! (int) $plan->active || ! SimpleVPBot_Model_Plan::is_per_gb( $plan ) ) {
+		if ( ! self::plan_available_in_context( $plan ) || ! SimpleVPBot_Model_Plan::is_per_gb( $plan ) ) {
 			SimpleVPBot_State::clear( (int) $user->id );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ جلسه خرید نامعتبر است. دوباره از منو شروع کنید.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.session_restart', $user ) );
 			return;
 		}
 		if ( ! preg_match( '/^\d+$/u', $raw ) ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ فقط یک عدد صحیح بفرستید (مثلا 20).' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.integer_gb', $user ) );
 			return;
 		}
 		$gb = (int) $raw;
@@ -691,14 +755,24 @@ class SimpleVPBot_Handler_Buy {
 			$max = (int) ( $plan->traffic_gb_max ?? 0 );
 			$min_fa = SimpleVPBot_Bot_Persian_Text::digits_to_fa( (string) $min );
 			$max_fa = SimpleVPBot_Bot_Persian_Text::digits_to_fa( (string) $max );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, "⛔ حجم باید بین {$min_fa} و {$max_fa} گیگابایت باشد." );
+			SimpleVPBot_Bot_Runtime::send_message(
+				$platform,
+				$chat_id,
+				SimpleVPBot_Texts::format(
+					SimpleVPBot_Texts::get_for_user( 'msg.buy.volume_range', $user ),
+					array(
+						'min' => $min_fa,
+						'max' => $max_fa,
+					)
+				)
+			);
 			return;
 		}
 		$amount = SimpleVPBot_Model_Plan::total_price( $plan, $gb );
 		SimpleVPBot_State::clear( (int) $user->id );
 		$cb = 'buy:cf:' . (int) $plan->id . ':' . $gb;
 		if ( strlen( $cb ) > 64 ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ خطای داخلی: شناسه بیش از حد بزرگ است. با ادمین تماس بگیرید.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.id_overflow', $user ) );
 			return;
 		}
 		$gb_fa = SimpleVPBot_Bot_Persian_Text::digits_to_fa( (string) $gb );
@@ -736,7 +810,7 @@ class SimpleVPBot_Handler_Buy {
 		$user     = $ctx['user'];
 		$msg      = $ctx['message'];
 		if ( 'receipt_upload' !== (string) $user->state ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ ابتدا خرید را از منو شروع کنید.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.start_from_menu', $user ) );
 			return;
 		}
 		$sd  = SimpleVPBot_State::data( $user );
@@ -769,7 +843,7 @@ class SimpleVPBot_Handler_Buy {
 			)
 		);
 		SimpleVPBot_State::clear( (int) $user->id );
-		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '✅ رسید دریافت شد. پس از تایید ادمین به شما اطلاع داده می‌شود.' );
+		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.receipt_received', $user ) );
 
 		$admin_msgs = array();
 		$body       = SimpleVPBot_Bot_Admin_User_Caption::receipt_new_caption( $user, $tx, (int) $rid );
@@ -785,6 +859,9 @@ class SimpleVPBot_Handler_Buy {
 			usleep( 400000 );
 			$local_path = self::download_receipt_to_temp( $platform, $file_id );
 		}
+		if ( $local_path && is_readable( $local_path ) && class_exists( 'SimpleVPBot_Receipt_Image_Store' ) ) {
+			SimpleVPBot_Receipt_Image_Store::persist_from_temp( (int) $rid, $local_path );
+		}
 		$tg_file_id = 'telegram' === $platform ? $file_id : '';
 		$bl_file_id = 'bale' === $platform ? $file_id : '';
 
@@ -795,12 +872,7 @@ class SimpleVPBot_Handler_Buy {
 				if ( is_array( $r ) && ! empty( $r['result']['message_id'] ) ) {
 					$admin_msgs[] = array( 'platform' => 'telegram', 'chat_id' => $adm, 'message_id' => (int) $r['result']['message_id'] );
 				} else {
-					SimpleVPBot_Bot_Runtime::send_message(
-						'telegram',
-						$adm,
-						'⛔ رسید #' . (int) $rid . " — ارسال عکس ناموفق بود؛ در پنل «رسیدها» بازبینی کنید.\n" . wp_strip_all_tags( $body ),
-						array( 'reply_markup' => SimpleVPBot_Keyboards::inline_receipt( (int) $rid ) )
-					);
+					self::notify_admin_receipt_photo_fallback( 'telegram', $adm, (int) $rid, $body, $admin_msgs );
 				}
 				usleep( 200000 );
 			}
@@ -812,12 +884,7 @@ class SimpleVPBot_Handler_Buy {
 				if ( is_array( $r ) && ! empty( $r['result']['message_id'] ) ) {
 					$admin_msgs[] = array( 'platform' => 'bale', 'chat_id' => $adm, 'message_id' => (int) $r['result']['message_id'] );
 				} else {
-					SimpleVPBot_Bot_Runtime::send_message(
-						'bale',
-						$adm,
-						'⛔ رسید #' . (int) $rid . " — ارسال عکس ناموفق بود؛ در پنل «رسیدها» بازبینی کنید.\n" . wp_strip_all_tags( $body ),
-						array( 'reply_markup' => SimpleVPBot_Keyboards::inline_receipt( (int) $rid ) )
-					);
+					self::notify_admin_receipt_photo_fallback( 'bale', $adm, (int) $rid, $body, $admin_msgs );
 				}
 				usleep( 200000 );
 			}
@@ -841,38 +908,234 @@ class SimpleVPBot_Handler_Buy {
 	 * @param int                  $rid        Receipt id for logs.
 	 * @return array<string, mixed>|null Telegram/Bale API response with result.message_id on success.
 	 */
-	private static function send_admin_receipt_photo_retry( $platform, $admin_chat, $tg_file_id, $bl_file_id, $local_path, $body, array $photo_args, $rid ) {
+	public static function send_admin_receipt_photo_retry( $platform, $admin_chat, $tg_file_id, $bl_file_id, $local_path, $body, array $photo_args, $rid ) {
 		$admin_chat = (int) $admin_chat;
 		$rid        = (int) $rid;
 		$attempts   = 8;
 		$delay_us   = 350000;
+		$last_err   = '';
 		for ( $i = 0; $i < $attempts; $i++ ) {
-			$r = null;
-			if ( 'telegram' === $platform ) {
-				if ( '' !== (string) $tg_file_id ) {
-					$r = SimpleVPBot_Bot_Runtime::send_photo( 'telegram', $admin_chat, (string) $tg_file_id, $body, $photo_args );
-				}
-				if ( ( ! is_array( $r ) || empty( $r['result']['message_id'] ) ) && $local_path && is_readable( $local_path ) ) {
-					$r = SimpleVPBot_Bot_Runtime::send_photo_file( 'telegram', $admin_chat, $local_path, $body, $photo_args );
-				}
-			} else {
-				if ( '' !== (string) $bl_file_id ) {
-					$r = SimpleVPBot_Bot_Runtime::send_photo( 'bale', $admin_chat, (string) $bl_file_id, $body, $photo_args );
-				}
-				if ( ( ! is_array( $r ) || empty( $r['result']['message_id'] ) ) && $local_path && is_readable( $local_path ) ) {
-					$r = SimpleVPBot_Bot_Runtime::send_photo_file( 'bale', $admin_chat, $local_path, $body, $photo_args );
-				}
-			}
+			$r = self::try_send_admin_receipt_photo_once( $platform, $admin_chat, $tg_file_id, $bl_file_id, $local_path, $body, $photo_args );
 			if ( is_array( $r ) && ! empty( $r['result']['message_id'] ) ) {
 				return $r;
 			}
+			if ( is_array( $r ) ) {
+				$last_err = (string) ( $r['description'] ?? wp_json_encode( $r ) );
+			}
 			usleep( $delay_us );
+		}
+		// Final attempt: photo without caption (caption may exceed limits or contain blocked words).
+		$r = self::try_send_admin_receipt_photo_once( $platform, $admin_chat, $tg_file_id, $bl_file_id, $local_path, '', $photo_args );
+		if ( is_array( $r ) && ! empty( $r['result']['message_id'] ) ) {
+			return $r;
+		}
+		if ( is_array( $r ) ) {
+			$last_err = (string) ( $r['description'] ?? wp_json_encode( $r ) );
 		}
 		SimpleVPBot_Logger::error(
 			'receipt admin photo delivery failed after retries',
-			array( 'receipt_id' => $rid, 'platform' => (string) $platform, 'admin_chat' => $admin_chat )
+			array(
+				'receipt_id' => $rid,
+				'platform'   => (string) $platform,
+				'admin_chat' => $admin_chat,
+				'api_error'  => $last_err,
+			)
 		);
 		return null;
+	}
+
+	/**
+	 * Faster receipt photo send for bulk «تأیید رسیدها» (stored file first, fewer retries).
+	 *
+	 * @param string               $platform   telegram|bale.
+	 * @param int                  $admin_chat Admin chat id.
+	 * @param object|null          $rec        Receipt row (for stored_image_path).
+	 * @param string               $tg_file_id Telegram file_id.
+	 * @param string               $bl_file_id Bale file_id.
+	 * @param string               $body       Caption.
+	 * @param array<string, mixed> $photo_args Extra params.
+	 * @param int                  $rid        Receipt id for logs.
+	 * @return array<string, mixed>|null
+	 */
+	public static function send_admin_receipt_photo_review( $platform, $admin_chat, $rec, $tg_file_id, $bl_file_id, $body, array $photo_args, $rid ) {
+		$admin_chat = (int) $admin_chat;
+		$rid        = (int) $rid;
+		$tg_for     = 'telegram' === $platform ? trim( (string) $tg_file_id ) : '';
+		$bl_for     = 'bale' === $platform ? trim( (string) $bl_file_id ) : '';
+		$stored     = ( is_object( $rec ) && class_exists( 'SimpleVPBot_Receipt_Image_Store' ) )
+			? SimpleVPBot_Receipt_Image_Store::readable_path_for_receipt( $rec )
+			: '';
+		$temp_path  = '';
+		$temp_owned = false;
+		$attempts   = 3;
+		$delay_us   = 200000;
+		$last_err   = '';
+		for ( $i = 0; $i < $attempts; $i++ ) {
+			$local_path = '';
+			if ( 0 === $i && '' !== $stored ) {
+				$local_path = $stored;
+			} elseif ( 1 === $i ) {
+				$local_path = '';
+			} else {
+				if ( '' === $temp_path ) {
+					if ( '' !== $tg_file_id ) {
+						$temp_path = self::download_receipt_to_temp( 'telegram', (string) $tg_file_id );
+					} elseif ( '' !== $bl_file_id ) {
+						$temp_path = self::download_receipt_to_temp( 'bale', (string) $bl_file_id );
+					}
+					$temp_owned = '' !== $temp_path && is_readable( $temp_path );
+				}
+				$local_path = $temp_path;
+			}
+			$r = self::try_send_admin_receipt_photo_once( $platform, $admin_chat, $tg_for, $bl_for, $local_path, $body, $photo_args );
+			if ( is_array( $r ) && ! empty( $r['result']['message_id'] ) ) {
+				if ( $temp_owned && $temp_path && file_exists( $temp_path ) ) {
+					@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				}
+				return $r;
+			}
+			if ( is_array( $r ) ) {
+				$last_err = (string) ( $r['description'] ?? wp_json_encode( $r ) );
+			}
+			if ( $i + 1 < $attempts ) {
+				usleep( $delay_us );
+			}
+		}
+		if ( '' === $temp_path && '' === $stored ) {
+			if ( '' !== $tg_file_id ) {
+				$temp_path  = self::download_receipt_to_temp( 'telegram', (string) $tg_file_id );
+				$temp_owned = '' !== $temp_path && is_readable( $temp_path );
+			} elseif ( '' !== $bl_file_id ) {
+				$temp_path  = self::download_receipt_to_temp( 'bale', (string) $bl_file_id );
+				$temp_owned = '' !== $temp_path && is_readable( $temp_path );
+			}
+		}
+		$fallback_path = ( '' !== $stored ) ? $stored : $temp_path;
+		$r             = self::try_send_admin_receipt_photo_once( $platform, $admin_chat, $tg_for, $bl_for, $fallback_path, '', $photo_args );
+		if ( is_array( $r ) && ! empty( $r['result']['message_id'] ) ) {
+			if ( $temp_owned && $temp_path && file_exists( $temp_path ) ) {
+				@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+			return $r;
+		}
+		if ( $temp_owned && $temp_path && file_exists( $temp_path ) ) {
+			@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		SimpleVPBot_Logger::error(
+			'receipt admin photo review delivery failed',
+			array(
+				'receipt_id' => $rid,
+				'platform'   => (string) $platform,
+				'admin_chat' => $admin_chat,
+				'api_error'  => $last_err,
+			)
+		);
+		return null;
+	}
+
+	/**
+	 * Merge admin notify entries without duplicate platform/chat/message_id.
+	 *
+	 * @param int                             $receipt_id   Receipt id.
+	 * @param array<int, array<string, mixed>> $new_entries New rows.
+	 * @return void
+	 */
+	public static function merge_admin_message_entries( $receipt_id, array $new_entries ) {
+		$rid = (int) $receipt_id;
+		if ( $rid < 1 || empty( $new_entries ) ) {
+			return;
+		}
+		$rec = SimpleVPBot_Model_Receipt::find( $rid );
+		if ( ! $rec ) {
+			return;
+		}
+		$existing = json_decode( (string) ( $rec->admin_messages_json ?? '' ), true );
+		if ( ! is_array( $existing ) ) {
+			$existing = array();
+		}
+		foreach ( $new_entries as $entry ) {
+			if ( ! is_array( $entry ) || empty( $entry['message_id'] ) ) {
+				continue;
+			}
+			$plat = (string) ( $entry['platform'] ?? '' );
+			$cid  = (int) ( $entry['chat_id'] ?? 0 );
+			$mid  = (int) ( $entry['message_id'] ?? 0 );
+			$dup  = false;
+			foreach ( $existing as $e ) {
+				if ( ! is_array( $e ) ) {
+					continue;
+				}
+				if ( $plat === (string) ( $e['platform'] ?? '' )
+					&& $cid === (int) ( $e['chat_id'] ?? 0 )
+					&& $mid === (int) ( $e['message_id'] ?? 0 ) ) {
+					$dup = true;
+					break;
+				}
+			}
+			if ( ! $dup ) {
+				$existing[] = $entry;
+			}
+		}
+		SimpleVPBot_Model_Receipt::update( $rid, array( 'admin_messages_json' => wp_json_encode( $existing ) ) );
+	}
+
+	/**
+	 * Single sendPhoto attempt (file_id then temp file upload).
+	 *
+	 * @param string               $platform   telegram|bale.
+	 * @param int                  $admin_chat Admin chat id.
+	 * @param string               $tg_file_id Telegram file_id.
+	 * @param string               $bl_file_id Bale file_id.
+	 * @param string               $local_path Temp file path.
+	 * @param string               $body       Caption (empty allowed).
+	 * @param array<string, mixed> $photo_args Extra params.
+	 * @return array<string, mixed>|null
+	 */
+	private static function try_send_admin_receipt_photo_once( $platform, $admin_chat, $tg_file_id, $bl_file_id, $local_path, $body, array $photo_args ) {
+		$r = null;
+		if ( 'telegram' === $platform ) {
+			if ( '' !== (string) $tg_file_id ) {
+				$r = SimpleVPBot_Bot_Runtime::send_photo( 'telegram', (int) $admin_chat, (string) $tg_file_id, (string) $body, $photo_args );
+			}
+			if ( ( ! is_array( $r ) || empty( $r['result']['message_id'] ) ) && $local_path && is_readable( $local_path ) ) {
+				$r = SimpleVPBot_Bot_Runtime::send_photo_file( 'telegram', (int) $admin_chat, $local_path, (string) $body, $photo_args );
+			}
+		} else {
+			if ( '' !== (string) $bl_file_id ) {
+				$r = SimpleVPBot_Bot_Runtime::send_photo( 'bale', (int) $admin_chat, (string) $bl_file_id, (string) $body, $photo_args );
+			}
+			if ( ( ! is_array( $r ) || empty( $r['result']['message_id'] ) ) && $local_path && is_readable( $local_path ) ) {
+				$r = SimpleVPBot_Bot_Runtime::send_photo_file( 'bale', (int) $admin_chat, $local_path, (string) $body, $photo_args );
+			}
+		}
+		return is_array( $r ) ? $r : null;
+	}
+
+	/**
+	 * Text fallback when photo delivery to admin fails; records message_id for moderation edits.
+	 *
+	 * @param string               $platform   telegram|bale.
+	 * @param int                  $admin_chat Admin chat id.
+	 * @param int                  $rid        Receipt id.
+	 * @param string               $body       Original caption.
+	 * @param array<int, array<string, mixed>> &$admin_msgs Accumulator for admin_messages_json.
+	 */
+	public static function notify_admin_receipt_photo_fallback( $platform, $admin_chat, $rid, $body, array &$admin_msgs ) {
+		$rid  = (int) $rid;
+		$text = '⛔ رسید #' . $rid . " — ارسال عکس ناموفق بود؛ در پنل «رسیدها» بازبینی کنید.\n" . wp_strip_all_tags( (string) $body );
+		$r    = SimpleVPBot_Bot_Runtime::send_message(
+			$platform,
+			(int) $admin_chat,
+			$text,
+			array( 'reply_markup' => SimpleVPBot_Keyboards::inline_receipt( $rid ) )
+		);
+		if ( is_array( $r ) && ! empty( $r['result']['message_id'] ) ) {
+			$admin_msgs[] = array(
+				'platform'   => (string) $platform,
+				'chat_id'    => (int) $admin_chat,
+				'message_id' => (int) $r['result']['message_id'],
+			);
+		}
 	}
 
 	/**
@@ -882,54 +1145,37 @@ class SimpleVPBot_Handler_Buy {
 	 * @param string $file_id  File id on the uploader's platform.
 	 * @return string Local path or ''.
 	 */
-	private static function download_receipt_to_temp( $platform, $file_id ) {
+	public static function download_receipt_to_temp( $platform, $file_id ) {
 		$file_id = (string) $file_id;
 		if ( '' === $file_id ) {
-			return '';
-		}
-		$client = SimpleVPBot_Bot_Runtime::client( $platform );
-		if ( ! $client ) {
-			return '';
-		}
-		$gf   = $client->get_file( array( 'file_id' => $file_id ) );
-		$path = ( is_array( $gf ) && ! empty( $gf['result']['file_path'] ) ) ? (string) $gf['result']['file_path'] : '';
-		if ( '' === $path ) {
-			return '';
-		}
-		$tok = (string) SimpleVPBot_Bot_Runtime::bot_token_for_current_context( $platform );
-		if ( '' === $tok ) {
-			return '';
-		}
-		if ( 'bale' === $platform ) {
-			$url = 'https://tapi.bale.ai/file/bot' . rawurlencode( $tok ) . '/' . $path;
-		} else {
-			$url = 'https://api.telegram.org/file/bot' . rawurlencode( $tok ) . '/' . $path;
-		}
-		$resp = wp_remote_get( $url, array( 'timeout' => 45, 'redirection' => 3, 'sslverify' => false ) );
-		if ( is_wp_error( $resp ) || (int) wp_remote_retrieve_response_code( $resp ) !== 200 ) {
-			return '';
-		}
-		$body = (string) wp_remote_retrieve_body( $resp );
-		if ( '' === $body ) {
 			return '';
 		}
 		$tmp = function_exists( 'wp_tempnam' ) ? wp_tempnam( 'svp_receipt' ) : @tempnam( sys_get_temp_dir(), 'svp_receipt' ); // phpcs:ignore
 		if ( ! $tmp ) {
 			return '';
 		}
-		$bytes = file_put_contents( $tmp, $body ); // phpcs:ignore
-		if ( false === $bytes || $bytes < 1 ) {
-			@unlink( $tmp ); // phpcs:ignore
+		$down = SimpleVPBot_Bot_Runtime::download_bot_file_to_path( $platform, $file_id, $tmp );
+		if ( is_wp_error( $down ) ) {
+			@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+				SimpleVPBot_Logger::error(
+					'receipt temp download failed',
+					array(
+						'platform' => (string) $platform,
+						'error'    => $down->get_error_message(),
+					)
+				);
+			}
 			return '';
 		}
 		$ext = '.jpg';
-		$lp  = strtolower( (string) $path );
-		if ( false !== strpos( $lp, '.png' ) ) {
-			$ext = '.png';
-		} elseif ( false !== strpos( $lp, '.webp' ) ) {
-			$ext = '.webp';
-		} elseif ( false !== strpos( $lp, '.jpeg' ) || false !== strpos( $lp, '.jpg' ) ) {
-			$ext = '.jpg';
+		if ( is_readable( $tmp ) ) {
+			$head = (string) file_get_contents( $tmp, false, null, 0, 12 ); // phpcs:ignore
+			if ( 0 === strpos( $head, "\x89PNG" ) ) {
+				$ext = '.png';
+			} elseif ( 0 === strpos( $head, 'RIFF' ) && false !== strpos( substr( $head, 0, 12 ), 'WEBP' ) ) {
+				$ext = '.webp';
+			}
 		}
 		$final = $tmp . $ext;
 		if ( @rename( $tmp, $final ) ) { // phpcs:ignore
@@ -944,22 +1190,70 @@ class SimpleVPBot_Handler_Buy {
 	 * @return array{telegram:int[],bale:int[]}
 	 */
 	private static function admin_ids_for_current_context() {
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			return array(
+				'telegram' => SimpleVPBot_Bot_Reseller_Scope::admin_ids_for_context( 'telegram' )['telegram'],
+				'bale'     => SimpleVPBot_Bot_Reseller_Scope::admin_ids_for_context( 'bale' )['bale'],
+			);
+		}
 		$tg_ids = array_map( 'intval', (array) SimpleVPBot_Settings::get( 'admin_telegram_ids', array() ) );
 		$bl_ids = array_map( 'intval', (array) SimpleVPBot_Settings::get( 'admin_bale_ids', array() ) );
-		if ( class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot() ) {
-			$reseller = SimpleVPBot_Model_User::find( (int) SimpleVPBot_Bot_Context::reseller_svp_user_id() );
-			if ( ! $reseller ) {
-				return array( 'telegram' => array(), 'bale' => array() );
-			}
-			$rtg = (int) ( $reseller->tg_user_id ?? 0 );
-			$rbl = (int) ( $reseller->bale_user_id ?? 0 );
-			$tg_ids = $rtg > 0 ? array( $rtg ) : array();
-			$bl_ids = $rbl > 0 ? array( $rbl ) : array();
-		}
 		return array(
 			'telegram' => array_values( array_filter( $tg_ids ) ),
 			'bale'     => array_values( array_filter( $bl_ids ) ),
 		);
+	}
+
+	/**
+	 * Owner scope for catalog queries on the current bot request.
+	 *
+	 * @return array<int, int>
+	 */
+	private static function catalog_owner_ids() {
+		return class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			? SimpleVPBot_Bot_Reseller_Scope::catalog_owner_ids()
+			: array();
+	}
+
+	/**
+	 * @param array<int, object> $cats Category rows.
+	 * @return array<int, object>
+	 */
+	private static function buyable_categories_for_context( array $cats ) {
+		$list = array();
+		foreach ( $cats as $c ) {
+			if ( self::category_has_buyable_plans( $c ) ) {
+				$list[] = $c;
+			}
+		}
+		return $list;
+	}
+
+	/**
+	 * Active plans in category for current bot tenant scope.
+	 *
+	 * @param string $category Category slug.
+	 * @param int    $panel_id Panel id.
+	 * @return array<int, object>
+	 */
+	private static function plans_for_category( $category, $panel_id ) {
+		return SimpleVPBot_Model_Plan::by_category_for_owners( (string) $category, (int) $panel_id, self::catalog_owner_ids() );
+	}
+
+	/**
+	 * Whether a plan row is buyable in the current bot context.
+	 *
+	 * @param object|null $plan Plan row.
+	 * @return bool
+	 */
+	private static function plan_available_in_context( $plan ) {
+		if ( ! $plan || ! (int) $plan->active ) {
+			return false;
+		}
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) && ! SimpleVPBot_Bot_Reseller_Scope::plan_visible_in_context( $plan ) ) {
+			return false;
+		}
+		return true;
 	}
 
 	/**
@@ -973,9 +1267,15 @@ class SimpleVPBot_Handler_Buy {
 			return false;
 		}
 		$panel_id = max( 1, (int) ( $cat_row->panel_id ?? 1 ) );
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) && ! SimpleVPBot_Bot_Reseller_Scope::panel_allowed_in_context( $panel_id ) ) {
+			return false;
+		}
 		$slug     = (string) $cat_row->slug;
-		foreach ( SimpleVPBot_Model_Plan::by_category( $slug, $panel_id ) as $p ) {
-			if ( $p && (int) $p->active ) {
+		foreach ( self::plans_for_category( $slug, $panel_id ) as $p ) {
+			if ( self::plan_available_in_context( $p ) ) {
+				if ( class_exists( 'SimpleVPBot_Feature_L2tp' ) && ! SimpleVPBot_Feature_L2tp::plan_visible( $p ) ) {
+					continue;
+				}
 				return true;
 			}
 		}
@@ -1032,11 +1332,14 @@ class SimpleVPBot_Handler_Buy {
 		$active = array();
 		foreach ( $plans as $p ) {
 			if ( $p && (int) $p->active ) {
+				if ( class_exists( 'SimpleVPBot_Feature_L2tp' ) && ! SimpleVPBot_Feature_L2tp::plan_visible( $p ) ) {
+					continue;
+				}
 				$active[] = $p;
 			}
 		}
 		if ( empty( $active ) ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ پلنی در این دسته نیست.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.no_plans_in_category', $user ) );
 			return;
 		}
 		$intro   = array();
@@ -1056,7 +1359,7 @@ class SimpleVPBot_Handler_Buy {
 			);
 		}
 		if ( empty( $rows ) ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ پلنی در این دسته نیست.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.no_plans_in_category', $user ) );
 			return;
 		}
 		SimpleVPBot_Bot_Runtime::send_message(
@@ -1074,15 +1377,9 @@ class SimpleVPBot_Handler_Buy {
 	 * @param int    $chat_id Chat id.
 	 */
 	public static function send_category_picker( $platform, $chat_id ) {
-		$cats = SimpleVPBot_Model_Plan_Category::active_ordered();
-		$list = array();
-		foreach ( $cats as $c ) {
-			if ( self::category_has_buyable_plans( $c ) ) {
-				$list[] = $c;
-			}
-		}
+		$list = self::buyable_categories_for_context( SimpleVPBot_Model_Plan_Category::active_ordered() );
 		if ( empty( $list ) ) {
-			SimpleVPBot_Bot_Runtime::send_message(
+			SimpleVPBot_Bot_Runtime::send_message_with_support(
 				$platform,
 				$chat_id,
 				'⛔ دستهٔ فعالی با پلن برای خرید وجود ندارد. بعداً مراجعه کنید یا با پشتیبانی تماس بگیرید.'
@@ -1091,7 +1388,7 @@ class SimpleVPBot_Handler_Buy {
 		}
 		$lines = self::inline_keyboard_for_category_rows( $list );
 		if ( empty( $lines ) ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ دستهٔ معتبری برای نمایش نیست.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.no_categories', $user ) );
 			return;
 		}
 		SimpleVPBot_Bot_Runtime::send_message(
@@ -1111,15 +1408,17 @@ class SimpleVPBot_Handler_Buy {
 	 */
 	public static function send_category_picker_for_panel( $platform, $chat_id, $panel_id ) {
 		$panel_id = max( 1, (int) $panel_id );
-		$cats     = SimpleVPBot_Model_Plan_Category::active_ordered_for_panel( $panel_id );
-		$list     = array();
-		foreach ( $cats as $c ) {
-			if ( self::category_has_buyable_plans( $c ) ) {
-				$list[] = $c;
-			}
-		}
-		if ( empty( $list ) ) {
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) && ! SimpleVPBot_Bot_Reseller_Scope::panel_allowed_in_context( $panel_id ) ) {
 			SimpleVPBot_Bot_Runtime::send_message(
+				$platform,
+				$chat_id,
+				'⛔ این پنل برای فروش از طریق این ربات در دسترس نیست.'
+			);
+			return;
+		}
+		$list = self::buyable_categories_for_context( SimpleVPBot_Model_Plan_Category::active_ordered_for_panel( $panel_id ) );
+		if ( empty( $list ) ) {
+			SimpleVPBot_Bot_Runtime::send_message_with_support(
 				$platform,
 				$chat_id,
 				'⛔ برای این پنل دستهٔ فعالی با پلن برای خرید وجود ندارد. لطفاً بعداً مراجعه کنید یا با پشتیبانی تماس بگیرید.'
@@ -1128,7 +1427,7 @@ class SimpleVPBot_Handler_Buy {
 		}
 		$lines = self::inline_keyboard_for_category_rows( $list );
 		if ( empty( $lines ) ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ دستهٔ معتبری برای نمایش نیست.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.no_categories', $user ) );
 			return;
 		}
 		SimpleVPBot_Bot_Runtime::send_message(
@@ -1154,7 +1453,7 @@ class SimpleVPBot_Handler_Buy {
 		if ( SimpleVPBot_Model_Card::is_crypto_auto( $card ) ) {
 			$cr = SimpleVPBot_Crypto_Payment::create_nowpayments_invoice( $tx, $card, $platform );
 			if ( empty( $cr['ok'] ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ ' . (string) ( $cr['message'] ?? 'خطا در ساخت پرداخت.' ) );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::format( SimpleVPBot_Texts::get_for_user( 'msg.buy.payment_error', $user ), array( 'message' => (string) ( $cr['message'] ?? 'خطا در ساخت پرداخت.' ) ) ) );
 				return;
 			}
 			$extra = array( 'reply_markup' => isset( $cr['reply_markup'] ) && is_array( $cr['reply_markup'] ) ? $cr['reply_markup'] : array() );
@@ -1167,7 +1466,7 @@ class SimpleVPBot_Handler_Buy {
 				(string) ( $cr['text'] ?? '' ),
 				$extra
 			);
-			SimpleVPBot_Bot_Runtime::send_message(
+			SimpleVPBot_Bot_Runtime::send_message_with_support(
 				$platform,
 				$chat_id,
 				'⏳ بعد از تأیید پرداخت در NOWPayments، سفارش خودکار تکمیل می‌شود. اگر چیزی گیر کرد با پشتیبانی تماس بگیر.'
@@ -1197,7 +1496,7 @@ class SimpleVPBot_Handler_Buy {
 		);
 		$receipt_hint = SimpleVPBot_Model_Card::is_crypto_manual( $card )
 			? '📸 بعد از واریز، تصویر تراکنش یا اسکرین‌شات را همینجا بفرست (txid یا رسید صرافی).'
-			: '📸 لطفاً تصویر رسید کارت‌به‌کارت را همینجا ارسال کنید.';
+			: SimpleVPBot_Texts::get_for_user( 'msg.buy.send_receipt_photo', $user );
 		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $receipt_hint );
 	}
 

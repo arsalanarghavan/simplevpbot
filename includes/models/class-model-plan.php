@@ -42,18 +42,50 @@ class SimpleVPBot_Model_Plan {
 	 * @return array<int, object>
 	 */
 	public static function by_category( $category, $panel_id = null ) {
+		return self::by_category_for_owners( $category, $panel_id, array() );
+	}
+
+	/**
+	 * Active plans in a category, optionally restricted to owner_svp_user_id values.
+	 *
+	 * @param string       $category  Category slug.
+	 * @param int|null     $panel_id  svp_panels.id.
+	 * @param array<int>   $owner_ids Owner ids (empty = no owner filter).
+	 * @return array<int, object>
+	 */
+	public static function by_category_for_owners( $category, $panel_id = null, array $owner_ids = array() ) {
 		global $wpdb;
-		$cat = (string) $category;
+		$cat    = (string) $category;
+		$owners = array_values( array_unique( array_map( 'intval', $owner_ids ) ) );
+		if ( empty( $owners ) ) {
+			if ( null !== $panel_id ) {
+				return $wpdb->get_results(
+					$wpdb->prepare(
+						'SELECT * FROM ' . self::table() . ' WHERE category = %s AND panel_id = %d AND active = 1 ORDER BY sort_order ASC, id ASC',
+						$cat,
+						(int) $panel_id
+					)
+				); // phpcs:ignore
+			}
+			return $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE category = %s AND active = 1 ORDER BY sort_order ASC, id ASC', $cat ) ); // phpcs:ignore
+		}
+		$ph = implode( ',', array_fill( 0, count( $owners ), '%d' ) );
 		if ( null !== $panel_id ) {
+			$args = array_merge( array( $cat, (int) $panel_id ), $owners );
 			return $wpdb->get_results(
 				$wpdb->prepare(
-					'SELECT * FROM ' . self::table() . ' WHERE category = %s AND panel_id = %d AND active = 1 ORDER BY sort_order ASC, id ASC',
-					$cat,
-					(int) $panel_id
+					'SELECT * FROM ' . self::table() . " WHERE category = %s AND panel_id = %d AND active = 1 AND owner_svp_user_id IN ({$ph}) ORDER BY sort_order ASC, id ASC",
+					$args
 				)
-			); // phpcs:ignore
+			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
 		}
-		return $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE category = %s AND active = 1 ORDER BY sort_order ASC, id ASC', $cat ) ); // phpcs:ignore
+		$args = array_merge( array( $cat ), $owners );
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT * FROM ' . self::table() . " WHERE category = %s AND active = 1 AND owner_svp_user_id IN ({$ph}) ORDER BY sort_order ASC, id ASC",
+				$args
+			)
+		); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
 	}
 
 	/**

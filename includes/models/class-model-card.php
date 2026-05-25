@@ -221,29 +221,14 @@ class SimpleVPBot_Model_Card {
 		if ( empty( $cards ) ) {
 			return array();
 		}
-		$mode = sanitize_key( (string) SimpleVPBot_Settings::get( 'cards_display_mode', 'list' ) );
-		if ( 'sequential' !== $mode ) {
+		$mode = class_exists( 'SimpleVPBot_Card_Rotation' )
+			? SimpleVPBot_Card_Rotation::sanitize_display_mode( SimpleVPBot_Settings::get( 'cards_display_mode', 'list' ) )
+			: 'list';
+		if ( 'list' === $mode || ! class_exists( 'SimpleVPBot_Card_Rotation' ) ) {
 			return $cards;
 		}
-		foreach ( $cards as $c ) {
-			$cid   = (int) ( $c->id ?? 0 );
-			$limit = (float) ( $c->daily_limit ?? 0 );
-			if ( $cid < 1 ) {
-				continue;
-			}
-			if ( $limit <= 0 ) {
-				return array( $c );
-			}
-			$used = 0.0;
-			if ( class_exists( 'SimpleVPBot_Model_Receipt' ) ) {
-				$used = (float) SimpleVPBot_Model_Receipt::approved_sum_for_card_today( $cid, $tid );
-			}
-			if ( $used + 0.000001 < $limit ) {
-				return array( $c );
-			}
-		}
-		// Keep flow operational if every card reached the limit.
-		return array( $cards[0] );
+		$scope_key = SimpleVPBot_Card_Rotation::resolve_owner_scope_key( $tid );
+		return SimpleVPBot_Card_Rotation::pick_for_checkout( $cards, $mode, $scope_key, $tid );
 	}
 
 	/**

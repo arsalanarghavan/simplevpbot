@@ -135,13 +135,7 @@ class SimpleVPBot_Service_Dashboard_Panel {
 				if ( ! $old_key ) {
 					return array( 'ok' => false, 'reason' => 'no_client_key' );
 				}
-				$res = SimpleVPBot_Xui_Client::del_client( (int) $svc->inbound_id, (string) $old_key );
-				if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
-					$em = (string) $svc->email;
-					if ( '' !== $em && $em !== (string) $old_key ) {
-						$res = SimpleVPBot_Xui_Client::del_client( (int) $svc->inbound_id, $em );
-					}
-				}
+				$res = SimpleVPBot_Xui_Client::del_client( (int) $svc->inbound_id, (string) $old_key, (string) $svc->email );
 				if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
 					return array( 'ok' => false, 'reason' => 'del_failed' );
 				}

@@ -29,6 +29,9 @@ class SimpleVPBot_Service_Admin_Catalog {
 		if ( ! in_array( $stype, array( 'xray', 'l2tp' ), true ) ) {
 			$stype = 'xray';
 		}
+		if ( class_exists( 'SimpleVPBot_Feature_L2tp' ) && ! SimpleVPBot_Feature_L2tp::enabled() ) {
+			$stype = 'xray';
+		}
 		$wlid = isset( $post['wholesale_line_id'] ) ? (int) $post['wholesale_line_id'] : 0;
 		return array(
 			'name'               => sanitize_text_field( (string) ( $post['name'] ?? '' ) ),
@@ -40,7 +43,7 @@ class SimpleVPBot_Service_Admin_Catalog {
 			'price_per_gb'       => max( 0, (float) ( $post['price_per_gb'] ?? 0 ) ),
 			'traffic_gb_min'     => max( 0, (int) ( $post['traffic_gb_min'] ?? 0 ) ),
 			'traffic_gb_max'     => max( 0, (int) ( $post['traffic_gb_max'] ?? 0 ) ),
-			'clients_count'      => max( 1, (int) ( $post['clients_count'] ?? 1 ) ),
+			'clients_count'      => max( 0, (int) ( $post['clients_count'] ?? 1 ) ),
 			'inbound_id'         => (int) ( $post['inbound_id'] ?? 0 ),
 			'panel_id'           => max( 1, (int) ( $post['plan_panel_id'] ?? 1 ) ),
 			'wholesale_line_id'  => $wlid > 0 ? $wlid : null,

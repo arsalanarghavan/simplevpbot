@@ -137,7 +137,11 @@ class SimpleVPBot_Model_User {
 	public static function insert( array $data ) {
 		global $wpdb;
 		$wpdb->insert( self::table(), $data );
-		return (int) $wpdb->insert_id;
+		$id = (int) $wpdb->insert_id;
+		if ( $id > 0 && class_exists( 'SimpleVPBot_Reseller_Closure' ) ) {
+			SimpleVPBot_Reseller_Closure::rebuild_for_user( $id );
+		}
+		return $id;
 	}
 
 	/**
@@ -148,7 +152,28 @@ class SimpleVPBot_Model_User {
 	 */
 	public static function update( $id, array $data ) {
 		global $wpdb;
-		$wpdb->update( self::table(), $data, array( 'id' => $id ) );
+		$uid = (int) $id;
+		$prev = null;
+		if ( $uid > 0 && array_key_exists( 'invited_by', $data ) ) {
+			$prev = self::find( $uid );
+		}
+		$wpdb->update( self::table(), $data, array( 'id' => $uid ) );
+		if ( $prev && array_key_exists( 'invited_by', $data ) ) {
+			$old_inv = (int) ( $prev->invited_by ?? 0 );
+			$new_inv = isset( $data['invited_by'] ) ? (int) $data['invited_by'] : 0;
+			if ( $old_inv !== $new_inv ) {
+				if ( class_exists( 'SimpleVPBot_Reseller_Closure' ) ) {
+					SimpleVPBot_Reseller_Closure::on_invited_by_changed( $uid, $old_inv, $new_inv );
+				} else {
+					if ( $old_inv > 0 ) {
+						self::invalidate_reseller_scope_cache( $old_inv );
+					}
+					if ( $new_inv > 0 ) {
+						self::invalidate_reseller_scope_cache( $new_inv );
+					}
+				}
+			}
+		}
 	}
 
 	/**
@@ -628,10 +653,28 @@ class SimpleVPBot_Model_User {
 	 *
 	 * @return array<string,bool>
 	 */
-	public static function default_reseller_permissions() {
+	public static function default_reseller_permissions_template() {
 		$out = array();
 		foreach ( self::RESELLER_PERMISSION_KEYS as $k ) {
 			$out[ $k ] = true;
+		}
+		return $out;
+	}
+
+	/**
+	 * Default reseller permissions (from settings or all-true template).
+	 *
+	 * @return array<string,bool>
+	 */
+	public static function default_reseller_permissions() {
+		$stored = SimpleVPBot_Settings::get( 'default_reseller_permissions', array() );
+		$out    = self::default_reseller_permissions_template();
+		if ( is_array( $stored ) ) {
+			foreach ( self::RESELLER_PERMISSION_KEYS as $k ) {
+				if ( array_key_exists( $k, $stored ) ) {
+					$out[ $k ] = (bool) $stored[ $k ];
+				}
+			}
 		}
 		return $out;
 	}
@@ -702,17 +745,60 @@ class SimpleVPBot_Model_User {
 	}
 
 	/**
+	 * Transient cache key for reseller scope ids.
+	 *
+	 * @param int $reseller_id Reseller id.
+	 * @return string
+	 */
+	private static function reseller_scope_cache_key( $reseller_id ) {
+		return 'svp_rscope_' . (int) $reseller_id;
+	}
+
+	/**
+	 * Clear cached scope ids for a reseller (after invited_by changes).
+	 *
+	 * @param int $reseller_id Reseller id.
+	 */
+	public static function invalidate_reseller_scope_cache( $reseller_id ) {
+		$rid = (int) $reseller_id;
+		if ( $rid < 1 ) {
+			return;
+		}
+		delete_transient( self::reseller_scope_cache_key( $rid ) );
+	}
+
+	/**
 	 * IDs a reseller can manage: self plus every descendant in the invited_by tree (unbounded depth).
 	 *
 	 * @param int $reseller_id Reseller svp_users.id.
 	 * @return array<int, int>
 	 */
 	public static function reseller_scope_user_ids( $reseller_id ) {
-		global $wpdb;
 		$rid = (int) $reseller_id;
 		if ( $rid < 1 ) {
 			return array();
 		}
+		if ( class_exists( 'SimpleVPBot_Reseller_Closure' ) ) {
+			$cached = get_transient( self::reseller_scope_cache_key( $rid ) );
+			if ( is_array( $cached ) ) {
+				return array_map( 'intval', $cached );
+			}
+			$ids = SimpleVPBot_Reseller_Closure::descendant_ids_for_ancestor( $rid );
+			set_transient( self::reseller_scope_cache_key( $rid ), $ids, 10 * MINUTE_IN_SECONDS );
+			return $ids;
+		}
+		return self::reseller_scope_user_ids_legacy_bfs( $rid );
+	}
+
+	/**
+	 * Legacy BFS fallback when closure table is unavailable.
+	 *
+	 * @param int $reseller_id Reseller id.
+	 * @return array<int, int>
+	 */
+	private static function reseller_scope_user_ids_legacy_bfs( $reseller_id ) {
+		global $wpdb;
+		$rid = (int) $reseller_id;
 		$t       = self::table();
 		$id_set  = array( $rid => true );
 		$frontier = array( $rid );
@@ -754,9 +840,19 @@ class SimpleVPBot_Model_User {
 	 * @return array{sql:string,values:array<int,int|float|string>}|null
 	 */
 	public static function reseller_scope_clause( $reseller_id, $alias = 'u' ) {
+		if ( class_exists( 'SimpleVPBot_Reseller_Closure' ) ) {
+			$clause = SimpleVPBot_Reseller_Closure::reseller_scope_clause( $reseller_id, $alias );
+			if ( is_array( $clause ) ) {
+				return $clause;
+			}
+			return null;
+		}
 		$ids = self::reseller_scope_user_ids( $reseller_id );
 		if ( empty( $ids ) ) {
 			return null;
+		}
+		if ( count( $ids ) > SimpleVPBot_Reseller_Closure::LARGE_IN_THRESHOLD ) {
+			return SimpleVPBot_Reseller_Closure::reseller_scope_clause( $reseller_id, $alias );
 		}
 		$a = preg_replace( '/[^a-zA-Z0-9_]/', '', (string) $alias );
 		$a = '' !== $a ? $a : 'u';
@@ -778,6 +874,9 @@ class SimpleVPBot_Model_User {
 		$tid = (int) $target_user_id;
 		if ( $tid < 1 ) {
 			return false;
+		}
+		if ( class_exists( 'SimpleVPBot_Reseller_Closure' ) ) {
+			return SimpleVPBot_Reseller_Closure::is_descendant_of( (int) $reseller_id, $tid );
 		}
 		$ids = self::reseller_scope_user_ids( $reseller_id );
 		return in_array( $tid, $ids, true );

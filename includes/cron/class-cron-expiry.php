@@ -234,9 +234,6 @@ class SimpleVPBot_Cron_Expiry {
 	 * @param object $svc Service.
 	 */
 	private static function sync_traffic_if_stale( $svc ) {
-		if ( ! (int) $svc->total_traffic ) {
-			return;
-		}
 		SimpleVPBot_Xui_Client::run_with_panel(
 			max( 1, (int) ( $svc->panel_id ?? 1 ) ),
 			function () use ( $svc ) {
@@ -274,18 +271,15 @@ class SimpleVPBot_Cron_Expiry {
 	 * @param string $text Text.
 	 */
 	private static function notify_user( $user, $text ) {
-		$tg_tok = (string) SimpleVPBot_Settings::get( 'telegram_token', '' );
-		$bl_tok = (string) SimpleVPBot_Settings::get( 'bale_token', '' );
-		if ( $tg_tok && ! empty( $user->tg_user_id ) ) {
-			( new SimpleVPBot_Telegram_Client( $tg_tok ) )->send_message( array( 'chat_id' => (int) $user->tg_user_id, 'text' => $text ) );
+		if ( class_exists( 'SimpleVPBot_User_Notify' ) ) {
+			SimpleVPBot_User_Notify::send_to_user( $user, $text );
+			return;
 		}
-		if ( $bl_tok && ! empty( $user->bale_user_id ) ) {
-			( new SimpleVPBot_Bale_Client( $bl_tok ) )->send_message(
-				array(
-					'chat_id' => (int) $user->bale_user_id,
-					'text'    => SimpleVPBot_Bot_Runtime::scrub_bale_text( $text ),
-				)
-			);
+		if ( class_exists( 'SimpleVPBot_Bot_Runtime' ) && ! empty( $user->tg_user_id ) ) {
+			SimpleVPBot_Bot_Runtime::send_message( 'telegram', (int) $user->tg_user_id, $text );
+		}
+		if ( class_exists( 'SimpleVPBot_Bot_Runtime' ) && ! empty( $user->bale_user_id ) ) {
+			SimpleVPBot_Bot_Runtime::send_message( 'bale', (int) $user->bale_user_id, $text );
 		}
 	}
 }

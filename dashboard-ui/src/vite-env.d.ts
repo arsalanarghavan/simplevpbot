@@ -34,6 +34,16 @@ interface Window {
     dashPath?: string
     siteName?: string
     siteIconUrl?: string
+    branding?: {
+      scope?: string
+      siteName?: string
+      logoUrl?: string
+      faviconUrl?: string
+      themePrimary?: string
+      themeAccent?: string
+      customDomain?: string
+      cssVariables?: Record<string, string>
+    }
     /** IANA timezone from site (e.g. Asia/Tehran) for consistent date display */
     siteTimeZone?: string
   }

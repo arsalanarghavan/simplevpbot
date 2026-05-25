@@ -48,6 +48,38 @@ class SimpleVPBot_Model_Transaction {
 	}
 
 	/**
+	 * Approve only when still pending (idempotent guard).
+	 *
+	 * @param int                  $id    Transaction id.
+	 * @param array<string, mixed> $extra Optional columns (service_id, meta_json, …).
+	 * @return bool True if exactly one row moved pending → approved.
+	 */
+	public static function try_approve_from_pending( $id, array $extra = array() ) {
+		global $wpdb;
+		$tid = (int) $id;
+		if ( $tid < 1 ) {
+			return false;
+		}
+		$allowed = array( 'service_id', 'meta_json' );
+		$data    = array( 'status' => 'approved' );
+		foreach ( $extra as $col => $val ) {
+			if ( in_array( (string) $col, $allowed, true ) ) {
+				$data[ $col ] = $val;
+			}
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$affected = $wpdb->update(
+			self::table(),
+			$data,
+			array(
+				'id'     => $tid,
+				'status' => 'pending',
+			)
+		);
+		return (int) $affected > 0;
+	}
+
+	/**
 	 * Update row.
 	 *
 	 * @param int                  $id Id.

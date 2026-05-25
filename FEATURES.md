@@ -1,148 +1,88 @@
 # گزارش جامع وضعیت پنل نماینده و ربات مستقل
 
-این گزارش بر اساس بررسی کامل کد فعلی پروژه تهیه شده و روی این سوال‌ها متمرکز است:
+**آخرین به‌روزرسانی:** پس از فازهای ۱–۶ (backfill مالی، اعلان مرکزی، رمزنگاری توکن، متن per-reseller، گیت تب‌ها).
 
-1. آیا نماینده می‌تواند «ربات تلگرام/بله کاملا مستقل» داشته باشد؟
-2. آیا داشبورد نماینده کامل است؟
-3. چه امکاناتی باید داشته باشد که الان ندارد؟
-4. آیا کل سیستم با این ویژگی‌ها کامل و بدون نقص است؟
+راهنمای عملیاتی: [RESELLER_SETUP.md](RESELLER_SETUP.md)
 
 ---
 
 ## نتیجه نهایی (Executive Verdict)
 
-- **ربات مستقل نماینده: نیمه‌کامل**  
-  استقلال در سطح **توکن، وبهوک و بخشی از برندینگ** پیاده شده، اما استقلال کامل در **دسترسی مدیریتی، جریان مالی/رسید، و جداسازی داده** هنوز کامل نیست.
-- **داشبورد نماینده: کاربردی ولی ناقص**  
-  امکانات اصلی پنل هست، اما چند بخش مهم (permission UX، قیمت‌گذاری پیشرفته، گیتینگ کامل UI، عملیات کامل برندینگ) ناقص یا غایب‌اند.
-- **کل سیستم: قابل استفاده در وضعیت فعلی، اما هنوز production-grade کامل برای مدل نمایندگی چندرباته نیست**  
-  چند ریسک مهم امنیتی/حاکمیتی باید قبل از اتکا به مقیاس بزرگ رفع شود.
+- **ربات مستقل نماینده: قابل اتکا برای فروش روزمره**  
+  توکن/وب‌هوک جدا، bind خودکار مشتری، فیلتر پلن/پنل/کارت، meta مالی، رسید و اعلان‌ها با توکن نماینده (`User_Notify` + `send_message_for_reseller`).
+- **داشبورد نماینده: کاربردی**  
+  CRUD، scope `invited_by`، mutate policy، گیت تب با `tab_perm` هم‌تراز REST/UI.
+- **استقرار:** پس از reload پلاگین، migration `2.2.4` و backfill یک‌باره (`simplevpbot_reseller_backfill_v1_done`) اجرا می‌شود.
+- **عمداً خارج از scope:** قیمت عمده در checkout ربات (`plan.price` فقط)، برندینگ پیشرفته (logo/theme/domain)، audit log جدا، closure table برای scope.
 
 ---
 
-## وضعیت فعلی پنل نماینده
+## فاز ۱ — پایه
 
-### امکانات موجود و عملیاتی
-
-- ناوبری اختصاصی نماینده در فرانت‌اند (users, resellers, plans, plan_cats, reseller_bots + dashboard/monitoring)
-- مدیریت کاربران (pending/approve/reject، جستجو، pagination، merge)
-- مدیریت نماینده‌ها (ساخت دستی + ساخت همراه پروویژن وردپرس)
-- مدیریت ربات نماینده (ثبت توکن تلگرام/بله، ثبت webhook، brand_name)
-- مدل بک‌اند برای پروفایل ربات نماینده و قیمت پنل نماینده
-- محدودسازی scope نماینده در بخش‌های مهم REST dashboard
-
-### امکانات موجود اما ناقص
-
-- UI مجوزهای نماینده بدون preload دقیق وضعیت واقعی (احتمال overwrite اشتباه)
-- تنظیم قیمت عمده نماینده بدون preload قیمت‌های قبلی (UX ناقص)
-- عدم مصرف کامل `actorPermissions` در UI برای hide/disable کردن تب‌ها و اکشن‌ها
-- role switcher نمایشی است و سوییچ واقعی انجام نمی‌دهد
-- برخی مسیرها/quick linkها برای نماینده با منوی واقعی او هم‌راستا نیستند
-
-### امکانات غایب (شکاف عملکردی)
-
-- برندینگ پیشرفته نماینده (logo/theme/domain/text profile) فراتر از `brand_name`
-- سیاست قیمت‌گذاری کامل نماینده (rule-based margin/discount tiers)
-- map کامل `permission -> tab/action` در فرانت و بک‌اند
-- lifecycle کامل مدیریت secret/token (rotate/revoke/clear) به شکل قابل اتکا
-- جداسازی داده tenant-level واقعی برای همه جریان‌های حساس
+| موضوع | وضعیت |
+|--------|--------|
+| `/start` روی ربات نماینده → `invited_by` | ✅ `resolve_invited_by_for_signup` |
+| `signup_reseller_svp_id` هنگام ثبت‌نام | ✅ handler-start + ستون DB |
+| فیلتر پلن/پنل/دسته در ربات | ✅ `catalog_owner_ids`, `panel_allowed_in_context` |
+| meta مالی checkout | ✅ `billing_reseller_svp_id`, `invoice_card_owner_scope_svp_id` |
+| ادمین رسید از پروفایل ربات | ✅ `admin_ids_for_context` |
+| تأیید رسید اتمیک | ✅ claim / finalize / increment_balance |
 
 ---
 
-## آیا نماینده الان ربات «کاملا مستقل» دارد؟
+## فاز ۲–۳ — اعلان، لینک، امنیت متن
 
-## پاسخ کوتاه: خیر، هنوز کامل نیست.
-
-### مواردی که استقلال دارند
-
-- webhook اختصاصی نماینده با مسیر و secret جدا
-- token اختصاصی نماینده برای تلگرام/بله
-- context نماینده در runtime ربات
-- بخشی از برندینگ در خروجی‌ها
-
-### مواردی که هنوز استقلال را می‌شکنند
-
-- بخشی از admin-routing و admin controls ماهیت global دارند
-- برخی مسیرهای مالی/رسید و رفتارهای مدیریتی وابستگی سراسری دارند
-- fallback token از نماینده به token اصلی سیستم، ریسک اختلاط ایجاد می‌کند
-- data model عمدتا global است و bot_id/tenant partition سراسری ندارد
-- متن‌ها و policy رفتاری ربات عمدتا global هستند، نه per-reseller
+| موضوع | وضعیت |
+|--------|--------|
+| اعلان کاربر با توکن نماینده (رسید، cron، transfer) | ✅ `SimpleVPBot_User_Notify` |
+| اعلان تک‌پلتفرم (فقط TG یا فقط Bale) | ✅ `platforms_for_user` |
+| لینک `ref_*` per-bot | ✅ usernames در پروفایل ربات |
+| رمزنگاری توکن در DB | ✅ `encrypt_token_field` / `token_for_platform` |
+| متن per-reseller | ✅ `text_overrides_json` + `Texts::get_in_bot_context` |
+| گیت تب receipts | ✅ `receipts.review` در App.tsx و REST |
 
 ---
 
-## ریسک‌ها و نقص‌های کلیدی سیستم (اولویت‌بندی)
+## فاز ۴–۶ — backfill، داشبورد، hardening
 
-### اولویت خیلی بالا (Critical/High)
-
-1. **نشت داده حساس در state نماینده**  
-   بخشی از تنظیمات سراسری حساس در مسیر state نماینده قابل مشاهده است؛ باید whitelist حداقلی اعمال شود.
-
-2. **ذخیره plaintext برای برخی token/secretها**  
-   نیاز به hardening ذخیره‌سازی محرمانه‌ها وجود دارد.
-
-3. **چرخه ناقص clear/revoke/rotate برای token/secret**  
-   باید رفتار clear واقعی و endpointهای rotate/revoke عملیاتی تکمیل شوند.
-
-4. **enforcement ناقص permissionها روی همه mutate opها**  
-   لازم است map کامل و اجباری `op -> permission` در backend enforce شود.
-
-### اولویت متوسط
-
-5. **ناهماهنگی UX بین منو و route مستقیم**
-6. **quick links نماینده با scope واقعی نقش همسو نیست**
-7. **ریسک overwrite تنظیمات قیمت/دسترسی به دلیل نبود preload**
+| موضوع | وضعیت |
+|--------|--------|
+| backfill meta مالی تراکنش‌های قدیمی | ✅ `Reseller_Backfill` + migration خودکار |
+| backfill `invited_by` از تراکنش | ✅ batch + bind دستی UI |
+| فیلتر مالی داشبورد نماینده | ✅ `tx_belongs_to_reseller` |
+| broadcast با توکن نماینده | ✅ `client_for_broadcast_bot` |
+| cache `reseller_scope_user_ids` | ✅ transient + invalidate |
+| impersonation فقط HTTPS | ✅ `route_impersonate_start` |
+| پیام دستی از داشبورد | ✅ `user_admin_message` → `User_Notify` |
+| fallback notify از `signup_reseller_svp_id` | ✅ وقتی `invited_by` خالی است |
+| اجرای دستی backfill (ادمین) | ✅ mutate + دکمه در تب نمایندگان |
 
 ---
 
-## حداقل الزامات برای «کامل شدن» پنل و ربات نماینده
+## شکاف‌های باقی‌مانده (اولویت پایین)
 
-### 1) امنیت و حداقل‌سازی داده
+1. **قیمت rule-based / عمده در ربات** — فقط در داشبورد عمده؛ checkout = `plan.price`.
+2. **مقیاس درخت بزرگ** — `IN (...)` برای scope؛ closure table پیشنهاد فاز بعد.
+3. **برندینگ پیشرفته / audit log** — فاز بعد.
 
-- بازطراحی payload نماینده: ارسال فقط فیلدهای ضروری و mask شدن مقادیر حساس
-- حذف دسترسی نماینده به تنظیمات global غیرضروری
+### بسته‌شده (فاز کم‌اولویت)
 
-### 2) استقلال کامل ربات نماینده
-
-- admin list و policy جداگانه per-reseller در bot-core
-- حذف fallback به token سراسری در context نماینده (fail-fast)
-- context-aware شدن همه مسیرهای ارسال/دریافت رسانه و receipt flow
-
-### 3) حاکمیت دسترسی
-
-- پیاده‌سازی ماتریس کامل permission در backend (اجباری) و UI (نمایشی/عملیاتی)
-- مخفی/غیرفعال شدن تب‌ها و اکشن‌ها براساس مجوز واقعی بازیگر
-
-### 4) تکمیل قابلیت‌های پنل نماینده
-
-- صفحه برندینگ کامل (name/logo/theme/domain/text templates)
-- قیمت‌گذاری پیشرفته نماینده (margin rules / panel-level policies)
-- preload کامل و audit log برای تغییر قیمت/permission
-
-### 5) جداسازی داده و پایداری
-
-- owner/scope شفاف در مسیرهای مالی (cards, receipts, settlement)
-- ایزولاسیون بهتر داده‌های نماینده در عملیات خرید/تمدید/گزارش‌گیری
+- Admin Hub روی ربات نماینده: مسدودسازی `Settings` سراسری + زیرمنوهای gen/bot/crypto/backup.
+- dropdown پنل: `can_sell_plan` + غیرفعال per-panel وقتی فقط کف قیمت است.
+- شارژ کیف نماینده از داشبورد: notify با `send_message_for_reseller`.
 
 ---
 
-## جمع‌بندی نهایی
+## چک‌لیست deploy
 
-- **پنل نماینده الان usable هست، ولی کامل نیست.**
-- **ربات نماینده الان نیمه‌مستقل است، نه کاملا مستقل.**
-- **برای رسیدن به سطح کامل و بدون نقص، باید سه محور همزمان تکمیل شود:**  
-  1) امنیت و محرمانگی داده  
-  2) استقلال واقعی bot runtime و admin controls  
-  3) permission + data scoping سراسری و یکپارچه
+1. Reload/deactivate-activate پلاگین → `DB_VERSION` = `2.2.4`
+2. بررسی option `simplevpbot_reseller_backfill_v1_done` = true
+3. وب‌هوک HTTPS برای هر ربات نماینده
+4. تست: `/start` → خرید → رسید → اعلان از همان ربات
+5. تب مالی نماینده پس از backfill
 
 ---
 
-## وضعیت پوشش بررسی
+## پوشش بررسی
 
-این ارزیابی با مرور end-to-end روی لایه‌های زیر انجام شده است:
-
-- فرانت‌اند داشبورد (`dashboard-ui/*`)
-- API و mutateهای داشبورد (`includes/api/*`, `includes/admin/*`)
-- هسته ربات و webhook/context/runtime (`includes/bot/*`)
-- مدل‌های نماینده و قیمت/برندینگ (`includes/models/*`, `includes/helpers/*`)
-
-اگر بخواهید، گام بعدی را به‌صورت **Roadmap اجرایی مرحله‌ای (Phase 1/2/3)** با taskهای دقیق پیاده‌سازی و اولویت‌بندی تحویل می‌دهم.
+`dashboard-ui/*`, `includes/api/*`, `includes/admin/*`, `includes/bot/*`, `includes/models/*`, `includes/helpers/class-bot-reseller-scope.php`, `class-user-notify.php`, `class-reseller-backfill.php`

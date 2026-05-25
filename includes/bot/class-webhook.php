@@ -115,7 +115,7 @@ class SimpleVPBot_Webhook {
 			}
 			$raw = sanitize_text_field( wp_unslash( (string) $_SERVER[ $h ] ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotValidated
 			$raw = trim( explode( ',', $raw )[0] );
-			if ( $raw ) {
+			if ( $raw && filter_var( $raw, FILTER_VALIDATE_IP ) ) {
 				return $raw;
 			}
 		}

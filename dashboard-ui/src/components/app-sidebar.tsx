@@ -1,6 +1,7 @@
 "use client"
 
 import { Check, LayoutDashboard, LifeBuoy, MessageSquareQuote, UserRoundCog } from "lucide-react"
+import type { MouseEvent } from "react"
 import { useTranslation } from "react-i18next"
 
 import { NavGrouped } from "@/components/nav-grouped"
@@ -34,6 +35,7 @@ import {
 } from "@/components/ui/tooltip"
 import type { AdminNavSection } from "@/config/admin-nav"
 import { cn } from "@/lib/utils"
+import { writeSiteSubtabToUrl } from "@/lib/site-settings-subtab"
 
 type NavTab = {
   key: string
@@ -43,13 +45,34 @@ type NavTab = {
 const menuBtnCollapsedIcon =
   "group-data-[collapsible=icon]:justify-center [&>span]:group-data-[collapsible=icon]:hidden"
 
-function SidebarQuickLinks({ rtl }: { rtl: boolean }) {
+function SidebarQuickLinks({
+  rtl,
+  variant,
+  dashboardBaseUrl,
+  onSelectTab,
+}: {
+  rtl: boolean
+  variant: "admin" | "reseller" | "user"
+  dashboardBaseUrl: string
+  onSelectTab: (tabKey: string) => void
+}) {
   const { t } = useTranslation()
-  const host =
-    typeof window !== "undefined" ? window.location.hostname : "localhost"
-  const supportHref = `mailto:support@${host}?subject=${encodeURIComponent(
-    t("sidebar.footer.support")
-  )}`
+  const base = dashboardBaseUrl.replace(/\/?$/, "")
+
+  const openSupportSettings = (e: MouseEvent) => {
+    e.preventDefault()
+    if (variant !== "admin") return
+    writeSiteSubtabToUrl("whitelabel")
+    onSelectTab("site_settings")
+    const url = `${base}/site_settings/?site_subtab=whitelabel#whitelabel-support`
+    window.history.pushState({ tab: "site_settings" }, "", url)
+    window.setTimeout(() => {
+      document.getElementById("whitelabel-support")?.scrollIntoView({ behavior: "smooth", block: "start" })
+    }, 200)
+  }
+
+  const host = typeof window !== "undefined" ? window.location.hostname : "localhost"
+  const resellerSupportHref = `mailto:support@${host}?subject=${encodeURIComponent(t("sidebar.footer.support"))}`
 
   return (
     <SidebarMenu
@@ -58,15 +81,23 @@ function SidebarQuickLinks({ rtl }: { rtl: boolean }) {
     >
       <SidebarMenuItem>
         <SidebarMenuButton
-          asChild
+          asChild={variant !== "admin"}
           size="default"
           tooltip={t("sidebar.footer.support")}
           className={menuBtnCollapsedIcon}
+          onClick={variant === "admin" ? openSupportSettings : undefined}
         >
-          <a href={supportHref}>
-            <LifeBuoy />
-            <span className="truncate">{t("sidebar.footer.support")}</span>
-          </a>
+          {variant === "admin" ? (
+            <>
+              <LifeBuoy />
+              <span className="truncate">{t("sidebar.footer.support")}</span>
+            </>
+          ) : (
+            <a href={resellerSupportHref}>
+              <LifeBuoy />
+              <span className="truncate">{t("sidebar.footer.support")}</span>
+            </a>
+          )}
         </SidebarMenuButton>
       </SidebarMenuItem>
       <SidebarMenuItem>
@@ -393,7 +424,14 @@ export function AppSidebar({
         )}
       </SidebarContent>
       <SidebarFooter className="gap-0">
-        {(variant === "admin" || variant === "reseller") && <SidebarQuickLinks rtl={isFa} />}
+        {(variant === "admin" || variant === "reseller") && (
+          <SidebarQuickLinks
+            rtl={isFa}
+            variant={variant}
+            dashboardBaseUrl={dashboardBaseUrl}
+            onSelectTab={onSelectTab}
+          />
+        )}
         <div className={cn((variant === "admin" || variant === "reseller") && "px-0 pt-1")}>
           <NavUser user={user} rtl={isFa} />
         </div>

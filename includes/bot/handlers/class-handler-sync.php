@@ -28,7 +28,7 @@ class SimpleVPBot_Handler_Sync {
 			$platform,
 			$chat_id,
 			SimpleVPBot_Texts::format(
-				"🔗 کد سینک شما:\n➖➖➖➖➖➖➖➖\n🔑 `{code}`\n➖➖➖➖➖➖➖➖\nدر ربات دیگر روی «ورود کد» بزنید و این کد را ارسال کنید.",
+				SimpleVPBot_Texts::get_for_user( 'msg.sync.code_template', $user ),
 				array( 'code' => $code )
 			)
 		);
@@ -54,7 +54,7 @@ class SimpleVPBot_Handler_Sync {
 		$user     = $ctx['user'];
 		$code     = preg_replace( '/\D+/', '', SimpleVPBot_Bot_Runtime::normalize_digits( (string) $ctx['text'] ) );
 		if ( strlen( $code ) < 6 ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ کد نامعتبر است.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.sync.invalid_code', $user ) );
 			return;
 		}
 		$row = SimpleVPBot_Model_Sync_Code::find_valid( $code );
@@ -63,13 +63,13 @@ class SimpleVPBot_Handler_Sync {
 			$cur_id     = (int) $user->id;
 			if ( $primary_id === $cur_id ) {
 				SimpleVPBot_State::clear( $cur_id );
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, 'ℹ️ این کد متعلق به خودتان است.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.sync.own_code', $user ) );
 				return;
 			}
 			SimpleVPBot_Model_User::merge_users( $primary_id, $cur_id, 'internal' );
 			SimpleVPBot_Model_Sync_Code::consume( (int) $row->id );
 			SimpleVPBot_State::clear( $primary_id );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '✅ اکانت‌ها با موفقیت سینک شدند.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.sync.success', $user ) );
 			return;
 		}
 
@@ -77,15 +77,22 @@ class SimpleVPBot_Handler_Sync {
 			$res = SimpleVPBot_Service_Transfer::consume_code_and_transfer( $code, (int) $user->id, 'code' );
 			if ( ! empty( $res['ok'] ) ) {
 				SimpleVPBot_State::clear( (int) $user->id );
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '✅ سرویس با موفقیت به شما منتقل شد.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.sync.transfer_ok', $user ) );
 				return;
 			}
 			if ( 'invalid_or_expired' !== (string) ( $res['reason'] ?? '' ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ انتقال سرویس انجام نشد: ' . (string) $res['reason'] );
+				SimpleVPBot_Bot_Runtime::send_message(
+					$platform,
+					$chat_id,
+					SimpleVPBot_Texts::format(
+						SimpleVPBot_Texts::get_for_user( 'msg.sync.transfer_fail', $user ),
+						array( 'reason' => (string) $res['reason'] )
+					)
+				);
 				return;
 			}
 		}
 
-		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ کد منقضی یا اشتباه است.' );
+		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.sync.expired', $user ) );
 	}
 }

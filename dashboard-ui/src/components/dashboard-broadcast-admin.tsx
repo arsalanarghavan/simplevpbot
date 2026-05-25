@@ -5,6 +5,11 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { BroadcastRichEditor } from "@/components/broadcast-rich-editor"
+import {
+  hasBaleUnsupportedFeatures,
+  htmlForTelegramPreview,
+  htmlToBalePreviewMarkdown,
+} from "@/lib/broadcast-preview"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -330,6 +335,7 @@ function BroadcastHtmlPreview({
   isFa: boolean
   className?: string
 }) {
+  const previewHtml = htmlForTelegramPreview(html)
   return (
     <div className={cn("space-y-3", className)}>
       {urls.length > 0 ? (
@@ -342,11 +348,48 @@ function BroadcastHtmlPreview({
       {html.trim() !== "" ? (
         <div
           className={cn(
-            "min-h-[4rem] rounded-md border border-border/80 bg-muted/20 p-3 text-sm [&_a]:text-primary [&_a]:underline",
+            "min-h-[4rem] whitespace-pre-wrap rounded-md border border-border/80 bg-muted/20 p-3 text-sm [&_a]:text-primary [&_a]:underline",
             isFa && "text-right"
           )}
-          dangerouslySetInnerHTML={{ __html: html }}
+          dangerouslySetInnerHTML={{ __html: previewHtml }}
         />
+      ) : urls.length === 0 ? (
+        <p className="text-sm text-muted-foreground">—</p>
+      ) : null}
+    </div>
+  )
+}
+
+function BroadcastBalePreview({
+  html,
+  urls,
+  isFa,
+  className,
+  baleNote,
+}: {
+  html: string
+  urls: string[]
+  isFa: boolean
+  className?: string
+  baleNote: string
+}) {
+  const md = htmlToBalePreviewMarkdown(html)
+  const warn = hasBaleUnsupportedFeatures(html)
+  return (
+    <div className={cn("space-y-3", className)}>
+      {urls.length > 0 ? (
+        <p className="text-xs text-muted-foreground">{urls.length} image(s) — caption on first only</p>
+      ) : null}
+      {warn ? <p className="text-xs text-amber-800 dark:text-amber-200">{baleNote}</p> : null}
+      {md !== "" ? (
+        <pre
+          className={cn(
+            "min-h-[4rem] whitespace-pre-wrap rounded-md border border-border/80 bg-muted/20 p-3 font-sans text-sm",
+            isFa && "text-right",
+          )}
+        >
+          {md}
+        </pre>
       ) : urls.length === 0 ? (
         <p className="text-sm text-muted-foreground">—</p>
       ) : null}
@@ -738,14 +781,24 @@ export function DashboardBroadcastAdmin({
             {tp("send")}
           </Button>
             </div>
-            <Card className="border-dashed">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">{tp("previewTitle")}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <BroadcastHtmlPreview html={html} urls={mediaUrls} isFa={isFa} />
-              </CardContent>
-            </Card>
+            <div className="space-y-3">
+              <Card className="border-dashed">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">{tp("previewTelegram")}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <BroadcastHtmlPreview html={html} urls={mediaUrls} isFa={isFa} />
+                </CardContent>
+              </Card>
+              <Card className="border-dashed">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">{tp("previewBale")}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <BroadcastBalePreview html={html} urls={mediaUrls} isFa={isFa} baleNote={tp("baleFormatNote")} />
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </CardContent>
       </Card>

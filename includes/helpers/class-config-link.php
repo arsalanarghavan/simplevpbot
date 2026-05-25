@@ -286,11 +286,92 @@ class SimpleVPBot_Config_Link {
 				}
 			}
 		}
-		$lines = self::split_subscription_uri_lines( self::expand_subscription_plain( $body ) );
-		if ( ! empty( $lines ) ) {
-			return $lines;
+		$plain  = self::expand_subscription_plain( $body );
+		$lines  = self::flatten_subscription_uri_lines( self::split_subscription_uri_lines( $plain ) );
+		$merged = array_values(
+			array_unique(
+				array_filter(
+					array_merge( $lines, self::extract_uris_by_regex( $plain ) )
+				)
+			)
+		);
+		if ( ! empty( $merged ) ) {
+			return $merged;
 		}
 		return self::extract_uris_by_regex( $body );
+	}
+
+	/**
+	 * When one subscription line contains multiple share URIs (no newlines), split via regex.
+	 *
+	 * @param array<int, string> $lines Lines from split_subscription_uri_lines.
+	 * @return array<int, string>
+	 */
+	private static function flatten_subscription_uri_lines( array $lines ) {
+		$out = array();
+		foreach ( $lines as $ln ) {
+			$ln = trim( (string) $ln );
+			if ( '' === $ln ) {
+				continue;
+			}
+			$split = self::extract_uris_by_regex( $ln );
+			if ( ! empty( $split ) ) {
+				foreach ( $split as $u ) {
+					$out[] = $u;
+				}
+			} else {
+				$out[] = $ln;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Count share-URI scheme occurrences in a single line/blob.
+	 *
+	 * @param string $line Text.
+	 * @return int
+	 */
+	/**
+	 * Regex fragment matching known share URI schemes (positive lookahead split).
+	 *
+	 * @return string
+	 */
+	private static function share_uri_scheme_pattern() {
+		// Longest schemes first so "ss" does not match inside "vless".
+		return '(?:hysteria2|vmess|vless|trojan|tuic|ssr|hy2|ss)';
+	}
+
+	/**
+	 * Find start offsets of share URIs in a blob (avoids "ss" inside "vless").
+	 *
+	 * @param string $text Text.
+	 * @return array<int, int>
+	 */
+	private static function share_uri_start_offsets( $text ) {
+		$text = (string) $text;
+		if ( '' === $text ) {
+			return array();
+		}
+		$pat = '/(?<![a-z0-9])' . self::share_uri_scheme_pattern() . ':\/\//iu';
+		if ( ! preg_match_all( $pat, $text, $m, PREG_OFFSET_CAPTURE ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( (array) ( $m[0] ?? array() ) as $hit ) {
+			if ( isset( $hit[1] ) ) {
+				$out[] = (int) $hit[1];
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * @param string $line Text.
+	 * @return int
+	 */
+	private static function count_share_uri_schemes( $line ) {
+		return count( self::share_uri_start_offsets( $line ) );
 	}
 
 	/**
@@ -359,14 +440,14 @@ class SimpleVPBot_Config_Link {
 				return $out;
 			}
 			if ( false !== strpos( $t, '://' ) ) {
-				foreach ( self::split_subscription_uri_lines( $t ) as $ln ) {
+				foreach ( self::flatten_subscription_uri_lines( self::split_subscription_uri_lines( $t ) ) as $ln ) {
 					$out[] = $ln;
 				}
-				return $out;
+				return self::flatten_subscription_uri_lines( $out );
 			}
 			$expanded = self::expand_subscription_plain( $t );
 			if ( false !== strpos( $expanded, '://' ) ) {
-				foreach ( self::split_subscription_uri_lines( $expanded ) as $ln ) {
+				foreach ( self::flatten_subscription_uri_lines( self::split_subscription_uri_lines( $expanded ) ) as $ln ) {
 					$out[] = $ln;
 				}
 			}
@@ -394,17 +475,62 @@ class SimpleVPBot_Config_Link {
 		if ( '' === $s ) {
 			return array();
 		}
-		if ( preg_match_all( '/\b(?:vmess|vless|trojan|ss|ssr|tuic|hy2|hysteria2):\/\/\S+/iu', $s, $m ) && ! empty( $m[0] ) ) {
-			$out = array();
-			foreach ( $m[0] as $raw ) {
-				$u = rtrim( (string) $raw, "\t\r\n.,;)'\"»«،" );
-				if ( false !== strpos( $u, '://' ) ) {
-					$out[] = $u;
-				}
-			}
-			return array_values( array_unique( array_filter( $out ) ) );
+		$scheme = self::share_uri_scheme_pattern();
+		$pat    = '/(' . $scheme . ':\/\/).*?(?=' . $scheme . ':\/\/|$)/isu';
+		if ( ! preg_match_all( $pat, $s, $m ) || empty( $m[0] ) ) {
+			return self::extract_uris_by_regex_offsets( $s );
 		}
-		return array();
+		$out = array();
+		foreach ( (array) $m[0] as $raw ) {
+			$u = trim( rtrim( (string) $raw, "\t\r\n.,;)'\"»«،" ) );
+			if ( '' !== $u && false !== strpos( $u, '://' ) ) {
+				$out[] = $u;
+			}
+		}
+		return array_values( array_unique( array_filter( $out ) ) );
+	}
+
+	/**
+	 * Fallback URI extraction by start offsets (newline-separated bodies).
+	 *
+	 * @param string $s Text.
+	 * @return array<int, string>
+	 */
+	private static function extract_uris_by_regex_offsets( $s ) {
+		$starts = self::share_uri_start_offsets( $s );
+		if ( empty( $starts ) ) {
+			return array();
+		}
+		$len = strlen( $s );
+		$out = array();
+		foreach ( $starts as $i => $pos ) {
+			$end = isset( $starts[ $i + 1 ] ) ? (int) $starts[ $i + 1 ] : $len;
+			$uri = trim( substr( $s, $pos, $end - $pos ) );
+			$uri = rtrim( $uri, "\t\r\n.,;)'\"»«،" );
+			if ( '' !== $uri && false !== strpos( $uri, '://' ) ) {
+				$out[] = $uri;
+			}
+		}
+		return array_values( array_unique( array_filter( $out ) ) );
+	}
+
+	/**
+	 * Human-readable label from URI fragment (#remark), e.g. 3x-ui external proxy remark.
+	 *
+	 * @param string $uri Config or share URI.
+	 * @return string Empty when no fragment.
+	 */
+	public static function uri_fragment_label( $uri ) {
+		$u = (string) $uri;
+		$p = strpos( $u, '#' );
+		if ( false === $p ) {
+			return '';
+		}
+		$frag = substr( $u, $p + 1 );
+		if ( '' === $frag ) {
+			return '';
+		}
+		return trim( rawurldecode( $frag ) );
 	}
 
 	/**

@@ -1,6 +1,7 @@
 <?php
 /**
  * Restore WordPress-side data from SimpleVPBot backup zip (svp_* + options JSON).
+ * Optional: import panel SQLite files back into 3x-ui via server/importDB.
  *
  * @package SimpleVPBot
  */
@@ -18,12 +19,14 @@ class SimpleVPBot_Backup_Restore {
 	const MAX_SQL_BYTES = 33554432;
 
 	/**
-	 * Restore from a local zip path (caller moves upload here).
+	 * Restore from a local zip path (merge-only WordPress tables; optional panel DB import).
 	 *
-	 * @param string $zip_path Absolute path.
-	 * @return true|\WP_Error
+	 * @param string               $zip_path Absolute path.
+	 * @param array<string, mixed> $opts     restore_panel_db (bool).
+	 * @return array<string, mixed>|\WP_Error Stats on success.
 	 */
-	public static function restore_from_zip_path( $zip_path ) {
+	public static function restore_from_zip_path( $zip_path, array $opts = array() ) {
+		$restore_panel = ! empty( $opts['restore_panel_db'] );
 		if ( ! class_exists( 'ZipArchive' ) ) {
 			return new WP_Error( 'svp_no_zip', __( 'ZipArchive در سرور فعال نیست.', 'simplevpbot' ) );
 		}
@@ -55,70 +58,185 @@ class SimpleVPBot_Backup_Restore {
 				return new WP_Error( 'svp_table', __( 'نام جدول غیرمجاز در manifest:', 'simplevpbot' ) . ' ' . (string) $t );
 			}
 		}
+
+		$panel_stats = array();
+		if ( $restore_panel ) {
+			$panel_res = self::restore_panel_dbs_from_zip( $z, $manifest );
+			if ( is_wp_error( $panel_res ) ) {
+				$z->close();
+				return $panel_res;
+			}
+			$panel_stats = is_array( $panel_res ) ? $panel_res : array();
+		}
+
 		$sql = $z->getFromName( 'wordpress/plugin-tables.sql' );
+		$z->close();
 		if ( false === $sql || '' === $sql ) {
-			$z->close();
 			return new WP_Error( 'svp_sql', __( 'plugin-tables.sql در زیپ یافت نشد.', 'simplevpbot' ) );
 		}
 		if ( strlen( (string) $sql ) > self::MAX_SQL_BYTES ) {
-			$z->close();
 			return new WP_Error( 'svp_sql_size', __( 'فایل SQL بکاپ بیش از حد بزرگ است.', 'simplevpbot' ) );
 		}
-		$opt_raw = $z->getFromName( 'wordpress/plugin-settings.json' );
-		$z->close();
 
-		global $wpdb;
-		$wpdb->query( 'SET FOREIGN_KEY_CHECKS=0' ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-		foreach ( $tables as $t ) {
-			$t = (string) $t;
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$wpdb->query( "TRUNCATE TABLE `{$t}`" );
+		if ( ! class_exists( 'SimpleVPBot_Backup_Merge_Restore' ) ) {
+			return new WP_Error( 'svp_merge_missing', __( 'ماژول بازگردانی ادغامی در دسترس نیست.', 'simplevpbot' ) );
 		}
 
-		$lines = preg_split( "/\R/u", (string) $sql );
-		if ( ! is_array( $lines ) ) {
-			$lines = array();
+		$dump = SimpleVPBot_Backup_Export::parse_sql_dump( (string) $sql );
+		$res  = SimpleVPBot_Backup_Merge_Restore::restore_from_dump( $dump );
+		if ( is_wp_error( $res ) ) {
+			return $res;
 		}
-		foreach ( $lines as $line ) {
-			$line = trim( $line );
-			if ( '' === $line || 0 === strpos( $line, '--' ) ) {
+
+		$out = is_array( $res ) ? $res : array();
+		if ( ! empty( $panel_stats ) ) {
+			$out['panel_restore'] = $panel_stats;
+		}
+		return $out;
+	}
+
+	/**
+	 * Import panel/*.db entries from zip into matching 3x-ui panels.
+	 *
+	 * @param ZipArchive           $z        Open zip.
+	 * @param array<string, mixed> $manifest Parsed manifest.
+	 * @return array<string, mixed>|\WP_Error
+	 */
+	private static function restore_panel_dbs_from_zip( ZipArchive $z, array $manifest ) {
+		if ( ! class_exists( 'SimpleVPBot_Xui_Client' ) ) {
+			return new WP_Error( 'svp_xui', __( 'کلاینت پنل در دسترس نیست.', 'simplevpbot' ) );
+		}
+		$names = array();
+		if ( ! empty( $manifest['panel_db_files'] ) && is_array( $manifest['panel_db_files'] ) ) {
+			foreach ( $manifest['panel_db_files'] as $n ) {
+				$n = (string) $n;
+				if ( '' !== $n ) {
+					$names[] = $n;
+				}
+			}
+		}
+		if ( empty( $names ) ) {
+			for ( $i = 0; $i < $z->numFiles; $i++ ) {
+				$stat = $z->statIndex( $i );
+				if ( ! is_array( $stat ) || empty( $stat['name'] ) ) {
+					continue;
+				}
+				$entry = (string) $stat['name'];
+				if ( preg_match( '#^panel/panel-[a-zA-Z0-9._-]+\.db$#', $entry ) ) {
+					$names[] = $entry;
+				}
+			}
+		}
+		$names = array_values( array_unique( $names ) );
+		if ( empty( $names ) ) {
+			return new WP_Error( 'svp_no_panel_db', __( 'فایل DB پنل در این زیپ نیست.', 'simplevpbot' ) );
+		}
+
+		$tmpdir = SimpleVPBot_Backup_Export::base_tmp_dir() . 'restore-panel-' . wp_generate_password( 8, false, false ) . '/';
+		wp_mkdir_p( $tmpdir );
+
+		$imported = array();
+		$failed   = array();
+		foreach ( $names as $zip_name ) {
+			$panel_id = self::panel_id_from_zip_entry( $zip_name );
+			$bytes    = $z->getFromName( $zip_name );
+			if ( false === $bytes || '' === $bytes ) {
+				$failed[] = array(
+					'zip_name' => $zip_name,
+					'panel_id' => $panel_id,
+					'step'     => 'extract',
+				);
 				continue;
 			}
-			$up = strtoupper( $line );
-			if ( 0 === strpos( $up, 'SET ' ) ) {
-				$wpdb->query( $line ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$local = $tmpdir . basename( $zip_name );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_read_file_put_contents
+			if ( false === file_put_contents( $local, $bytes ) ) {
+				$failed[] = array(
+					'zip_name' => $zip_name,
+					'panel_id' => $panel_id,
+					'step'     => 'write',
+				);
 				continue;
 			}
-			if ( 0 === strpos( $up, 'INSERT ' ) ) {
-				$ins_tbl = SimpleVPBot_Backup_Export::parse_insert_table_name( $line );
-				if ( null === $ins_tbl || ! SimpleVPBot_Backup_Export::is_allowed_table_name( $ins_tbl ) ) {
-					$wpdb->query( 'SET FOREIGN_KEY_CHECKS=1' ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-					return new WP_Error( 'svp_sql_table', __( 'خط INSERT به جدول غیرمجاز یا نامعتبر:', 'simplevpbot' ) . ' ' . (string) ( $ins_tbl ?? '' ) );
+			$res = SimpleVPBot_Xui_Client::run_with_panel(
+				$panel_id,
+				function () use ( $local ) {
+					if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
+						return array( 'ok' => false, 'step' => 'login' );
+					}
+					$imp = SimpleVPBot_Xui_Client::import_db_from_path( $local );
+					if ( ! empty( $imp['ok'] ) ) {
+						return array( 'ok' => true );
+					}
+					return array(
+						'ok'      => false,
+						'step'    => 'import',
+						'message' => (string) ( $imp['message'] ?? 'import_failed' ),
+					);
 				}
-				$wpdb->query( $line ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-				if ( ! empty( $wpdb->last_error ) ) {
-					$wpdb->query( 'SET FOREIGN_KEY_CHECKS=1' ); // phpcs:ignore
-					return new WP_Error( 'svp_sql_run', $wpdb->last_error . ' — ' . mb_substr( $line, 0, 120 ) );
-				}
+			);
+			if ( is_array( $res ) && ! empty( $res['ok'] ) ) {
+				$imported[] = array(
+					'zip_name' => $zip_name,
+					'panel_id' => $panel_id,
+				);
+				SimpleVPBot_Logger::info( 'backup restore: panel db imported', array( 'panel_id' => $panel_id, 'zip' => $zip_name ) );
+			} else {
+				$step = is_array( $res ) ? (string) ( $res['step'] ?? 'import' ) : 'import';
+				$failed[] = array(
+					'zip_name' => $zip_name,
+					'panel_id' => $panel_id,
+					'step'     => $step,
+					'message'  => is_array( $res ) ? (string) ( $res['message'] ?? '' ) : '',
+				);
+				SimpleVPBot_Logger::error( 'backup restore: panel db import failed', array( 'panel_id' => $panel_id, 'zip' => $zip_name, 'res' => $res ) );
+			}
+			if ( is_readable( $local ) ) {
+				@unlink( $local ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			}
 		}
-		$wpdb->query( 'SET FOREIGN_KEY_CHECKS=1' ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 
-		if ( false !== $opt_raw && '' !== $opt_raw ) {
-			$optj = json_decode( (string) $opt_raw, true );
-			if ( is_array( $optj ) ) {
-				$key = SimpleVPBot_Settings::OPTION_KEY;
-				if ( array_key_exists( $key, $optj ) && is_array( $optj[ $key ] ) ) {
-					update_option( $key, $optj[ $key ] );
-				}
-				if ( array_key_exists( 'simplevpbot_db_version', $optj ) ) {
-					update_option( 'simplevpbot_db_version', sanitize_text_field( (string) $optj['simplevpbot_db_version'] ) );
+		if ( is_dir( $tmpdir ) ) {
+			$glob = glob( $tmpdir . '*' );
+			if ( is_array( $glob ) ) {
+				foreach ( $glob as $f ) {
+					if ( is_file( $f ) ) {
+						@unlink( $f ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+					}
 				}
 			}
+			@rmdir( $tmpdir ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
-		if ( class_exists( 'SimpleVPBot_Texts' ) ) {
-			SimpleVPBot_Texts::clear_cache();
+
+		if ( empty( $imported ) ) {
+			return new WP_Error(
+				'svp_panel_import_all_failed',
+				__( 'بازگردانی DB پنل به ۳x-ui ناموفق بود.', 'simplevpbot' )
+			);
 		}
-		return true;
+
+		return array(
+			'imported' => $imported,
+			'failed'   => $failed,
+			'ok_count' => count( $imported ),
+			'fail_count' => count( $failed ),
+		);
+	}
+
+	/**
+	 * Parse panel id from zip entry path panel/panel-{id}-label.db or panel-legacy.db.
+	 *
+	 * @param string $zip_name Path inside zip.
+	 * @return int 0 for legacy.
+	 */
+	private static function panel_id_from_zip_entry( $zip_name ) {
+		$name = (string) $zip_name;
+		if ( 'panel/panel-legacy.db' === $name ) {
+			return 0;
+		}
+		if ( preg_match( '#^panel/panel-(\d+)-#', $name, $m ) ) {
+			return (int) $m[1];
+		}
+		return 0;
 	}
 }

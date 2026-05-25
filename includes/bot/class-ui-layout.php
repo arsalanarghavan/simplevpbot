@@ -119,7 +119,31 @@ class SimpleVPBot_UI_Layout {
 	public static function effective_rows_for_surface( $surface, $user = null ) {
 		unset( $user );
 		$all = self::get_merged_surfaces();
-		return isset( $all[ $surface ] ) ? $all[ $surface ] : array();
+		$rows = isset( $all[ $surface ] ) ? $all[ $surface ] : array();
+		if ( ! class_exists( 'SimpleVPBot_Feature_L2tp' ) || SimpleVPBot_Feature_L2tp::enabled() ) {
+			return $rows;
+		}
+		$filtered = array();
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$built = array();
+			foreach ( $row as $cell ) {
+				if ( ! is_array( $cell ) ) {
+					continue;
+				}
+				$id = (string) ( $cell['id'] ?? '' );
+				if ( '' !== $id && SimpleVPBot_Feature_L2tp::is_hidden_bot_action( $id ) ) {
+					continue;
+				}
+				$built[] = $cell;
+			}
+			if ( array() !== $built ) {
+				$filtered[] = $built;
+			}
+		}
+		return $filtered;
 	}
 
 	/**

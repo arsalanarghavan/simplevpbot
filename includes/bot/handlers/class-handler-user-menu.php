@@ -33,7 +33,13 @@ class SimpleVPBot_Handler_User_Menu {
 						SimpleVPBot_Handler_Buy::send_category_picker( $platform, $chat_id );
 						return;
 					case 'user.main.manage':
+						if ( class_exists( 'SimpleVPBot_Service_Reconcile' ) && 'approved' === (string) ( $user->status ?? '' ) ) {
+							SimpleVPBot_Service_Reconcile::reconcile_for_user( (int) $user->id );
+						}
 						$list = SimpleVPBot_Model_Service::by_user( (int) $user->id );
+						if ( class_exists( 'SimpleVPBot_Feature_L2tp' ) ) {
+							$list = SimpleVPBot_Feature_L2tp::filter_services( (array) $list );
+						}
 						if ( empty( $list ) ) {
 							SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.no_active_services', $user ) );
 							return;
@@ -42,17 +48,17 @@ class SimpleVPBot_Handler_User_Menu {
 							$platform,
 							$chat_id,
 							SimpleVPBot_Texts::get_for_user( 'msg.pick_service_inline', $user ),
-							array( 'reply_markup' => SimpleVPBot_Keyboards::inline_service_list( $list ) )
+							array( 'reply_markup' => SimpleVPBot_Keyboards::inline_service_list( $list, $user ) )
 						);
 						return;
 					case 'user.main.wallet':
 						SimpleVPBot_Handler_Wallet::show( $platform, $chat_id, $user );
 						return;
 					case 'user.main.apps':
-						SimpleVPBot_Handler_Apps::show( $platform, $chat_id );
+						SimpleVPBot_Handler_Apps::show( $platform, $chat_id, $user );
 						return;
 					case 'user.main.support':
-						SimpleVPBot_Handler_Support::show( $platform, $chat_id );
+						SimpleVPBot_Handler_Support::show( $platform, $chat_id, $user );
 						return;
 					case 'user.main.account':
 						SimpleVPBot_Handler_Account::show( $platform, $chat_id, $user );
@@ -71,7 +77,13 @@ class SimpleVPBot_Handler_User_Menu {
 			return;
 		}
 		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.main.manage', $user ) ) {
+			if ( class_exists( 'SimpleVPBot_Service_Reconcile' ) && 'approved' === (string) ( $user->status ?? '' ) ) {
+				SimpleVPBot_Service_Reconcile::reconcile_for_user( (int) $user->id );
+			}
 			$list = SimpleVPBot_Model_Service::by_user( (int) $user->id );
+			if ( class_exists( 'SimpleVPBot_Feature_L2tp' ) ) {
+				$list = SimpleVPBot_Feature_L2tp::filter_services( (array) $list );
+			}
 			if ( empty( $list ) ) {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.no_active_services', $user ) );
 				return;
@@ -80,7 +92,7 @@ class SimpleVPBot_Handler_User_Menu {
 				$platform,
 				$chat_id,
 				SimpleVPBot_Texts::get_for_user( 'msg.pick_service_inline', $user ),
-				array( 'reply_markup' => SimpleVPBot_Keyboards::inline_service_list( $list ) )
+				array( 'reply_markup' => SimpleVPBot_Keyboards::inline_service_list( $list, $user ) )
 			);
 			return;
 		}
@@ -89,11 +101,11 @@ class SimpleVPBot_Handler_User_Menu {
 			return;
 		}
 		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.main.apps', $user ) ) {
-			SimpleVPBot_Handler_Apps::show( $platform, $chat_id );
+			SimpleVPBot_Handler_Apps::show( $platform, $chat_id, $user );
 			return;
 		}
 		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.main.support', $user ) ) {
-			SimpleVPBot_Handler_Support::show( $platform, $chat_id );
+			SimpleVPBot_Handler_Support::show( $platform, $chat_id, $user );
 			return;
 		}
 		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.main.account', $user ) ) {

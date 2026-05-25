@@ -61,6 +61,10 @@ export function buildAdminStateQuery(
     activeTab?: string
     /** Reseller operator: avoid stale admin panels_page leaving panel list empty. */
     resellerOperator?: boolean
+    /** When false, skip L2TP server list prefetch on state load. */
+    l2tpEnabled?: boolean
+    /** Users tab user-detail: request plan catalog without full admin state payload. */
+    includePlansForUserDetail?: boolean
   }
 ): string {
   const sp = new URLSearchParams()
@@ -88,16 +92,21 @@ export function buildAdminStateQuery(
     sp.set("panels_per_page", "100")
     sp.set("planCategories_page", "1")
     sp.set("planCategories_per_page", "100")
-    sp.set("l2tp_page", "1")
-    sp.set("l2tp_per_page", "100")
+    if (opts?.l2tpEnabled !== false) {
+      sp.set("l2tp_page", "1")
+      sp.set("l2tp_per_page", "100")
+    }
   }
-  if (tab === "resellers") {
+  if (tab === "resellers" && opts?.l2tpEnabled !== false) {
     sp.set("l2tp_page", "1")
     sp.set("l2tp_per_page", "100")
   }
   if (opts?.resellerOperator) {
     sp.set("panels_page", "1")
     sp.set("panels_per_page", "100")
+  }
+  if (opts?.includePlansForUserDetail) {
+    sp.set("includePlansForUserDetail", "1")
   }
   const s = sp.toString()
   return s ? `?${s}` : ""

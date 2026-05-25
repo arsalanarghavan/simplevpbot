@@ -137,4 +137,90 @@ class SimpleVPBot_Model_Discount_Code {
 		global $wpdb;
 		$wpdb->delete( self::table(), array( 'id' => (int) $id ) );
 	}
+
+	/**
+	 * Parse allowed_plan_ids JSON column.
+	 *
+	 * @param object|array<string, mixed>|null $row Row.
+	 * @return array<int>
+	 */
+	public static function parse_allowed_plan_ids( $row ) {
+		if ( ! $row ) {
+			return array();
+		}
+		if ( is_string( $row ) ) {
+			$raw = $row;
+		} else {
+			$raw = is_object( $row ) ? ( $row->allowed_plan_ids ?? '' ) : ( $row['allowed_plan_ids'] ?? '' );
+		}
+		$raw = trim( (string) $raw );
+		if ( '' === $raw ) {
+			return array();
+		}
+		$dec = json_decode( $raw, true );
+		if ( ! is_array( $dec ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( $dec as $pid ) {
+			$n = (int) $pid;
+			if ( $n > 0 ) {
+				$out[] = $n;
+			}
+		}
+		return array_values( array_unique( $out ) );
+	}
+
+	/**
+	 * Encode plan id list for storage.
+	 *
+	 * @param array<int> $plan_ids Plan ids.
+	 * @return string|null
+	 */
+	public static function encode_allowed_plan_ids( array $plan_ids ) {
+		$ids = array_values( array_unique( array_filter( array_map( 'intval', $plan_ids ) ) ) );
+		if ( empty( $ids ) ) {
+			return null;
+		}
+		return wp_json_encode( $ids );
+	}
+
+	/**
+	 * Active codes for owner that share any plan id with candidate list.
+	 *
+	 * @param int        $owner_svp_user_id Owner.
+	 * @param array<int> $plan_ids Plan ids.
+	 * @param int        $exclude_id Code id to skip (edit).
+	 * @return array<int, object>
+	 */
+	public static function active_with_plan_overlap( $owner_svp_user_id, array $plan_ids, $exclude_id = 0 ) {
+		$plan_ids = array_values( array_unique( array_filter( array_map( 'intval', $plan_ids ) ) ) );
+		global $wpdb;
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT * FROM ' . self::table() . ' WHERE active = 1 AND owner_svp_user_id = %d AND id <> %d',
+				(int) $owner_svp_user_id,
+				(int) $exclude_id
+			)
+		); // phpcs:ignore
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			if ( ! $row ) {
+				continue;
+			}
+			$allowed = self::parse_allowed_plan_ids( $row );
+			if ( empty( $plan_ids ) || empty( $allowed ) ) {
+				$out[] = $row;
+				continue;
+			}
+			foreach ( $plan_ids as $pid ) {
+				if ( in_array( (int) $pid, $allowed, true ) ) {
+					$out[] = $row;
+					break;
+				}
+			}
+		}
+		return $out;
+	}
 }
+

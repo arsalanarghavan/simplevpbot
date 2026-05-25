@@ -11,7 +11,11 @@ export type ParseDashOpts = {
 
 /** Map URL slugs (incl. hyphenated) to internal tab keys used by the SPA. */
 const TAB_SLUG_ALIASES: Record<string, string> = {
-  wallet: "reseller_finance",
+  wallet: "receipts",
+  reseller_finance: "receipts",
+  "reseller-charge": "reseller_charge",
+  reseller_charge: "reseller_charge",
+  charge: "reseller_charge",
   "users-bulk": "users_bulk",
   "reseller-bots": "reseller_bots",
   "plan-cats": "plan_cats",
@@ -19,7 +23,7 @@ const TAB_SLUG_ALIASES: Record<string, string> = {
   "bot-ui": "bot_ui",
   "xui-panels": "xui_panels",
   "l2tp-servers": "l2tp_servers",
-  "wholesale-lines": "wholesale_lines",
+  "wholesale-lines": "plans",
   "panel-inbounds": "configs",
 }
 
@@ -67,6 +71,9 @@ export function parseDashFromPath(pathname: string, opts?: ParseDashOpts): DashL
     }
     if (tab === "general") {
       tab = opts?.reseller ? "dashboard" : "monitoring"
+    }
+    if (tab === "wholesale_lines") {
+      tab = "plans"
     }
     tab = mapTabForReseller(tab, Boolean(opts?.reseller))
     return { tab, userDetailId: null, resellerContextId: null }

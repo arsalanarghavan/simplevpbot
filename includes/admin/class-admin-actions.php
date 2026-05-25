@@ -32,6 +32,154 @@ class SimpleVPBot_Admin_Actions {
 	}
 
 	/**
+	 * Settings key for admin chat ids by platform.
+	 *
+	 * @param string $platform telegram|bale.
+	 * @return string|null
+	 */
+	private static function admin_ids_settings_key( $platform ) {
+		$platform = sanitize_key( (string) $platform );
+		if ( 'bale' === $platform ) {
+			return 'admin_bale_ids';
+		}
+		if ( 'telegram' === $platform ) {
+			return 'admin_telegram_ids';
+		}
+		return null;
+	}
+
+	/**
+	 * Add one admin chat id to main bot settings (no webhook re-register).
+	 *
+	 * @param string $platform telegram|bale.
+	 * @param int    $chat_id  Numeric user/chat id.
+	 * @return bool
+	 */
+	public static function add_main_admin_id( $platform, $chat_id ) {
+		$key = self::admin_ids_settings_key( $platform );
+		$chat_id = (int) $chat_id;
+		if ( null === $key || $chat_id < 1 ) {
+			return false;
+		}
+		$all = SimpleVPBot_Settings::all();
+		$ids = array_values( array_unique( array_map( 'intval', (array) ( $all[ $key ] ?? array() ) ) ) );
+		if ( in_array( $chat_id, $ids, true ) ) {
+			return true;
+		}
+		$ids[] = $chat_id;
+		$all[ $key ] = $ids;
+		SimpleVPBot_Settings::update( $all );
+		if ( class_exists( 'SimpleVPBot_Texts' ) ) {
+			SimpleVPBot_Texts::clear_cache();
+		}
+		return true;
+	}
+
+	/**
+	 * Remove one admin chat id from main bot settings.
+	 *
+	 * @param string $platform telegram|bale.
+	 * @param int    $chat_id  Numeric user/chat id.
+	 * @return bool
+	 */
+	public static function remove_main_admin_id( $platform, $chat_id ) {
+		$key = self::admin_ids_settings_key( $platform );
+		$chat_id = (int) $chat_id;
+		if ( null === $key || $chat_id < 1 ) {
+			return false;
+		}
+		$all = SimpleVPBot_Settings::all();
+		$ids = array_values( array_unique( array_map( 'intval', (array) ( $all[ $key ] ?? array() ) ) ) );
+		$ids = array_values( array_filter( $ids, static function ( $id ) use ( $chat_id ) {
+			return (int) $id !== $chat_id;
+		} ) );
+		$all[ $key ] = $ids;
+		SimpleVPBot_Settings::update( $all );
+		if ( class_exists( 'SimpleVPBot_Texts' ) ) {
+			SimpleVPBot_Texts::clear_cache();
+		}
+		return true;
+	}
+
+	/**
+	 * Add one admin chat id to reseller bot profile.
+	 *
+	 * @param int    $reseller_svp_user_id Reseller svp_users.id.
+	 * @param string $platform             telegram|bale.
+	 * @param int    $chat_id              Numeric user/chat id.
+	 * @return bool
+	 */
+	public static function add_reseller_admin_id( $reseller_svp_user_id, $platform, $chat_id ) {
+		if ( ! class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			return false;
+		}
+		$r = (int) $reseller_svp_user_id;
+		$chat_id = (int) $chat_id;
+		$platform = sanitize_key( (string) $platform );
+		if ( $r < 1 || $chat_id < 1 || ! in_array( $platform, array( 'telegram', 'bale' ), true ) ) {
+			return false;
+		}
+		$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
+		if ( ! $prof ) {
+			SimpleVPBot_Model_Reseller_Bot_Profile::ensure_webhook_secret( $r );
+			$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
+		}
+		if ( ! $prof ) {
+			return false;
+		}
+		$tg_ids = SimpleVPBot_Model_Reseller_Bot_Profile::decode_admin_ids( $prof->admin_telegram_ids ?? '' );
+		$bl_ids = SimpleVPBot_Model_Reseller_Bot_Profile::decode_admin_ids( $prof->admin_bale_ids ?? '' );
+		if ( 'bale' === $platform ) {
+			if ( ! in_array( $chat_id, $bl_ids, true ) ) {
+				$bl_ids[] = $chat_id;
+			}
+		} else {
+			if ( ! in_array( $chat_id, $tg_ids, true ) ) {
+				$tg_ids[] = $chat_id;
+			}
+		}
+		SimpleVPBot_Model_Reseller_Bot_Profile::save_admin_ids( $r, $tg_ids, $bl_ids );
+		return true;
+	}
+
+	/**
+	 * Remove one admin chat id from reseller bot profile.
+	 *
+	 * @param int    $reseller_svp_user_id Reseller svp_users.id.
+	 * @param string $platform             telegram|bale.
+	 * @param int    $chat_id              Numeric user/chat id.
+	 * @return bool
+	 */
+	public static function remove_reseller_admin_id( $reseller_svp_user_id, $platform, $chat_id ) {
+		if ( ! class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			return false;
+		}
+		$r = (int) $reseller_svp_user_id;
+		$chat_id = (int) $chat_id;
+		$platform = sanitize_key( (string) $platform );
+		if ( $r < 1 || $chat_id < 1 || ! in_array( $platform, array( 'telegram', 'bale' ), true ) ) {
+			return false;
+		}
+		$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
+		if ( ! $prof ) {
+			return false;
+		}
+		$tg_ids = SimpleVPBot_Model_Reseller_Bot_Profile::decode_admin_ids( $prof->admin_telegram_ids ?? '' );
+		$bl_ids = SimpleVPBot_Model_Reseller_Bot_Profile::decode_admin_ids( $prof->admin_bale_ids ?? '' );
+		if ( 'bale' === $platform ) {
+			$bl_ids = array_values( array_filter( $bl_ids, static function ( $id ) use ( $chat_id ) {
+				return (int) $id !== $chat_id;
+			} ) );
+		} else {
+			$tg_ids = array_values( array_filter( $tg_ids, static function ( $id ) use ( $chat_id ) {
+				return (int) $id !== $chat_id;
+			} ) );
+		}
+		SimpleVPBot_Model_Reseller_Bot_Profile::save_admin_ids( $r, $tg_ids, $bl_ids );
+		return true;
+	}
+
+	/**
 	 * Merge backup-related settings (used by WP form and bot admin).
 	 *
 	 * @param array<string, mixed> $patch Keys: backup_interval_minutes, backup_*_chat_id, backup_send_*, backup_store_on_site, backup_site_retention_count, backup_max_zip_mb.
@@ -132,7 +280,9 @@ class SimpleVPBot_Admin_Actions {
 				'default_service_plan_id'    => max( 0, (int) ( $s['default_service_plan_id'] ?? 0 ) ),
 				'crisis_mode'                => ! empty( $s['crisis_mode'] ),
 				'suppress_bulk_user_notifications' => ! empty( $s['suppress_bulk_user_notifications'] ),
-				'cards_display_mode'         => in_array( (string) ( $s['cards_display_mode'] ?? 'list' ), array( 'list', 'sequential' ), true ) ? (string) $s['cards_display_mode'] : 'list',
+				'cards_display_mode'         => class_exists( 'SimpleVPBot_Card_Rotation' )
+					? SimpleVPBot_Card_Rotation::sanitize_display_mode( $s['cards_display_mode'] ?? 'list' )
+					: ( in_array( (string) ( $s['cards_display_mode'] ?? 'list' ), array( 'list', 'sequential' ), true ) ? (string) $s['cards_display_mode'] : 'list' ),
 			);
 		}
 		if ( 'bots' === $tab ) {
@@ -164,6 +314,7 @@ class SimpleVPBot_Admin_Actions {
 				'panel_password'            => (string) ( $s['panel_password'] ?? '' ),
 				'panel_api_base'            => (string) ( $s['panel_api_base'] ?? 'panel/api' ),
 				'panel_login_secret'        => (string) ( $s['panel_login_secret'] ?? '' ),
+				'panel_api_token'           => (string) ( $s['panel_api_token'] ?? '' ),
 				'subscription_public_base' => (string) ( $s['subscription_public_base'] ?? '' ),
 			);
 		}
@@ -205,7 +356,25 @@ class SimpleVPBot_Admin_Actions {
 		}
 		if ( 'cards' === $tab ) {
 			return array(
-				'cards_display_mode' => sanitize_key( (string) ( $s['cards_display_mode'] ?? 'list' ) ),
+				'cards_display_mode' => class_exists( 'SimpleVPBot_Card_Rotation' )
+					? SimpleVPBot_Card_Rotation::sanitize_display_mode( $s['cards_display_mode'] ?? 'list' )
+					: sanitize_key( (string) ( $s['cards_display_mode'] ?? 'list' ) ),
+			);
+		}
+		if ( 'force_join' === $tab ) {
+			return array(
+				'force_join_telegram_enabled'       => ! empty( $s['force_join_telegram_enabled'] ),
+				'force_join_telegram_chat_id'       => (int) ( $s['force_join_telegram_chat_id'] ?? 0 ),
+				'force_join_telegram_username'      => (string) ( $s['force_join_telegram_username'] ?? '' ),
+				'force_join_telegram_invite_link'   => (string) ( $s['force_join_telegram_invite_link'] ?? '' ),
+				'force_join_telegram_prompt_text'   => (string) ( $s['force_join_telegram_prompt_text'] ?? '' ),
+				'force_join_telegram_announce_text' => (string) ( $s['force_join_telegram_announce_text'] ?? '' ),
+				'force_join_bale_enabled'           => ! empty( $s['force_join_bale_enabled'] ),
+				'force_join_bale_chat_id'           => (int) ( $s['force_join_bale_chat_id'] ?? 0 ),
+				'force_join_bale_username'          => (string) ( $s['force_join_bale_username'] ?? '' ),
+				'force_join_bale_invite_link'       => (string) ( $s['force_join_bale_invite_link'] ?? '' ),
+				'force_join_bale_prompt_text'       => (string) ( $s['force_join_bale_prompt_text'] ?? '' ),
+				'force_join_bale_announce_text'     => (string) ( $s['force_join_bale_announce_text'] ?? '' ),
 			);
 		}
 		return array();
@@ -221,7 +390,7 @@ class SimpleVPBot_Admin_Actions {
 	public static function apply_settings_merge( $tab, array $patch ) {
 		$tab  = sanitize_key( (string) $tab );
 		$base = self::settings_post_for_tab( $tab );
-		if ( empty( $base ) && ! in_array( $tab, array( 'general', 'bots', 'panel', 'notifications', 'referral', 'plans_catalog', 'backup', 'cards' ), true ) ) {
+		if ( empty( $base ) && ! in_array( $tab, array( 'general', 'bots', 'panel', 'notifications', 'referral', 'plans_catalog', 'backup', 'cards', 'force_join' ), true ) ) {
 			return false;
 		}
 		$merged = array_merge( $base, $patch );
@@ -252,8 +421,10 @@ class SimpleVPBot_Admin_Actions {
 				$all['default_service_plan_id']   = max( 0, (int) ( $post['default_service_plan_id'] ?? 0 ) );
 				$all['crisis_mode']               = ! empty( $post['crisis_mode'] );
 				$all['suppress_bulk_user_notifications'] = ! empty( $post['suppress_bulk_user_notifications'] );
-				$mode = isset( $post['cards_display_mode'] ) ? sanitize_key( (string) $post['cards_display_mode'] ) : 'list';
-				$all['cards_display_mode'] = in_array( $mode, array( 'list', 'sequential' ), true ) ? $mode : 'list';
+				$mode = isset( $post['cards_display_mode'] ) ? (string) $post['cards_display_mode'] : 'list';
+				$all['cards_display_mode'] = class_exists( 'SimpleVPBot_Card_Rotation' )
+					? SimpleVPBot_Card_Rotation::sanitize_display_mode( $mode )
+					: ( in_array( sanitize_key( $mode ), array( 'list', 'sequential' ), true ) ? sanitize_key( $mode ) : 'list' );
 				break;
 			case 'bots':
 				$all['telegram_token']           = sanitize_text_field( (string) ( $post['telegram_token'] ?? '' ) );
@@ -280,6 +451,7 @@ class SimpleVPBot_Admin_Actions {
 				$all['panel_password']           = (string) ( $post['panel_password'] ?? '' );
 				$all['panel_api_base']           = sanitize_text_field( (string) ( $post['panel_api_base'] ?? 'panel/api' ) );
 				$all['panel_login_secret']       = sanitize_text_field( (string) ( $post['panel_login_secret'] ?? '' ) );
+				$all['panel_api_token']          = sanitize_text_field( (string) ( $post['panel_api_token'] ?? '' ) );
 				$all['subscription_public_base'] = esc_url_raw( (string) ( $post['subscription_public_base'] ?? '' ) );
 				break;
 			case 'backup':
@@ -298,6 +470,72 @@ class SimpleVPBot_Admin_Actions {
 					)
 				);
 				return true;
+			case 'whitelabel':
+				$all['enabled']              = ! empty( $post['enabled'] );
+				$all['test_account_enabled'] = ! empty( $post['test_account_enabled'] );
+				$all['admin_telegram_ids']   = self::parse_id_lines( isset( $post['admin_telegram_ids'] ) ? (string) $post['admin_telegram_ids'] : '' );
+				$all['admin_bale_ids']       = self::parse_id_lines( isset( $post['admin_bale_ids'] ) ? (string) $post['admin_bale_ids'] : '' );
+				$all['portal_page_id']            = max( 0, (int) ( $post['portal_page_id'] ?? 0 ) );
+				$all['default_service_plan_id']   = max( 0, (int) ( $post['default_service_plan_id'] ?? 0 ) );
+				$all['crisis_mode']               = ! empty( $post['crisis_mode'] );
+				$all['suppress_bulk_user_notifications'] = ! empty( $post['suppress_bulk_user_notifications'] );
+				$mode = isset( $post['cards_display_mode'] ) ? (string) $post['cards_display_mode'] : 'list';
+				$all['cards_display_mode'] = class_exists( 'SimpleVPBot_Card_Rotation' )
+					? SimpleVPBot_Card_Rotation::sanitize_display_mode( $mode )
+					: ( in_array( sanitize_key( $mode ), array( 'list', 'sequential' ), true ) ? sanitize_key( $mode ) : 'list' );
+				$all['dashboard_site_name']     = sanitize_text_field( (string) ( $post['dashboard_site_name'] ?? '' ) );
+				$all['dashboard_site_icon_url'] = esc_url_raw( (string) ( $post['dashboard_site_icon_url'] ?? '' ) );
+				$all['branding_logo_url']       = esc_url_raw( (string) ( $post['branding_logo_url'] ?? '' ) );
+				$all['branding_favicon_url']    = esc_url_raw( (string) ( $post['branding_favicon_url'] ?? '' ) );
+				$all['branding_theme_primary']  = sanitize_text_field( (string) ( $post['branding_theme_primary'] ?? '' ) );
+				$all['branding_theme_accent']   = sanitize_text_field( (string) ( $post['branding_theme_accent'] ?? '' ) );
+				$all['branding_custom_domain']  = sanitize_text_field( (string) ( $post['branding_custom_domain'] ?? '' ) );
+				$all['support_info']            = sanitize_textarea_field( (string) ( $post['support_info'] ?? '' ) );
+				$all['support_telegram_username'] = class_exists( 'SimpleVPBot_Support_Contacts' )
+					? SimpleVPBot_Support_Contacts::normalize_username( $post['support_telegram_username'] ?? '' )
+					: sanitize_text_field( ltrim( trim( (string) ( $post['support_telegram_username'] ?? '' ) ), '@' ) );
+				$all['support_bale_username'] = class_exists( 'SimpleVPBot_Support_Contacts' )
+					? SimpleVPBot_Support_Contacts::normalize_username( $post['support_bale_username'] ?? '' )
+					: sanitize_text_field( ltrim( trim( (string) ( $post['support_bale_username'] ?? '' ) ), '@' ) );
+				$loc = sanitize_key( (string) ( $post['default_bot_locale'] ?? 'fa' ) );
+				$all['default_bot_locale'] = in_array( $loc, array( 'fa', 'en' ), true ) ? $loc : 'fa';
+				$raw = $post['receipt_reject_reasons'] ?? array();
+				if ( is_string( $raw ) ) {
+					$raw = preg_split( '/\r\n|\r|\n/', $raw );
+				}
+				$reasons = array();
+				foreach ( (array) $raw as $reason ) {
+					$text = trim( sanitize_textarea_field( (string) $reason ) );
+					if ( '' !== $text ) {
+						$reasons[] = $text;
+					}
+				}
+				$all['receipt_reject_reasons'] = ! empty( $reasons )
+					? array_values( array_unique( $reasons ) )
+					: SimpleVPBot_Settings::defaults()['receipt_reject_reasons'];
+				break;
+			case 'proxy':
+				$all['telegram_proxy_enabled']  = ! empty( $post['telegram_proxy_enabled'] );
+				$ptype = sanitize_key( (string) ( $post['telegram_proxy_type'] ?? 'http' ) );
+				$all['telegram_proxy_type']     = in_array( $ptype, array( 'http', 'socks5' ), true ) ? $ptype : 'http';
+				$all['telegram_proxy_host']     = sanitize_text_field( (string) ( $post['telegram_proxy_host'] ?? '' ) );
+				$all['telegram_proxy_port']     = max( 0, min( 65535, (int) ( $post['telegram_proxy_port'] ?? 0 ) ) );
+				$all['telegram_proxy_username'] = sanitize_text_field( (string) ( $post['telegram_proxy_username'] ?? '' ) );
+				if ( array_key_exists( 'telegram_proxy_password', $post ) ) {
+					$pw = (string) $post['telegram_proxy_password'];
+					if ( '' !== trim( $pw ) ) {
+						$all['telegram_proxy_password'] = $pw;
+					}
+				}
+				$all['telegram_api_base_url'] = esc_url_raw( trim( (string) ( $post['telegram_api_base_url'] ?? '' ) ) );
+				break;
+			case 'resellers_defaults':
+				$all['default_reseller_permissions'] = SimpleVPBot_Settings::normalize_default_reseller_permissions(
+					isset( $post['default_reseller_permissions'] ) && is_array( $post['default_reseller_permissions'] )
+						? $post['default_reseller_permissions']
+						: array()
+				);
+				break;
 			case 'notifications':
 				$all['notify_low_traffic_percent'] = max( 1, (int) ( $post['notify_low_traffic_percent'] ?? 10 ) );
 				$days                              = isset( $post['notify_expiry_days'] ) ? sanitize_text_field( (string) $post['notify_expiry_days'] ) : '3,1';
@@ -320,6 +558,9 @@ class SimpleVPBot_Admin_Actions {
 				$all['notify_idle_cooldown_days'] = max( 7, (int) ( $post['notify_idle_cooldown_days'] ?? 90 ) );
 				$all['notify_admin_panel_down']   = ! empty( $post['notify_admin_panel_down'] );
 				$all['notify_admin_panel_down_cooldown'] = max( 5, (int) ( $post['notify_admin_panel_down_cooldown'] ?? 30 ) );
+				$all['alert_ip_warn_min_distinct']     = max( 1, (int) ( $post['alert_ip_warn_min_distinct'] ?? 3 ) );
+				$all['alert_ip_warn_hysteresis']       = ! empty( $post['alert_ip_warn_hysteresis'] );
+				$all['alert_ip_warn_cooldown_minutes'] = max( 0, (int) ( $post['alert_ip_warn_cooldown_minutes'] ?? 0 ) );
 				break;
 			case 'plans_catalog':
 				$all['default_concurrent_users'] = max( 0, (int) ( $post['default_concurrent_users'] ?? 2 ) );
@@ -336,11 +577,44 @@ class SimpleVPBot_Admin_Actions {
 				$all['bale_bot_username']                 = sanitize_text_field( (string) ( $post['bale_bot_username'] ?? '' ) );
 				break;
 			case 'cards':
-				$mode = sanitize_key( (string) ( $post['cards_display_mode'] ?? 'list' ) );
-				if ( 'sequential' !== $mode ) {
-					$mode = 'list';
+				$mode = (string) ( $post['cards_display_mode'] ?? 'list' );
+				$all['cards_display_mode'] = class_exists( 'SimpleVPBot_Card_Rotation' )
+					? SimpleVPBot_Card_Rotation::sanitize_display_mode( $mode )
+					: ( 'sequential' === sanitize_key( $mode ) ? 'sequential' : 'list' );
+				break;
+			case 'force_join':
+				$all['force_join_telegram_enabled'] = ! empty( $post['force_join_telegram_enabled'] );
+				$all['force_join_telegram_chat_id'] = (int) ( $post['force_join_telegram_chat_id'] ?? 0 );
+				$all['force_join_telegram_username'] = class_exists( 'SimpleVPBot_Required_Channel' )
+					? SimpleVPBot_Required_Channel::normalize_username( $post['force_join_telegram_username'] ?? '' )
+					: sanitize_text_field( ltrim( trim( (string) ( $post['force_join_telegram_username'] ?? '' ) ), '@' ) );
+				$all['force_join_telegram_invite_link'] = esc_url_raw( trim( (string) ( $post['force_join_telegram_invite_link'] ?? '' ) ) );
+				$all['force_join_telegram_prompt_text']   = sanitize_textarea_field( (string) ( $post['force_join_telegram_prompt_text'] ?? '' ) );
+				$all['force_join_telegram_announce_text'] = sanitize_textarea_field( (string) ( $post['force_join_telegram_announce_text'] ?? '' ) );
+				$all['force_join_bale_enabled'] = ! empty( $post['force_join_bale_enabled'] );
+				$all['force_join_bale_chat_id'] = (int) ( $post['force_join_bale_chat_id'] ?? 0 );
+				$all['force_join_bale_username'] = class_exists( 'SimpleVPBot_Required_Channel' )
+					? SimpleVPBot_Required_Channel::normalize_username( $post['force_join_bale_username'] ?? '' )
+					: sanitize_text_field( ltrim( trim( (string) ( $post['force_join_bale_username'] ?? '' ) ), '@' ) );
+				$all['force_join_bale_invite_link'] = esc_url_raw( trim( (string) ( $post['force_join_bale_invite_link'] ?? '' ) ) );
+				$all['force_join_bale_prompt_text']   = sanitize_textarea_field( (string) ( $post['force_join_bale_prompt_text'] ?? '' ) );
+				$all['force_join_bale_announce_text'] = sanitize_textarea_field( (string) ( $post['force_join_bale_announce_text'] ?? '' ) );
+				break;
+			case 'receipts':
+				$raw = $post['receipt_reject_reasons'] ?? array();
+				if ( is_string( $raw ) ) {
+					$raw = preg_split( '/\r\n|\r|\n/', $raw );
 				}
-				$all['cards_display_mode'] = $mode;
+				$reasons = array();
+				foreach ( (array) $raw as $reason ) {
+					$text = trim( sanitize_textarea_field( (string) $reason ) );
+					if ( '' !== $text ) {
+						$reasons[] = $text;
+					}
+				}
+				$all['receipt_reject_reasons'] = ! empty( $reasons )
+					? array_values( array_unique( $reasons ) )
+					: SimpleVPBot_Settings::defaults()['receipt_reject_reasons'];
 				break;
 			default:
 				return false;

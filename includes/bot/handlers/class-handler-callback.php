@@ -40,12 +40,20 @@ class SimpleVPBot_Handler_Callback {
 		$chat_id   = isset( $msg['chat']['id'] ) ? (int) $msg['chat']['id'] : 0;
 		$msg_id    = isset( $msg['message_id'] ) ? (int) $msg['message_id'] : 0;
 
-		SimpleVPBot_Bot_Runtime::answer_callback_query(
-			$platform,
-			array(
-				'callback_query_id' => $cb_id,
-			)
-		);
+		if ( 0 === strpos( $data, 'chjoin:' ) ) {
+			self::handle_channel_join( $platform, $data, $user, $from_id, $chat_id, $cb_id );
+			return;
+		}
+
+		$defer_cb_answer = 0 === strpos( $data, 'rc:' );
+		if ( ! $defer_cb_answer ) {
+			SimpleVPBot_Bot_Runtime::answer_callback_query(
+				$platform,
+				array(
+					'callback_query_id' => $cb_id,
+				)
+			);
+		}
 
 		if ( $user && 'noop' !== $data ) {
 			$is_adm = SimpleVPBot_Router::is_platform_admin( $platform, $from_id );
@@ -53,6 +61,7 @@ class SimpleVPBot_Handler_Callback {
 				|| 0 === strpos( $data, 'adm:' )
 				|| 0 === strpos( $data, 'reg:' )
 				|| 0 === strpos( $data, 'rc:' )
+				|| 0 === strpos( $data, 'chjoin:' )
 				|| ( 'buy_discount' === (string) $user->state && 0 === strpos( $data, 'buy:' ) );
 			if ( ! $skip_clear && SimpleVPBot_State::clear_blocking_state_on_callback( $platform, $from_id, $user, $chat_id, $data ) ) {
 				$user = SimpleVPBot_Model_User::find( (int) $user->id );
@@ -62,10 +71,20 @@ class SimpleVPBot_Handler_Callback {
 		$is_admin_side = SimpleVPBot_Router::is_platform_admin( $platform, $from_id );
 		if ( ! $is_admin_side ) {
 			if ( 0 === strpos( $data, 'reg:' ) || 0 === strpos( $data, 'rc:' ) || 0 === strpos( $data, 'adm:' ) ) {
+				if ( $defer_cb_answer ) {
+					SimpleVPBot_Bot_Runtime::answer_callback_query(
+						$platform,
+						array(
+							'callback_query_id' => $cb_id,
+						)
+					);
+				}
 				return;
 			}
 			if ( $user && in_array( (string) $user->status, array( 'pending', 'rejected', 'blocked' ), true ) ) {
-				return;
+				if ( 0 !== strpos( $data, 'chjoin:' ) ) {
+					return;
+				}
 			}
 		}
 
@@ -82,7 +101,15 @@ class SimpleVPBot_Handler_Callback {
 		}
 		if ( 'sup' === $head0 && isset( $parts[1] ) ) {
 			if ( 'c' === $parts[1] ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '📞 لطفاً با ادمین از طریق سایت تماس بگیرید.' );
+				$msg = class_exists( 'SimpleVPBot_Support_Contacts' )
+					? SimpleVPBot_Support_Contacts::contact_block( $platform )
+					: '';
+				if ( '' === $msg ) {
+					$msg = '📞 لطفاً با ادمین از طریق سایت تماس بگیرید.';
+				} else {
+					$msg = "📞 تماس با پشتیبانی\n➖➖➖➖➖➖➖➖\n" . $msg;
+				}
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $msg );
 			} else {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get( 'faq.connection', 'FAQ' ) );
 			}
@@ -105,7 +132,7 @@ class SimpleVPBot_Handler_Callback {
 			return;
 		}
 		if ( 'rc' === $head && isset( $parts[1], $parts[2] ) ) {
-			self::handle_receipt( $platform, $parts[1], (int) $parts[2], $from, $chat_id, $msg_id );
+			self::handle_receipt_callback( $platform, $parts, $from, $chat_id, $msg_id, $cb_id );
 			return;
 		}
 		if ( 'buy' === $head ) {
@@ -193,7 +220,18 @@ class SimpleVPBot_Handler_Callback {
 	 * @param int                  $admin_msg_id Legacy (0).
 	 */
 	public static function admin_apply_receipt( $platform, $action, $rid, array $from, $admin_chat, $admin_msg_id = 0 ) {
-		self::handle_receipt( $platform, $action, $rid, $from, $admin_chat, (int) $admin_msg_id );
+		if ( 'r' === $action ) {
+			self::show_receipt_reject_reasons( $platform, (int) $rid, $from, $admin_chat, (int) $admin_msg_id, '' );
+			return;
+		}
+		self::handle_receipt_callback(
+			$platform,
+			array( 'rc', (string) $action, (string) (int) $rid ),
+			$from,
+			$admin_chat,
+			(int) $admin_msg_id,
+			''
+		);
 	}
 
 	private static function handle_registration( $platform, $action, $uid, array $from, $admin_chat, $admin_msg_id ) {
@@ -292,31 +330,189 @@ class SimpleVPBot_Handler_Callback {
 	}
 
 	/**
-	 * Receipt approve/reject.
+	 * Show inline reject-reason keyboard on all admin receipt messages.
 	 *
 	 * @param string               $platform Platform.
-	 * @param string               $action a|r.
 	 * @param int                  $rid Receipt id.
 	 * @param array<string, mixed> $from From.
 	 * @param int                  $admin_chat Chat.
-	 * @param int                  $admin_msg_id Msg id.
+	 * @param int                  $admin_msg_id Message id (0 = reply-keyboard path).
+	 * @param string               $cb_id Callback query id.
 	 */
-	private static function handle_receipt( $platform, $action, $rid, array $from, $admin_chat, $admin_msg_id ) {
-		$uname = (string) ( $from['username'] ?? '' );
-		$label = $uname ? '@' . $uname : (string) ( $from['first_name'] ?? '' );
-		if ( 'a' === $action ) {
-			$res = SimpleVPBot_Receipt_Processor::approve( (int) $rid, $label );
-			if ( ! empty( $res['purchase_failed'] ) ) {
-				SimpleVPBot_Bot_Runtime::send_message(
+	public static function show_receipt_reject_reasons( $platform, $rid, array $from, $admin_chat, $admin_msg_id = 0, $cb_id = '' ) {
+		$rid = (int) $rid;
+		$rec = SimpleVPBot_Model_Receipt::find( $rid );
+		if ( ! $rec || ! in_array( (string) $rec->status, array( 'pending', 'processing' ), true ) ) {
+			if ( '' !== (string) $cb_id ) {
+				SimpleVPBot_Bot_Runtime::answer_callback_query(
 					$platform,
-					(int) $admin_chat,
-					'⚠️ رسید #' . (int) $rid . ' تایید شد اما ساخت سرویس روی پنل ناموفق بود. رسید در حالت «در دست بررسی» باقی ماند؛ پس از رفع مشکل پنل دوباره تلاش کنید.'
+					array(
+						'callback_query_id' => (string) $cb_id,
+						'text'              => '⛔ رسید در انتظار نیست.',
+						'show_alert'        => true,
+					)
 				);
 			}
 			return;
 		}
-		if ( 'r' === $action ) {
-			SimpleVPBot_Receipt_Processor::reject( (int) $rid, $label );
+		$markup = SimpleVPBot_Keyboards::inline_receipt_reject_reasons( $rid );
+		if ( (int) $admin_msg_id > 0 ) {
+			SimpleVPBot_Receipt_Processor::finalize_clicked_admin_message(
+				$platform,
+				(int) $admin_chat,
+				(int) $admin_msg_id,
+				$markup
+			);
+		} else {
+			SimpleVPBot_Receipt_Processor::edit_admin_messages( $rec, $markup );
+			SimpleVPBot_Bot_Runtime::send_message(
+				$platform,
+				(int) $admin_chat,
+				SimpleVPBot_Texts::get( 'msg.receipt.reject_pick_reason', 'دلیل رد رسید را انتخاب کنید:' ),
+				array( 'reply_markup' => $markup )
+			);
+		}
+		if ( '' !== (string) $cb_id ) {
+			SimpleVPBot_Bot_Runtime::answer_callback_query(
+				$platform,
+				array(
+					'callback_query_id' => (string) $cb_id,
+					'text'              => SimpleVPBot_Texts::get( 'msg.receipt.reject_pick_reason', 'دلیل را انتخاب کنید' ),
+				)
+			);
+		}
+	}
+
+	/**
+	 * Receipt callbacks: rc:a / rc:r / rc:rr / rc:rb.
+	 *
+	 * @param string               $platform Platform.
+	 * @param array<int, string>   $parts Callback parts.
+	 * @param array<string, mixed> $from From.
+	 * @param int                  $admin_chat Chat.
+	 * @param int                  $admin_msg_id Msg id.
+	 * @param string               $cb_id Callback query id.
+	 */
+	private static function handle_receipt_callback( $platform, array $parts, array $from, $admin_chat, $admin_msg_id, $cb_id = '' ) {
+		$act = (string) ( $parts[1] ?? '' );
+		$rid = (int) ( $parts[2] ?? 0 );
+		if ( $rid < 1 ) {
+			return;
+		}
+
+		if ( 'rb' === $act ) {
+			$rec = SimpleVPBot_Model_Receipt::find( $rid );
+			if ( $rec && in_array( (string) $rec->status, array( 'pending', 'processing' ), true ) ) {
+				SimpleVPBot_Receipt_Processor::edit_admin_messages( $rec, SimpleVPBot_Keyboards::inline_receipt( $rid ) );
+			}
+			if ( '' !== (string) $cb_id ) {
+				SimpleVPBot_Bot_Runtime::answer_callback_query(
+					$platform,
+					array( 'callback_query_id' => (string) $cb_id )
+				);
+			}
+			return;
+		}
+
+		if ( 'r' === $act ) {
+			self::show_receipt_reject_reasons( $platform, $rid, $from, $admin_chat, $admin_msg_id, $cb_id );
+			return;
+		}
+
+		$uname = (string) ( $from['username'] ?? '' );
+		$label = $uname ? '@' . $uname : (string) ( $from['first_name'] ?? '' );
+		$res   = null;
+
+		if ( 'a' === $act ) {
+			$res = SimpleVPBot_Receipt_Processor::approve( $rid, $label );
+		} elseif ( 'rr' === $act ) {
+			$reason = SimpleVPBot_Receipt_Processor::reject_reason_by_index( (int) ( $parts[3] ?? -1 ) );
+			$res      = SimpleVPBot_Receipt_Processor::reject( $rid, $label, $reason );
+		} else {
+			return;
+		}
+
+		if ( ! is_array( $res ) ) {
+			return;
+		}
+
+		$toast      = SimpleVPBot_Receipt_Processor::admin_feedback_text( $res, 'a' === $act );
+		$show_alert = ! empty( $res['purchase_failed'] )
+			|| ( empty( $res['ok'] ) && 'already_approved' !== (string) ( $res['reason'] ?? '' ) && 'rejected' !== (string) ( $res['reason'] ?? '' ) );
+		if ( '' !== (string) $cb_id ) {
+			SimpleVPBot_Bot_Runtime::answer_callback_query(
+				$platform,
+				array(
+					'callback_query_id' => (string) $cb_id,
+					'text'              => $toast,
+					'show_alert'        => $show_alert,
+				)
+			);
+		}
+
+		if ( (int) $admin_msg_id > 0 && ! empty( $res['ok'] ) && 'a' === $act ) {
+			$btn = SimpleVPBot_Keyboards::glass_button_text( '✅ رسید تایید شد · ' . $label );
+			SimpleVPBot_Receipt_Processor::finalize_clicked_admin_message(
+				$platform,
+				(int) $admin_chat,
+				(int) $admin_msg_id,
+				array(
+					'inline_keyboard' => array(
+						array( array( 'text' => $btn, 'callback_data' => 'noop' ) ),
+					),
+				)
+			);
+		}
+	}
+
+	/**
+	 * Verify mandatory channel membership (chjoin:verify).
+	 *
+	 * @param string      $platform Platform.
+	 * @param string      $data     Callback data.
+	 * @param object|null $user     User row.
+	 * @param int         $from_id  From id.
+	 * @param int         $chat_id  Chat id.
+	 * @param string      $cb_id    Callback query id.
+	 */
+	private static function handle_channel_join( $platform, $data, $user, $from_id, $chat_id, $cb_id ) {
+		if ( 'chjoin:verify' !== $data ) {
+			if ( '' !== $cb_id ) {
+				SimpleVPBot_Bot_Runtime::answer_callback_query(
+					$platform,
+					array( 'callback_query_id' => $cb_id )
+				);
+			}
+			return;
+		}
+		if ( ! class_exists( 'SimpleVPBot_Required_Channel' ) ) {
+			return;
+		}
+		$ok = SimpleVPBot_Required_Channel::user_passes( $platform, $from_id );
+		if ( '' !== $cb_id ) {
+			SimpleVPBot_Bot_Runtime::answer_callback_query(
+				$platform,
+				array(
+					'callback_query_id' => $cb_id,
+					'text'              => $ok
+						? ( $user ? SimpleVPBot_Texts::get_for_user( 'msg.force_join.success', $user ) : SimpleVPBot_Texts::get( 'msg.force_join.success', '' ) )
+						: ( $user ? SimpleVPBot_Texts::get_for_user( 'msg.force_join.fail', $user ) : SimpleVPBot_Texts::get( 'msg.force_join.fail', '' ) ),
+					'show_alert'        => ! $ok,
+				)
+			);
+		}
+		if ( ! $ok ) {
+			SimpleVPBot_Required_Channel::send_prompt( $platform, $chat_id, $user );
+			return;
+		}
+		if ( $user ) {
+			SimpleVPBot_Required_Channel::on_verify_success( $platform, $chat_id, $user );
+		} else {
+			SimpleVPBot_Bot_Runtime::send_message(
+				$platform,
+				$chat_id,
+				SimpleVPBot_Texts::get( 'msg.force_join.success', '' ) . "\n" . SimpleVPBot_Texts::get( 'msg.start_first', '' )
+			);
 		}
 	}
 }

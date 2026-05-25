@@ -44,13 +44,62 @@ class SimpleVPBot_Model_Users_Bulk_Job {
 			$wpdb->insert(
 				$t,
 				array(
-					'job_id'   => $jid,
-					'user_id'  => $uid,
-					'status'   => 'pending',
-					'tries'    => 0,
+					'job_id'       => $jid,
+					'user_id'      => $uid,
+					'panel_id'     => 0,
+					'inbound_id'   => 0,
+					'client_email' => '',
+					'status'       => 'pending',
+					'tries'        => 0,
 				)
 			);
 		}
+	}
+
+	/**
+	 * Enqueue one item per active panel client (panel-first bulk ops).
+	 *
+	 * @param int                             $job_id  Job id.
+	 * @param array<int, array<string,mixed>> $targets Each: panel_id, inbound_id, email, user_id?.
+	 * @return int Number queued.
+	 */
+	public static function enqueue_panel_targets( $job_id, array $targets ) {
+		global $wpdb;
+		$t   = self::items_table();
+		$jid = (int) $job_id;
+		$seen = array();
+		$n    = 0;
+		foreach ( $targets as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$pid = (int) ( $row['panel_id'] ?? 0 );
+			$iid = (int) ( $row['inbound_id'] ?? 0 );
+			$em  = trim( (string) ( $row['email'] ?? $row['client_email'] ?? '' ) );
+			if ( $pid < 1 || $iid < 1 || '' === $em ) {
+				continue;
+			}
+			$key = $pid . ':' . $iid . ':' . $em;
+			if ( isset( $seen[ $key ] ) ) {
+				continue;
+			}
+			$seen[ $key ] = true;
+			$uid = (int) ( $row['user_id'] ?? 0 );
+			$wpdb->insert(
+				$t,
+				array(
+					'job_id'       => $jid,
+					'user_id'      => max( 0, $uid ),
+					'panel_id'     => $pid,
+					'inbound_id'   => $iid,
+					'client_email' => $em,
+					'status'       => 'pending',
+					'tries'        => 0,
+				)
+			);
+			++$n;
+		}
+		return $n;
 	}
 
 	public static function list_jobs( $limit = 20, $offset = 0 ) {
@@ -166,6 +215,39 @@ class SimpleVPBot_Model_Users_Bulk_Job {
 		global $wpdb;
 		$t = self::table();
 		return $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$t} WHERE id = %d", (int) $job_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	}
+
+	/**
+	 * Item status counts per job for dashboard history cards.
+	 *
+	 * @param array<int> $job_ids Job ids.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function item_status_counts_by_jobs( array $job_ids ) {
+		global $wpdb;
+		$ids = array_values(
+			array_filter(
+				array_map(
+					static function ( $x ) {
+						return (int) $x;
+					},
+					$job_ids
+				),
+				static function ( $x ) {
+					return $x > 0;
+				}
+			)
+		);
+		if ( empty( $ids ) ) {
+			return array();
+		}
+		$t   = self::items_table();
+		$in  = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$sql = "SELECT job_id, status, COUNT(*) AS cnt FROM {$t} WHERE job_id IN ($in) GROUP BY job_id, status";
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$prepared = $wpdb->prepare( $sql, $ids );
+		$rows     = $wpdb->get_results( $prepared, ARRAY_A );
+		return is_array( $rows ) ? $rows : array();
 	}
 
 	public static function pop_pending_items( $limit = 20 ) {

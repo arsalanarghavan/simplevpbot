@@ -42,10 +42,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { DataPagination } from "@/components/data-pagination"
+import {
+  DashboardDateTimePicker,
+  apiDatetimeToMs,
+  msToApiDatetime,
+} from "@/components/dashboard-datetime-picker"
 import { getAdminJson, postAdminJson, postAdminMutate } from "@/lib/dash-admin-mutate"
 import { dashContentClass, dashFlexRowClass } from "@/lib/dash-locale"
 import type { PaginationMeta } from "@/lib/dash-pagination"
-import { gregorianToJalali, jalaliToGregorian } from "@/lib/jalali"
 import { formatBytes, formatDateTime, formatNumber } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
 import {
@@ -76,18 +80,6 @@ function num(v: unknown): number {
 /** Stable row id for bulk + busy (includes panel for all-panels mode). */
 function rowKey(panelId: number, inboundId: number, email: string): string {
   return `${panelId}::${inboundId}::${email}`
-}
-
-function msToDatetimeLocalValue(ms: number): string {
-  if (!ms || ms < 1) return ""
-  const d = new Date(ms)
-  const p = (n: number) => String(n).padStart(2, "0")
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
-}
-
-function datetimeLocalToMs(value: string): number {
-  const t = Date.parse(value)
-  return Number.isFinite(t) ? t : 0
 }
 
 function userRowLabel(u: DashRecord): string {
@@ -186,6 +178,25 @@ function isVolumeExhausted(row: ClientRow): boolean {
   return num(row.used_bytes) >= lim
 }
 
+/** Linked to bot user with a plan on the service row. */
+function isLinkedWithPlan(row: ClientRow): boolean {
+  return num(row.is_linked) !== 0 && num(row.linked_service_id) > 0 && num(row.service_plan_id) > 0
+}
+
+/** Unlinked user and/or connected service without plan_id — shown in orphan section. */
+function isOrphanConfig(row: ClientRow): boolean {
+  return !isLinkedWithPlan(row)
+}
+
+function planGroupKey(panelId: number, planId: number, inboundId: number): string {
+  return `${panelId}-${planId}-${inboundId}`
+}
+
+function paginateSlice<T>(items: T[], page: number, perPage: number): T[] {
+  const start = (page - 1) * perPage
+  return items.slice(start, start + perPage)
+}
+
 function serviceExpiresMs(row: ClientRow): number {
   const s = row.service_expires_at
   if (!s || !String(s).trim()) return 0
@@ -207,114 +218,10 @@ function expirySourcesDiffer(row: ClientRow): boolean {
   return Math.abs(panel - svc) > 3600000
 }
 
-function jalaliMonthMaxDay(jy: number, jm: number): number {
-  if (jm <= 6) return 31
-  if (jm <= 11) return 30
-  const g = jalaliToGregorian(jy, 12, 30)
-  const back = gregorianToJalali(g[0], g[1], g[2])
-  return back[0] === jy && back[1] === 12 && back[2] === 30 ? 30 : 29
-}
-
 function configDisplayName(row: ClientRow): string {
   const em = String(row.email ?? "").trim()
   const rm = String(row.remark ?? "").trim()
   return rm || em
-}
-
-function partsFromMs(ms: number): { jy: number; jm: number; jd: number; hh: number; mm: number } {
-  const d = new Date(ms)
-  const [jy, jm, jd] = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate())
-  return { jy, jm, jd, hh: d.getHours(), mm: d.getMinutes() }
-}
-
-function msFromJalaliParts(jy: number, jm: number, jd: number, hh: number, mm: number): number {
-  const [gy, gm, gd] = jalaliToGregorian(jy, jm, jd)
-  return new Date(gy, gm - 1, gd, hh, mm, 0, 0).getTime()
-}
-
-function ConfigJalaliExpiryFields({
-  valueMs,
-  onChangeMs,
-  tl,
-  selectClass,
-}: {
-  valueMs: number
-  onChangeMs: (ms: number) => void
-  tl: (k: string) => string
-  selectClass: string
-}) {
-  const effective = valueMs > 0 ? valueMs : Date.now()
-  const { jy, jm, jd, hh, mm } = partsFromMs(effective)
-  const maxDay = jalaliMonthMaxDay(jy, jm)
-  const centerY = partsFromMs(Date.now()).jy
-  const years = useMemo(() => {
-    const lo = Math.min(centerY - 25, jy - 10)
-    const hi = Math.max(centerY + 25, jy + 10)
-    return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i)
-  }, [centerY, jy])
-  const apply = (next: { jy?: number; jm?: number; jd?: number; hh?: number; mm?: number }) => {
-    const y = next.jy ?? jy
-    const m = next.jm ?? jm
-    const maxd = jalaliMonthMaxDay(y, m)
-    const d = Math.min(Math.max(1, next.jd ?? jd), maxd)
-    const h = Math.min(23, Math.max(0, next.hh ?? hh))
-    const mi = Math.min(59, Math.max(0, next.mm ?? mm))
-    onChangeMs(msFromJalaliParts(y, m, d, h, mi))
-  }
-  return (
-    <div className="grid gap-2 sm:grid-cols-5">
-      <div className="grid gap-1">
-        <Label className="text-xs">{tl("jalaliYear")}</Label>
-        <select className={selectClass} value={jy} onChange={(e) => apply({ jy: parseInt(e.target.value, 10) })}>
-          {years.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="grid gap-1">
-        <Label className="text-xs">{tl("jalaliMonth")}</Label>
-        <select className={selectClass} value={jm} onChange={(e) => apply({ jm: parseInt(e.target.value, 10) })}>
-          {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="grid gap-1">
-        <Label className="text-xs">{tl("jalaliDay")}</Label>
-        <select className={selectClass} value={jd} onChange={(e) => apply({ jd: parseInt(e.target.value, 10) })}>
-          {Array.from({ length: maxDay }, (_, i) => i + 1).map((day) => (
-            <option key={day} value={day}>
-              {day}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="grid gap-1">
-        <Label className="text-xs">{tl("jalaliHour")}</Label>
-        <select className={selectClass} value={hh} onChange={(e) => apply({ hh: parseInt(e.target.value, 10) })}>
-          {Array.from({ length: 24 }, (_, i) => (
-            <option key={i} value={i}>
-              {String(i).padStart(2, "0")}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="grid gap-1">
-        <Label className="text-xs">{tl("jalaliMinute")}</Label>
-        <select className={selectClass} value={mm} onChange={(e) => apply({ mm: parseInt(e.target.value, 10) })}>
-          {Array.from({ length: 60 }, (_, i) => (
-            <option key={i} value={i}>
-              {String(i).padStart(2, "0")}
-            </option>
-          ))}
-        </select>
-      </div>
-    </div>
-  )
 }
 
 type PlanGroup = {
@@ -335,6 +242,36 @@ type FlatClientItem = {
   protocol: string
   port: number
   row: ClientRow
+}
+
+type OrphanClientItem = FlatClientItem
+
+function collectOrphansForBlock(block: SnapshotPanelBlock): OrphanClientItem[] {
+  const seen = new Set<string>()
+  const out: OrphanClientItem[] = []
+  for (const pg of block.plans) {
+    const plan = pg.plan
+    const planId = num(plan.id)
+    const planName = String(plan.name ?? `#${planId}`)
+    const iid = num(pg.inbound_id)
+    for (const row of pg.clients) {
+      if (!isOrphanConfig(row)) continue
+      const rk = rowKey(block.panel_id, iid, String(row.email ?? ""))
+      if (seen.has(rk)) continue
+      seen.add(rk)
+      out.push({
+        panel_id: block.panel_id,
+        panel_label: block.panel_label,
+        planId,
+        planName,
+        inbound_id: iid,
+        protocol: String(pg.protocol ?? "—"),
+        port: num(pg.port),
+        row,
+      })
+    }
+  }
+  return out
 }
 
 type UserPick = { id: number; label: string }
@@ -425,6 +362,10 @@ export function DashboardConfigsAdmin({
 
   const [infoOpen, setInfoOpen] = useState(false)
   const [infoRow, setInfoRow] = useState<ClientRow | null>(null)
+  const [infoCtx, setInfoCtx] = useState<QrCtx | null>(null)
+  const [infoPortalPayload, setInfoPortalPayload] = useState<Record<string, unknown> | null>(null)
+  const [infoPortalLoading, setInfoPortalLoading] = useState(false)
+  const [infoCopyHint, setInfoCopyHint] = useState<string | null>(null)
 
   const [qrOpen, setQrOpen] = useState(false)
   const [qrCtx, setQrCtx] = useState<QrCtx | null>(null)
@@ -465,7 +406,8 @@ export function DashboardConfigsAdmin({
   const [expBusy, setExpBusy] = useState(false)
 
   const [bulkSel, setBulkSel] = useState<Record<string, { panel_id: number; inbound_id: number; email: string }>>({})
-  const [clientsPage, setClientsPage] = useState(1)
+  const [planPages, setPlanPages] = useState<Record<string, number>>({})
+  const [orphanPageByPanel, setOrphanPageByPanel] = useState<Record<number, number>>({})
   const [clientsPerPage, setClientsPerPage] = useState(25)
   const [ipsTarget, setIpsTarget] = useState<{ panel_id: number; inbound_id: number; row: ClientRow } | null>(null)
   const [batchBusy, setBatchBusy] = useState(false)
@@ -675,6 +617,32 @@ export function DashboardConfigsAdmin({
       cancelled = true
     }
   }, [qrOpen, qrCtx])
+
+  useEffect(() => {
+    if (!infoOpen || !infoCtx) return
+    let cancelled = false
+    setInfoPortalPayload(null)
+    setInfoPortalLoading(true)
+    const sid = num(infoCtx.row.linked_service_id)
+    const q: Record<string, string | number> = {
+      panel_id: infoCtx.panel_id,
+      inbound_id: infoCtx.inbound_id,
+      email: String(infoCtx.row.email ?? ""),
+    }
+    if (sid > 0) {
+      q.service_id = sid
+    }
+    void getAdminJson("/dashboard/admin/configs-portal-payload", q).then((json) => {
+      if (cancelled) return
+      setInfoPortalLoading(false)
+      if (json.ok && json.data && typeof json.data === "object" && json.data !== null && !Array.isArray(json.data)) {
+        setInfoPortalPayload(json.data as Record<string, unknown>)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [infoOpen, infoCtx])
 
   const scheduleLinkSearch = useCallback((q: string) => {
     if (linkSearchTimer.current) clearTimeout(linkSearchTimer.current)
@@ -1205,37 +1173,57 @@ export function DashboardConfigsAdmin({
     }
   }, [afterMutate, bulkSel, flatClients, tl, transferMode, transferPanelId, transferPlanId, transferTarget])
 
-  const useFlatPaging = flatClients.length > 0
+  const setPlanPage = useCallback((key: string, page: number) => {
+    setPlanPages((prev) => ({ ...prev, [key]: page }))
+  }, [])
+
+  const setOrphanPage = useCallback((panelId: number, page: number) => {
+    setOrphanPageByPanel((prev) => ({ ...prev, [panelId]: page }))
+  }, [])
 
   useEffect(() => {
-    setClientsPage(1)
+    setPlanPages({})
+    setOrphanPageByPanel({})
   }, [panelScope, panelIdsKey])
 
-  const clientsPaginationMeta: PaginationMeta | null = useMemo(() => {
-    if (!useFlatPaging) return null
-    return { page: clientsPage, perPage: clientsPerPage, total: flatClients.length }
-  }, [clientsPage, clientsPerPage, flatClients.length, useFlatPaging])
-
-  const clientsPageSlice = useMemo(() => {
-    if (!useFlatPaging) return []
-    const start = (clientsPage - 1) * clientsPerPage
-    return flatClients.slice(start, start + clientsPerPage)
-  }, [clientsPage, clientsPerPage, flatClients, useFlatPaging])
-
   const visibleRows = useMemo(() => {
-    if (!singlePanelMode || typeof panelScope !== "number")
+    if (!singlePanelMode || typeof panelScope !== "number" || !merged) {
       return [] as { rk: string; panel_id: number; inbound_id: number; email: string; linked: number }[]
-    const source = useFlatPaging ? clientsPageSlice : flatClients
-    return source
-      .filter((it) => it.panel_id === panelScope)
-      .map((it) => ({
-        rk: rowKey(it.panel_id, it.inbound_id, String(it.row.email ?? "")),
-        panel_id: it.panel_id,
-        inbound_id: it.inbound_id,
-        email: String(it.row.email ?? ""),
-        linked: num(it.row.linked_service_id),
-      }))
-  }, [clientsPageSlice, flatClients, panelScope, singlePanelMode, useFlatPaging])
+    }
+    const block = merged.panels.find((p) => p.panel_id === panelScope)
+    if (!block) return []
+    const out: { rk: string; panel_id: number; inbound_id: number; email: string; linked: number }[] = []
+    for (const pg of block.plans) {
+      const planId = num(pg.plan.id)
+      const iid = num(pg.inbound_id)
+      const linked = pg.clients.filter(isLinkedWithPlan)
+      const pk = planGroupKey(block.panel_id, planId, iid)
+      const page = planPages[pk] ?? 1
+      for (const row of paginateSlice(linked, page, clientsPerPage)) {
+        const email = String(row.email ?? "")
+        out.push({
+          rk: rowKey(block.panel_id, iid, email),
+          panel_id: block.panel_id,
+          inbound_id: iid,
+          email,
+          linked: num(row.linked_service_id),
+        })
+      }
+    }
+    const orphans = collectOrphansForBlock(block)
+    const orphanPage = orphanPageByPanel[block.panel_id] ?? 1
+    for (const item of paginateSlice(orphans, orphanPage, clientsPerPage)) {
+      const email = String(item.row.email ?? "")
+      out.push({
+        rk: rowKey(item.panel_id, item.inbound_id, email),
+        panel_id: item.panel_id,
+        inbound_id: item.inbound_id,
+        email,
+        linked: num(item.row.linked_service_id),
+      })
+    }
+    return out
+  }, [clientsPerPage, merged, orphanPageByPanel, panelScope, planPages, singlePanelMode])
 
   const panelAllSelected = useMemo(() => {
     if (visibleRows.length < 1) return false
@@ -1264,12 +1252,6 @@ export function DashboardConfigsAdmin({
     [visibleRows]
   )
 
-  useEffect(() => {
-    if (!useFlatPaging) return
-    const totalPages = Math.max(1, Math.ceil(flatClients.length / clientsPerPage))
-    if (clientsPage > totalPages) setClientsPage(totalPages)
-  }, [clientsPage, clientsPerPage, flatClients.length, useFlatPaging])
-
   const enablePieData = useMemo(() => {
     if (!clientStats || clientStats.total < 1) return [] as { name: string; value: number }[]
     return [
@@ -1293,6 +1275,11 @@ export function DashboardConfigsAdmin({
     if (qrCopyTimer.current) clearTimeout(qrCopyTimer.current)
     setQrCopyHint(kind === "ok" ? tl("copyOk") : `__err__${tl("copyFail")}`)
     qrCopyTimer.current = setTimeout(() => setQrCopyHint(null), 2200)
+  }
+
+  const showInfoCopy = (kind: "ok" | "fail") => {
+    setInfoCopyHint(kind === "ok" ? tl("copyOk") : tl("copyFail"))
+    setTimeout(() => setInfoCopyHint(null), 2200)
   }
 
   const totalTruncated = merged?.panels.reduce((s, p) => s + p.truncated, 0) ?? 0
@@ -1432,6 +1419,8 @@ export function DashboardConfigsAdmin({
                 className="size-9"
                 onClick={() => {
                   setInfoRow(row)
+                  setInfoCtx({ panel_id: pid, inbound_id: iid, row })
+                  setInfoCopyHint(null)
                   setInfoOpen(true)
                 }}
               >
@@ -1574,7 +1563,8 @@ export function DashboardConfigsAdmin({
               }
               setMerged(null)
               setBulkSel({})
-              setClientsPage(1)
+              setPlanPages({})
+              setOrphanPageByPanel({})
               setErr(null)
               setMsg(null)
             }}
@@ -1621,7 +1611,7 @@ export function DashboardConfigsAdmin({
             })}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">{tl("statsHint")}</p>
-          {useFlatPaging ? <p className="mt-1 text-xs text-muted-foreground">{tl("clientsListPagedHint")}</p> : null}
+          <p className="mt-1 text-xs text-muted-foreground">{tl("clientsListPagedHint")}</p>
         </div>
       ) : null}
 
@@ -1738,58 +1728,6 @@ export function DashboardConfigsAdmin({
       {msg ? <p className="text-sm text-green-600 dark:text-green-400">{msg}</p> : null}
       {err ? <p className="text-sm text-destructive">{err}</p> : null}
 
-      {useFlatPaging && merged ? (
-        <div className="space-y-3 rounded-xl border border-border/60 bg-card/30 p-3 sm:p-4">
-          {clientsPageSlice.map((item) => {
-            const stubBlock: SnapshotPanelBlock = {
-              panel_id: item.panel_id,
-              panel_label: item.panel_label,
-              plans: [],
-              truncated: 0,
-              expired_linked_batch_count: 0,
-              cache_synced_at: null,
-              cache_stale: false,
-              needs_sync: false,
-            }
-            const pid = num(item.row.panel_id) || item.panel_id
-            const rk = rowKey(pid, item.inbound_id, String(item.row.email ?? ""))
-            return (
-              <div key={rk} className="overflow-hidden rounded-lg border border-border/50 bg-muted/5">
-                <div
-                  className={cn(
-                    "border-b border-border/40 bg-muted/30 px-3 py-2 text-xs text-muted-foreground",
-                    isFa ? "text-right" : "text-start"
-                  )}
-                >
-                  <span className="font-medium text-foreground">{item.planName}</span>
-                  <span className="mx-1.5">·</span>
-                  <span>
-                    {tl("planInbound", {
-                      id: item.inbound_id,
-                      protocol: item.protocol,
-                      port: item.port,
-                    })}
-                  </span>
-                  <span className="mx-1.5">·</span>
-                  <span>{tl("panelHeading", { id: item.panel_id, label: item.panel_label })}</span>
-                </div>
-                {renderConfigClientRow(stubBlock, item.inbound_id, item.row)}
-              </div>
-            )
-          })}
-          <DataPagination
-            meta={clientsPaginationMeta}
-            isFa={isFa}
-            onPageChange={setClientsPage}
-            onPerPageChange={(pp) => {
-              setClientsPerPage(pp)
-              setClientsPage(1)
-            }}
-            perPageOptions={[25, 50, 100, 150, 200]}
-          />
-        </div>
-      ) : null}
-
       {singlePanelMode && bulkCount > 0 ? (
         <div
           className={cn(
@@ -1879,6 +1817,14 @@ export function DashboardConfigsAdmin({
             const planName = String(plan.name ?? `#${num(plan.id)}`)
             const planId = num(plan.id)
             const iid = num(pg.inbound_id)
+            const linkedClients = pg.clients.filter(isLinkedWithPlan)
+            const planPk = planGroupKey(block.panel_id, planId, iid)
+            const planPage = planPages[planPk] ?? 1
+            const planPageSlice = paginateSlice(linkedClients, planPage, clientsPerPage)
+            const planPaginationMeta: PaginationMeta | null =
+              linkedClients.length > 0
+                ? { page: planPage, perPage: clientsPerPage, total: linkedClients.length }
+                : null
             const sub = tl("planInbound", {
               id: iid,
               protocol: String(pg.protocol ?? "—"),
@@ -1911,12 +1857,15 @@ export function DashboardConfigsAdmin({
                       <input
                         type="checkbox"
                         className="me-2 size-4"
-                        checked={pg.clients.length > 0 && pg.clients.every((row) => {
-                          const rrk = rowKey(block.panel_id, iid, String(row.email ?? ""))
-                          return Boolean(bulkSel[rrk])
-                        })}
+                        checked={
+                          planPageSlice.length > 0 &&
+                          planPageSlice.every((row) => {
+                            const rrk = rowKey(block.panel_id, iid, String(row.email ?? ""))
+                            return Boolean(bulkSel[rrk])
+                          })
+                        }
                         onChange={(e) => {
-                          for (const row of pg.clients) {
+                          for (const row of planPageSlice) {
                             const em = String(row.email ?? "")
                             const rrk = rowKey(block.panel_id, iid, em)
                             toggleBulkRow(rrk, block.panel_id, iid, em, e.target.checked)
@@ -1947,22 +1896,135 @@ export function DashboardConfigsAdmin({
                 </div>
                 <CollapsibleContent>
                   <div className="border-t border-border/50 bg-muted/5">
-                    {pg.clients.length === 0 ? (
+                    {linkedClients.length === 0 ? (
                       <p className="p-3 text-sm text-muted-foreground">{tl("noClientsInPlan")}</p>
-                    ) : useFlatPaging ? (
-                      <p className="p-3 text-xs text-muted-foreground">{tl("planClientsPagedAbove")}</p>
                     ) : (
-                      pg.clients.map((row) => renderConfigClientRow(block, iid, row))
+                      <>
+                        {planPageSlice.map((row) => renderConfigClientRow(block, iid, row))}
+                        <div className="px-3 pb-3">
+                          <DataPagination
+                            meta={planPaginationMeta}
+                            isFa={isFa}
+                            onPageChange={(page) => setPlanPage(planPk, page)}
+                            onPerPageChange={(pp) => {
+                              setClientsPerPage(pp)
+                              setPlanPages({})
+                              setOrphanPageByPanel({})
+                            }}
+                            perPageOptions={[25, 50, 100, 150, 200]}
+                          />
+                        </div>
+                      </>
                     )}
                   </div>
                 </CollapsibleContent>
               </Collapsible>
             )
           })}
+
+          {(() => {
+            const orphans = collectOrphansForBlock(block)
+            if (orphans.length < 1) return null
+            const orphanPage = orphanPageByPanel[block.panel_id] ?? 1
+            const orphanTotalPages = Math.max(1, Math.ceil(orphans.length / clientsPerPage))
+            const safeOrphanPage = Math.min(orphanPage, orphanTotalPages)
+            const orphanSlice = paginateSlice(orphans, safeOrphanPage, clientsPerPage)
+            const orphanMeta: PaginationMeta = {
+              page: safeOrphanPage,
+              perPage: clientsPerPage,
+              total: orphans.length,
+            }
+            return (
+              <Collapsible
+                key={`orphan-${block.panel_id}`}
+                defaultOpen
+                className="group/orphan overflow-hidden rounded-lg border border-amber-500/50"
+              >
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center gap-2 border-b border-amber-500/30 bg-amber-500/5 p-3 text-start hover:bg-amber-500/10",
+                      isFa && "flex-row-reverse text-right"
+                    )}
+                  >
+                    <ChevronDown className="size-4 shrink-0 transition-transform group-data-[state=open]/orphan:rotate-180" />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-amber-900 dark:text-amber-100">
+                        {tl("orphanConfigsSection", { n: orphans.length })}
+                      </div>
+                      <p className="text-xs text-muted-foreground">{tl("orphanConfigsHint")}</p>
+                    </div>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="space-y-0 border-t border-amber-500/20 bg-amber-500/5">
+                    {orphanSlice.map((item) => {
+                      const stubBlock: SnapshotPanelBlock = {
+                        panel_id: item.panel_id,
+                        panel_label: item.panel_label,
+                        plans: [],
+                        truncated: 0,
+                        expired_linked_batch_count: 0,
+                        cache_synced_at: null,
+                        cache_stale: false,
+                        needs_sync: false,
+                      }
+                      const pid = num(item.row.panel_id) || item.panel_id
+                      const rk = rowKey(pid, item.inbound_id, String(item.row.email ?? ""))
+                      return (
+                        <div key={rk} className="overflow-hidden border-b border-amber-500/15 last:border-b-0">
+                          <div
+                            className={cn(
+                              "border-b border-amber-500/15 bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground",
+                              isFa ? "text-right" : "text-start"
+                            )}
+                          >
+                            <span className="font-medium text-foreground">{item.planName}</span>
+                            <span className="mx-1.5">·</span>
+                            <span>
+                              {tl("planInbound", {
+                                id: item.inbound_id,
+                                protocol: item.protocol,
+                                port: item.port,
+                              })}
+                            </span>
+                          </div>
+                          {renderConfigClientRow(stubBlock, item.inbound_id, item.row)}
+                        </div>
+                      )
+                    })}
+                    <div className="px-3 py-3">
+                      <DataPagination
+                        meta={orphanMeta}
+                        isFa={isFa}
+                        onPageChange={(page) => setOrphanPage(block.panel_id, page)}
+                        onPerPageChange={(pp) => {
+                          setClientsPerPage(pp)
+                          setPlanPages({})
+                          setOrphanPageByPanel({})
+                        }}
+                        perPageOptions={[25, 50, 100, 150, 200]}
+                      />
+                    </div>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )
+          })()}
         </div>
       ))}
 
-      <Dialog open={infoOpen} onOpenChange={setInfoOpen}>
+      <Dialog
+        open={infoOpen}
+        onOpenChange={(open) => {
+          setInfoOpen(open)
+          if (!open) {
+            setInfoCtx(null)
+            setInfoPortalPayload(null)
+          }
+        }}
+      >
         <DialogContent dir={dialogDir} className={dialogContentCn("max-w-lg")}>
           <DialogHeader className={dialogHeaderClass}>
             <DialogTitle>{tl("infoTitle")}</DialogTitle>
@@ -2021,13 +2083,54 @@ export function DashboardConfigsAdmin({
                     tl("noSubUrl")
                   )}
                 </DetailRow>
-                <DetailRow label={tl("qrCfg")}>
-                  {String(infoRow.primary_config_uri ?? "").trim() ? (
-                    <span className="font-mono text-xs">{String(infoRow.primary_config_uri)}</span>
-                  ) : (
-                    tl("noCfgUri")
-                  )}
-                </DetailRow>
+                {infoPortalLoading ? (
+                  <p className="text-xs text-muted-foreground">{tl("configsLoading")}</p>
+                ) : null}
+                {infoCopyHint ? (
+                  <p className={cn("text-xs", infoCopyHint === tl("copyOk") ? "text-emerald-600" : "text-destructive")}>
+                    {infoCopyHint}
+                  </p>
+                ) : null}
+                {(() => {
+                  const cfgUris = infoCtx ? effectiveQrConfigUris(infoCtx, infoPortalPayload) : []
+                  if (cfgUris.length > 0) {
+                    return (
+                      <div className="space-y-3">
+                        <p className="text-xs font-medium text-muted-foreground">
+                          {tl("detailsConfigs")}
+                          {cfgUris.length > 1 ? ` · ${tl("configsCount", { n: cfgUris.length })}` : ""}
+                        </p>
+                        {cfgUris.map((uri, idx) => (
+                          <div key={`${idx}-${uri}`} className="space-y-1 rounded-md border border-border/60 p-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-medium">{tl("configLineN", { n: idx + 1 })}</span>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-7 shrink-0"
+                                onClick={() => void copyToClipboard(uri).then((ok) => showInfoCopy(ok ? "ok" : "fail"))}
+                              >
+                                <Copy className="size-3" />
+                                {tl("copyAction")}
+                              </Button>
+                            </div>
+                            <code className="block break-all font-mono text-xs">{uri}</code>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  }
+                  return (
+                    <DetailRow label={tl("qrCfg")}>
+                      {String(infoRow.primary_config_uri ?? "").trim() ? (
+                        <span className="font-mono text-xs">{String(infoRow.primary_config_uri)}</span>
+                      ) : (
+                        tl("noCfgUri")
+                      )}
+                    </DetailRow>
+                  )
+                })()}
               </div>
               <div>
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -2222,26 +2325,12 @@ export function DashboardConfigsAdmin({
               <Label>{tl("fieldTotalGb")}</Label>
               <Input inputMode="numeric" value={editTotalGb} onChange={(e) => setEditTotalGb(e.target.value)} />
             </div>
-            <div className="grid gap-1">
-              <Label>{isFa ? tl("fieldExpiryShamsi") : tl("fieldExpiry")}</Label>
-              {isFa ? (
-                <ConfigJalaliExpiryFields
-                  valueMs={editExpiryMs}
-                  onChangeMs={setEditExpiryMs}
-                  tl={(k) => tl(k)}
-                  selectClass={selectClass}
-                />
-              ) : (
-                <Input
-                  type="datetime-local"
-                  value={editExpiryMs > 0 ? msToDatetimeLocalValue(editExpiryMs) : ""}
-                  onChange={(e) => {
-                    const ms = datetimeLocalToMs(e.target.value)
-                    setEditExpiryMs(ms > 0 ? ms : 0)
-                  }}
-                />
-              )}
-            </div>
+            <DashboardDateTimePicker
+              label={isFa ? tl("fieldExpiryShamsi") : tl("fieldExpiry")}
+              isFa={isFa}
+              value={editExpiryMs > 0 ? msToApiDatetime(editExpiryMs) : ""}
+              onChange={(v) => setEditExpiryMs(apiDatetimeToMs(v))}
+            />
           </div>
           <DialogFooter className={cn(isFa && "flex-row-reverse")}>
             <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>

@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class SimpleVPBot_Activator {
 
-	const DB_VERSION = '2.2.0';
+	const DB_VERSION = '2.3.2';
 
 	/**
 	 * Activate plugin.
@@ -62,6 +62,7 @@ class SimpleVPBot_Activator {
 			state_data longtext NULL,
 			bot_locale varchar(5) NOT NULL DEFAULT '',
 			invited_by bigint(20) unsigned DEFAULT NULL,
+			signup_reseller_svp_id bigint(20) unsigned DEFAULT NULL,
 			wp_user_id bigint(20) unsigned DEFAULT NULL,
 			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (id),
@@ -70,7 +71,8 @@ class SimpleVPBot_Activator {
 			UNIQUE KEY svp_users_wp (wp_user_id),
 			KEY status (status),
 			KEY role (role),
-			KEY invited_by (invited_by)
+			KEY invited_by (invited_by),
+			KEY signup_reseller (signup_reseller_svp_id)
 		) $charset_collate;";
 
 		$sql_cards = "CREATE TABLE {$p}svp_cards (
@@ -112,6 +114,7 @@ class SimpleVPBot_Activator {
 			transaction_id bigint(20) unsigned NOT NULL,
 			tg_file_id varchar(191) DEFAULT '',
 			bale_file_id varchar(191) DEFAULT '',
+			stored_image_path varchar(512) NOT NULL DEFAULT '',
 			amount decimal(15,2) NOT NULL,
 			card_id bigint(20) unsigned DEFAULT NULL,
 			status varchar(20) NOT NULL DEFAULT 'pending',
@@ -212,7 +215,10 @@ class SimpleVPBot_Activator {
 		$sql_users_bulk_items = "CREATE TABLE {$p}svp_users_bulk_job_items (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			job_id bigint(20) unsigned NOT NULL,
-			user_id bigint(20) unsigned NOT NULL,
+			user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			panel_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			inbound_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			client_email varchar(191) NOT NULL DEFAULT '',
 			status varchar(20) NOT NULL DEFAULT 'pending',
 			tries int NOT NULL DEFAULT 0,
 			last_error text NULL,
@@ -220,7 +226,8 @@ class SimpleVPBot_Activator {
 			PRIMARY KEY (id),
 			KEY job_id (job_id),
 			KEY status (status),
-			KEY job_user (job_id, user_id)
+			KEY job_user (job_id, user_id),
+			KEY job_panel_client (job_id, panel_id, inbound_id, client_email(120))
 		) $charset_collate;";
 
 		$sql_logs = "CREATE TABLE {$p}svp_logs (
@@ -257,11 +264,14 @@ class SimpleVPBot_Activator {
 		dbDelta( self::sql_panel_online_daily( $p, $charset_collate ) );
 		dbDelta( self::sql_monitor_hosts( $p, $charset_collate ) );
 		dbDelta( self::sql_discount_codes( $p, $charset_collate ) );
+		dbDelta( self::sql_discount_redemptions( $p, $charset_collate ) );
 		dbDelta( self::sql_panel_inbound_clients( $p, $charset_collate ) );
 		dbDelta( self::sql_panel_inbound_api( $p, $charset_collate ) );
 		dbDelta( self::sql_reseller_panel_prices( $p, $charset_collate ) );
 		dbDelta( self::sql_reseller_parent_panel_floors( $p, $charset_collate ) );
 		dbDelta( self::sql_reseller_bot_profiles( $p, $charset_collate ) );
+		dbDelta( self::sql_reseller_closure( $p, $charset_collate ) );
+		dbDelta( self::sql_audit_log( $p, $charset_collate ) );
 		if ( class_exists( 'SimpleVPBot_Service_Transfer' ) ) {
 			SimpleVPBot_Service_Transfer::ensure_table();
 		}
@@ -528,6 +538,7 @@ class SimpleVPBot_Activator {
 			panel_password text NOT NULL,
 			panel_api_base varchar(191) NOT NULL DEFAULT 'panel/api',
 			panel_login_secret varchar(255) NOT NULL DEFAULT '',
+			panel_api_token text NULL,
 			subscription_public_base text NULL,
 			sort_order int NOT NULL DEFAULT 0,
 			active tinyint(1) NOT NULL DEFAULT 1,
@@ -638,6 +649,7 @@ class SimpleVPBot_Activator {
 
 		self::seed_plan_categories_if_empty();
 		self::migrate_subscription_panel_text();
+		// Inserts missing fa/en rows from Bot_Text_Defaults (+ Extended); does not overwrite customized DB values.
 		self::seed_missing_text_keys();
 		if ( version_compare( (string) $current, '1.0.8', '<' ) ) {
 			self::dedupe_users_by_bot_ids();
@@ -712,7 +724,44 @@ class SimpleVPBot_Activator {
 		if ( version_compare( (string) $current, '2.2.0', '<' ) ) {
 			self::maybe_migrate_220_wholesale_lines( $p, $charset_collate );
 		}
+		if ( version_compare( (string) $current, '2.2.1', '<' ) ) {
+			self::maybe_migrate_221_panel_api_token( $p );
+		}
+		if ( version_compare( (string) $current, '2.2.2', '<' ) ) {
+			self::maybe_migrate_222_discount_enhancements( $p, $charset_collate );
+		}
+		if ( version_compare( (string) $current, '2.2.3', '<' ) ) {
+			self::maybe_migrate_223_reseller_bot_enhancements( $p );
+		}
+		if ( version_compare( (string) $current, '2.2.4', '<' ) ) {
+			self::maybe_migrate_224_reseller_signup_backfill( $p );
+		}
+		if ( version_compare( (string) $current, '2.3.0', '<' ) ) {
+			self::maybe_migrate_230_branding_closure_audit( $p, $charset_collate );
+		}
+		if ( version_compare( (string) $current, '2.3.1', '<' ) ) {
+			self::maybe_migrate_231_bulk_panel_items( $p, $charset_collate );
+		}
+		if ( version_compare( (string) $current, '2.3.2', '<' ) ) {
+			self::maybe_migrate_232_receipt_stored_image( $p );
+		}
 		update_option( 'simplevpbot_db_version', self::DB_VERSION );
+	}
+
+	/**
+	 * Receipts: permanent local image path for dashboard.
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_232_receipt_stored_image( $p ) {
+		global $wpdb;
+		$t = $p . 'svp_receipts';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$has = $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'stored_image_path'" );
+		if ( ! $has ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN stored_image_path varchar(512) NOT NULL DEFAULT '' AFTER bale_file_id" );
+		}
 	}
 
 	/**
@@ -860,7 +909,10 @@ class SimpleVPBot_Activator {
 		$sql_users_bulk_items = "CREATE TABLE {$p}svp_users_bulk_job_items (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			job_id bigint(20) unsigned NOT NULL,
-			user_id bigint(20) unsigned NOT NULL,
+			user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			panel_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			inbound_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			client_email varchar(191) NOT NULL DEFAULT '',
 			status varchar(20) NOT NULL DEFAULT 'pending',
 			tries int NOT NULL DEFAULT 0,
 			last_error text NULL,
@@ -868,9 +920,50 @@ class SimpleVPBot_Activator {
 			PRIMARY KEY (id),
 			KEY job_id (job_id),
 			KEY status (status),
-			KEY job_user (job_id, user_id)
+			KEY job_user (job_id, user_id),
+			KEY job_panel_client (job_id, panel_id, inbound_id, client_email(120))
 		) $charset_collate;";
 		dbDelta( $sql_users_bulk_jobs );
+		dbDelta( $sql_users_bulk_items );
+	}
+
+	/**
+	 * Bulk job items: panel client target columns for panel-first volume/extend.
+	 *
+	 * @param string $p               Table prefix.
+	 * @param string $charset_collate Charset.
+	 */
+	public static function maybe_migrate_231_bulk_panel_items( $p, $charset_collate ) {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		global $wpdb;
+		$t = $p . 'svp_users_bulk_job_items';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$has = $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'panel_id'" );
+		if ( ! $has ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN panel_id bigint(20) unsigned NOT NULL DEFAULT 0 AFTER user_id" );
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN inbound_id bigint(20) unsigned NOT NULL DEFAULT 0 AFTER panel_id" );
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN client_email varchar(191) NOT NULL DEFAULT '' AFTER inbound_id" );
+		}
+		$sql_users_bulk_items = "CREATE TABLE {$p}svp_users_bulk_job_items (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			job_id bigint(20) unsigned NOT NULL,
+			user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			panel_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			inbound_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			client_email varchar(191) NOT NULL DEFAULT '',
+			status varchar(20) NOT NULL DEFAULT 'pending',
+			tries int NOT NULL DEFAULT 0,
+			last_error text NULL,
+			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY job_id (job_id),
+			KEY status (status),
+			KEY job_user (job_id, user_id),
+			KEY job_panel_client (job_id, panel_id, inbound_id, client_email(120))
+		) $charset_collate;";
 		dbDelta( $sql_users_bulk_items );
 	}
 
@@ -1050,15 +1143,157 @@ class SimpleVPBot_Activator {
 			bale_token text NULL,
 			webhook_secret varchar(128) NOT NULL DEFAULT '',
 			brand_name varchar(255) NOT NULL DEFAULT '',
+			logo_url varchar(512) NOT NULL DEFAULT '',
+			favicon_url varchar(512) NOT NULL DEFAULT '',
+			theme_primary varchar(16) NOT NULL DEFAULT '',
+			theme_accent varchar(16) NOT NULL DEFAULT '',
+			custom_domain varchar(255) NOT NULL DEFAULT '',
 			telegram_secret_token varchar(255) NOT NULL DEFAULT '',
 			enabled tinyint(1) NOT NULL DEFAULT 1,
 			admin_telegram_ids longtext NULL,
 			admin_bale_ids longtext NULL,
 			bale_wallet_provider_token varchar(255) NOT NULL DEFAULT '',
+			telegram_bot_username varchar(128) NOT NULL DEFAULT '',
+			bale_bot_username varchar(128) NOT NULL DEFAULT '',
+			text_overrides_json longtext NULL,
 			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY (id),
-			UNIQUE KEY reseller_one (reseller_svp_user_id)
+			UNIQUE KEY reseller_one (reseller_svp_user_id),
+			KEY custom_domain (custom_domain)
 		) $charset_collate;";
+	}
+
+	/**
+	 * Closure table for invited_by tree.
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 * @return string
+	 */
+	public static function sql_reseller_closure( $p, $charset_collate ) {
+		return "CREATE TABLE {$p}svp_reseller_closure (
+			ancestor_id bigint(20) unsigned NOT NULL,
+			descendant_id bigint(20) unsigned NOT NULL,
+			depth smallint unsigned NOT NULL DEFAULT 0,
+			PRIMARY KEY (ancestor_id, descendant_id),
+			KEY descendant (descendant_id),
+			KEY ancestor_depth (ancestor_id, depth)
+		) $charset_collate;";
+	}
+
+	/**
+	 * Admin audit log.
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 * @return string
+	 */
+	public static function sql_audit_log( $p, $charset_collate ) {
+		return "CREATE TABLE {$p}svp_audit_log (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			domain varchar(32) NOT NULL DEFAULT 'admin',
+			event_type varchar(64) NOT NULL DEFAULT '',
+			actor_kind varchar(20) NOT NULL DEFAULT 'system',
+			actor_wp_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			actor_svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			target_type varchar(32) NOT NULL DEFAULT '',
+			target_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			reseller_scope_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			payload_json longtext NULL,
+			ip_hash char(64) NOT NULL DEFAULT '',
+			PRIMARY KEY (id),
+			KEY domain_created (domain, created_at),
+			KEY event_type (event_type),
+			KEY target (target_type, target_id),
+			KEY actor_svp (actor_svp_user_id)
+		) $charset_collate;";
+	}
+
+	/**
+	 * Branding columns, closure + audit tables, closure backfill.
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 */
+	public static function maybe_migrate_230_branding_closure_audit( $p, $charset_collate ) {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		dbDelta( self::sql_reseller_bot_profiles( $p, $charset_collate ) );
+		dbDelta( self::sql_reseller_closure( $p, $charset_collate ) );
+		dbDelta( self::sql_audit_log( $p, $charset_collate ) );
+
+		global $wpdb;
+		$t = $p . 'svp_reseller_bot_profiles';
+		$cols = array(
+			'logo_url'       => "ADD COLUMN logo_url varchar(512) NOT NULL DEFAULT '' AFTER brand_name",
+			'favicon_url'    => "ADD COLUMN favicon_url varchar(512) NOT NULL DEFAULT '' AFTER logo_url",
+			'theme_primary'  => "ADD COLUMN theme_primary varchar(16) NOT NULL DEFAULT '' AFTER favicon_url",
+			'theme_accent'   => "ADD COLUMN theme_accent varchar(16) NOT NULL DEFAULT '' AFTER theme_primary",
+			'custom_domain'  => "ADD COLUMN custom_domain varchar(255) NOT NULL DEFAULT '' AFTER theme_accent",
+		);
+		foreach ( $cols as $col => $ddl ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE '{$col}'" ) ) {
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$wpdb->query( "ALTER TABLE {$t} {$ddl}" );
+			}
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$idx = $wpdb->get_results( "SHOW INDEX FROM {$t} WHERE Key_name = 'custom_domain'", ARRAY_A );
+		if ( empty( $idx ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD KEY custom_domain (custom_domain)" );
+		}
+
+		if ( ! get_option( 'simplevpbot_closure_backfill_v1_done' ) && class_exists( 'SimpleVPBot_Reseller_Closure' ) ) {
+			SimpleVPBot_Reseller_Closure::rebuild_all();
+			update_option( 'simplevpbot_closure_backfill_v1_done', true, false );
+		}
+	}
+
+	/**
+	 * signup_reseller_svp_id on users + one-time billing/invited_by backfill.
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_224_reseller_signup_backfill( $p ) {
+		global $wpdb;
+		$users = $p . 'svp_users';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$users} LIKE 'signup_reseller_svp_id'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$users} ADD COLUMN signup_reseller_svp_id bigint(20) unsigned DEFAULT NULL AFTER invited_by" );
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$users} ADD KEY signup_reseller (signup_reseller_svp_id)" );
+		}
+		if ( class_exists( 'SimpleVPBot_Reseller_Backfill' ) ) {
+			SimpleVPBot_Reseller_Backfill::run_one_time_migrations();
+		}
+	}
+
+	/**
+	 * Reseller bot profile: bot usernames + text overrides column.
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_223_reseller_bot_enhancements( $p ) {
+		global $wpdb;
+		$t = $p . 'svp_reseller_bot_profiles';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'telegram_bot_username'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN telegram_bot_username varchar(128) NOT NULL DEFAULT '' AFTER bale_wallet_provider_token" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'bale_bot_username'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN bale_bot_username varchar(128) NOT NULL DEFAULT '' AFTER telegram_bot_username" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'text_overrides_json'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN text_overrides_json longtext NULL AFTER bale_bot_username" );
+		}
 	}
 
 	/**
@@ -1228,6 +1463,7 @@ class SimpleVPBot_Activator {
 			$wpdb->query( "ALTER TABLE {$users_table} ADD KEY invited_by (invited_by)" );
 		}
 		dbDelta( self::sql_discount_codes( $p, $charset_collate ) );
+		dbDelta( self::sql_discount_redemptions( $p, $charset_collate ) );
 	}
 
 	/**
@@ -1389,14 +1625,81 @@ class SimpleVPBot_Activator {
 						'panel_password'            => (string) ( $s['panel_password'] ?? '' ),
 						'panel_api_base'            => (string) ( $s['panel_api_base'] ?? 'panel/api' ),
 						'panel_login_secret'        => (string) ( $s['panel_login_secret'] ?? '' ),
+						'panel_api_token'           => (string) ( $s['panel_api_token'] ?? '' ),
 						'subscription_public_base' => (string) ( $s['subscription_public_base'] ?? '' ),
 						'sort_order'                => 0,
 						'active'                    => 1,
 					),
-					array( '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d' )
+					array( '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d' )
 				);
 			}
 		}
+	}
+
+	/**
+	 * Add 3x-ui v3 Bearer API token storage for existing panel rows.
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_221_panel_api_token( $p ) {
+		global $wpdb;
+		$panels_t = $p . 'svp_panels';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$col = $wpdb->get_var( "SHOW COLUMNS FROM {$panels_t} LIKE 'panel_api_token'" );
+		if ( ! $col ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$panels_t} ADD COLUMN panel_api_token text NULL AFTER panel_login_secret" );
+		}
+	}
+
+	/**
+	 * Discount caps, user/plan restrictions, redemption history.
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 */
+	public static function maybe_migrate_222_discount_enhancements( $p, $charset_collate ) {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		global $wpdb;
+		dbDelta( self::sql_discount_redemptions( $p, $charset_collate ) );
+		$disc = $p . 'svp_discount_codes';
+		$cols = array(
+			'max_order_toman'        => "ALTER TABLE {$disc} ADD COLUMN max_order_toman decimal(15,2) DEFAULT NULL AFTER min_order_toman",
+			'max_discount_toman'     => "ALTER TABLE {$disc} ADD COLUMN max_discount_toman decimal(15,2) DEFAULT NULL AFTER max_order_toman",
+			'restricted_svp_user_id' => "ALTER TABLE {$disc} ADD COLUMN restricted_svp_user_id bigint(20) unsigned DEFAULT NULL AFTER max_discount_toman",
+			'allowed_plan_ids'       => "ALTER TABLE {$disc} ADD COLUMN allowed_plan_ids text NULL AFTER restricted_svp_user_id",
+		);
+		foreach ( $cols as $name => $sql ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$disc} LIKE '{$name}'" ) ) {
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$wpdb->query( $sql );
+			}
+		}
+	}
+
+	/**
+	 * Discount redemption audit rows.
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 * @return string
+	 */
+	public static function sql_discount_redemptions( $p, $charset_collate ) {
+		return "CREATE TABLE {$p}svp_discount_redemptions (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			discount_code_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			transaction_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			subtotal_toman decimal(15,2) NOT NULL DEFAULT 0,
+			discount_toman decimal(15,2) NOT NULL DEFAULT 0,
+			volume_gb decimal(12,3) DEFAULT NULL,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			UNIQUE KEY tx_once (transaction_id),
+			KEY code_id (discount_code_id),
+			KEY user_id (svp_user_id)
+		) $charset_collate;";
 	}
 
 	/**

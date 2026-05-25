@@ -2,8 +2,8 @@ import type { LucideIcon } from "lucide-react"
 import {
   Activity,
   Bot,
+  FileSearch,
   LayoutDashboard,
-  Layers,
   PanelsTopLeft,
   Network,
   Server,
@@ -38,18 +38,14 @@ export type AdminNavSection = {
   entries: AdminNavEntry[]
 }
 
-/** Tabs never shown to resellers (infra / global settings / alias monitoring). */
+/** Tabs never shown to resellers (infra / global settings). */
 export const ADMIN_ONLY_TAB_KEYS = new Set<string>([
+  "audit",
   "site_settings",
   "backup",
-  "notifications",
-  "logs",
   "xui_panels",
   "configs",
-  "l2tp_servers",
-  "wholesale_lines",
   "texts",
-  "monitoring",
 ])
 
 /**
@@ -80,14 +76,32 @@ export function filterAdminNavForReseller(
     out.push({ ...sec, entries })
   }
 
-  if (!allowedTabs.has("reseller_bots")) {
-    return reorderResellerNavSections(out, false)
+  let patched = out
+  if (allowedTabs.has("reseller_charge")) {
+    patched = patched.map((sec) => {
+      if (sec.id !== "finance") return sec
+      return {
+        ...sec,
+        entries: sec.entries.map((ent) => {
+          if (ent.kind !== "collapsible" || ent.id !== "finance_menu") return ent
+          if (ent.children.some((c) => c.tabKey === "reseller_charge")) return ent
+          return {
+            ...ent,
+            children: [{ tabKey: "reseller_charge", icon: Wallet }, ...ent.children],
+          }
+        }),
+      }
+    })
   }
 
-  const botIdx = out.findIndex((s) => s.id === "bot")
-  if (botIdx < 0) return reorderResellerNavSections(out, false)
+  if (!allowedTabs.has("reseller_bots")) {
+    return reorderResellerNavSections(patched, false)
+  }
 
-  const botSec = out[botIdx]!
+  const botIdx = patched.findIndex((s) => s.id === "bot")
+  if (botIdx < 0) return reorderResellerNavSections(patched, false)
+
+  const botSec = patched[botIdx]!
   const newEntries = botSec.entries.map((ent) => {
     if (ent.kind === "collapsible" && ent.id === "bot_menu") {
       if (ent.children.some((c) => c.tabKey === "reseller_bots")) return ent
@@ -98,8 +112,8 @@ export function filterAdminNavForReseller(
     }
     return ent
   })
-  out[botIdx] = { ...botSec, entries: newEntries }
-  return reorderResellerNavSections(out, true)
+  patched[botIdx] = { ...botSec, entries: newEntries }
+  return reorderResellerNavSections(patched, true)
 }
 
 const RESELLER_NAV_SECTION_ORDER = ["overview", "users", "finance", "bot", "settings"]
@@ -175,7 +189,6 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
           { tabKey: "plans" },
           { tabKey: "cards" },
           { tabKey: "receipts" },
-          { tabKey: "reseller_finance" },
           { tabKey: "referral" },
           { tabKey: "discounts" },
         ],
@@ -212,8 +225,6 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
          children: [
           { tabKey: "xui_panels" },
           { tabKey: "configs", icon: Network },
-          { tabKey: "l2tp_servers" },
-          { tabKey: "wholesale_lines", icon: Layers },
         ],
       },
       {
@@ -223,9 +234,8 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
         labelKey: "sidebar.groups.systemPreferences",
         children: [
           { tabKey: "site_settings" },
+          { tabKey: "audit", icon: FileSearch },
           { tabKey: "backup" },
-          { tabKey: "notifications" },
-          { tabKey: "logs" },
         ],
       },
     ],
@@ -244,21 +254,17 @@ export const ADMIN_TAB_KEYS: string[] = [
   "plans",
   "cards",
   "receipts",
-  "reseller_finance",
   "referral",
   "discounts",
   "plan_cats",
   "reseller_bots",
   "texts",
   "bot_ui",
-  "notifications",
   "bots",
   "xui_panels",
   "configs",
-  "l2tp_servers",
-  "wholesale_lines",
   "backup",
-  "logs",
+  "audit",
 ]
 
 export type SearchNavRow = {

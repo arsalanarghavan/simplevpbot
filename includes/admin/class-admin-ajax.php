@@ -317,10 +317,10 @@ class SimpleVPBot_Admin_Ajax {
 	}
 
 	/**
-	 * Proxy receipt image (Telegram file) for admin table.
+	 * Proxy receipt image: local stored file first, then Telegram/Bale API (lazy persist).
 	 */
 	public static function receipt_image() {
-		if ( ! is_user_logged_in() || ! current_user_can( 'manage_options' ) ) {
+		if ( ! is_user_logged_in() ) {
 			status_header( 403 );
 			exit;
 		}
@@ -331,23 +331,50 @@ class SimpleVPBot_Admin_Ajax {
 			exit;
 		}
 		$rec = SimpleVPBot_Model_Receipt::find( $rid );
-		if ( ! $rec || empty( $rec->tg_file_id ) ) {
+		if ( ! $rec ) {
 			status_header( 404 );
 			exit;
 		}
-		$tok = (string) SimpleVPBot_Settings::get( 'telegram_token', '' );
+		if ( class_exists( 'SimpleVPBot_Receipt_Image_Store' ) ) {
+			$local = SimpleVPBot_Receipt_Image_Store::readable_path_for_receipt( $rec );
+			if ( '' !== $local ) {
+				header( 'Content-Type: ' . SimpleVPBot_Receipt_Image_Store::mime_for_path( $local ) );
+				// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+				readfile( $local );
+				exit;
+			}
+		}
+		if ( empty( $rec->tg_file_id ) && empty( $rec->bale_file_id ) ) {
+			status_header( 404 );
+			exit;
+		}
+		$is_bale     = ! empty( $rec->bale_file_id );
+		$platform    = $is_bale ? 'bale' : 'telegram';
+		$reseller_id = 0;
+		$user_row    = SimpleVPBot_Model_User::find( (int) $rec->user_id );
+		$tx_row      = SimpleVPBot_Model_Transaction::find( (int) $rec->transaction_id );
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			$reseller_id = SimpleVPBot_Bot_Reseller_Scope::resolve_reseller_id_for_notify( $user_row, $tx_row );
+		}
+		$tok = class_exists( 'SimpleVPBot_Bot_Runtime' )
+			? (string) SimpleVPBot_Bot_Runtime::bot_token_for_reseller( $platform, $reseller_id )
+			: '';
+		if ( '' === $tok ) {
+			$tok = (string) SimpleVPBot_Settings::get( $is_bale ? 'bale_token' : 'telegram_token', '' );
+		}
 		if ( '' === $tok ) {
 			status_header( 404 );
 			exit;
 		}
-		$tg   = new SimpleVPBot_Telegram_Client( $tok );
-		$gf   = $tg->get_file( array( 'file_id' => (string) $rec->tg_file_id ) );
-		$path = ( is_array( $gf ) && ! empty( $gf['result']['file_path'] ) ) ? (string) $gf['result']['file_path'] : '';
+		$client = $is_bale ? new SimpleVPBot_Bale_Client( $tok ) : new SimpleVPBot_Telegram_Client( $tok );
+		$fid    = $is_bale ? (string) $rec->bale_file_id : (string) $rec->tg_file_id;
+		$gf     = $client->get_file( array( 'file_id' => $fid ) );
+		$path   = ( is_array( $gf ) && ! empty( $gf['result']['file_path'] ) ) ? (string) $gf['result']['file_path'] : '';
 		if ( '' === $path ) {
 			status_header( 404 );
 			exit;
 		}
-		$url  = 'https://api.telegram.org/file/bot' . rawurlencode( $tok ) . '/' . $path;
+		$url  = ( $is_bale ? 'https://tapi.bale.ai/file/bot' : 'https://api.telegram.org/file/bot' ) . rawurlencode( $tok ) . '/' . $path;
 		$resp = wp_remote_get( $url, array( 'timeout' => 45, 'redirection' => 2 ) );
 		if ( is_wp_error( $resp ) || (int) wp_remote_retrieve_response_code( $resp ) !== 200 ) {
 			status_header( 502 );
@@ -355,6 +382,15 @@ class SimpleVPBot_Admin_Ajax {
 		}
 		$body = (string) wp_remote_retrieve_body( $resp );
 		$ct   = (string) wp_remote_retrieve_header( $resp, 'content-type' );
+		if ( class_exists( 'SimpleVPBot_Receipt_Image_Store' ) && '' !== $body ) {
+			$ext = '.jpg';
+			if ( false !== strpos( strtolower( $path ), '.png' ) ) {
+				$ext = '.png';
+			} elseif ( false !== strpos( strtolower( $path ), '.webp' ) ) {
+				$ext = '.webp';
+			}
+			SimpleVPBot_Receipt_Image_Store::persist_from_bytes( $rid, $body, $ext );
+		}
 		if ( $ct && false === strpos( $ct, 'text' ) ) {
 			header( 'Content-Type: ' . $ct );
 		} else {

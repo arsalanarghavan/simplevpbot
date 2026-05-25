@@ -62,6 +62,16 @@ class SimpleVPBot_Bot_Persian_Text {
 	}
 
 	/**
+	 * Whether a toman amount should display as free (matches dashboard epsilon).
+	 *
+	 * @param float|int|string $amount Toman.
+	 * @return bool
+	 */
+	public static function is_zero_toman( $amount ) {
+		return abs( (float) $amount ) < 0.009;
+	}
+
+	/**
 	 * Human-readable bytes with Persian units and digits.
 	 *
 	 * @param float|int $bytes Raw bytes.

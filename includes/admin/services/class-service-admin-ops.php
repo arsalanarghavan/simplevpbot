@@ -46,6 +46,7 @@ class SimpleVPBot_Service_Admin_Ops {
 					'panel_id'     => $pid,
 					'panel_url'    => $panel_url_raw,
 					'api_base'     => $api_base_raw,
+					'csrf_url'     => SimpleVPBot_Xui_Client::diag_csrf_url(),
 					'login_url'    => SimpleVPBot_Xui_Client::diag_login_url(),
 					'status_url'   => SimpleVPBot_Xui_Client::diag_url( 'server/status', 'api' ),
 					'inbounds_url' => SimpleVPBot_Xui_Client::diag_url( 'inbounds/list', 'api' ),
@@ -57,24 +58,92 @@ class SimpleVPBot_Service_Admin_Ops {
 						'data'    => array( 'diag' => $diag ),
 					);
 				}
-				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
+
+				$use_token = SimpleVPBot_Xui_Client::has_api_token();
+				$diag['auth_mode'] = $use_token ? 'bearer' : 'cookie';
+
+				$hint_2fa = '';
+				if ( ! $use_token ) {
+					$is_2fa_enabled = SimpleVPBot_Xui_Client::is_2fa_enabled();
+					if ( $is_2fa_enabled === true ) {
+						$hint_2fa = "\n\n⚠️ " . __( 'توجه: 2FA روی پنل فعال است. اگر دارید، کد OTP را در فیلد «Login Secret» قرار دهید.', 'simplevpbot' );
+					}
+					if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
+						$auth_try = SimpleVPBot_Xui_Client::get_last_auth_diag();
+						$diag['csrf_http_code']  = (int) ( $auth_try['csrf_http_code'] ?? 0 );
+						$diag['login_http_code'] = (int) ( $auth_try['login_http_code'] ?? 0 );
+						$diag['auth_flow']       = (string) ( $auth_try['auth_flow'] ?? '' );
+						$diag['csrf_skipped']    = ! empty( $auth_try['csrf_skipped'] );
+						if ( ! empty( $auth_try['csrf_url'] ) ) {
+							$diag['csrf_url'] = (string) $auth_try['csrf_url'];
+						}
+						if ( ! empty( $auth_try['login_url'] ) ) {
+							$diag['login_url'] = (string) $auth_try['login_url'];
+						}
+						return array(
+							'ok'      => false,
+							'message' => __( 'ورود به پنل ناموفق بود. معمولاً یعنی یوزر/پس اشتباه است، CSRF/session نامعتبر است، یا webBasePath پنل در Panel URL شما نیست. در تب «لاگ‌ها» ورودی x-ui login rejected را ببینید.', 'simplevpbot' ) . $hint_2fa,
+							'data'    => array(
+								'diag' => $diag,
+								'hint' => __( 'اگر در 3x-ui مسیر پایه (webBasePath) ست کرده‌اید، آن را در انتهای Panel URL بیاورید؛ مثل https://example.com:2053/abc/. برای پنل‌های جدید می‌توانید از Settings → Security → API Token و فیلد «API Token» در همین فرم استفاده کنید؛ پنل‌های قدیمی بدون Token با یوزر/پس و Login Secret کار می‌کنند.', 'simplevpbot' ),
+							),
+						);
+					}
+					$auth_ok = SimpleVPBot_Xui_Client::get_last_auth_diag();
+					$diag['csrf_http_code']  = (int) ( $auth_ok['csrf_http_code'] ?? 0 );
+					$diag['login_http_code'] = (int) ( $auth_ok['login_http_code'] ?? 0 );
+					$diag['auth_flow']       = (string) ( $auth_ok['auth_flow'] ?? '' );
+					$diag['csrf_skipped']    = ! empty( $auth_ok['csrf_skipped'] );
+					if ( ! empty( $auth_ok['csrf_url'] ) ) {
+						$diag['csrf_url'] = (string) $auth_ok['csrf_url'];
+					}
+					if ( ! empty( $auth_ok['login_url'] ) ) {
+						$diag['login_url'] = (string) $auth_ok['login_url'];
+					}
+				} elseif ( ! SimpleVPBot_Xui_Client::login_with_retries( 1, 0 ) ) {
 					return array(
 						'ok'      => false,
-						'message' => __( 'ورود به پنل ناموفق بود. معمولاً یعنی یوزر/پس اشتباه است، یا webBasePath پنل در Panel URL شما نیست. در تب «لاگ‌ها» ورودی x-ui login rejected را ببینید.', 'simplevpbot' ),
-						'data'    => array(
-							'diag' => $diag,
-							'hint' => __( 'اگر در 3x-ui مسیر پایه (webBasePath) ست کرده‌اید، آن را در انتهای Panel URL بیاورید؛ مثل https://example.com:2053/abc/', 'simplevpbot' ),
-						),
+						'message' => __( 'Panel URL نامعتبر است یا API Token تنظیم نشده است.', 'simplevpbot' ),
+						'data'    => array( 'diag' => $diag ),
 					);
 				}
 
+				$probe_row = static function ( $r ) {
+					$code = (int) ( $r['code'] ?? 0 );
+					$json = is_array( $r['json'] ?? null ) ? $r['json'] : null;
+					$api_ok = SimpleVPBot_Xui_Client::api_http_ok( $r );
+					$hint   = '';
+					if ( 403 === $code ) {
+						$hint = 'csrf_or_forbidden';
+					} elseif ( 401 === $code ) {
+						$hint = 'unauthorized';
+					} elseif ( 404 === $code ) {
+						$hint = 'not_found';
+					} elseif ( $api_ok ) {
+						$hint = 'ok';
+					} elseif ( $code >= 200 && $code < 300 && is_array( $json ) && array_key_exists( 'success', $json ) && empty( $json['success'] ) ) {
+						$hint = 'json_success_false';
+					}
+					return array(
+						'url'      => (string) ( $r['url'] ?? '' ),
+						'http'     => $code,
+						'ok'       => $api_ok,
+						'hint'     => $hint,
+						'msg'      => is_array( $json ) && ! empty( $json['msg'] ) ? mb_substr( (string) $json['msg'], 0, 200 ) : '',
+						'sample'   => mb_substr( (string) ( $r['body'] ?? '' ), 0, 300 ),
+					);
+				};
+
 				$r_status = SimpleVPBot_Xui_Client::request( 'server/status', 'GET', array(), false, 1, 'api' );
 				$r_inb    = SimpleVPBot_Xui_Client::request( 'inbounds/list', 'GET', array(), false, 1, 'api' );
+				$r_post   = SimpleVPBot_Xui_Client::request( 'inbounds/onlines', 'POST', array(), false, 1, 'api' );
 
 				$probes = array(
-					'server_status' => array( 'url' => $r_status['url'], 'http' => (int) $r_status['code'], 'ok' => ! empty( $r_status['ok'] ), 'sample' => mb_substr( (string) $r_status['body'], 0, 300 ) ),
-					'inbounds_list' => array( 'url' => $r_inb['url'], 'http' => (int) $r_inb['code'], 'ok' => ! empty( $r_inb['ok'] ), 'count' => ( is_array( $r_inb['json']['obj'] ?? null ) ? count( $r_inb['json']['obj'] ) : 0 ) ),
+					'server_status'  => $probe_row( $r_status ),
+					'inbounds_list'  => $probe_row( $r_inb ),
+					'inbounds_onlines' => $probe_row( $r_post ),
 				);
+				$probes['inbounds_list']['count'] = is_array( $r_inb['json']['obj'] ?? null ) ? count( $r_inb['json']['obj'] ) : 0;
 
 				$suggested_base = null;
 				if ( empty( $probes['inbounds_list']['ok'] ) ) {
@@ -85,13 +154,14 @@ class SimpleVPBot_Service_Admin_Ops {
 							return $c !== $current;
 						}
 					);
+					$probe_headers = SimpleVPBot_Xui_Client::auth_headers_for_requests();
 					foreach ( $candidates as $cand ) {
 						$url = trailingslashit( SimpleVPBot_Xui_Client::panel_root() ) . $cand . '/inbounds/list';
 						$res = wp_remote_get(
 							$url,
 							array(
 								'timeout' => 20,
-								'headers' => array( 'Cookie' => SimpleVPBot_Xui_Client::cookie_header() ),
+								'headers' => $probe_headers,
 							)
 						);
 						if ( is_wp_error( $res ) ) {
@@ -100,7 +170,11 @@ class SimpleVPBot_Service_Admin_Ops {
 						$code = (int) wp_remote_retrieve_response_code( $res );
 						$body = (string) wp_remote_retrieve_body( $res );
 						$json = json_decode( $body, true );
-						$probes[ 'try_' . str_replace( '/', '_', $cand ) ] = array( 'url' => $url, 'http' => $code, 'json_ok' => is_array( $json ) && ! empty( $json['success'] ) );
+						$probes[ 'try_' . str_replace( '/', '_', $cand ) ] = array(
+							'url'     => $url,
+							'http'    => $code,
+							'json_ok' => is_array( $json ) && ! empty( $json['success'] ),
+						);
 						if ( is_array( $json ) && ! empty( $json['success'] ) ) {
 							$suggested_base = $cand;
 							break;
@@ -108,8 +182,11 @@ class SimpleVPBot_Service_Admin_Ops {
 					}
 				}
 
-				if ( empty( $probes['server_status']['ok'] ) && empty( $probes['inbounds_list']['ok'] ) ) {
-					$msg = __( 'ورود موفق بود ولی هیچ endpoint آزمایشی پاسخ معتبر نداد.', 'simplevpbot' );
+				$any_ok = ! empty( $probes['server_status']['ok'] ) || ! empty( $probes['inbounds_list']['ok'] ) || ! empty( $probes['inbounds_onlines']['ok'] );
+				if ( ! $any_ok ) {
+					$msg = $use_token
+						? __( 'API Token پذیرفته نشد یا مسیر API اشتباه است. Token را در Settings → Security بسازید و panel_api_base را بررسی کنید.', 'simplevpbot' )
+						: __( 'ورود انجام شد ولی هیچ endpoint آزمایشی پاسخ معتبر نداد. احتمال CSRF، مسیر API، یا webBasePath.', 'simplevpbot' );
 					if ( $suggested_base ) {
 						$msg .= ' ' . sprintf( /* translators: %s = path */ __( 'پیشنهاد: مقدار «API base path» را به %s تغییر دهید.', 'simplevpbot' ), $suggested_base );
 					}
@@ -117,18 +194,27 @@ class SimpleVPBot_Service_Admin_Ops {
 						'ok'      => false,
 						'message' => $msg,
 						'data'    => array(
-							'diag'             => $diag,
-							'probes'           => $probes,
-							'suggested_base'   => $suggested_base,
-							'hint'             => __( 'در 3x-ui اصلی (و Postman رسمی)، همهٔ API شامل server/status زیر همان پایهٔ API است؛ مثلاً /panel/api/server/status و /panel/api/inbounds/list. webBasePath فقط قبل از /panel/api می‌آید.', 'simplevpbot' ),
+							'diag'           => $diag,
+							'probes'         => $probes,
+							'suggested_base' => $suggested_base,
+							'hint'           => __( 'در 3x-ui اصلی (و Postman رسمی)، همهٔ API شامل server/status زیر همان پایهٔ API است؛ مثلاً /panel/api/server/status و /panel/api/inbounds/list. webBasePath فقط قبل از /panel/api می‌آید.', 'simplevpbot' ),
 						),
 					);
+				}
+
+				$ok_msg = __( 'اتصال پنل برقرار است.', 'simplevpbot' );
+				if ( 'legacy_cookie' === (string) ( $diag['auth_flow'] ?? '' ) ) {
+					$ok_msg .= ' ' . __( '(حالت سازگاری قدیمی — بدون CSRF)', 'simplevpbot' );
+				} elseif ( 'modern_cookie' === (string) ( $diag['auth_flow'] ?? '' ) ) {
+					$ok_msg .= ' ' . __( '(ورود با CSRF)', 'simplevpbot' );
+				} elseif ( 'bearer' === (string) ( $diag['auth_mode'] ?? '' ) ) {
+					$ok_msg .= ' ' . __( '(API Token)', 'simplevpbot' );
 				}
 
 				return array(
 					'ok'   => true,
 					'data' => array(
-						'message'        => __( 'اتصال پنل برقرار است.', 'simplevpbot' ),
+						'message'        => $ok_msg,
 						'diag'           => $diag,
 						'probes'         => $probes,
 						'suggested_base' => $suggested_base,
@@ -213,6 +299,42 @@ class SimpleVPBot_Service_Admin_Ops {
 	}
 
 	/**
+	 * Remove Telegram webhook (main bot).
+	 *
+	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
+	 */
+	public static function delete_webhook_telegram() {
+		$t = (string) SimpleVPBot_Settings::get( 'telegram_token', '' );
+		if ( '' === $t ) {
+			return array( 'ok' => false, 'message' => __( 'توکن تلگرام تنظیم نشده است.', 'simplevpbot' ) );
+		}
+		$c   = new SimpleVPBot_Telegram_Client( $t );
+		$res = $c->delete_webhook();
+		if ( empty( $res['ok'] ) ) {
+			return array( 'ok' => false, 'message' => __( 'حذف Webhook تلگرام ناموفق بود.', 'simplevpbot' ), 'data' => array( 'response' => $res ) );
+		}
+		return array( 'ok' => true, 'data' => array( 'response' => $res ) );
+	}
+
+	/**
+	 * Remove Bale webhook (main bot).
+	 *
+	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
+	 */
+	public static function delete_webhook_bale() {
+		$t = (string) SimpleVPBot_Settings::get( 'bale_token', '' );
+		if ( '' === $t ) {
+			return array( 'ok' => false, 'message' => __( 'توکن بله تنظیم نشده است.', 'simplevpbot' ) );
+		}
+		$c   = new SimpleVPBot_Bale_Client( $t );
+		$res = $c->delete_webhook();
+		if ( empty( $res['ok'] ) ) {
+			return array( 'ok' => false, 'message' => __( 'حذف Webhook بله ناموفق بود.', 'simplevpbot' ), 'data' => array( 'response' => $res ) );
+		}
+		return array( 'ok' => true, 'data' => array( 'response' => $res ) );
+	}
+
+	/**
 	 * Bale getMe (token test).
 	 *
 	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
@@ -242,7 +364,7 @@ class SimpleVPBot_Service_Admin_Ops {
 			return array( 'ok' => false, 'message' => __( 'شناسه نماینده نامعتبر است.', 'simplevpbot' ) );
 		}
 		$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
-		$t    = $prof ? trim( (string) ( $prof->telegram_token ?? '' ) ) : '';
+		$t    = $prof ? SimpleVPBot_Model_Reseller_Bot_Profile::token_for_platform( $prof, 'telegram' ) : '';
 		if ( '' === $t ) {
 			return array( 'ok' => false, 'message' => __( 'توکن تلگرام نماینده تنظیم نشده است.', 'simplevpbot' ) );
 		}
@@ -266,7 +388,7 @@ class SimpleVPBot_Service_Admin_Ops {
 			return array( 'ok' => false, 'message' => __( 'شناسه نماینده نامعتبر است.', 'simplevpbot' ) );
 		}
 		$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
-		$t    = $prof ? trim( (string) ( $prof->bale_token ?? '' ) ) : '';
+		$t    = $prof ? SimpleVPBot_Model_Reseller_Bot_Profile::token_for_platform( $prof, 'bale' ) : '';
 		if ( '' === $t ) {
 			return array( 'ok' => false, 'message' => __( 'توکن بله نماینده تنظیم نشده است.', 'simplevpbot' ) );
 		}
@@ -290,7 +412,7 @@ class SimpleVPBot_Service_Admin_Ops {
 			return array( 'ok' => false, 'message' => __( 'شناسه نماینده نامعتبر است.', 'simplevpbot' ) );
 		}
 		$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
-		$t    = $prof ? trim( (string) ( $prof->telegram_token ?? '' ) ) : '';
+		$t    = $prof ? SimpleVPBot_Model_Reseller_Bot_Profile::token_for_platform( $prof, 'telegram' ) : '';
 		$sec  = $prof ? trim( (string) ( $prof->webhook_secret ?? '' ) ) : '';
 		if ( '' === $t ) {
 			return array( 'ok' => false, 'message' => __( 'توکن تلگرام نماینده تنظیم نشده است.', 'simplevpbot' ) );
@@ -316,6 +438,10 @@ class SimpleVPBot_Service_Admin_Ops {
 		if ( empty( $res['ok'] ) ) {
 			return array( 'ok' => false, 'message' => __( 'ست Webhook تلگرام ناموفق بود.', 'simplevpbot' ), 'data' => array( 'response' => $res ) );
 		}
+		$me = $c->get_me();
+		if ( ! empty( $me['ok'] ) && ! empty( $me['result']['username'] ) ) {
+			SimpleVPBot_Model_Reseller_Bot_Profile::save_bot_username( $r, 'telegram', (string) $me['result']['username'] );
+		}
 		return array( 'ok' => true, 'data' => array( 'url' => $url, 'response' => $res ) );
 	}
 
@@ -331,7 +457,7 @@ class SimpleVPBot_Service_Admin_Ops {
 			return array( 'ok' => false, 'message' => __( 'شناسه نماینده نامعتبر است.', 'simplevpbot' ) );
 		}
 		$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
-		$t    = $prof ? trim( (string) ( $prof->bale_token ?? '' ) ) : '';
+		$t    = $prof ? SimpleVPBot_Model_Reseller_Bot_Profile::token_for_platform( $prof, 'bale' ) : '';
 		$sec  = $prof ? trim( (string) ( $prof->webhook_secret ?? '' ) ) : '';
 		if ( '' === $t ) {
 			return array( 'ok' => false, 'message' => __( 'توکن بله نماینده تنظیم نشده است.', 'simplevpbot' ) );
@@ -348,7 +474,59 @@ class SimpleVPBot_Service_Admin_Ops {
 		if ( empty( $res['ok'] ) ) {
 			return array( 'ok' => false, 'message' => __( 'ست Webhook بله ناموفق بود.', 'simplevpbot' ), 'data' => array( 'response' => $res ) );
 		}
+		$me = $c->get_me();
+		if ( ! empty( $me['ok'] ) && ! empty( $me['result']['username'] ) ) {
+			SimpleVPBot_Model_Reseller_Bot_Profile::save_bot_username( $r, 'bale', (string) $me['result']['username'] );
+		}
 		return array( 'ok' => true, 'data' => array( 'url' => $url, 'response' => $res ) );
+	}
+
+	/**
+	 * Remove Telegram webhook for reseller bot.
+	 *
+	 * @param int $reseller_svp_user_id svp_users.id (reseller).
+	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
+	 */
+	public static function delete_webhook_telegram_for_reseller( $reseller_svp_user_id ) {
+		$r = (int) $reseller_svp_user_id;
+		if ( $r < 1 || ! class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			return array( 'ok' => false, 'message' => __( 'شناسه نماینده نامعتبر است.', 'simplevpbot' ) );
+		}
+		$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
+		$t    = $prof ? SimpleVPBot_Model_Reseller_Bot_Profile::token_for_platform( $prof, 'telegram' ) : '';
+		if ( '' === $t ) {
+			return array( 'ok' => false, 'message' => __( 'توکن تلگرام نماینده تنظیم نشده است.', 'simplevpbot' ) );
+		}
+		$c   = new SimpleVPBot_Telegram_Client( $t );
+		$res = $c->delete_webhook();
+		if ( empty( $res['ok'] ) ) {
+			return array( 'ok' => false, 'message' => __( 'حذف Webhook تلگرام ناموفق بود.', 'simplevpbot' ), 'data' => array( 'response' => $res ) );
+		}
+		return array( 'ok' => true, 'data' => array( 'response' => $res ) );
+	}
+
+	/**
+	 * Remove Bale webhook for reseller bot.
+	 *
+	 * @param int $reseller_svp_user_id svp_users.id (reseller).
+	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
+	 */
+	public static function delete_webhook_bale_for_reseller( $reseller_svp_user_id ) {
+		$r = (int) $reseller_svp_user_id;
+		if ( $r < 1 || ! class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			return array( 'ok' => false, 'message' => __( 'شناسه نماینده نامعتبر است.', 'simplevpbot' ) );
+		}
+		$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
+		$t    = $prof ? SimpleVPBot_Model_Reseller_Bot_Profile::token_for_platform( $prof, 'bale' ) : '';
+		if ( '' === $t ) {
+			return array( 'ok' => false, 'message' => __( 'توکن بله نماینده تنظیم نشده است.', 'simplevpbot' ) );
+		}
+		$c   = new SimpleVPBot_Bale_Client( $t );
+		$res = $c->delete_webhook();
+		if ( empty( $res['ok'] ) ) {
+			return array( 'ok' => false, 'message' => __( 'حذف Webhook بله ناموفق بود.', 'simplevpbot' ), 'data' => array( 'response' => $res ) );
+		}
+		return array( 'ok' => true, 'data' => array( 'response' => $res ) );
 	}
 
 	/**
@@ -378,6 +556,22 @@ class SimpleVPBot_Service_Admin_Ops {
 		} else {
 			$data['message'] = __( 'زیپ بکاپ ساخته شد؛ به هیچ مقصدی ارسال نشد یا همه ناموفق بودند (تیک‌های مقصد را بررسی کنید).', 'simplevpbot' );
 		}
+		$expected = (int) ( $res['panels_expected'] ?? 0 );
+		$failed_n = (int) ( $res['panel_db_failed'] ?? 0 );
+		if ( $expected > 0 && $failed_n > 0 ) {
+			$data['panel_db_warning'] = sprintf(
+				/* translators: 1: failed panel count, 2: expected panel count */
+				__( 'هشدار: DB پنل %1$d از %2$d پنل در زیپ نیست (getDb ناموفق). فقط جدول‌های وردپرس کامل است.', 'simplevpbot' ),
+				$failed_n,
+				$expected
+			);
+		}
+		if ( isset( $res['panel_db_ok'] ) ) {
+			$data['panel_db_ok'] = (int) $res['panel_db_ok'];
+		}
+		if ( isset( $res['panel_db_failed'] ) ) {
+			$data['panel_db_failed'] = (int) $res['panel_db_failed'];
+		}
 		return array( 'ok' => true, 'data' => $data );
 	}
 
@@ -386,9 +580,10 @@ class SimpleVPBot_Service_Admin_Ops {
 	 *
 	 * @param string $zip_path Absolute path.
 	 * @param bool   $confirm  User confirmed destructive restore.
+	 * @param bool   $restore_panel_db Import panel SQLite to 3x-ui when present in zip.
 	 * @return array{ok:bool, message?:string}
 	 */
-	public static function restore_from_zip_path( $zip_path, $confirm ) {
+	public static function restore_from_zip_path( $zip_path, $confirm, $restore_panel_db = false ) {
 		if ( ! $confirm ) {
 			return array( 'ok' => false, 'message' => __( 'برای ریستور باید تایید شود.', 'simplevpbot' ) );
 		}
@@ -399,11 +594,170 @@ class SimpleVPBot_Service_Admin_Ops {
 		if ( 'zip' !== strtolower( pathinfo( $zip_path, PATHINFO_EXTENSION ) ) ) {
 			return array( 'ok' => false, 'message' => __( 'فقط فایل .zip مجاز است.', 'simplevpbot' ) );
 		}
-		$res = SimpleVPBot_Backup_Restore::restore_from_zip_path( $zip_path );
+		$res = SimpleVPBot_Backup_Restore::restore_from_zip_path(
+			$zip_path,
+			array( 'restore_panel_db' => (bool) $restore_panel_db )
+		);
 		if ( is_wp_error( $res ) ) {
 			return array( 'ok' => false, 'message' => $res->get_error_message() );
 		}
-		return array( 'ok' => true, 'message' => __( 'ریستور انجام شد.', 'simplevpbot' ) );
+		$stats = is_array( $res ) ? $res : array();
+		$msg   = ! empty( $restore_panel_db )
+			? __( 'بازگردانی انجام شد (وردپرس ادغامی + DB پنل در صورت وجود در زیپ).', 'simplevpbot' )
+			: __( 'بازگردانی ادغامی انجام شد. دادهٔ قبلی حفظ شد.', 'simplevpbot' );
+		return array(
+			'ok'      => true,
+			'message' => $msg,
+			'data'    => $stats,
+		);
+	}
+
+	/**
+	 * Rebuild Xray panel clients from svp_services (batched).
+	 *
+	 * @param array<string, mixed> $args confirm, dry_run, panel_id, offset, limit, finalize_sync.
+	 * @return array<string, mixed>
+	 */
+	public static function panel_rebuild_from_db( array $args ) {
+		$dry_run = ! empty( $args['dry_run'] );
+		$confirm = ! empty( $args['confirm'] );
+		if ( ! $dry_run && ! $confirm ) {
+			return array( 'ok' => false, 'message' => __( 'برای بازسازی پنل باید تأیید شود.', 'simplevpbot' ) );
+		}
+		if ( ! class_exists( 'SimpleVPBot_Service_Panel_Rebuild' ) ) {
+			return array( 'ok' => false, 'message' => 'no_module' );
+		}
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		$rebuild_opts = array(
+			'panel_id'      => max( 0, (int) ( $args['panel_id'] ?? 0 ) ),
+			'dry_run'       => $dry_run,
+			'offset'        => max( 0, (int) ( $args['offset'] ?? 0 ) ),
+			'limit'         => max( 1, min( 50, (int) ( $args['limit'] ?? SimpleVPBot_Service_Panel_Rebuild::BATCH_SIZE ) ) ),
+			'finalize_sync' => ! empty( $args['finalize_sync'] ),
+		);
+		if ( isset( $args['inbound_map'] ) && is_array( $args['inbound_map'] ) ) {
+			$rebuild_opts['inbound_map'] = $args['inbound_map'];
+		}
+		$res = SimpleVPBot_Service_Panel_Rebuild::rebuild_all( $rebuild_opts );
+		return array_merge( array( 'ok' => true ), $res );
+	}
+
+	/**
+	 * DB vs live panel inbounds for mapping UI.
+	 *
+	 * @param int $panel_id Panel id.
+	 * @return array<string, mixed>
+	 */
+	public static function panel_inbound_map_context( $panel_id ) {
+		if ( ! class_exists( 'SimpleVPBot_Service_Panel_Inbound_Map' ) ) {
+			return array( 'ok' => false, 'message' => 'no_module' );
+		}
+		$pid = max( 1, (int) $panel_id );
+		return SimpleVPBot_Service_Panel_Inbound_Map::compare_context( $pid );
+	}
+
+	/**
+	 * Fix only services with the 51200 GB cap bug (panel + DB).
+	 *
+	 * @param array<string, mixed> $args panel_id, confirm, dry_run, offset, inbound_map.
+	 * @return array<string, mixed>
+	 */
+	public static function panel_fix_51200_traffic( array $args ) {
+		if ( ! class_exists( 'SimpleVPBot_Service_Panel_Traffic_51200_Repair' ) ) {
+			return array( 'ok' => false, 'message' => 'no_module' );
+		}
+		if ( empty( $args['confirm'] ) && empty( $args['dry_run'] ) ) {
+			return array( 'ok' => false, 'message' => __( 'برای اصلاح باید تأیید شود.', 'simplevpbot' ) );
+		}
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		$res = SimpleVPBot_Service_Panel_Traffic_51200_Repair::run( $args );
+		return is_array( $res ) ? $res : array( 'ok' => false, 'message' => 'failed' );
+	}
+
+	/**
+	 * Save inbound id map and optionally rewrite DB rows.
+	 *
+	 * @param array<string, mixed> $args panel_id, map, apply_to_db.
+	 * @return array<string, mixed>
+	 */
+	public static function panel_inbound_map_save( array $args ) {
+		if ( ! class_exists( 'SimpleVPBot_Service_Panel_Inbound_Map' ) ) {
+			return array( 'ok' => false, 'message' => 'no_module' );
+		}
+		$pid = max( 1, (int) ( $args['panel_id'] ?? 0 ) );
+		if ( $pid < 1 ) {
+			return array( 'ok' => false, 'message' => __( 'پنل را انتخاب کنید.', 'simplevpbot' ) );
+		}
+		$raw = isset( $args['map'] ) && is_array( $args['map'] ) ? $args['map'] : array();
+		$map = SimpleVPBot_Service_Panel_Inbound_Map::normalize_map( $raw );
+		SimpleVPBot_Service_Panel_Inbound_Map::save_map( $pid, $map );
+		$db_counts = array();
+		if ( ! empty( $args['apply_to_db'] ) ) {
+			$db_counts = SimpleVPBot_Service_Panel_Inbound_Map::apply_map_to_database( $pid, $map );
+		}
+		return array(
+			'ok'        => true,
+			'panel_id'  => $pid,
+			'map'       => $map,
+			'db_counts' => $db_counts,
+		);
+	}
+
+	/**
+	 * List on-site stored backup zips + last run metadata.
+	 *
+	 * @return array{ok:bool, rows?:array<int,array<string,mixed>>, last_backup_at?:int, last_built_at?:int, store_on_site?:bool}
+	 */
+	public static function list_site_backups() {
+		$rows = class_exists( 'SimpleVPBot_Backup_Export' )
+			? SimpleVPBot_Backup_Export::list_site_backup_files()
+			: array();
+		$panels = array();
+		if ( class_exists( 'SimpleVPBot_Model_Panel' ) ) {
+			foreach ( SimpleVPBot_Model_Panel::all_active_ordered() as $p ) {
+				if ( ! is_object( $p ) ) {
+					continue;
+				}
+				$panels[] = array(
+					'id'    => (int) ( $p->id ?? 0 ),
+					'label' => (string) ( $p->label ?? '' ),
+				);
+			}
+		}
+		return array(
+			'ok'              => true,
+			'rows'            => $rows,
+			'panels'          => $panels,
+			'last_backup_at'  => (int) get_option( 'simplevpbot_last_backup_at', 0 ),
+			'last_built_at'   => (int) get_option( 'simplevpbot_last_backup_built_at', 0 ),
+			'store_on_site'   => (bool) SimpleVPBot_Settings::get( 'backup_store_on_site', false ),
+		);
+	}
+
+	/**
+	 * Restore from a site-stored backup filename.
+	 *
+	 * @param string $filename Basename from list.
+	 * @param bool   $confirm  User confirmed destructive restore.
+	 * @param bool   $restore_panel_db Import panel DB to 3x-ui.
+	 * @return array{ok:bool, message?:string}
+	 */
+	public static function restore_site_backup_file( $filename, $confirm, $restore_panel_db = false ) {
+		if ( ! $confirm ) {
+			return array( 'ok' => false, 'message' => __( 'برای ریستور باید تایید شود.', 'simplevpbot' ) );
+		}
+		if ( ! class_exists( 'SimpleVPBot_Backup_Export' ) ) {
+			return array( 'ok' => false, 'message' => __( 'ماژول بکاپ در دسترس نیست.', 'simplevpbot' ) );
+		}
+		$path = SimpleVPBot_Backup_Export::resolve_site_backup_path( $filename );
+		if ( '' === $path ) {
+			return array( 'ok' => false, 'message' => __( 'فایل بکاپ یافت نشد.', 'simplevpbot' ) );
+		}
+		return self::restore_from_zip_path( $path, true, (bool) $restore_panel_db );
 	}
 
 	/**
@@ -1164,15 +1518,31 @@ class SimpleVPBot_Service_Admin_Ops {
 		if ( $pid < 1 || empty( $inbound_ids ) || ! class_exists( 'SimpleVPBot_Model_Panel_Inbound_Client' ) ) {
 			return;
 		}
-		SimpleVPBot_Xui_Client::run_with_panel(
-			$pid,
-			function () use ( $pid, $inbound_ids ) {
-				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
-					return null;
+		$max_attempts = 2;
+		for ( $attempt = 1; $attempt <= $max_attempts; $attempt++ ) {
+			$logged_in = SimpleVPBot_Xui_Client::run_with_panel(
+				$pid,
+				function () use ( $pid, $inbound_ids ) {
+					if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
+						return false;
+					}
+					self::configs_sync_inbounds_logged_in( $pid, $inbound_ids );
+					return true;
 				}
-				self::configs_sync_inbounds_logged_in( $pid, $inbound_ids );
-				return null;
+			);
+			if ( $logged_in ) {
+				return;
 			}
+			if ( $attempt < $max_attempts ) {
+				usleep( 400000 );
+			}
+		}
+		SimpleVPBot_Logger::warning(
+			'configs_sync_inbounds_after_mutation failed',
+			array(
+				'panel_id'    => $pid,
+				'inbound_ids' => array_map( 'intval', $inbound_ids ),
+			)
 		);
 	}
 
@@ -1988,10 +2358,7 @@ class SimpleVPBot_Service_Admin_Ops {
 				if ( ! $old_key ) {
 					return array( 'ok' => false, 'reason' => 'no_client_key' );
 				}
-				$res = SimpleVPBot_Xui_Client::del_client( $iid, (string) $old_key );
-				if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) && '' !== $em && $em !== (string) $old_key ) {
-					$res = SimpleVPBot_Xui_Client::del_client( $iid, $em );
-				}
+				$res = SimpleVPBot_Xui_Client::del_client( $iid, (string) $old_key, $em );
 				if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
 					return array( 'ok' => false, 'reason' => 'del_failed' );
 				}

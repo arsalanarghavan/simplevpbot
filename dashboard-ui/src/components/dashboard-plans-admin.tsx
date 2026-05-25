@@ -1,9 +1,21 @@
 "use client"
 
-import { EllipsisVerticalIcon } from "lucide-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import {
+  BadgeDollarSign,
+  Clock,
+  EllipsisVerticalIcon,
+  HardDrive,
+  Package,
+  Radio,
+  Server,
+  Settings2,
+  Tag,
+  Users,
+} from "lucide-react"
+import { useCallback, useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 
+import { DashboardWholesaleLinesAdmin } from "@/components/dashboard-wholesale-lines-admin"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,6 +25,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Dialog,
   DialogContent,
@@ -30,7 +43,6 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { Separator } from "@/components/ui/separator"
 import {
   Sheet,
   SheetContent,
@@ -41,6 +53,12 @@ import {
 import { DataPagination } from "@/components/data-pagination"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import type { PaginationMeta } from "@/lib/dash-pagination"
+import {
+  type PlansView,
+  isPlansView,
+  readPlansViewFromUrl,
+  writePlansViewToUrl,
+} from "@/lib/plans-subview"
 import { formatNumber } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
 
@@ -51,9 +69,40 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
+function panelCanSellPlan(p: DashRecord, resellerMode: boolean): boolean {
+  if (!resellerMode) return true
+  if (p.can_sell_plan === false) return false
+  return true
+}
+
 function panelLabel(panels: DashRecord[], panelId: number): string {
   const row = panels.find((p) => num(p.id) === panelId)
   return String(row?.label ?? row?.name ?? `#${panelId}`)
+}
+
+function formatClientCap(v: unknown, isFa: boolean, unlimited: string): string {
+  const n = num(v)
+  return n < 1 ? unlimited : formatNumber(n, isFa)
+}
+
+function PlanInfoRow({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: ComponentType<{ className?: string }>
+  label: string
+  value: ReactNode
+}) {
+  return (
+    <div className="flex min-w-0 gap-2 rounded-md border border-border/60 bg-muted/20 p-2 text-xs">
+      <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="text-muted-foreground">{label}</p>
+        <div className="truncate font-medium text-foreground">{value}</div>
+      </div>
+    </div>
+  )
 }
 
 /** Approximate progress toward next tier (0–100) for ladder UI. */
@@ -137,7 +186,7 @@ function formFromPlan(p: DashRecord): PlanFormState {
     traffic_gb_min: num(p.traffic_gb_min),
     traffic_gb_max: num(p.traffic_gb_max),
     duration_days: num(p.duration_days),
-    clients_count: Math.max(1, num(p.clients_count)),
+    clients_count: Math.max(0, num(p.clients_count)),
     inbound_id: num(p.inbound_id),
     service_type: p.service_type === "l2tp" ? "l2tp" : "xray",
     l2tp_server_id: num(p.l2tp_server_id),
@@ -161,8 +210,8 @@ function formToPayload(f: PlanFormState): Record<string, unknown> {
     duration_days: f.duration_days,
     clients_count: f.clients_count,
     inbound_id: f.inbound_id,
-    service_type: f.service_type,
-    l2tp_server_id: f.service_type === "l2tp" ? f.l2tp_server_id : 0,
+    service_type: "xray",
+    l2tp_server_id: 0,
     sort_order: f.sort_order,
     plan_active: f.plan_active ? 1 : 0,
   }
@@ -172,10 +221,7 @@ function validateForm(f: PlanFormState, resellerMode: boolean, requireWholesaleL
   if (!f.name.trim()) return "name"
   if (!f.category.trim()) return "category"
   if (resellerMode && requireWholesaleLine && f.wholesale_line_id < 1) return "wholesale_line"
-  if (!resellerMode) {
-    if (f.service_type === "xray" && f.inbound_id <= 0) return "inbound"
-    if (f.service_type === "l2tp" && f.l2tp_server_id <= 0) return "l2tp"
-  }
+  if (!resellerMode && f.inbound_id <= 0) return "inbound"
   if (f.plan_pricing_type === "fixed" && f.price <= 0) return "price"
   if (f.plan_pricing_type === "per_gb") {
     if (f.price_per_gb <= 0) return "price_per_gb"
@@ -183,6 +229,43 @@ function validateForm(f: PlanFormState, resellerMode: boolean, requireWholesaleL
       return "traffic_range"
   }
   return null
+}
+
+const CLIENT_VALIDATION_LOCALE: Record<string, string> = {
+  name: "validationName",
+  category: "validationCategory",
+  wholesale_line: "validationWholesaleLine",
+  inbound: "validationInbound",
+  price: "validationPrice",
+  price_per_gb: "validationPricePerGb",
+  traffic_range: "validationTrafficRange",
+}
+
+const SERVER_ERROR_LOCALE: Record<string, string> = {
+  invalid: "errorCode_invalid",
+  invalid_update: "errorCode_invalid",
+  panel_not_allowed: "errorCode_panel_not_allowed",
+  wholesale_line_not_assigned: "errorCode_wholesale_line_not_assigned",
+  wholesale_line_invalid: "errorCode_wholesale_line_invalid",
+  wholesale_line_no_tiers: "errorCode_wholesale_line_no_tiers",
+  wholesale_line_bad: "errorCode_wholesale_line_bad",
+  below_reseller_floor: "errorCode_below_reseller_floor",
+  forbidden: "errorCode_forbidden",
+  bad_actor: "errorCode_bad_actor",
+  l2tp_forbidden_for_reseller: "errorCode_l2tp_forbidden_for_reseller",
+  module_missing: "errorCode_module_missing",
+}
+
+function formatPlanMutateError(
+  code: string | undefined,
+  message: string | undefined,
+  tp: (k: string) => string
+): string {
+  const c = String(code ?? "").trim()
+  if (c && SERVER_ERROR_LOCALE[c]) return tp(SERVER_ERROR_LOCALE[c])
+  if (c === "invalid" || c === "invalid_update") return tp("errorCode_invalid")
+  const msg = String(message ?? c).trim()
+  return msg ? `${tp("mutateError")}: ${msg}` : tp("mutateError")
 }
 
 const selectClass =
@@ -200,8 +283,10 @@ export function DashboardPlansAdmin({
   plans,
   panels,
   planCategories,
-  l2tpServers,
+  l2tpServers = [],
   wholesaleLines = [],
+  wholesaleLinesCatalog = [],
+  initialPlansView = "plans",
   resellerPlanFloors = [],
   resellerMode = false,
   actorSvpUserId = 0,
@@ -218,6 +303,10 @@ export function DashboardPlansAdmin({
   panels: DashRecord[]
   planCategories: DashRecord[]
   l2tpServers: DashRecord[]
+  /** Site admin: full wholesale catalog CRUD (embedded under Plans). */
+  wholesaleLinesCatalog?: DashRecord[]
+  /** Open wholesale sub-view when landing from legacy URL. */
+  initialPlansView?: PlansView
   /** Reseller dashboard: assigned catalog lines with ladder snapshots. */
   wholesaleLines?: DashRecord[]
   /** Per-panel wholesale floor + admin connection presets (reseller dashboard only). */
@@ -239,7 +328,13 @@ export function DashboardPlansAdmin({
   const tp = (k: string, opts?: Record<string, string | number>) => t(`plansAdmin.${k}`, opts)
 
   const hasWholesaleCatalog = resellerMode && wholesaleLines.length > 0
+  const [plansView, setPlansView] = useState<PlansView>(initialPlansView)
   const [panelFilter, setPanelFilter] = useState<string>("all")
+
+  useEffect(() => {
+    if (resellerMode) return
+    setPlansView(readPlansViewFromUrl())
+  }, [resellerMode])
   const [lineFilter, setLineFilter] = useState<string>("all")
   const [sheetOpen, setSheetOpen] = useState(false)
   const [formMode, setFormMode] = useState<"add" | "edit">("add")
@@ -264,6 +359,7 @@ export function DashboardPlansAdmin({
   }, [catalogInitial])
   const [catalogSaving, setCatalogSaving] = useState(false)
   const [catalogError, setCatalogError] = useState<string | null>(null)
+  const [catalogDialogOpen, setCatalogDialogOpen] = useState(false)
 
   const onSaveCatalogDefaults = useCallback(async () => {
     setCatalogSaving(true)
@@ -279,15 +375,22 @@ export function DashboardPlansAdmin({
         return
       }
       onMutateSuccess?.()
+      setCatalogDialogOpen(false)
     } finally {
       setCatalogSaving(false)
     }
   }, [catalogForm, onMutateSuccess, tp])
 
+  const sellablePanels = useMemo(() => {
+    if (!resellerMode) return panels
+    return panels.filter((p) => panelCanSellPlan(p, true))
+  }, [panels, resellerMode])
+
   const defaultPanelId = useMemo(() => {
     if (panelFilter !== "all") return num(panelFilter)
-    return num(panels[0]?.id) || 1
-  }, [panelFilter, panels])
+    const list = resellerMode ? sellablePanels : panels
+    return num(list[0]?.id) || num(panels[0]?.id) || 1
+  }, [panelFilter, panels, resellerMode, sellablePanels])
 
   const firstCategoryForPanel = useCallback(
     (pid: number) => {
@@ -297,32 +400,33 @@ export function DashboardPlansAdmin({
     [planCategories]
   )
 
+  const visiblePlans = useMemo(
+    () => plans.filter((p) => String(p.service_type ?? "xray") !== "l2tp"),
+    [plans]
+  )
+
   const filteredPlans = useMemo(() => {
     if (hasWholesaleCatalog) {
-      if (lineFilter === "all") return plans
+      if (lineFilter === "all") return visiblePlans
       const lid = num(lineFilter)
-      return plans.filter((p) => num(p.wholesale_line_id) === lid)
+      return visiblePlans.filter((p) => num(p.wholesale_line_id) === lid)
     }
-    if (panelFilter === "all") return plans
+    if (panelFilter === "all") return visiblePlans
     const pid = num(panelFilter)
-    return plans.filter((p) => num(p.panel_id) === pid)
-  }, [plans, panelFilter, lineFilter, hasWholesaleCatalog])
+    return visiblePlans.filter((p) => num(p.panel_id) === pid)
+  }, [visiblePlans, panelFilter, lineFilter, hasWholesaleCatalog])
 
   const stats = useMemo(() => {
     let active = 0
     let inactive = 0
-    let xray = 0
-    let l2tp = 0
-    for (const p of plans) {
+    for (const p of visiblePlans) {
       const on = p.active === true || p.active === 1 || p.active === "1"
       if (on) active++
       else inactive++
-      if (p.service_type === "l2tp") l2tp++
-      else xray++
     }
-    const total = pagination?.total ?? plans.length
-    return { total, active, inactive, xray, l2tp }
-  }, [plans, pagination])
+    const total = pagination?.total ?? visiblePlans.length
+    return { total, active, inactive }
+  }, [visiblePlans, pagination])
 
   const ranked = useMemo(() => {
     return [...filteredPlans].sort((a, b) => {
@@ -351,6 +455,22 @@ export function DashboardPlansAdmin({
     () => planCategories.filter((c) => num(c.panel_id) === form.plan_panel_id),
     [planCategories, form.plan_panel_id]
   )
+
+  useEffect(() => {
+    if (!sheetOpen || !resellerMode) return
+    const current = panels.find((x) => num(x.id) === form.plan_panel_id)
+    if (current && !panelCanSellPlan(current, true)) {
+      const first = sellablePanels[0]
+      if (first) {
+        const pid = num(first.id)
+        setForm((f) => ({
+          ...f,
+          plan_panel_id: pid,
+          category: firstCategoryForPanel(pid) || f.category,
+        }))
+      }
+    }
+  }, [sheetOpen, resellerMode, form.plan_panel_id, panels, sellablePanels, firstCategoryForPanel])
 
   const openAdd = () => {
     setError(null)
@@ -381,11 +501,7 @@ export function DashboardPlansAdmin({
     const res = await postAdminMutate("plan", params)
     setSaving(false)
     if (!res.ok) {
-      setError(
-        res.code === "invalid" || res.code === "invalid_update"
-          ? tp("mutateInvalid")
-          : `${tp("mutateError")}: ${res.message || res.code || ""}`
-      )
+      setError(formatPlanMutateError(res.code, res.message, tp))
       return false
     }
     onMutateSuccess?.()
@@ -395,7 +511,8 @@ export function DashboardPlansAdmin({
   const onSaveSheet = async () => {
     const inv = validateForm(form, resellerMode, hasWholesaleCatalog)
     if (inv) {
-      setError(tp("mutateInvalid"))
+      const key = CLIENT_VALIDATION_LOCALE[inv]
+      setError(key ? tp(key) : tp("mutateInvalid"))
       return
     }
     const payload = formToPayload(form)
@@ -416,13 +533,6 @@ export function DashboardPlansAdmin({
     if (!deleteTarget) return
     const ok = await runMutate({ plan_action: "delete", plan_id: num(deleteTarget.id) })
     if (ok) setDeleteTarget(null)
-  }
-
-  const protocolBadge = (st: unknown) => {
-    const s = String(st ?? "")
-    if (s === "l2tp") return <Badge variant="secondary">{tp("protocolL2tp")}</Badge>
-    if (s === "xray") return <Badge variant="default">{tp("protocolXray")}</Badge>
-    return <Badge variant="outline">{tp("protocolOther")}</Badge>
   }
 
   return (
@@ -458,6 +568,34 @@ export function DashboardPlansAdmin({
         </div>
       ) : null}
 
+      {!resellerMode ? (
+        <Tabs
+          value={plansView}
+          onValueChange={(v) => {
+            const next = isPlansView(v) ? v : "plans"
+            setPlansView(next)
+            writePlansViewToUrl(next)
+          }}
+        >
+          <TabsList className={cn(isFa && "flex-row-reverse")}>
+            <TabsTrigger value="plans">{tp("tabPlans")}</TabsTrigger>
+            <TabsTrigger value="wholesale">{tp("tabWholesaleLines")}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      ) : null}
+
+      {!resellerMode && plansView === "wholesale" ? (
+        <DashboardWholesaleLinesAdmin
+          catalog={wholesaleLinesCatalog}
+          panels={panels}
+          l2tpServers={l2tpServers}
+          isFa={isFa}
+          onMutateSuccess={onMutateSuccess}
+        />
+      ) : null}
+
+      {resellerMode || plansView === "plans" ? (
+        <>
       {hasWholesaleCatalog ? (
         <div className="space-y-3">
           <div>
@@ -533,52 +671,7 @@ export function DashboardPlansAdmin({
         </p>
       ) : null}
 
-      {showCatalogDefaultsSave ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{tp("catalogCardTitle")}</CardTitle>
-            <CardDescription>{tp("catalogCardDesc")}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {catalogError ? (
-              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {catalogError}
-              </p>
-            ) : null}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="catalog_concurrent">{tp("catalogConcurrent")}</Label>
-                <Input
-                  id="catalog_concurrent"
-                  type="number"
-                  min={0}
-                  value={catalogForm.default_concurrent_users}
-                  onChange={(e) =>
-                    setCatalogForm((f) => ({ ...f, default_concurrent_users: e.target.value }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="catalog_extra_price">{tp("catalogExtraPrice")}</Label>
-                <Input
-                  id="catalog_extra_price"
-                  type="text"
-                  inputMode="decimal"
-                  value={catalogForm.price_per_extra_user}
-                  onChange={(e) =>
-                    setCatalogForm((f) => ({ ...f, price_per_extra_user: e.target.value }))
-                  }
-                />
-              </div>
-            </div>
-            <Button type="button" disabled={catalogSaving} onClick={onSaveCatalogDefaults}>
-              {catalogSaving ? "…" : tp("catalogSave")}
-            </Button>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>{tp("statsTotal")}</CardDescription>
@@ -599,18 +692,6 @@ export function DashboardPlansAdmin({
             <CardTitle className="text-2xl tabular-nums text-muted-foreground">
               {formatNumber(stats.inactive, isFa)}
             </CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{tp("statsXray")}</CardDescription>
-            <CardTitle className="text-2xl tabular-nums">{formatNumber(stats.xray, isFa)}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{tp("statsL2tp")}</CardDescription>
-            <CardTitle className="text-2xl tabular-nums">{formatNumber(stats.l2tp, isFa)}</CardTitle>
           </CardHeader>
         </Card>
       </div>
@@ -649,13 +730,27 @@ export function DashboardPlansAdmin({
                     ))}
               </select>
             </div>
-            <Button
-              type="button"
-              onClick={openAdd}
-              disabled={resellerMode && panels.length < 1 && wholesaleLines.length < 1}
-            >
-              {tp("addPlan")}
-            </Button>
+            <div className={cn("flex flex-wrap items-center gap-2", isFa && "flex-row-reverse")}>
+              {showCatalogDefaultsSave ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => setCatalogDialogOpen(true)}
+                >
+                  <Settings2 className="size-4 shrink-0" aria-hidden />
+                  <span>{tp("catalogDefaultsButton")}</span>
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                onClick={openAdd}
+                disabled={resellerMode && panels.length < 1 && wholesaleLines.length < 1}
+              >
+                {tp("addPlan")}
+              </Button>
+            </div>
           </div>
 
           {filteredPlans.length === 0 ? (
@@ -676,84 +771,90 @@ export function DashboardPlansAdmin({
                 const price = num(p.price)
                 const ptype = String(p.pricing_type ?? "fixed")
                 const active = p.active === true || p.active === 1 || p.active === "1"
+                const priceLabel =
+                  ptype === "per_gb"
+                    ? `${formatNumber(num(p.price_per_gb), isFa)} / ${tp("gbSuffix")}`
+                    : formatNumber(price, isFa)
                 return (
                   <Card key={id || String(p.name)} className="relative overflow-hidden pt-0">
                     {stripe ? (
                       <div className="h-1 w-full shrink-0" style={{ backgroundColor: stripe }} />
                     ) : null}
-                    <div
-                      className={cn(
-                        "flex items-center justify-between border-b bg-muted/40 px-4 py-2",
-                        isFa && "flex-row-reverse"
-                      )}
-                    >
-                      {protocolBadge(p.service_type)}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon-sm" className="size-8 shrink-0">
-                            <EllipsisVerticalIcon className="size-4" />
-                            <span className="sr-only">{tp("actions")}</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align={isFa ? "start" : "end"}>
-                          <DropdownMenuItem onClick={() => openEdit(p)}>{tp("edit")}</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => void onToggle(p)}>{tp("toggle")}</DropdownMenuItem>
-                          <DropdownMenuItem variant="destructive" onClick={() => setDeleteTarget(p)}>
-                            {tp("delete")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                    <CardHeader className="space-y-1 pb-2">
-                      <p className="text-3xl font-semibold tabular-nums tracking-tight text-primary">
-                        {formatNumber(num(p.traffic_gb), isFa)}{" "}
-                        <span className="text-lg font-medium text-muted-foreground">{tp("gbSuffix")}</span>
-                      </p>
-                      <CardTitle className="text-lg leading-snug">{String(p.name ?? "—")}</CardTitle>
-                      {!active ? (
-                        <Badge variant="outline" className="w-fit">
-                          {tp("statsInactive")}
-                        </Badge>
-                      ) : null}
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <Separator />
-                      <div className="flex flex-col gap-1 text-sm">
-                        <div className="flex flex-wrap justify-between gap-2 text-muted-foreground">
-                          <span>
-                            {ptype === "per_gb"
-                              ? `${formatNumber(num(p.price_per_gb), isFa)} / ${tp("gbSuffix")} · ${tp("perGbHint")}`
-                              : formatNumber(price, isFa)}
-                          </span>
-                          <span className="font-medium text-foreground">
-                            {hasWholesaleCatalog && wlidPlan > 0
-                              ? String(lineMeta?.label ?? tp("wholesaleLine"))
-                              : `${tp("panelLine")}: ${panelLabel(panels, pid)}`}
-                          </span>
+                    <CardHeader className="space-y-2 pb-3 pt-4">
+                      <div
+                        className={cn(
+                          "flex items-start justify-between gap-2",
+                          isFa && "flex-row-reverse"
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <CardTitle className="text-base leading-snug">{String(p.name ?? "—")}</CardTitle>
+                          <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+                            {tp("cardUsers")}: {formatNumber(uc, isFa)}
+                          </p>
                         </div>
-                        <div className="flex flex-wrap justify-between gap-2 border-t border-border pt-2 text-sm">
-                          <span className="text-muted-foreground">{tp("usersLabel")}</span>
-                          <span className="tabular-nums font-semibold">{formatNumber(uc, isFa)}</span>
+                        <div className={cn("flex shrink-0 items-center gap-1", isFa && "flex-row-reverse")}>
+                          <Badge variant={active ? "default" : "outline"}>
+                            {active ? tp("statsActive") : tp("statsInactive")}
+                          </Badge>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon-sm" className="size-8">
+                                <EllipsisVerticalIcon className="size-4" />
+                                <span className="sr-only">{tp("actions")}</span>
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align={isFa ? "start" : "end"}>
+                              <DropdownMenuItem onClick={() => openEdit(p)}>{tp("edit")}</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => void onToggle(p)}>{tp("toggle")}</DropdownMenuItem>
+                              <DropdownMenuItem variant="destructive" onClick={() => setDeleteTarget(p)}>
+                                {tp("delete")}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                          {tp("category")}: {String(p.category ?? "—")} · {tp("duration")}:{" "}
-                          {formatNumber(num(p.duration_days), isFa)} {tp("periodDays")} · {tp("clients")}:{" "}
-                          {formatNumber(num(p.clients_count), isFa)}
-                          {String(p.service_type) === "xray" ? (
-                            <>
-                              {" "}
-                              · {tp("inbound")}: {formatNumber(num(p.inbound_id), isFa)}
-                            </>
-                          ) : (
-                            <>
-                              {" "}
-                              · {tp("l2tpServer")}: {formatNumber(num(p.l2tp_server_id), isFa)}
-                            </>
-                          )}
-                          {" · "}
-                          {tp("sortOrder")}: {formatNumber(num(p.sort_order), isFa)}
-                        </p>
                       </div>
+                    </CardHeader>
+                    <CardContent className="grid gap-2 pb-4 sm:grid-cols-2">
+                      <PlanInfoRow
+                        icon={hasWholesaleCatalog && wlidPlan > 0 ? Package : Server}
+                        label={hasWholesaleCatalog && wlidPlan > 0 ? tp("cardWholesaleLine") : tp("cardPanel")}
+                        value={
+                          hasWholesaleCatalog && wlidPlan > 0
+                            ? String(lineMeta?.label ?? "—")
+                            : panelLabel(panels, pid)
+                        }
+                      />
+                      <PlanInfoRow icon={Tag} label={tp("cardCategory")} value={String(p.category ?? "—")} />
+                      <PlanInfoRow
+                        icon={Radio}
+                        label={tp("cardInbound")}
+                        value={formatNumber(num(p.inbound_id), isFa)}
+                      />
+                      <PlanInfoRow
+                        icon={Clock}
+                        label={tp("cardDuration")}
+                        value={`${formatNumber(num(p.duration_days), isFa)} ${tp("periodDays")}`}
+                      />
+                      <PlanInfoRow
+                        icon={Users}
+                        label={tp("cardClients")}
+                        value={formatClientCap(p.clients_count, isFa, tp("clientsUnlimited"))}
+                      />
+                      <PlanInfoRow icon={BadgeDollarSign} label={tp("cardPrice")} value={priceLabel} />
+                      {ptype === "fixed" ? (
+                        <PlanInfoRow
+                          icon={HardDrive}
+                          label={tp("cardTraffic")}
+                          value={`${formatNumber(num(p.traffic_gb), isFa)} ${tp("gbSuffix")}`}
+                        />
+                      ) : (
+                        <PlanInfoRow
+                          icon={HardDrive}
+                          label={tp("cardTrafficRange")}
+                          value={`${formatNumber(num(p.traffic_gb_min), isFa)}–${formatNumber(num(p.traffic_gb_max), isFa)} ${tp("gbSuffix")}`}
+                        />
+                      )}
                     </CardContent>
                   </Card>
                 )
@@ -857,11 +958,20 @@ export function DashboardPlansAdmin({
                     }))
                   }}
                 >
-                  {panels.map((p) => (
-                    <option key={String(p.id)} value={String(p.id)}>
-                      {String(p.label ?? p.name ?? p.id)}
-                    </option>
-                  ))}
+                  {panels.map((p) => {
+                    const canSell = panelCanSellPlan(p, resellerMode)
+                    const base = String(p.label ?? p.name ?? p.id)
+                    return (
+                      <option
+                        key={String(p.id)}
+                        value={String(p.id)}
+                        disabled={resellerMode && !canSell}
+                      >
+                        {base}
+                        {resellerMode && !canSell ? tp("panelNoAccessSuffix") : ""}
+                      </option>
+                    )
+                  })}
                 </select>
               </div>
             )}
@@ -887,63 +997,21 @@ export function DashboardPlansAdmin({
               <div className={cn("space-y-2 rounded-md border bg-muted/40 p-3 text-sm", isFa && "text-right")}>
                 <p className="font-medium text-foreground">{tp("connectionPresetTitle")}</p>
                 <p className="text-muted-foreground">{tp("connectionPresetHint")}</p>
-                {String(floorForPanel.default_service_type ?? "xray") === "l2tp" ? (
-                  <p className="tabular-nums">
-                    {tp("protocolL2tp")}: #{formatNumber(num(floorForPanel.default_l2tp_server_id), isFa)}
-                  </p>
-                ) : (
-                  <p className="tabular-nums">
-                    {tp("protocolXray")} · {tp("inbound")}: #{formatNumber(num(floorForPanel.default_inbound_id), isFa)}
-                  </p>
-                )}
+                <p className="tabular-nums">
+                  {tp("protocolXray")} · {tp("inbound")}: #{formatNumber(num(floorForPanel.default_inbound_id), isFa)}
+                </p>
               </div>
             ) : null}
             {!resellerMode ? (
-              <>
-                <div className="space-y-2">
-                  <Label>{tp("serviceType")}</Label>
-                  <select
-                    className={selectClass}
-                    value={form.service_type}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        service_type: e.target.value === "l2tp" ? "l2tp" : "xray",
-                      }))
-                    }
-                  >
-                    <option value="xray">{tp("protocolXray")}</option>
-                    <option value="l2tp">{tp("protocolL2tp")}</option>
-                  </select>
-                </div>
-                {form.service_type === "xray" ? (
-                  <div className="space-y-2">
-                    <Label>{tp("inbound")}</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={form.inbound_id || ""}
-                      onChange={(e) => setForm((f) => ({ ...f, inbound_id: num(e.target.value) }))}
-                    />
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <Label>{tp("l2tpServer")}</Label>
-                    <select
-                      className={selectClass}
-                      value={form.l2tp_server_id || ""}
-                      onChange={(e) => setForm((f) => ({ ...f, l2tp_server_id: num(e.target.value) }))}
-                    >
-                      <option value="0">—</option>
-                      {l2tpServers.map((s) => (
-                        <option key={String(s.id)} value={String(s.id)}>
-                          #{formatNumber(num(s.id), isFa)} {String(s.name ?? s.host ?? "")}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </>
+              <div className="space-y-2">
+                <Label>{tp("inbound")}</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.inbound_id || ""}
+                  onChange={(e) => setForm((f) => ({ ...f, inbound_id: num(e.target.value) }))}
+                />
+              </div>
             ) : null}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
@@ -959,20 +1027,12 @@ export function DashboardPlansAdmin({
                 <Label>{tp("clients")}</Label>
                 <Input
                   type="number"
-                  min={1}
+                  min={0}
                   value={form.clients_count}
-                  onChange={(e) => setForm((f) => ({ ...f, clients_count: Math.max(1, num(e.target.value)) }))}
+                  onChange={(e) => setForm((f) => ({ ...f, clients_count: Math.max(0, num(e.target.value)) }))}
                 />
+                <p className="text-xs text-muted-foreground">{tp("clientsCountHint")}</p>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label>GB</Label>
-              <Input
-                type="number"
-                min={0}
-                value={form.traffic_gb}
-                onChange={(e) => setForm((f) => ({ ...f, traffic_gb: num(e.target.value) }))}
-              />
             </div>
             <div className="space-y-2">
               <Label>{tp("pricingType")}</Label>
@@ -991,16 +1051,27 @@ export function DashboardPlansAdmin({
               </select>
             </div>
             {form.plan_pricing_type === "fixed" ? (
-              <div className="space-y-2">
-                <Label>{tp("price")}</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={form.price}
-                  onChange={(e) => setForm((f) => ({ ...f, price: num(e.target.value) }))}
-                />
-              </div>
+              <>
+                <div className="space-y-2">
+                  <Label>{tp("price")}</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={form.price}
+                    onChange={(e) => setForm((f) => ({ ...f, price: num(e.target.value) }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{tp("cardTraffic")} ({tp("gbSuffix")})</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={form.traffic_gb}
+                    onChange={(e) => setForm((f) => ({ ...f, traffic_gb: num(e.target.value) }))}
+                  />
+                </div>
+              </>
             ) : (
               <>
                 <div className="space-y-2">
@@ -1077,14 +1148,6 @@ export function DashboardPlansAdmin({
                 )}
               </div>
             ) : null}
-            <div className="space-y-2">
-              <Label>{tp("sortOrder")}</Label>
-              <Input
-                type="number"
-                value={form.sort_order}
-                onChange={(e) => setForm((f) => ({ ...f, sort_order: num(e.target.value) }))}
-              />
-            </div>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -1099,12 +1162,67 @@ export function DashboardPlansAdmin({
             <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
               {tp("cancel")}
             </Button>
-            <Button type="button" disabled={saving} onClick={() => void onSaveSheet()}>
+            <Button
+              type="button"
+              disabled={saving || categoriesForFormPanel.length === 0}
+              onClick={() => void onSaveSheet()}
+            >
               {tp("save")}
             </Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {showCatalogDefaultsSave ? (
+        <Dialog open={catalogDialogOpen} onOpenChange={setCatalogDialogOpen}>
+          <DialogContent className={cn("sm:max-w-md", isFa && "text-right [direction:rtl]")}>
+            <DialogHeader className={cn(isFa && "text-right sm:text-right")}>
+              <DialogTitle>{tp("catalogDefaultsDialogTitle")}</DialogTitle>
+              <DialogDescription>{tp("catalogCardDesc")}</DialogDescription>
+            </DialogHeader>
+            {catalogError ? (
+              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {catalogError}
+              </p>
+            ) : null}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="catalog_concurrent_dialog">{tp("catalogConcurrent")}</Label>
+                <Input
+                  id="catalog_concurrent_dialog"
+                  type="number"
+                  min={0}
+                  value={catalogForm.default_concurrent_users}
+                  onChange={(e) =>
+                    setCatalogForm((f) => ({ ...f, default_concurrent_users: e.target.value }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">{tp("clientsCountHint")}</p>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="catalog_extra_price_dialog">{tp("catalogExtraPrice")}</Label>
+                <Input
+                  id="catalog_extra_price_dialog"
+                  type="text"
+                  inputMode="decimal"
+                  value={catalogForm.price_per_extra_user}
+                  onChange={(e) =>
+                    setCatalogForm((f) => ({ ...f, price_per_extra_user: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+            <DialogFooter className={cn("gap-2", isFa && "sm:flex-row-reverse")}>
+              <Button type="button" variant="outline" onClick={() => setCatalogDialogOpen(false)}>
+                {tp("cancel")}
+              </Button>
+              <Button type="button" disabled={catalogSaving} onClick={() => void onSaveCatalogDefaults()}>
+                {catalogSaving ? "…" : tp("catalogSave")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
 
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent className={cn(isFa && "text-right [direction:rtl]")}>
@@ -1122,6 +1240,8 @@ export function DashboardPlansAdmin({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+        </>
+      ) : null}
     </div>
   )
 }

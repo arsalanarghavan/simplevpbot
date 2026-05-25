@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, type KeyboardEvent } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
@@ -25,6 +25,15 @@ function escapeForPreFragment(text: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
+}
+
+/** Strip browser-specific markup from contentEditable output. */
+function normalizeEditorHtml(html: string): string {
+  let t = html
+  t = t.replace(/<span[^>]*style="[^"]*"[^>]*>(.*?)<\/span>/gis, "$1")
+  t = t.replace(/<font[^>]*>(.*?)<\/font>/gis, "$1")
+  t = t.replace(/<br\s*\/?>/gi, "\n")
+  return t
 }
 
 export function BroadcastRichEditor({
@@ -58,8 +67,19 @@ export function BroadcastRichEditor({
 
   const emit = useCallback(() => {
     const el = ref.current
-    if (el) onChange(el.innerHTML)
+    if (el) onChange(normalizeEditorHtml(el.innerHTML))
   }, [onChange])
+
+  const onKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== "Enter" || e.shiftKey) return
+      e.preventDefault()
+      ref.current?.focus()
+      document.execCommand("insertLineBreak")
+      emit()
+    },
+    [emit],
+  )
 
   const runBold = useCallback(() => {
     ref.current?.focus()
@@ -173,6 +193,7 @@ export function BroadcastRichEditor({
         data-placeholder={placeholder || ""}
         onInput={emit}
         onBlur={emit}
+        onKeyDown={onKeyDown}
       />
       <style>{`
         [contenteditable][data-placeholder]:empty:before {

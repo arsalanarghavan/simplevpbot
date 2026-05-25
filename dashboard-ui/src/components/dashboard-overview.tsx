@@ -91,6 +91,8 @@ type PanelHealth = {
   latencyMs: number | null
   checkedAt: string
   error?: string
+  authProbeUrl?: string
+  authProbeStatus?: number
 }
 
 type HostMetrics = {
@@ -296,6 +298,7 @@ export function DashboardOverview({
   onPanelsPageChange,
   onPanelsPerPageChange,
   compactHealthOnly = false,
+  prependResellerFinance = false,
   wholesaleLines = [],
   actorBalance = undefined,
 }: {
@@ -312,6 +315,8 @@ export function DashboardOverview({
   onPanelsPerPageChange: (perPage: number) => void
   /** Reseller / user persona: only server list, online/offline, ping. */
   compactHealthOnly?: boolean
+  /** Reseller: wholesale + wallet above charts (full overview). */
+  prependResellerFinance?: boolean
   /** Reseller wholesale catalog lines with ladder snapshots (dashboard only). */
   wholesaleLines?: DashRecord[]
   /** Reseller wallet balance (toman); shown when compactHealthOnly and defined. */
@@ -423,7 +428,7 @@ export function DashboardOverview({
                 <p className="text-xs font-medium text-muted-foreground">{t("dashboardOverview.actorWalletLabel")}</p>
                 <p className="text-2xl font-semibold tabular-nums">{formatNumber(actorBalance, isFa)}</p>
               </div>
-              <Button type="button" variant="default" size="sm" onClick={() => onSelectTab("reseller_finance")}>
+              <Button type="button" variant="default" size="sm" onClick={() => onSelectTab("reseller_charge")}>
                 {t("dashboardOverview.actorWalletTopUp")}
               </Button>
             </CardContent>
@@ -491,38 +496,70 @@ export function DashboardOverview({
         ) : null}
       </div>
 
-      <Card className="border-primary/20">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">{t("dashboardOverview.hostThisServer")}</CardTitle>
-          <CardDescription>{t("dashboardOverview.hostLoad")}: {loadLine}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>{t("dashboardOverview.hostMem")}</span>
-                <span className="tabular-nums">
-                  {host?.memoryBytes != null && host?.memoryLimitBytes != null
-                    ? `${formatBytes(host.memoryBytes, isFa)} / ${formatBytes(host.memoryLimitBytes, isFa)}`
-                    : "—"}
-                </span>
+      {prependResellerFinance ? (
+        <div className="space-y-4">
+          {wholesaleLines.length > 0 ? (
+            <WholesaleLadderTimeline wholesaleLines={wholesaleLines} isFa={isFa} />
+          ) : null}
+          {typeof actorBalance === "number" ? (
+            <Card>
+              <CardContent
+                className={cn(
+                  "flex flex-wrap items-center justify-between gap-3 pt-6",
+                  isFa && "flex-row-reverse"
+                )}
+              >
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {t("dashboardOverview.actorWalletLabel")}
+                  </p>
+                  <p className="text-2xl font-semibold tabular-nums">{formatNumber(actorBalance, isFa)}</p>
+                </div>
+                <Button type="button" variant="default" size="sm" onClick={() => onSelectTab("reseller_charge")}>
+                  {t("dashboardOverview.actorWalletTopUp")}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
+        </div>
+      ) : null}
+
+      {host != null ? (
+        <Card className="border-primary/20">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">{t("dashboardOverview.hostThisServer")}</CardTitle>
+            <CardDescription>
+              {t("dashboardOverview.hostLoad")}: {loadLine}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>{t("dashboardOverview.hostMem")}</span>
+                  <span className="tabular-nums">
+                    {host?.memoryBytes != null && host?.memoryLimitBytes != null
+                      ? `${formatBytes(host.memoryBytes, isFa)} / ${formatBytes(host.memoryLimitBytes, isFa)}`
+                      : "—"}
+                  </span>
+                </div>
+                <Progress value={memPct ?? 0} className={memPct == null ? "opacity-40" : ""} />
               </div>
-              <Progress value={memPct ?? 0} className={memPct == null ? "opacity-40" : ""} />
-            </div>
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>{t("dashboardOverview.hostDisk")}</span>
-                <span className="tabular-nums">
-                  {host?.diskFreeBytes != null && host?.diskTotalBytes != null
-                    ? `${t("dashboardOverview.diskFreeLabel")}: ${formatBytes(host.diskFreeBytes, isFa)} · ${formatBytes(host.diskTotalBytes, isFa)}`
-                    : "—"}
-                </span>
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>{t("dashboardOverview.hostDisk")}</span>
+                  <span className="tabular-nums">
+                    {host?.diskFreeBytes != null && host?.diskTotalBytes != null
+                      ? `${t("dashboardOverview.diskFreeLabel")}: ${formatBytes(host.diskFreeBytes, isFa)} · ${formatBytes(host.diskTotalBytes, isFa)}`
+                      : "—"}
+                  </span>
+                </div>
+                <Progress value={diskPct ?? 0} className={diskPct == null ? "opacity-40" : ""} />
               </div>
-              <Progress value={diskPct ?? 0} className={diskPct == null ? "opacity-40" : ""} />
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -625,7 +662,6 @@ export function DashboardOverview({
           <StatCard title={t("dashboardOverview.usersRejected")} value={num(u.users_rejected)} isFa={isFa} />
           <StatCard title={t("dashboardOverview.usersBlocked")} value={num(u.users_blocked)} isFa={isFa} />
           <StatCard title={t("dashboardOverview.servicesTotal")} value={num(u.services_total)} isFa={isFa} />
-          <StatCard title={t("dashboardOverview.servicesL2tp")} value={num(u.services_l2tp)} isFa={isFa} />
         </div>
       </section>
 
@@ -684,12 +720,6 @@ export function DashboardOverview({
                   <span>{t("dashboardOverview.panelsCount")}</span>
                   <span className="tabular-nums font-medium text-foreground">
                     {formatNumber(num(counts.panels), isFa)}
-                  </span>
-                </li>
-                <li className="flex flex-wrap justify-between gap-2 border-b border-border/60 pb-1.5">
-                  <span>{t("dashboardOverview.l2tpServers")}</span>
-                  <span className="tabular-nums font-medium text-foreground">
-                    {formatNumber(num(counts.l2tpServers), isFa)}
                   </span>
                 </li>
                 <li className="flex flex-wrap justify-between gap-2">
@@ -1017,7 +1047,17 @@ export function DashboardOverview({
                     {httpOk ? (
                       <p className="mt-2">{t("dashboardOverview.ttHttpOk")}</p>
                     ) : networkReachable ? (
-                      <p className="mt-2">{t("dashboardOverview.ttHttpNonStandard")}</p>
+                      <>
+                        <p className="mt-2">{t("dashboardOverview.ttHttpNonStandard")}</p>
+                        {h?.authProbeUrl && (h.authProbeStatus ?? 0) > 0 ? (
+                          <p className="mt-1 text-muted-foreground">
+                            {t("dashboardOverview.ttAuthProbeOk", {
+                              url: h.authProbeUrl,
+                              code: formatNumericString(String(h.authProbeStatus ?? 0), isFa),
+                            })}
+                          </p>
+                        ) : null}
+                      </>
                     ) : (
                       <p className="mt-2">{t("dashboardOverview.ttHttpFail")}</p>
                     )}
@@ -1053,9 +1093,6 @@ export function DashboardOverview({
           ) : null}
           {allowTab("plans") ? (
             <QuickLink tabKey="plans" label={t("sidebar.items.plans")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
-          ) : null}
-          {allowTab("l2tp_servers") ? (
-            <QuickLink tabKey="l2tp_servers" label={t("sidebar.items.l2tp_servers")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />
           ) : null}
           {allowTab("bots") ? (
             <QuickLink tabKey="bots" label={t("sidebar.items.bots")} base={dashboardBaseUrl} onSelectTab={onSelectTab} />

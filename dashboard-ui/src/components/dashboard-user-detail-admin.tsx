@@ -3,28 +3,28 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
-  Archive,
   Ban,
   CheckCircle2,
   ExternalLink,
-  HardDrive,
   Hash,
-  KeyRound,
   MessageSquare,
   Minus,
   PackagePlus,
+  Plus,
   Radio,
-  RefreshCw,
   RotateCcw,
   Send,
-  Server,
   ShieldOff,
-  Trash2,
-  UserPlus,
-  Users,
+  Store,
   Wallet,
   XCircle,
 } from "lucide-react"
+
+import {
+  DashboardUserServiceCard,
+  ServiceActionDialog,
+  type ServiceActionDlg,
+} from "@/components/dashboard-user-service-card"
 
 import { DataPagination } from "@/components/data-pagination"
 import { Badge } from "@/components/ui/badge"
@@ -52,7 +52,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { postAdminMutate } from "@/lib/dash-admin-mutate"
+import { adminMutateErrorText, postAdminMutate } from "@/lib/dash-admin-mutate"
 import {
   formatDateTime,
   formatDigits,
@@ -64,6 +64,9 @@ import { parsePaginationMeta } from "@/lib/dash-pagination"
 import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
+
+const actionBar =
+  "flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-muted/20 p-2"
 
 function num(v: unknown): number {
   const n = Number(v)
@@ -86,9 +89,6 @@ function statusVariant(st: string): "default" | "secondary" | "destructive" | "o
   if (st === "blocked") return "outline"
   return "outline"
 }
-
-const glassBar =
-  "flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-muted/30 p-2.5 backdrop-blur-sm"
 
 function isPerGbPlan(p: DashRecord | undefined): boolean {
   return String(p?.pricing_type ?? "") === "per_gb"
@@ -146,6 +146,11 @@ function formatUserActivityLine(
       })
     case "service_reduce_days":
       return t("userDetailAdmin.activity_service_reduce_days", {
+        service: g("service_id"),
+        days: g("days"),
+      })
+    case "service_add_days":
+      return t("userDetailAdmin.activity_service_add_days", {
         service: g("service_id"),
         days: g("days"),
       })
@@ -208,6 +213,7 @@ function formatUserActivityLine(
 export function DashboardUserDetailAdmin({
   userId,
   plans,
+  settings,
   isFa,
   isReseller = false,
   onBack,
@@ -216,6 +222,7 @@ export function DashboardUserDetailAdmin({
 }: {
   userId: number
   plans: DashRecord[]
+  settings?: DashRecord
   isFa: boolean
   /** When true, «free» payment mode is hidden (reseller pays from wallet / invoice only). */
   isReseller?: boolean
@@ -242,16 +249,20 @@ export function DashboardUserDetailAdmin({
   const [createMode, setCreateMode] = useState<"free" | "wallet" | "invoice">(() =>
     isReseller ? "wallet" : "free"
   )
-  const [xferTarget, setXferTarget] = useState<Record<number, string>>({})
-  const [payMode, setPayMode] = useState<Record<number, "free" | "wallet" | "invoice">>({})
-  const [addVolGb, setAddVolGb] = useState<Record<number, string>>({})
   const [walletDialog, setWalletDialog] = useState<null | "add" | "sub">(null)
   const [walletAmount, setWalletAmount] = useState("")
   const [adminMsg, setAdminMsg] = useState("")
   const [adminMsgChannel, setAdminMsgChannel] = useState<"both" | "telegram" | "bale">("both")
-  const [slotsInput, setSlotsInput] = useState<Record<number, string>>({})
-  const [limitIpInput, setLimitIpInput] = useState<Record<number, string>>({})
-  const [reduceDaysInput, setReduceDaysInput] = useState<Record<number, string>>({})
+  const [actionDlg, setActionDlg] = useState<ServiceActionDlg>(null)
+  const [resellerChoices, setResellerChoices] = useState<Array<{ id: number; label: string }>>([])
+  const [assignResellerOpen, setAssignResellerOpen] = useState(false)
+  const [pickResellerId, setPickResellerId] = useState("")
+
+  const pricePerExtraUser = num(settings?.price_per_extra_user)
+  const l2tpEnabled = useMemo(() => {
+    const f = settings?.features
+    return !!(f && typeof f === "object" && (f as Record<string, unknown>).l2tp === true)
+  }, [settings?.features])
 
   const boot = useMemo(() => window.__SIMPLEVPBOT_DASH__ || {}, [])
   const restBase = String((boot as { restUrl?: string }).restUrl || "").replace(/\/$/, "")
@@ -276,6 +287,14 @@ export function DashboardUserDetailAdmin({
         return
       }
       setUser((json.user as DashRecord) || null)
+      const rc = json.resellerChoices
+      setResellerChoices(
+        Array.isArray(rc)
+          ? (rc as Array<Record<string, unknown>>)
+              .map((r) => ({ id: num(r.id), label: String(r.label ?? "") }))
+              .filter((r) => r.id > 0)
+          : []
+      )
       setServices(Array.isArray(json.services) ? (json.services as DashRecord[]) : [])
       setReferrals(Array.isArray(json.referrals) ? (json.referrals as DashRecord[]) : [])
       setActivity(Array.isArray(json.activity) ? (json.activity as DashRecord[]) : [])
@@ -287,15 +306,26 @@ export function DashboardUserDetailAdmin({
     } finally {
       setLoading(false)
     }
-  }, [restBase, nonce, userId, actPage, t])
+  }, [restBase, nonce, userId, actPage])
 
   useEffect(() => {
     void load()
-  }, [load])
+  }, [restBase, nonce, userId, actPage, load])
 
   const activePlans = useMemo(
-    () => plans.filter((p) => num(p.active) === 1 && num(p.id) > 0),
-    [plans]
+    () =>
+      plans.filter((p) => {
+        if (num(p.active) !== 1 || num(p.id) < 1) return false
+        if (!l2tpEnabled && String(p.service_type ?? "xray") === "l2tp") return false
+        return true
+      }),
+    [plans, l2tpEnabled]
+  )
+
+  const visibleServices = useMemo(
+    () =>
+      services.filter((s) => l2tpEnabled || String(s.service_type ?? "xray") !== "l2tp"),
+    [services, l2tpEnabled]
   )
 
   const selectedPlan = useMemo(
@@ -315,8 +345,7 @@ export function DashboardUserDetailAdmin({
       try {
         const res = await postAdminMutate(op, params)
         if (!res.ok) {
-          const parts = [res.message, res.reason].filter(Boolean)
-          setAlertText(parts.length ? parts.join(" — ") : t("userDetailAdmin.mutateError"))
+          setAlertText(adminMutateErrorText(res, t("userDetailAdmin.mutateError")))
           return
         }
         if (okMsg) setAlertText(okMsg)
@@ -358,9 +387,85 @@ export function DashboardUserDetailAdmin({
   const st = String(user.status ?? "")
   const bal = num(user.balance)
   const portalUserUrl = String(user.portal_url ?? "")
+  const userRole = String(user.role ?? "")
+  const invitedBy = num(user.invited_by)
+  const invitedByLabel = String(user.invited_by_label ?? "").trim()
+  const showAssignReseller = !isReseller && userRole !== "reseller" && resellerChoices.length > 0
 
   return (
     <TooltipProvider delayDuration={200}>
+      <Dialog open={assignResellerOpen} onOpenChange={setAssignResellerOpen}>
+        <DialogContent showCloseButton className={cn(isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
+          <DialogHeader>
+            <DialogTitle>{tp("assignResellerTitle")}</DialogTitle>
+            <DialogDescription>{tp("assignResellerHint")}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p>
+              <span className="text-muted-foreground">{tp("currentReseller")}: </span>
+              {invitedBy > 0
+                ? invitedByLabel || `#${formatPlainLatinInt(invitedBy)}`
+                : tp("resellerNone")}
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="assign-reseller-pick">{tp("assignResellerPick")}</Label>
+              <select
+                id="assign-reseller-pick"
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
+                value={pickResellerId}
+                onChange={(e) => setPickResellerId(e.target.value)}
+                disabled={busy}
+              >
+                <option value="">{tp("assignResellerPick")}…</option>
+                {resellerChoices.map((r) => (
+                  <option key={r.id} value={String(r.id)}>
+                    {r.label} (#{formatPlainLatinInt(r.id)})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <DialogFooter className={cn("gap-2", isFa && "sm:flex-row-reverse")}>
+            {invitedBy > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={async () => {
+                  await runMut(
+                    "reseller_bind_users",
+                    { reseller_svp_user_id: 0, user_ids: [uid], mode: "clear" },
+                    tp("assignResellerClear")
+                  )
+                  setAssignResellerOpen(false)
+                }}
+              >
+                {tp("assignResellerClear")}
+              </Button>
+            ) : null}
+            <Button type="button" variant="outline" onClick={() => setAssignResellerOpen(false)} disabled={busy}>
+              {tp("walletDialogCancel")}
+            </Button>
+            <Button
+              type="button"
+              disabled={busy || !pickResellerId}
+              onClick={async () => {
+                const rid = parseInt(pickResellerId, 10)
+                if (!Number.isFinite(rid) || rid < 1) return
+                await runMut(
+                  "reseller_bind_users",
+                  { reseller_svp_user_id: rid, user_ids: [uid], mode: "set" },
+                  tp("assignResellerApply")
+                )
+                setAssignResellerOpen(false)
+              }}
+            >
+              {tp("assignResellerApply")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={walletDialog !== null} onOpenChange={(o) => !o && setWalletDialog(null)}>
         <DialogContent showCloseButton className={cn(isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
           <DialogHeader>
@@ -394,6 +499,18 @@ export function DashboardUserDetailAdmin({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ServiceActionDialog
+        dlg={actionDlg}
+        setDlg={setActionDlg}
+        isFa={isFa}
+        isReseller={isReseller}
+        busy={busy}
+        plans={plans}
+        pricePerExtraUser={pricePerExtraUser}
+        tp={tp}
+        onConfirm={(op, payload) => void runMut(op, payload)}
+      />
 
       <div className={cn("mx-auto max-w-7xl space-y-6", isFa && "text-right")}>
         <div className="flex flex-wrap items-center gap-2">
@@ -459,7 +576,7 @@ export function DashboardUserDetailAdmin({
                     setWalletDialog("add")
                   }}
                 >
-                  <UserPlus className="size-4" aria-hidden />
+                  <Plus className="size-4" aria-hidden />
                   {tp("walletIncrease")}
                 </Button>
                 <Button
@@ -481,7 +598,7 @@ export function DashboardUserDetailAdmin({
 
               <div>
                 <p className="mb-2 text-xs font-medium text-muted-foreground">{tp("adminActions")}</p>
-                <div className={cn(glassBar, "justify-start")}>
+                <div className={cn(actionBar, "justify-start")}>
                   {st === "pending" ? (
                     <>
                       <Tooltip>
@@ -615,6 +732,28 @@ export function DashboardUserDetailAdmin({
                       </TooltipContent>
                     </Tooltip>
                   ) : null}
+                  {showAssignReseller ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          disabled={busy}
+                          aria-label={tp("tooltipAssignReseller")}
+                          onClick={() => {
+                            setPickResellerId(invitedBy > 0 ? String(invitedBy) : "")
+                            setAssignResellerOpen(true)
+                          }}
+                        >
+                          <Store className="size-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{tp("tooltipAssignReseller")}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
                 </div>
               </div>
 
@@ -663,15 +802,31 @@ export function DashboardUserDetailAdmin({
           <Card>
             <CardHeader>
               <CardTitle className="text-base">{tp("createService")}</CardTitle>
-              <CardDescription>{tp("createServiceHint")}</CardDescription>
+              <ul className="list-inside list-disc space-y-0.5 text-sm text-muted-foreground">
+                {isReseller ? (
+                  <>
+                    <li>{tp("createServiceHintReseller1")}</li>
+                    <li>{tp("createServiceHintReseller2")}</li>
+                    <li>{tp("createServiceHintReseller3")}</li>
+                  </>
+                ) : (
+                  <>
+                    <li>{tp("createServiceHintShort1")}</li>
+                    <li>{tp("createServiceHintShort2")}</li>
+                    <li>{tp("createServiceHintShort3")}</li>
+                  </>
+                )}
+              </ul>
             </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1 sm:col-span-2">
+            <CardContent className="space-y-3">
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+              <div className="space-y-1">
                 <Label>{tp("plan")}</Label>
                 <select
                   className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                   value={planId}
                   onChange={(e) => setPlanId(e.target.value)}
+                  disabled={busy}
                 >
                   <option value="">{tp("selectPlan")}</option>
                   {activePlans.map((p) => (
@@ -688,17 +843,8 @@ export function DashboardUserDetailAdmin({
                   value={volGb}
                   onChange={(e) => setVolGb(e.target.value)}
                   placeholder={tp("volumeGbExamplePlaceholder")}
+                  disabled={busy}
                 />
-                {createPricePreview != null ? (
-                  <p className="text-xs text-muted-foreground">
-                    {tp("estimatedCost")}:{" "}
-                    <span className="font-medium text-foreground tabular-nums">
-                      {formatNumber(createPricePreview, isFa)}
-                    </span>
-                  </p>
-                ) : selectedPlan && isPerGbPlan(selectedPlan) ? (
-                  <p className="text-xs text-muted-foreground">{tp("estimatedCostNeedVolume")}</p>
-                ) : null}
               </div>
               <div className="space-y-1">
                 <Label>{tp("mode")}</Label>
@@ -706,21 +852,18 @@ export function DashboardUserDetailAdmin({
                   className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                   value={createMode}
                   onChange={(e) => setCreateMode(e.target.value as typeof createMode)}
+                  disabled={busy}
                 >
                   {!isReseller ? <option value="free">{tp("modeFree")}</option> : null}
                   <option value="wallet">{tp("modeWallet")}</option>
                   <option value="invoice">{tp("modeInvoice")}</option>
                 </select>
               </div>
-              <div className="flex items-end sm:col-span-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
                     <Button
                       type="button"
                       size="sm"
-                      className="gap-2"
+                className="gap-2 lg:self-end"
                       disabled={busy || !planId}
-                      aria-label={tp("tooltipCreateService")}
                       onClick={() => {
                         const pid = parseInt(planId, 10)
                         const v = volGb.trim() ? parseInt(volGb, 10) : NaN
@@ -735,12 +878,17 @@ export function DashboardUserDetailAdmin({
                       <PackagePlus className="size-4" />
                       {tp("create")}
                     </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{tp("tooltipCreateService")}</p>
-                  </TooltipContent>
-                </Tooltip>
               </div>
+              {createPricePreview != null ? (
+                <p className="text-xs text-muted-foreground">
+                  {tp("estimatedCost")}:{" "}
+                  <span className="font-medium text-foreground tabular-nums">
+                    {formatNumber(createPricePreview, isFa)}
+                  </span>
+                </p>
+              ) : selectedPlan && isPerGbPlan(selectedPlan) ? (
+                <p className="text-xs text-muted-foreground">{tp("estimatedCostNeedVolume")}</p>
+              ) : null}
             </CardContent>
           </Card>
         </div>
@@ -776,470 +924,30 @@ export function DashboardUserDetailAdmin({
 
         <div className="space-y-4">
           <h3 className="text-base font-medium">{tp("services")}</h3>
-          {services.length === 0 ? (
+          {visibleServices.length === 0 ? (
             <p className="text-sm text-muted-foreground">{tp("noServices")}</p>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
-              {services.map((svc) => {
+              {visibleServices.map((svc) => {
                 const sid = num(svc.id)
-                const pm = payMode[sid] ?? (isReseller ? "wallet" : "free")
-                const expire = svc.expires_at ?? svc.expire_at ?? svc.expired_at ?? svc.expiry ?? ""
-                const subState = String(svc.subscription_state ?? "")
-                const quotaGb = num(svc.quota_gb)
-                const usedGb = num(svc.used_gb)
-                const planName = String(svc.plan_name ?? "")
-                const planPrice = num(svc.plan_price)
-                const planPpg = num(svc.plan_price_per_gb)
-                const pricingType = String(svc.plan_pricing_type ?? "")
-                const isL2tp = String(svc.service_type ?? "xray") === "l2tp"
-                const remark = String(svc.remark ?? "").trim()
-                const portalSvc = String(svc.portal_service_url ?? "")
-                const limitCached = svc.panel_limit_ip != null && svc.panel_limit_ip !== "" ? num(svc.panel_limit_ip) : null
-                const ipRows = Array.isArray(svc.ip_log) ? (svc.ip_log as DashRecord[]) : []
-
-                const patchAlert = (key: "alerts_enabled" | "alerts_volume" | "alerts_expiry" | "alerts_users", val: boolean) => {
+                const patchAlert = (
+                  key: "alerts_enabled" | "alerts_volume" | "alerts_expiry" | "alerts_users",
+                  val: boolean
+                ) => {
                   void runMut("service_alerts_patch", { service_id: sid, [key]: val ? 1 : 0 })
                 }
-
                 return (
-                  <Card key={sid} className="overflow-hidden" dir={isFa ? "rtl" : "ltr"}>
-                    <CardHeader className="pb-2">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <CardTitle className="text-base">
-                            {remark ? remark : tp("serviceUntitled")}
-                            <span className="ms-2 font-mono text-xs font-normal text-muted-foreground" dir="ltr">
-                              #{formatPlainLatinInt(sid)}
-                            </span>
-                          </CardTitle>
-                          <CardDescription className="break-all text-xs">{String(svc.email ?? "—")}</CardDescription>
-                          {remark ? (
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              <span className="font-medium text-foreground">{tp("userNoteLabel")}:</span> {remark}
-                            </p>
-                          ) : null}
-                        </div>
-                        {portalSvc ? (
-                          <Button size="sm" variant="secondary" className="shrink-0 gap-1" asChild>
-                            <a href={portalSvc} target="_blank" rel="noopener noreferrer">
-                              <ExternalLink className="size-3.5" />
-                              {tp("servicePanelBtn")}
-                            </a>
-                          </Button>
-                        ) : null}
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-3 text-sm">
-                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                        <div className="col-span-2">
-                          <span className="text-muted-foreground">{tp("svcPlan")}: </span>
-                          {planName ? (
-                            <>
-                              {planName}
-                              {pricingType === "per_gb" ? (
-                                <span dir="ltr" className="ms-1 text-muted-foreground">
-                                  ({formatNumber(planPpg, isFa)} / GB)
-                                </span>
-                              ) : (
-                                <span dir="ltr" className="ms-1 text-muted-foreground">
-                                  ({tp("basePrice")}: {formatNumber(planPrice, isFa)})
-                                </span>
-                              )}
-                            </>
-                          ) : (
-                            <span dir="ltr">{formatPlainLatinInt(num(svc.plan_id))}</span>
-                          )}
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">{tp("svcStatus")}: </span>
-                          {tp(`subscription_${subState}`, { defaultValue: subState })}
-                        </div>
-                        <div dir="ltr">
-                          <span className="text-muted-foreground">{tp("svcVolume")}: </span>
-                          {formatNumber(quotaGb, isFa)} GB
-                          {usedGb > 0 ? (
-                            <span className="text-muted-foreground">
-                              {" "}
-                              ({tp("usedShort")} {formatNumber(usedGb, isFa)} GB)
-                            </span>
-                          ) : null}
-                        </div>
-                        <div dir="ltr" className="col-span-2">
-                          <span className="text-muted-foreground">{tp("svcExpires")}: </span>
-                          {expire ? formatDateTime(String(expire), isFa) : "—"}
-                        </div>
-                        <div dir="ltr" className="col-span-2">
-                          <span className="text-muted-foreground">{tp("svcUserCap")}: </span>
-                          {limitCached != null && limitCached > 0 ? formatPlainLatinInt(limitCached) : "—"}
-                        </div>
-                      </div>
-
-                      {!isL2tp ? (
-                        <div className="space-y-2 rounded-md border border-border/50 p-2 text-xs">
-                          <p className="font-medium text-muted-foreground">{tp("notificationsSection")}</p>
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            {(
-                              [
-                                ["alerts_enabled", tp("alertToggleMaster")],
-                                ["alerts_volume", tp("alertToggleVolume")],
-                                ["alerts_expiry", tp("alertToggleExpiry")],
-                                ["alerts_users", tp("alertToggleUsers")],
-                              ] as const
-                            ).map(([k, label]) => (
-                              <label key={k} className="flex cursor-pointer items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  className="size-4 rounded border-input"
-                                  checked={num(svc[k]) === 1}
-                                  disabled={busy}
-                                  onChange={(e) => patchAlert(k, e.target.checked)}
-                                />
-                                <span>{label}</span>
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {!isL2tp && ipRows.length > 0 ? (
-                        <div className="text-xs">
-                          <p className="mb-1 font-medium text-muted-foreground">{tp("ipLogTitle")}</p>
-                          <ul className="max-h-24 space-y-0.5 overflow-y-auto font-mono">
-                            {ipRows.map((ipr) => (
-                              <li key={num(ipr.id)} dir="ltr">
-                                {String(ipr.ip ?? "")}{" "}
-                                <span className="text-muted-foreground">×{formatPlainLatinInt(num(ipr.hit_count))}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-
-                      {!isL2tp ? (
-                        <div className="flex flex-wrap gap-2 text-xs">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() => void runMut("service_panel_sync", { service_id: sid })}
-                          >
-                            {tp("syncPanelMeta")}
-                          </Button>
-                          <div className="flex flex-wrap items-center gap-1">
-                            <Input
-                              dir="ltr"
-                              className="h-8 w-14 text-xs"
-                              placeholder={tp("slotsPlaceholder")}
-                              value={slotsInput[sid] ?? ""}
-                              onChange={(e) => setSlotsInput((m) => ({ ...m, [sid]: e.target.value }))}
-                            />
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  type="button"
-                                  size="icon"
-                                  variant="secondary"
-                                  className="size-8"
-                                  disabled={busy}
-                                  aria-label={tp("tooltipAddSlots")}
-                                  onClick={() => {
-                                    const n = parseInt(slotsInput[sid] ?? "", 10)
-                                    if (!Number.isFinite(n) || n < 1) return
-                                    void runMut("user_service_add_slots", { service_id: sid, extra_users: n })
-                                  }}
-                                >
-                                  <Users className="size-3.5" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>{tp("tooltipAddSlots")}</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  type="button"
-                                  size="icon"
-                                  variant="outline"
-                                  className="size-8"
-                                  disabled={busy}
-                                  aria-label={tp("tooltipReduceSlots")}
-                                  onClick={() => {
-                                    const n = parseInt(slotsInput[sid] ?? "", 10)
-                                    if (!Number.isFinite(n) || n < 1) return
-                                    void runMut("user_service_reduce_slots", { service_id: sid, reduce_users: n })
-                                  }}
-                                >
-                                  <Minus className="size-3.5" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>{tp("tooltipReduceSlots")}</TooltipContent>
-                            </Tooltip>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-1">
-                            <Input
-                              dir="ltr"
-                              className="h-8 w-14 text-xs"
-                              placeholder={tp("limitIpPlaceholder")}
-                              value={limitIpInput[sid] ?? ""}
-                              onChange={(e) => setLimitIpInput((m) => ({ ...m, [sid]: e.target.value }))}
-                            />
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  type="button"
-                                  size="icon"
-                                  variant="outline"
-                                  className="size-8"
-                                  disabled={busy}
-                                  aria-label={tp("tooltipSetLimitIp")}
-                                  onClick={() => {
-                                    const n = parseInt(limitIpInput[sid] ?? "", 10)
-                                    if (!Number.isFinite(n) || n < 1) return
-                                    void runMut("service_set_limit_ip", { service_id: sid, limit_ip: n })
-                                  }}
-                                >
-                                  <UserPlus className="size-3.5" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>{tp("tooltipSetLimitIp")}</TooltipContent>
-                            </Tooltip>
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <div>
-                        <p className="mb-1.5 text-xs font-medium text-muted-foreground">{tp("serviceActions")}</p>
-                        <div className={cn(glassBar, "items-center")}>
-                          <select
-                            className="h-9 max-w-[7.5rem] rounded-md border border-input bg-background px-2 text-xs"
-                            value={pm}
-                            onChange={(e) =>
-                              setPayMode((m) => ({ ...m, [sid]: e.target.value as typeof pm }))
-                            }
-                          >
-                            {!isReseller ? <option value="free">{tp("modeFree")}</option> : null}
-                            <option value="wallet">{tp("modeWallet")}</option>
-                            <option value="invoice">{tp("modeInvoice")}</option>
-                          </select>
-
-                          <div className="flex items-center gap-1">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  type="button"
-                                  size="icon"
-                                  variant="secondary"
-                                  className="shrink-0"
-                                  disabled={busy}
-                                  aria-label={tp("tooltipRenew")}
-                                  onClick={() => void runMut("user_renew_service", { service_id: sid, mode: pm })}
-                                >
-                                  <RefreshCw className="size-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>{tp("tooltipRenew")}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                            <Input
-                              dir="ltr"
-                              className="h-9 w-14 text-xs"
-                              placeholder={tp("gbUnitShort")}
-                              value={addVolGb[sid] ?? ""}
-                              onChange={(e) => setAddVolGb((g) => ({ ...g, [sid]: e.target.value }))}
-                            />
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  type="button"
-                                  size="icon"
-                                  variant="outline"
-                                  className="shrink-0"
-                                  disabled={busy}
-                                  aria-label={tp("tooltipAddVolume")}
-                                  onClick={() => {
-                                    const g = parseInt(addVolGb[sid] ?? "", 10)
-                                    if (!Number.isFinite(g) || g < 1) return
-                                    void runMut("user_add_volume", { service_id: sid, extra_gb: g, mode: pm })
-                                  }}
-                                >
-                                  <HardDrive className="size-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>{tp("tooltipAddVolume")}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  type="button"
-                                  size="icon"
-                                  variant="outline"
-                                  className="shrink-0"
-                                  disabled={busy}
-                                  aria-label={tp("tooltipReduceVolume")}
-                                  onClick={() => {
-                                    const g = parseInt(addVolGb[sid] ?? "", 10)
-                                    if (!Number.isFinite(g) || g < 1) return
-                                    void runMut("user_reduce_volume", { service_id: sid, reduce_gb: g })
-                                  }}
-                                >
-                                  <Minus className="size-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>{tp("tooltipReduceVolume")}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                            <Input
-                              dir="ltr"
-                              className="h-9 w-14 text-xs"
-                              placeholder={tp("daysPlaceholder")}
-                              value={reduceDaysInput[sid] ?? ""}
-                              onChange={(e) => setReduceDaysInput((m) => ({ ...m, [sid]: e.target.value }))}
-                            />
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  type="button"
-                                  size="icon"
-                                  variant="outline"
-                                  className="shrink-0"
-                                  disabled={busy}
-                                  aria-label={tp("tooltipReduceDays")}
-                                  onClick={() => {
-                                    const d = parseInt(reduceDaysInput[sid] ?? "", 10)
-                                    if (!Number.isFinite(d) || d < 1) return
-                                    void runMut("user_reduce_days", { service_id: sid, days: d })
-                                  }}
-                                >
-                                  <Minus className="size-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>{tp("tooltipReduceDays")}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </div>
-
-                          {!isL2tp ? (
-                            <>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="outline"
-                                    className="shrink-0"
-                                    disabled={busy}
-                                    aria-label={tp("tooltipRegenKey")}
-                                    onClick={() => void runMut("service_regen_key", { service_id: sid })}
-                                  >
-                                    <KeyRound className="size-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>{tp("tooltipRegenKey")}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="outline"
-                                    className="shrink-0"
-                                    disabled={busy}
-                                    aria-label={tp("tooltipPanelRefresh")}
-                                    onClick={() => void runMut("service_panel_refresh", { service_id: sid })}
-                                  >
-                                    <Server className="size-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>{tp("tooltipPanelRefresh")}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="destructive"
-                                    className="shrink-0"
-                                    disabled={busy}
-                                    aria-label={tp("tooltipDeletePanelClient")}
-                                    onClick={() => {
-                                      if (!window.confirm(tp("confirmDeletePanelClient"))) return
-                                      void runMut("service_panel_delete_client", { service_id: sid })
-                                    }}
-                                  >
-                                    <Trash2 className="size-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>{tp("tooltipDeletePanelClient")}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </>
-                          ) : null}
-
-                          <Input
-                            dir="ltr"
-                            className="h-9 min-w-0 flex-1 font-mono text-xs"
-                            placeholder={tp("transferPlaceholder")}
-                            value={xferTarget[sid] ?? ""}
-                            onChange={(e) => setXferTarget((x) => ({ ...x, [sid]: e.target.value }))}
-                          />
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="outline"
-                                className="shrink-0"
-                                disabled={busy}
-                                aria-label={tp("tooltipTransfer")}
-                                onClick={() => {
-                                  const tgt = (xferTarget[sid] ?? "").trim()
-                                  if (!tgt) return
-                                  void runMut("user_service_transfer", { service_id: sid, target: tgt })
-                                }}
-                              >
-                                <Send className="size-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>{tp("tooltipTransfer")}</p>
-                            </TooltipContent>
-                          </Tooltip>
-
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="destructive"
-                                className="shrink-0"
-                                disabled={busy}
-                                aria-label={tp("tooltipDeleteService")}
-                                onClick={() => {
-                                  if (!window.confirm(tp("confirmDeleteService"))) return
-                                  void runMut("service_delete", { service_id: sid })
-                                }}
-                              >
-                                <Archive className="size-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>{tp("tooltipDeleteService")}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <DashboardUserServiceCard
+                    key={sid}
+                    svc={svc}
+                    plans={plans}
+                    isFa={isFa}
+                    isReseller={isReseller}
+                    busy={busy}
+                    tp={tp}
+                    onOpenAction={(kind, s) => setActionDlg({ kind, sid: num(s.id), svc: s })}
+                    onPatchAlert={patchAlert}
+                  />
                 )
               })}
             </div>

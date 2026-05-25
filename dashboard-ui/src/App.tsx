@@ -4,6 +4,7 @@ import { Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { AppSidebar } from "@/components/app-sidebar"
 import { DashboardAdminView } from "@/components/dashboard-admin-view"
+import type { ReceiptsListFilters } from "@/components/dashboard-receipts-admin"
 import { ImpersonationBanner } from "@/components/impersonation-banner"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,6 +23,8 @@ import {
 import { DashboardLogin } from "@/components/dashboard-login"
 import { buildAdminStateQuery } from "@/lib/dash-pagination"
 import { mapTabForReseller, parseActiveDashTab, parseDashFromPath } from "@/lib/dash-tab"
+import { resolveLegacyPlansTab, writePlansViewToUrl } from "@/lib/plans-subview"
+import { resolveLegacySiteTab, writeSiteSubtabToUrl } from "@/lib/site-settings-subtab"
 import { formatNumber } from "@/lib/format-locale"
 import {
   ADMIN_NAV_SECTIONS,
@@ -39,20 +42,20 @@ type DashPersona = "admin" | "reseller" | "user"
 
 const RESELLER_ALLOWED_BY_PERMISSION: Record<string, string | null> = {
   dashboard: null,
-  monitoring: null,
-  reseller_finance: null,
+  monitoring: "services.manage",
   users: "users.manage",
   resellers: "users.manage",
   users_bulk: "users.bulk",
   plans: "plans.manage",
   plan_cats: "plans.manage",
   cards: "plans.manage",
-  referral: null,
+  referral: "users.manage",
   discounts: "plans.manage",
   reseller_bots: "services.manage",
   bot_ui: "services.manage",
   broadcast: "broadcast.send",
   receipts: "receipts.review",
+  reseller_charge: "plans.manage",
   reseller_workspace: null,
 }
 
@@ -60,6 +63,20 @@ function App() {
   const { t, i18n } = useTranslation()
   const { theme, setTheme } = useTheme()
   const boot = useMemo(() => window.__SIMPLEVPBOT_DASH__ || {}, [])
+
+  useEffect(() => {
+    const vars = (boot as { branding?: { cssVariables?: Record<string, string> } }).branding?.cssVariables
+    if (!vars) return
+    const root = document.documentElement
+    for (const [key, val] of Object.entries(vars)) {
+      if (val) root.style.setProperty(key, val)
+    }
+    return () => {
+      for (const key of Object.keys(vars)) {
+        root.style.removeProperty(key)
+      }
+    }
+  }, [boot])
 
   const isAdmin = Boolean(boot.isAdmin)
   const isReseller = Boolean(boot.isReseller)
@@ -78,13 +95,58 @@ function App() {
   const dashStateAbortRef = useRef<AbortController | null>(null)
   /** Query params for GET admin/state list pagination (e.g. users_page). */
   const [listQuery, setListQuery] = useState<Record<string, string>>({})
+
+  const receiptsListFilters = useMemo(
+    (): ReceiptsListFilters => ({
+      q: listQuery.receipts_q ?? "",
+      status: listQuery.receipts_status ?? "all",
+      sort: listQuery.receipts_sort ?? "created_desc",
+      dateFrom: listQuery.receipts_date_from ?? "",
+      dateTo: listQuery.receipts_date_to ?? "",
+      amountMin: listQuery.receipts_amount_min ?? "",
+      amountMax: listQuery.receipts_amount_max ?? "",
+    }),
+    [listQuery]
+  )
+
+  const onReceiptsListFiltersChange = useCallback((patch: Partial<ReceiptsListFilters>) => {
+    setListQuery((prev) => {
+      const next: Record<string, string> = { ...prev, receipts_page: "1" }
+      const apply = (key: string, val: string, omitWhen: string[] = [""]) => {
+        const v = val.trim()
+        if (omitWhen.includes(v)) {
+          delete next[key]
+        } else {
+          next[key] = v
+        }
+      }
+      if ("q" in patch) apply("receipts_q", patch.q ?? "")
+      if ("status" in patch) apply("receipts_status", patch.status ?? "all", ["", "all"])
+      if ("sort" in patch) apply("receipts_sort", patch.sort ?? "created_desc", ["", "created_desc"])
+      if ("dateFrom" in patch) apply("receipts_date_from", patch.dateFrom ?? "")
+      if ("dateTo" in patch) apply("receipts_date_to", patch.dateTo ?? "")
+      if ("amountMin" in patch) apply("receipts_amount_min", patch.amountMin ?? "")
+      if ("amountMax" in patch) apply("receipts_amount_max", patch.amountMax ?? "")
+      return next
+    })
+  }, [])
   const [lang, setLang] = useState<"fa" | "en">(boot.lang === "fa" ? "fa" : "en")
   const [activeTab, setActiveTab] = useState(() => {
     const b = window.__SIMPLEVPBOT_DASH__ || {}
     if (!b.isAdmin && !b.isReseller) return "home"
-    if (typeof window !== "undefined")
-      return parseDashFromPath(window.location.pathname, { reseller: Boolean(b.isReseller) }).tab
-    return parseActiveDashTab(b)
+    let tab =
+      typeof window !== "undefined"
+        ? parseDashFromPath(window.location.pathname, { reseller: Boolean(b.isReseller) }).tab
+        : parseActiveDashTab(b)
+    const legSite = resolveLegacySiteTab(tab)
+    if (legSite.subtab && typeof window !== "undefined") {
+      writeSiteSubtabToUrl(legSite.subtab)
+    }
+    const legPlans = resolveLegacyPlansTab(legSite.tab)
+    if (legPlans.view && typeof window !== "undefined") {
+      writePlansViewToUrl(legPlans.view)
+    }
+    return legPlans.tab
   })
   const [userDetailId, setUserDetailId] = useState<number | null>(() => {
     const b = window.__SIMPLEVPBOT_DASH__ || {}
@@ -104,6 +166,7 @@ function App() {
   })
 
   const dashboardBaseUrl = boot.dashboardUrl || `${window.location.origin}/dashboard/`
+  const dashboardLoginUrl = `${dashboardBaseUrl.replace(/\/?$/, "")}/login/`
   const allowedResellerTabs = useMemo(() => {
     if (!isReseller) return new Set<string>()
     const server = data?.resellerAllowedTabs
@@ -191,10 +254,27 @@ function App() {
     [boot.restUrl, boot.nonce]
   )
 
+  const isLoggedIn = boot.isLoggedIn !== false
+
+  const redirectToDashboardLogin = useCallback(() => {
+    if (!isLoggedIn) return
+    const path = window.location.pathname.replace(/\/+$/, "") || "/"
+    if (/\/dashboard\/login$/i.test(path)) return
+    window.location.href = dashboardLoginUrl
+  }, [dashboardLoginUrl, isLoggedIn])
+
   const fetchDashState = useCallback(
     (opts?: { refreshPanelHealth?: boolean; refreshLivePanelMetrics?: boolean }) => {
+      if (!isLoggedIn) return
       const restBase = (boot.restUrl || "").replace(/\/$/, "")
       if (!restBase) return
+      const handleAuthResponse = (r: Response) => {
+        if (r.status === 401 || r.status === 403) {
+          redirectToDashboardLogin()
+          return null
+        }
+        return r.json()
+      }
       if (!isOperator) {
         dashStateAbortRef.current?.abort()
         const ac = new AbortController()
@@ -208,9 +288,9 @@ function App() {
           credentials: "include",
           signal,
         })
-          .then((r) => r.json())
+          .then(handleAuthResponse)
           .then((json) => {
-            if (signal.aborted) return
+            if (signal.aborted || json === null) return
             setData(json)
           })
           .catch((err: unknown) => {
@@ -225,14 +305,22 @@ function App() {
       dashStateAbortRef.current = ac
       const { signal } = ac
       const tab = activeTab
+      const feat = (data?.settings as Record<string, unknown> | undefined)?.features
+      const l2tpOn: boolean =
+        typeof feat === "object" &&
+        feat !== null &&
+        (feat as Record<string, unknown>).l2tp === true
       const q = buildAdminStateQuery(listQuery, {
         refreshPanelHealth: opts?.refreshPanelHealth,
         refreshLivePanelMetrics: opts?.refreshLivePanelMetrics,
         activeTab: tab,
         resellerOperator: isReseller,
+        l2tpEnabled: l2tpOn,
+        includePlansForUserDetail:
+          tab === "users" && userDetailId != null && userDetailId > 0,
       })
       const applyJson = (json: unknown) => {
-        if (signal.aborted) return
+        if (signal.aborted || json === null) return
         setData(json as DashData)
       }
       const onFetchError = (err: unknown) => {
@@ -251,7 +339,7 @@ function App() {
           credentials: "include",
           signal,
         })
-          .then((r) => r.json())
+          .then(handleAuthResponse)
           .then(applyJson)
           .catch(onFetchError)
         return
@@ -264,12 +352,28 @@ function App() {
         credentials: "include",
         signal,
       })
-        .then((r) => r.json())
+        .then(handleAuthResponse)
         .then(applyJson)
         .catch(onFetchError)
     },
-    [boot, isOperator, isAdmin, isReseller, listQuery, activeTab, resellerContextId]
+    [
+      boot,
+      isLoggedIn,
+      isOperator,
+      isAdmin,
+      isReseller,
+      listQuery,
+      activeTab,
+      resellerContextId,
+      userDetailId,
+      redirectToDashboardLogin,
+    ]
   )
+
+  useEffect(() => {
+    if (!isLoggedIn) return
+    fetchDashState()
+  }, [isLoggedIn, fetchDashState])
 
   useEffect(() => {
     if (!isOperator) return
@@ -283,8 +387,25 @@ function App() {
   }, [isOperator, dashboardBaseUrl, isReseller])
 
   useEffect(() => {
-    fetchDashState()
-  }, [fetchDashState])
+    if (!isOperator) return
+    const legSite = resolveLegacySiteTab(activeTab)
+    const legPlans = resolveLegacyPlansTab(legSite.tab)
+    const nextTab = legPlans.tab
+    if (nextTab === activeTab && !legSite.subtab && !legPlans.view) return
+    const base = dashboardBaseUrl.replace(/\/?$/, "")
+    if (legSite.subtab) writeSiteSubtabToUrl(legSite.subtab)
+    if (legPlans.view) writePlansViewToUrl(legPlans.view)
+    let url: string
+    if (legSite.subtab != null) {
+      url = `${base}/site_settings/?site_subtab=${encodeURIComponent(legSite.subtab)}`
+    } else if (legPlans.view === "wholesale") {
+      url = `${base}/plans/?plans_view=wholesale`
+    } else {
+      url = `${base}/${encodeURIComponent(nextTab)}/`
+    }
+    window.history.replaceState({ tab: nextTab }, "", url)
+    setActiveTab(nextTab)
+  }, [isOperator, activeTab, dashboardBaseUrl])
 
   useEffect(() => {
     if (!isReseller) return
@@ -320,7 +441,7 @@ function App() {
 
   useEffect(() => {
     const pollHere =
-      activeTab === "dashboard" || (!isReseller && activeTab === "monitoring")
+      activeTab === "dashboard" || activeTab === "monitoring"
     if (!isOperator || !pollHere) return
     const ms = 25000
     const id = window.setInterval(() => {
@@ -352,7 +473,11 @@ function App() {
         return
       }
       const loc = parseDashFromPath(window.location.pathname, { reseller: isReseller })
-      setActiveTab(safeResellerTab(loc.tab))
+      const legSite = resolveLegacySiteTab(loc.tab)
+      const legPlans = resolveLegacyPlansTab(legSite.tab)
+      if (legSite.subtab) writeSiteSubtabToUrl(legSite.subtab)
+      if (legPlans.view) writePlansViewToUrl(legPlans.view)
+      setActiveTab(safeResellerTab(legPlans.tab))
       setUserDetailId(loc.userDetailId)
       setResellerContextId(loc.resellerContextId ?? null)
     }
@@ -511,6 +636,8 @@ function App() {
                 return next
               })
             }}
+            receiptsListFilters={receiptsListFilters}
+            onReceiptsListFiltersChange={onReceiptsListFiltersChange}
             onRefreshPanelHealth={() => fetchDashState({ refreshPanelHealth: true })}
             onRefreshLivePanelMetrics={() => fetchDashState({ refreshLivePanelMetrics: true })}
             onAdminMutateSuccess={() => fetchDashState()}

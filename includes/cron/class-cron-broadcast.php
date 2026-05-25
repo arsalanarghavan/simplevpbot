@@ -64,20 +64,17 @@ class SimpleVPBot_Cron_Broadcast {
 	}
 
 	/**
-	 * Telegram HTML caption/text → readable plain (for Bale when HTML is not rendered client-side).
+	 * Plain text fallback when formatted send fails.
 	 *
-	 * @param string $html HTML subset from broadcast sanitizer.
+	 * @param string $html Stored canonical HTML.
 	 * @return string
 	 */
 	private static function telegram_html_to_plain( $html ) {
-		$t = (string) $html;
-		$t = preg_replace( '/<\/p>\s*/i', "\n\n", $t );
-		$t = preg_replace( '/<br\s*\/?>/i', "\n", $t );
-		$t = preg_replace( '/<\/blockquote>\s*/i', "\n\n", $t );
-		$t = preg_replace( '/<\/pre>\s*/i', "\n\n", $t );
-		$t = wp_strip_all_tags( $t );
-		$t = html_entity_decode( $t, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-		return trim( preg_replace( '/\n{3,}/', "\n\n", $t ) );
+		if ( class_exists( 'SimpleVPBot_Broadcast_Format' ) ) {
+			return SimpleVPBot_Broadcast_Format::html_to_plain( $html );
+		}
+		$t = wp_strip_all_tags( (string) $html );
+		return trim( preg_replace( "/\n{3,}/", "\n\n", $t ) );
 	}
 
 	/**
@@ -128,7 +125,7 @@ class SimpleVPBot_Cron_Broadcast {
 	}
 
 	/**
-	 * Bale messenger often shows caption/body as plain text; strip HTML so users do not see raw tags.
+	 * Per-platform body: Telegram HTML; Bale native Markdown (no parse_mode).
 	 *
 	 * @param array<string, mixed> $payload Queue payload.
 	 * @param string               $bot tg|bale.
@@ -138,18 +135,41 @@ class SimpleVPBot_Cron_Broadcast {
 		if ( 'bale' !== (string) $bot ) {
 			return $payload;
 		}
-		$pm = isset( $payload['parse_mode'] ) ? trim( (string) $payload['parse_mode'] ) : '';
-		if ( '' === $pm || strtoupper( $pm ) !== 'HTML' ) {
-			return $payload;
-		}
 		$text = isset( $payload['text'] ) ? (string) $payload['text'] : '';
 		if ( '' === $text ) {
 			unset( $payload['parse_mode'] );
 			return $payload;
 		}
-		$payload['text'] = self::telegram_html_to_plain( $text );
+		if ( class_exists( 'SimpleVPBot_Broadcast_Format' ) ) {
+			$payload['text'] = SimpleVPBot_Broadcast_Format::format_for_bale_markdown( $text );
+		} else {
+			$payload['text'] = self::telegram_html_to_plain( $text );
+		}
 		unset( $payload['parse_mode'] );
 		return $payload;
+	}
+
+	/**
+	 * Whether Bale rejected Markdown and a plain-text resend is worth trying.
+	 *
+	 * @param array<string, mixed> $r API body.
+	 * @return bool
+	 */
+	private static function should_retry_bale_as_plain( array $r ) {
+		if ( ! empty( $r['ok'] ) ) {
+			return false;
+		}
+		$code = isset( $r['error_code'] ) ? (int) $r['error_code'] : 0;
+		if ( 400 !== $code ) {
+			return false;
+		}
+		$desc = strtolower( (string) ( $r['description'] ?? '' ) );
+		foreach ( array( 'parse', 'entity', 'entities', 'formatted', 'markdown', "can't parse", 'cannot parse' ) as $needle ) {
+			if ( false !== strpos( $desc, $needle ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -221,6 +241,32 @@ class SimpleVPBot_Cron_Broadcast {
 	}
 
 	/**
+	 * API client for a queue row (reseller owner token when set).
+	 *
+	 * @param string $bot         tg|bale.
+	 * @param int    $owner_rid   Broadcast owner_svp_user_id.
+	 * @param string $tg_tok      Site telegram token.
+	 * @param string $bl_tok      Site bale token.
+	 * @return SimpleVPBot_Telegram_Client|SimpleVPBot_Bale_Client|null
+	 */
+	private static function client_for_broadcast_bot( $bot, $owner_rid, $tg_tok, $bl_tok ) {
+		$plat = 'bale' === (string) $bot ? 'bale' : 'telegram';
+		if ( (int) $owner_rid > 0 && class_exists( 'SimpleVPBot_Bot_Runtime' ) ) {
+			$c = SimpleVPBot_Bot_Runtime::client_for_reseller( $plat, (int) $owner_rid );
+			if ( $c ) {
+				return $c;
+			}
+		}
+		if ( 'bale' === $plat && '' !== $bl_tok ) {
+			return new SimpleVPBot_Bale_Client( $bl_tok );
+		}
+		if ( '' !== $tg_tok ) {
+			return new SimpleVPBot_Telegram_Client( $tg_tok );
+		}
+		return null;
+	}
+
+	/**
 	 * Run batch.
 	 */
 	public static function run() {
@@ -237,6 +283,7 @@ class SimpleVPBot_Cron_Broadcast {
 		$bl_tok = (string) SimpleVPBot_Settings::get( 'bale_token', '' );
 		$usleep = max( 0, (int) SimpleVPBot_Settings::get( 'broadcast_usleep_us', 280000 ) );
 		$maxtry = max( 1, min( 20, (int) SimpleVPBot_Settings::get( 'broadcast_max_retries', 8 ) ) );
+		$owners = array();
 
 		foreach ( $rows as $row ) {
 			$payload = json_decode( (string) $row->payload_json, true );
@@ -261,25 +308,30 @@ class SimpleVPBot_Cron_Broadcast {
 				SimpleVPBot_Model_Broadcast::maybe_mark_broadcast_done( $bid );
 				continue;
 			}
-			$bot = (string) $row->bot;
-			$payload = self::normalize_broadcast_payload_for_platform( $payload, $bot );
+			$bot            = (string) $row->bot;
+			$canonical_html = (string) ( $payload['text'] ?? '' );
+			$payload        = self::normalize_broadcast_payload_for_platform( $payload, $bot );
 			list($method, $api_params) = self::build_send_params( $payload );
 			$ok = false;
 			$r  = array( 'ok' => false, 'description' => 'no_token' );
-			if ( 'tg' === $bot && $tg_tok ) {
-				$c = new SimpleVPBot_Telegram_Client( $tg_tok );
+			if ( ! isset( $owners[ $bid ] ) ) {
+				$bcast                 = SimpleVPBot_Model_Broadcast::find( $bid );
+				$owners[ $bid ]        = $bcast ? (int) ( $bcast->owner_svp_user_id ?? 0 ) : 0;
+			}
+			$owner_rid = (int) $owners[ $bid ];
+			$c         = self::client_for_broadcast_bot( $bot, $owner_rid, $tg_tok, $bl_tok );
+			if ( $c instanceof SimpleVPBot_Telegram_Client ) {
 				$r = self::telegram_send_with_method( $c, $method, $api_params, $timeout );
 				$ok = ! empty( $r['ok'] );
 				if ( ! $ok && self::should_retry_telegram_html_as_plain( $r, $payload ) ) {
 					$fb = $payload;
-					$fb['text'] = self::telegram_html_to_plain( (string) ( $fb['text'] ?? '' ) );
+					$fb['text'] = self::telegram_html_to_plain( $canonical_html );
 					unset( $fb['parse_mode'] );
 					list($method_fb, $api_fb) = self::build_send_params( $fb );
 					$r  = self::telegram_send_with_method( $c, $method_fb, $api_fb, $timeout );
 					$ok = ! empty( $r['ok'] );
 				}
-			} elseif ( 'bale' === $bot && $bl_tok ) {
-				$c = new SimpleVPBot_Bale_Client( $bl_tok );
+			} elseif ( $c instanceof SimpleVPBot_Bale_Client ) {
 				if ( 'sendMediaGroup' === $method ) {
 					$r = $c->send_media_group( $api_params, $timeout );
 				} elseif ( 'sendPhoto' === $method ) {
@@ -288,6 +340,20 @@ class SimpleVPBot_Cron_Broadcast {
 					$r = $c->send_message( $api_params, $timeout );
 				}
 				$ok = ! empty( $r['ok'] );
+				if ( ! $ok && self::should_retry_bale_as_plain( $r ) ) {
+					$fb = $payload;
+					$fb['text'] = self::telegram_html_to_plain( $canonical_html );
+					unset( $fb['parse_mode'] );
+					list($method_fb, $api_fb) = self::build_send_params( $fb );
+					if ( 'sendMediaGroup' === $method_fb ) {
+						$r = $c->send_media_group( $api_fb, $timeout );
+					} elseif ( 'sendPhoto' === $method_fb ) {
+						$r = $c->send_photo( $api_fb, $timeout );
+					} else {
+						$r = $c->send_message( $api_fb, $timeout );
+					}
+					$ok = ! empty( $r['ok'] );
+				}
 			} else {
 				$r = array( 'ok' => false, 'description' => 'no_token', 'error_code' => 400 );
 			}

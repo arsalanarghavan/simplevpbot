@@ -37,6 +37,7 @@ class SimpleVPBot_Settings {
 			'panel_password'             => '',
 			'panel_api_base'             => 'panel/api',
 			'panel_login_secret'         => '',
+			'panel_api_token'            => '',
 			'subscription_public_base'   => '',
 			'portal_page_id'             => 0,
 			// پلن Xray فعال برای قیمت وقتی سرویس plan_id ندارد یا پلنش غیرفعال است.
@@ -82,6 +83,18 @@ class SimpleVPBot_Settings {
 			'referral_require_approved_referrer' => true,
 			'telegram_bot_username'          => '',
 			'bale_bot_username'              => '',
+			'force_join_telegram_enabled'    => false,
+			'force_join_telegram_chat_id'    => 0,
+			'force_join_telegram_username'     => '',
+			'force_join_telegram_invite_link'  => '',
+			'force_join_telegram_prompt_text'  => '',
+			'force_join_telegram_announce_text' => '',
+			'force_join_bale_enabled'          => false,
+			'force_join_bale_chat_id'          => 0,
+			'force_join_bale_username'         => '',
+			'force_join_bale_invite_link'      => '',
+			'force_join_bale_prompt_text'      => '',
+			'force_join_bale_announce_text'    => '',
 			'broadcast_batch_size'           => 20,
 			'broadcast_usleep_us'            => 280000,
 			'broadcast_max_retries'          => 8,
@@ -94,8 +107,35 @@ class SimpleVPBot_Settings {
 			'crisis_mode'                    => false,
 			'suppress_bulk_user_notifications' => false,
 			'cards_display_mode'             => 'list',
+			'cards_rotation_cursors'         => array(),
+			'receipt_reject_reasons'         => array(
+				'مبلغ واریزی با مبلغ سفارش مطابقت ندارد.',
+				'تصویر رسید واضح نیست.',
+				'رسید تکراری یا نامعتبر است.',
+				'پرداخت در حساب مقصد پیدا نشد.',
+			),
 			'default_bot_locale'             => 'fa',
 			'bot_ui_layouts'                 => array(),
+			/** When false, L2TP is hidden from dashboard, bot, and portal (data/cron unchanged). */
+			'l2tp_enabled'                   => false,
+			'dashboard_site_name'            => '',
+			'dashboard_site_icon_url'        => '',
+			'branding_logo_url'              => '',
+			'branding_favicon_url'           => '',
+			'branding_theme_primary'         => '',
+			'branding_theme_accent'          => '',
+			'branding_custom_domain'         => '',
+			'support_info'                   => '',
+			'support_telegram_username'      => '',
+			'support_bale_username'          => '',
+			'telegram_proxy_enabled'         => false,
+			'telegram_proxy_type'            => 'http',
+			'telegram_proxy_host'            => '',
+			'telegram_proxy_port'            => 0,
+			'telegram_proxy_username'        => '',
+			'telegram_proxy_password'        => '',
+			'telegram_api_base_url'          => '',
+			'default_reseller_permissions'   => array(),
 		);
 	}
 
@@ -274,6 +314,80 @@ class SimpleVPBot_Settings {
 			if ( array_key_exists( $k, $all ) ) {
 				$out[ $k ] = $all[ $k ];
 			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Dashboard sidebar display name (falls back to WP site name).
+	 *
+	 * @return string
+	 */
+	public static function dashboard_site_display_name() {
+		$name = trim( (string) self::get( 'dashboard_site_name', '' ) );
+		return '' !== $name ? $name : (string) get_bloginfo( 'name' );
+	}
+
+	/**
+	 * Dashboard sidebar icon URL (empty if unset).
+	 *
+	 * @return string
+	 */
+	public static function dashboard_site_icon_url_resolved() {
+		return esc_url_raw( trim( (string) self::get( 'dashboard_site_icon_url', '' ) ) );
+	}
+
+	/**
+	 * Settings payload for super-admin dashboard (secrets masked).
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function settings_for_dashboard_admin() {
+		$all = self::all();
+		unset( $all['telegram_webhook_secret'], $all['bale_webhook_secret'] );
+		$secret_keys = array(
+			'telegram_token',
+			'bale_token',
+			'panel_password',
+			'panel_api_token',
+			'portal_link_secret',
+			'crypto_nowpayments_api_key',
+			'crypto_nowpayments_ipn_secret',
+			'crypto_ipn_path_secret',
+			'bale_wallet_provider_token',
+			'telegram_proxy_password',
+		);
+		foreach ( $secret_keys as $k ) {
+			if ( ! empty( $all[ $k ] ) ) {
+				$all[ $k . '_set' ] = true;
+				if ( 'telegram_proxy_password' === $k ) {
+					$all[ $k ] = '';
+				} else {
+					unset( $all[ $k ] );
+				}
+			}
+		}
+		if ( ! is_array( $all['default_reseller_permissions'] ?? null ) || empty( $all['default_reseller_permissions'] ) ) {
+			$all['default_reseller_permissions'] = class_exists( 'SimpleVPBot_Model_User' )
+				? SimpleVPBot_Model_User::default_reseller_permissions_template()
+				: array();
+		}
+		return $all;
+	}
+
+	/**
+	 * Normalized default reseller permission map for storage/UI.
+	 *
+	 * @param array<string, mixed>|null $raw Raw from POST.
+	 * @return array<string, bool>
+	 */
+	public static function normalize_default_reseller_permissions( $raw ) {
+		$keys = class_exists( 'SimpleVPBot_Model_User' )
+			? SimpleVPBot_Model_User::RESELLER_PERMISSION_KEYS
+			: array();
+		$out  = array();
+		foreach ( $keys as $k ) {
+			$out[ $k ] = is_array( $raw ) && array_key_exists( $k, $raw ) ? ! empty( $raw[ $k ] ) : true;
 		}
 		return $out;
 	}

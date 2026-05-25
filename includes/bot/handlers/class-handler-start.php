@@ -21,24 +21,18 @@ class SimpleVPBot_Handler_Start {
 	 * @return string Empty or "\n🔔 …" in user's locale.
 	 */
 	private static function welcome_referrer_line( $user ) {
-		$bid = (int) ( $user->invited_by ?? 0 );
-		if ( $bid < 1 ) {
+		if ( ! class_exists( 'SimpleVPBot_Bot_Admin_User_Caption' ) ) {
 			return '';
 		}
-		$ref = SimpleVPBot_Model_User::find( $bid );
-		if ( ! $ref ) {
+		$loc  = SimpleVPBot_Texts::locale_for_user( $user );
+		$line = SimpleVPBot_Bot_Admin_User_Caption::invited_by_line( $user, $loc );
+		if ( '' === $line ) {
 			return '';
 		}
-		$rn = trim( (string) ( $ref->first_name ?? '' ) . ' ' . (string) ( $ref->last_name ?? '' ) );
-		if ( '' === $rn ) {
-			$un = trim( (string) ( $ref->username ?? '' ) );
-			$rn = '' !== $un ? ( '@' . ltrim( $un, '@' ) ) : ( '#' . (int) $ref->id );
-		}
-		$loc = SimpleVPBot_Texts::locale_for_user( $user );
 		if ( 'en' === $loc ) {
-			return "\n🔔 You joined via an invite from " . $rn . '.';
+			return "\n" . str_replace( '🔗 ', '🔔 ', $line ) . '.';
 		}
-		return "\n🔔 با معرفی از طرف " . $rn . '.';
+		return "\n" . str_replace( '🔗 ', '🔔 ', $line ) . '.';
 	}
 
 	/**
@@ -87,9 +81,17 @@ class SimpleVPBot_Handler_Start {
 			} else {
 				$data['bale_user_id'] = $from_id;
 			}
-			$inviter_ok = SimpleVPBot_Referral_Service::validate_inviter_id( $inviter_candidate, 0 );
+			$inviter_ok = class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				? SimpleVPBot_Bot_Reseller_Scope::resolve_invited_by_for_signup( $inviter_candidate )
+				: SimpleVPBot_Referral_Service::validate_inviter_id( $inviter_candidate, 0 );
 			if ( $inviter_ok > 0 ) {
 				$data['invited_by'] = $inviter_ok;
+			}
+			if ( class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot() ) {
+				$signup_rid = (int) SimpleVPBot_Bot_Context::reseller_svp_user_id();
+				if ( $signup_rid > 0 ) {
+					$data['signup_reseller_svp_id'] = $signup_rid;
+				}
 			}
 			$uid  = SimpleVPBot_Model_User::insert( $data );
 			$user = SimpleVPBot_Model_User::find( $uid );
@@ -140,11 +142,14 @@ class SimpleVPBot_Handler_Start {
 		}
 
 		if ( 'blocked' === $user->status ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '⛔ دسترسی شما مسدود است.' );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.blocked', $user ) );
 			return;
 		}
 
 		if ( 'approved' === $user->status ) {
+			if ( class_exists( 'SimpleVPBot_Service_Reconcile' ) ) {
+				SimpleVPBot_Service_Reconcile::reconcile_for_user( (int) $user->id );
+			}
 			$welcome_tpl = SimpleVPBot_Texts::get_for_user( 'msg.welcome', $user );
 			$ref_line    = self::welcome_referrer_line( $user );
 			$msg         = SimpleVPBot_Texts::format(

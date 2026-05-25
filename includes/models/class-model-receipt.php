@@ -222,6 +222,99 @@ class SimpleVPBot_Model_Receipt {
 	 * @param int $exclude_transaction_id Optional pending transaction id to ignore.
 	 * @return float
 	 */
+	/**
+	 * Dashboard list filters: WHERE fragments and ORDER BY (alias `r` on receipts table).
+	 *
+	 * @param array<string, mixed> $params receipts_q, receipts_status, receipts_sort, receipts_date_from, receipts_date_to, receipts_amount_min, receipts_amount_max.
+	 * @param string               $alias  Receipt table alias.
+	 * @param string               $user_alias User table alias when join_users is true.
+	 * @return array{join_users:bool,where_sql:string,where_values:array<int|float|string>,order_sql:string}
+	 */
+	public static function admin_list_query_parts( array $params, $alias = 'r', $user_alias = 'u' ) {
+		global $wpdb;
+		$a  = preg_replace( '/[^a-zA-Z0-9_]/', '', (string) $alias );
+		$a  = '' !== $a ? $a : 'r';
+		$ua = preg_replace( '/[^a-zA-Z0-9_]/', '', (string) $user_alias );
+		$ua = '' !== $ua ? $ua : 'u';
+
+		$parts  = array();
+		$values = array();
+		$join   = false;
+
+		$status = sanitize_key( (string) ( $params['receipts_status'] ?? 'all' ) );
+		if ( 'pending' === $status ) {
+			$parts[] = " AND {$a}.status IN ('pending','processing')";
+		} elseif ( in_array( $status, array( 'approved', 'rejected', 'processing' ), true ) ) {
+			$parts[]  = " AND {$a}.status = %s";
+			$values[] = $status;
+		}
+
+		$df = trim( (string) ( $params['receipts_date_from'] ?? '' ) );
+		if ( '' !== $df && preg_match( '/^\d{4}-\d{2}-\d{2}/', $df ) ) {
+			$parts[]  = " AND {$a}.created_at >= %s";
+			$values[] = substr( $df, 0, 19 );
+		}
+		$dt = trim( (string) ( $params['receipts_date_to'] ?? '' ) );
+		if ( '' !== $dt && preg_match( '/^\d{4}-\d{2}-\d{2}/', $dt ) ) {
+			$parts[]  = " AND {$a}.created_at <= %s";
+			$values[] = substr( $dt, 0, 19 );
+		}
+
+		$amin_raw = trim( (string) ( $params['receipts_amount_min'] ?? '' ) );
+		if ( '' !== $amin_raw && is_numeric( str_replace( ',', '.', $amin_raw ) ) ) {
+			$parts[]  = " AND {$a}.amount >= %f";
+			$values[] = (float) str_replace( ',', '.', $amin_raw );
+		}
+		$amax_raw = trim( (string) ( $params['receipts_amount_max'] ?? '' ) );
+		if ( '' !== $amax_raw && is_numeric( str_replace( ',', '.', $amax_raw ) ) ) {
+			$parts[]  = " AND {$a}.amount <= %f";
+			$values[] = (float) str_replace( ',', '.', $amax_raw );
+		}
+
+		$q = trim( (string) ( $params['receipts_q'] ?? '' ) );
+		if ( strlen( $q ) > 128 ) {
+			$q = substr( $q, 0, 128 );
+		}
+		if ( '' !== $q ) {
+			if ( preg_match( '/^\d+$/', $q ) ) {
+				$n        = (int) $q;
+				$like_amt = '%' . $wpdb->esc_like( $q ) . '%';
+				$parts[]  = " AND ( {$a}.id = %d OR {$a}.user_id = %d OR {$a}.transaction_id = %d OR CAST({$a}.amount AS CHAR) LIKE %s )";
+				$values[] = $n;
+				$values[] = $n;
+				$values[] = $n;
+				$values[] = $like_amt;
+			} elseif ( preg_match( '/^\d+[\d.,]*$/', $q ) ) {
+				$parts[]  = " AND {$a}.amount = %f";
+				$values[] = (float) str_replace( ',', '.', $q );
+			} else {
+				$join     = true;
+				$u        = ltrim( trim( $q ), '@' );
+				$like_u   = '%' . $wpdb->esc_like( $u ) . '%';
+				$parts[]  = " AND ( {$ua}.username LIKE %s OR CONCAT(COALESCE({$ua}.first_name,''),' ',COALESCE({$ua}.last_name,'')) LIKE %s )";
+				$values[] = $like_u;
+				$values[] = $like_u;
+			}
+		}
+
+		$sort = sanitize_key( (string) ( $params['receipts_sort'] ?? 'created_desc' ) );
+		$orders = array(
+			'created_desc' => "{$a}.created_at DESC, {$a}.id DESC",
+			'created_asc'  => "{$a}.created_at ASC, {$a}.id ASC",
+			'amount_desc'  => "{$a}.amount DESC, {$a}.id DESC",
+			'amount_asc'   => "{$a}.amount ASC, {$a}.id ASC",
+			'id_desc'      => "{$a}.id DESC",
+		);
+		$order_sql = isset( $orders[ $sort ] ) ? $orders[ $sort ] : $orders['created_desc'];
+
+		return array(
+			'join_users'   => $join,
+			'where_sql'    => implode( '', $parts ),
+			'where_values' => $values,
+			'order_sql'    => $order_sql,
+		);
+	}
+
 	public static function approved_sum_for_card_today( $card_id, $exclude_transaction_id = 0 ) {
 		global $wpdb;
 		$t   = self::table();
