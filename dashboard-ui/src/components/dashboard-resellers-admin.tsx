@@ -1,8 +1,8 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { KeyRound, Layers, LayoutDashboard, LogIn, Settings2, ShieldCheck } from "lucide-react"
+import { KeyRound, LayoutDashboard, LogIn, Search, Settings2, ShieldCheck } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -108,13 +108,20 @@ function panelAllowedFromStoredRow(ex: Record<string, unknown> | undefined): boo
   return acc || price > 0
 }
 
+function isDigitOnlyQuery(raw: string): boolean {
+  const t = raw.replace(/\s/g, "")
+  if (!t) return false
+  return /^[\d۰-۹٠-٩]+$/.test(t)
+}
+
 export function DashboardResellersAdmin({
   rows,
   panels,
-  wholesaleLinesCatalog = [],
-  resellerWholesaleLineIdsMap = {},
   resellerPermissionsMap,
   resellerPanelPricesMap,
+  resellersSearchQuery = "",
+  resellersStatusFilter = "all",
+  onResellersFiltersChange,
   canManageResellerControls = true,
   canManagePanelPrices = canManageResellerControls,
   isFa,
@@ -128,8 +135,9 @@ export function DashboardResellersAdmin({
 }: {
   rows: DashRecord[]
   panels: DashRecord[]
-  wholesaleLinesCatalog?: DashRecord[]
-  resellerWholesaleLineIdsMap?: Record<string, number[]>
+  resellersSearchQuery?: string
+  resellersStatusFilter?: string
+  onResellersFiltersChange?: (patch: { q?: string; status?: string }) => void
   resellerPermissionsMap?: Record<string, Record<string, boolean> | undefined>
   resellerPanelPricesMap?: Record<string, Array<Record<string, unknown>> | undefined>
   resellerBotMap?: Record<string, { enabled?: boolean; brand?: string } | undefined>
@@ -165,9 +173,28 @@ export function DashboardResellersAdmin({
   const [priceRows, setPriceRows] = useState<PanelPriceRow[]>([])
   const [permResellerId, setPermResellerId] = useState<number | null>(null)
   const [permissions, setPermissions] = useState<Record<string, boolean>>({})
-  const [wholesaleAssignId, setWholesaleAssignId] = useState<number | null>(null)
-  const [wholesaleSelectedIds, setWholesaleSelectedIds] = useState<number[]>([])
-  const [wholesaleErr, setWholesaleErr] = useState("")
+  const [searchDraft, setSearchDraft] = useState(resellersSearchQuery)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    setSearchDraft(resellersSearchQuery)
+  }, [resellersSearchQuery])
+
+  useEffect(() => {
+    if (!onResellersFiltersChange) return
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      const next = searchDraft.trim()
+      const effective =
+        next !== "" && !isDigitOnlyQuery(next) && next.length < 2 ? "" : next
+      if (effective !== resellersSearchQuery.trim()) {
+        onResellersFiltersChange({ q: effective })
+      }
+    }, 300)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [searchDraft, resellersSearchQuery, onResellersFiltersChange])
 
   const directUsersCount = useMemo(() => {
     const m = new Map<number, number>()
@@ -184,38 +211,6 @@ export function DashboardResellersAdmin({
     const hasBot = n(form.tg_user_id) > 0 || n(form.bale_user_id) > 0
     return hasDash || hasBot
   }, [form.username, form.dashboard_password, form.tg_user_id, form.bale_user_id])
-
-  function openWholesaleAssign(rid: number) {
-    setWholesaleErr("")
-    setWholesaleAssignId(rid)
-    setWholesaleSelectedIds([...(resellerWholesaleLineIdsMap[String(rid)] ?? [])])
-  }
-
-  function toggleWholesaleLine(lid: number) {
-    setWholesaleSelectedIds((prev) =>
-      prev.includes(lid) ? prev.filter((x) => x !== lid) : [...prev, lid].sort((a, b) => a - b)
-    )
-  }
-
-  async function saveWholesaleAssign() {
-    if (wholesaleAssignId == null) return
-    setBusy(true)
-    setWholesaleErr("")
-    try {
-      const res = await postAdminMutate("reseller_wholesale_lines_assign", {
-        reseller_svp_user_id: wholesaleAssignId,
-        line_ids: wholesaleSelectedIds,
-      })
-      if (!res.ok) {
-        setWholesaleErr(res.message || tp("createError"))
-        return
-      }
-      setWholesaleAssignId(null)
-      onMutateSuccess?.()
-    } finally {
-      setBusy(false)
-    }
-  }
 
   function openPriceDialog(rid: number) {
     setPanelPriceErr("")
@@ -366,9 +361,8 @@ export function DashboardResellersAdmin({
   }
 
   const flexRow = dashFlexRowClass(isFa)
-  const showWholesaleAssign =
-    wholesaleLinesCatalog.length > 0 && !isResellerActor && canManageResellerControls
   const inputAlignClass = isFa ? "text-right" : "text-left"
+  const statusFilter = resellersStatusFilter || "all"
 
   return (
     <div className={cn("space-y-4", dashContentClass(isFa))}>
@@ -462,6 +456,32 @@ export function DashboardResellersAdmin({
         </DialogContent>
       </Dialog>
 
+      <div className={cn("flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end", flexRow)}>
+        <div className="relative min-w-0 flex-1 sm:max-w-md">
+          <Search className="pointer-events-none absolute top-1/2 size-4 -translate-y-1/2 text-muted-foreground ltr:left-3 rtl:right-3" />
+          <Input
+            className={cn("h-9", isFa ? "pr-9 pl-3 text-right" : "pl-9 pr-3")}
+            placeholder={tp("searchPlaceholder")}
+            value={searchDraft}
+            onChange={(e) => setSearchDraft(e.target.value)}
+          />
+        </div>
+        <div className="flex min-w-[10rem] flex-col gap-1">
+          <Label className="text-xs text-muted-foreground">{tp("filterStatus")}</Label>
+          <select
+            className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs"
+            value={statusFilter}
+            onChange={(e) => onResellersFiltersChange?.({ status: e.target.value })}
+          >
+            <option value="all">{tp("filterStatusAll")}</option>
+            <option value="pending">{t("usersAdmin.status_pending")}</option>
+            <option value="approved">{t("usersAdmin.status_approved")}</option>
+            <option value="rejected">{t("usersAdmin.status_rejected")}</option>
+            <option value="blocked">{t("usersAdmin.status_blocked")}</option>
+          </select>
+        </div>
+      </div>
+
       <Card>
         <CardHeader className={cn("flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between", flexRow)}>
           <div className={cn("space-y-1", isFa && "text-right")}>
@@ -521,17 +541,6 @@ export function DashboardResellersAdmin({
                           <Button type="button" variant="outline" size="icon" onClick={() => openPriceDialog(id)} disabled={!canManagePanelPrices || panels.length < 1} aria-label={tp("panelPrices")}>
                             <Settings2 className="h-4 w-4" />
                           </Button>
-                          {showWholesaleAssign ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon"
-                              onClick={() => openWholesaleAssign(id)}
-                              aria-label={tp("wholesaleLinesAssign")}
-                            >
-                              <Layers className="h-4 w-4" />
-                            </Button>
-                          ) : null}
                           <Button type="button" variant="outline" size="icon" onClick={() => { setPermResellerId(id); setPermissions({ ...(resellerPermissionsMap?.[String(id)] ?? {}) }) }} disabled={!canManageResellerControls} aria-label={tp("permissionsColumn")}>
                             <ShieldCheck className="h-4 w-4" />
                           </Button>
@@ -591,16 +600,6 @@ export function DashboardResellersAdmin({
                                   </Tooltip>
                                 ) : null}
                                 <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" onClick={() => openPriceDialog(id)} disabled={!canManagePanelPrices || panels.length < 1}><Settings2 className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>{tp("panelPrices")}</TooltipContent></Tooltip>
-                                {showWholesaleAssign ? (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button type="button" variant="ghost" size="icon" onClick={() => openWholesaleAssign(id)}>
-                                        <Layers className="h-4 w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>{tp("wholesaleLinesAssign")}</TooltipContent>
-                                  </Tooltip>
-                                ) : null}
                                 <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" onClick={() => { setPermResellerId(id); setPermissions({ ...(resellerPermissionsMap?.[String(id)] ?? {}) }) }} disabled={!canManageResellerControls}><ShieldCheck className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>{tp("permissionsColumn")}</TooltipContent></Tooltip>
                               </div>
                             </TooltipProvider>
@@ -727,56 +726,6 @@ export function DashboardResellersAdmin({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog
-        open={wholesaleAssignId != null}
-        onOpenChange={(o) => {
-          if (!o) {
-            setWholesaleAssignId(null)
-            setWholesaleErr("")
-          }
-        }}
-      >
-        <DialogContent className={cn("max-h-[85vh] overflow-y-auto sm:max-w-lg", isFa && "text-right [direction:rtl]")}>
-          <DialogHeader className={cn(isFa && "text-right sm:text-right")}>
-            <DialogTitle>{tp("wholesaleLinesDialogTitle", { id: wholesaleAssignId ?? 0 })}</DialogTitle>
-            <DialogDescription>{tp("wholesaleLinesAssignHint")}</DialogDescription>
-          </DialogHeader>
-          {wholesaleErr ? <p className="text-sm text-destructive">{wholesaleErr}</p> : null}
-          <div className="grid gap-2 py-2">
-            {wholesaleLinesCatalog.map((ln) => {
-              const lid = n(ln.id)
-              if (lid < 1) return null
-              const checked = wholesaleSelectedIds.includes(lid)
-              return (
-                <label
-                  key={lid}
-                  className={cn("flex cursor-pointer items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-sm", isFa && "flex-row-reverse justify-end")}
-                >
-                  <input type="checkbox" checked={checked} onChange={() => toggleWholesaleLine(lid)} />
-                  <span
-                    className="h-2 w-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: String(ln.badge_color ?? "#6366f1") }}
-                    aria-hidden
-                  />
-                  <span className="min-w-0 flex-1 font-medium">{String(ln.label ?? `#${lid}`)}</span>
-                  <span className="shrink-0 font-mono text-xs text-muted-foreground" dir="ltr">
-                    #{lid}
-                  </span>
-                </label>
-              )
-            })}
-          </div>
-          <DialogFooter className={cn("gap-2", isFa && "sm:flex-row-reverse")}>
-            <Button type="button" variant="outline" onClick={() => setWholesaleAssignId(null)}>
-              {t("a11y.close")}
-            </Button>
-            <Button type="button" disabled={busy} onClick={() => void saveWholesaleAssign()}>
-              {tp("wholesaleLinesSave")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={permResellerId != null} onOpenChange={(o) => !o && setPermResellerId(null)}>
         <DialogContent className={cn("max-h-[85vh] overflow-y-auto sm:max-w-lg", isFa && "text-right [direction:rtl]")}>
           <DialogHeader className={cn(isFa && "text-right sm:text-right")}>

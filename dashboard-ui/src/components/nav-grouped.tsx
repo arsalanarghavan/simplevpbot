@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { ChevronRight } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
@@ -22,12 +23,15 @@ import type { AdminNavSection } from "@/config/admin-nav"
 import { ADMIN_NAV_SECTIONS } from "@/config/admin-nav"
 import { cn } from "@/lib/utils"
 
-function collapsibleOpen(
-  entry: AdminNavSection["entries"][number],
-  activeTabKey: string
-): boolean {
-  if (entry.kind === "leaf") return entry.tabKey === activeTabKey
-  return entry.children.some((c) => c.tabKey === activeTabKey)
+function findOpenMenuId(sections: AdminNavSection[], activeTabKey: string): string | null {
+  for (const section of sections) {
+    for (const entry of section.entries) {
+      if (entry.kind === "collapsible" && entry.children.some((c) => c.tabKey === activeTabKey)) {
+        return entry.id
+      }
+    }
+  }
+  return null
 }
 
 export function NavGrouped({
@@ -44,6 +48,11 @@ export function NavGrouped({
   sections?: AdminNavSection[]
 }) {
   const { t } = useTranslation()
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+
+  useEffect(() => {
+    setOpenMenuId(findOpenMenuId(sections, activeTabKey))
+  }, [activeTabKey, sections])
 
   const itemLabel = (tabKey: string) =>
     t(`sidebar.items.${tabKey}`, { defaultValue: tabKey })
@@ -81,13 +90,13 @@ export function NavGrouped({
                 )
               }
 
-              const open = collapsibleOpen(entry, activeTabKey)
               const ParentIcon = entry.icon
               return (
                 <Collapsible
                   key={entry.id}
                   asChild
-                  defaultOpen={open}
+                  open={openMenuId === entry.id}
+                  onOpenChange={(open) => setOpenMenuId(open ? entry.id : null)}
                   className="group/collapsible"
                 >
                   <SidebarMenuItem>

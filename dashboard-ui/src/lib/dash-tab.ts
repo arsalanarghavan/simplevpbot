@@ -22,8 +22,14 @@ const TAB_SLUG_ALIASES: Record<string, string> = {
   "site-settings": "site_settings",
   "bot-ui": "bot_ui",
   "xui-panels": "xui_panels",
+  "referral-reports": "referral_reports",
+  referral_reports: "referral_reports",
+  "reseller-reports": "reseller_reports",
+  reseller_reports: "reseller_reports",
   "l2tp-servers": "l2tp_servers",
   "wholesale-lines": "plans",
+  "reseller-xui-panels": "reseller_xui_panels",
+  reseller_xui_panels: "reseller_xui_panels",
   "panel-inbounds": "configs",
 }
 

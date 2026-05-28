@@ -50,8 +50,6 @@ import {
 } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
 import type { PaginationMeta } from "@/lib/dash-pagination"
-import { WholesaleLadderTimeline } from "@/components/dashboard-wholesale-ladder-timeline"
-
 type OverviewUsers = {
   users_approved?: number
   users_pending?: number
@@ -299,7 +297,6 @@ export function DashboardOverview({
   onPanelsPerPageChange,
   compactHealthOnly = false,
   prependResellerFinance = false,
-  wholesaleLines = [],
   actorBalance = undefined,
 }: {
   overview: OverviewPayload | undefined
@@ -315,10 +312,8 @@ export function DashboardOverview({
   onPanelsPerPageChange: (perPage: number) => void
   /** Reseller / user persona: only server list, online/offline, ping. */
   compactHealthOnly?: boolean
-  /** Reseller: wholesale + wallet above charts (full overview). */
+  /** Reseller: wallet above charts (full overview). */
   prependResellerFinance?: boolean
-  /** Reseller wholesale catalog lines with ladder snapshots (dashboard only). */
-  wholesaleLines?: DashRecord[]
   /** Reseller wallet balance (toman); shown when compactHealthOnly and defined. */
   actorBalance?: number
 }) {
@@ -418,9 +413,6 @@ export function DashboardOverview({
             </Button>
           ) : null}
         </div>
-        {wholesaleLines.length > 0 ? (
-          <WholesaleLadderTimeline wholesaleLines={wholesaleLines} isFa={isFa} />
-        ) : null}
         {showFinance ? (
           <Card>
             <CardContent className={cn("flex flex-wrap items-center justify-between gap-3 pt-6", isFa && "flex-row-reverse")}>
@@ -498,9 +490,6 @@ export function DashboardOverview({
 
       {prependResellerFinance ? (
         <div className="space-y-4">
-          {wholesaleLines.length > 0 ? (
-            <WholesaleLadderTimeline wholesaleLines={wholesaleLines} isFa={isFa} />
-          ) : null}
           {typeof actorBalance === "number" ? (
             <Card>
               <CardContent

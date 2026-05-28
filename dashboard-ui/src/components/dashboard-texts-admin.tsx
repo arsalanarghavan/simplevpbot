@@ -86,6 +86,8 @@ export function DashboardTextsAdmin({
     return Array.from(m.entries()).sort(([a], [b]) => a.localeCompare(b))
   }, [texts])
 
+  const [openCategory, setOpenCategory] = useState<string | null>(null)
+
   return (
     <div className={cn("space-y-6", isFa && "text-right")}>
       <div>
@@ -94,7 +96,12 @@ export function DashboardTextsAdmin({
         <p className="mt-1 text-xs text-muted-foreground">{tp("placeholdersHint")}</p>
       </div>
       {byCategory.map(([category, rows]) => (
-        <Collapsible key={category} defaultOpen className="rounded-md border border-border">
+        <Collapsible
+          key={category}
+          open={openCategory === category}
+          onOpenChange={(open) => setOpenCategory(open ? category : null)}
+          className="rounded-md border border-border"
+        >
           <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm font-medium hover:bg-muted/50">
             <span>
               {tp("category")}: {categoryLabel(category)}

@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import { WholesaleLadderTimeline } from "@/components/dashboard-wholesale-ladder-timeline"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -39,14 +38,12 @@ function receiptUserLabel(r: DashRecord): string {
 export function DashboardResellerChargeAdmin({
   receipts,
   actorBalance,
-  wholesaleLines = [],
   customerCharges = [],
   isFa,
   onMutateSuccess,
 }: {
   receipts: DashRecord[]
   actorBalance?: number
-  wholesaleLines?: DashRecord[]
   customerCharges?: DashRecord[]
   isFa: boolean
   onMutateSuccess?: () => void
@@ -100,10 +97,6 @@ export function DashboardResellerChargeAdmin({
         <h2 className="text-lg font-medium">{tc("title")}</h2>
         <p className="text-sm text-muted-foreground">{tc("subtitle")}</p>
       </div>
-
-      {wholesaleLines.length > 0 ? (
-        <WholesaleLadderTimeline wholesaleLines={wholesaleLines} isFa={isFa} />
-      ) : null}
 
       {typeof actorBalance === "number" ? (
         <Card>

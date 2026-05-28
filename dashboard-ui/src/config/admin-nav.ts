@@ -4,10 +4,12 @@ import {
   Bot,
   FileSearch,
   LayoutDashboard,
+  Megaphone,
   PanelsTopLeft,
   Network,
   Server,
   Settings2,
+  Store,
   Users,
   Wallet,
 } from "lucide-react"
@@ -43,9 +45,11 @@ export const ADMIN_ONLY_TAB_KEYS = new Set<string>([
   "audit",
   "site_settings",
   "backup",
-  "xui_panels",
   "configs",
   "texts",
+  "reseller_reports",
+  "reseller_bots",
+  "reseller_xui_panels",
 ])
 
 /**
@@ -116,7 +120,7 @@ export function filterAdminNavForReseller(
   return reorderResellerNavSections(patched, true)
 }
 
-const RESELLER_NAV_SECTION_ORDER = ["overview", "users", "finance", "bot", "settings"]
+const RESELLER_NAV_SECTION_ORDER = ["overview", "users", "marketing", "finance", "bot", "settings"]
 
 const RESELLER_BOT_CHILD_ORDER = ["plan_cats", "reseller_bots", "bot_ui"]
 
@@ -171,7 +175,34 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
           { tabKey: "users" },
           { tabKey: "users_bulk" },
           { tabKey: "broadcast" },
+        ],
+      },
+      {
+        kind: "collapsible",
+        id: "resellers_menu",
+        icon: Store,
+        labelKey: "sidebar.groups.resellers",
+        children: [
           { tabKey: "resellers" },
+          { tabKey: "reseller_reports" },
+          { tabKey: "reseller_bots", icon: Bot },
+          { tabKey: "reseller_xui_panels", icon: Server },
+        ],
+      },
+    ],
+  },
+  {
+    id: "marketing",
+    hintKey: "sidebar.sections.marketing",
+    entries: [
+      {
+        kind: "collapsible",
+        id: "marketing_menu",
+        icon: Megaphone,
+        labelKey: "sidebar.groups.marketing",
+        children: [
+          { tabKey: "referral" },
+          { tabKey: "discounts" },
         ],
       },
     ],
@@ -189,8 +220,7 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
           { tabKey: "plans" },
           { tabKey: "cards" },
           { tabKey: "receipts" },
-          { tabKey: "referral" },
-          { tabKey: "discounts" },
+          { tabKey: "referral_reports" },
         ],
       },
     ],
@@ -205,10 +235,10 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
         icon: Bot,
         labelKey: "sidebar.groups.botSettings",
         children: [
+          { tabKey: "bots", icon: Bot },
           { tabKey: "plan_cats" },
           { tabKey: "texts" },
           { tabKey: "bot_ui", icon: PanelsTopLeft },
-          { tabKey: "bots" },
         ],
       },
     ],
@@ -222,7 +252,7 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
         id: "servers_menu",
         icon: Server,
         labelKey: "sidebar.groups.servers",
-         children: [
+        children: [
           { tabKey: "xui_panels" },
           { tabKey: "configs", icon: Network },
         ],
@@ -249,18 +279,21 @@ export const ADMIN_TAB_KEYS: string[] = [
   "site_settings",
   "users",
   "resellers",
+  "reseller_reports",
   "users_bulk",
   "broadcast",
   "plans",
   "cards",
   "receipts",
   "referral",
+  "referral_reports",
   "discounts",
   "plan_cats",
   "reseller_bots",
   "texts",
   "bot_ui",
   "bots",
+  "reseller_xui_panels",
   "xui_panels",
   "configs",
   "backup",

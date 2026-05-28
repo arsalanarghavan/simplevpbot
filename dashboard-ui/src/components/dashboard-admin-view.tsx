@@ -20,6 +20,7 @@ import {
 } from "@/components/dashboard-receipts-admin"
 import { DashboardResellerChargeAdmin } from "@/components/dashboard-reseller-charge-admin"
 import { DashboardReferralAdmin } from "@/components/dashboard-referral-admin"
+import { DashboardResellerReportsPlaceholder } from "@/components/dashboard-reseller-reports-placeholder"
 import { DashboardResellersAdmin } from "@/components/dashboard-resellers-admin"
 import { DashboardTextsAdmin } from "@/components/dashboard-texts-admin"
 import { DashboardUsersAdmin } from "@/components/dashboard-users-admin"
@@ -31,7 +32,7 @@ import {
   type ListQueryKey,
   type PaginationMeta,
 } from "@/lib/dash-pagination"
-import { readPlansViewFromUrl } from "@/lib/plans-subview"
+import { DashboardResellerPanelsAdmin } from "@/components/dashboard-reseller-panels-admin"
 
 type NavTab = { key: string; label: string }
 
@@ -74,6 +75,9 @@ type Props = {
   setListQuery: Dispatch<SetStateAction<Record<string, string>>>
   usersSearchQuery: string
   onUsersSearchQueryChange: (q: string) => void
+  resellersSearchQuery: string
+  resellersStatusFilter: string
+  onResellersFiltersChange: (patch: { q?: string; status?: string }) => void
   receiptsListFilters: ReceiptsListFilters
   onReceiptsListFiltersChange: (patch: Partial<ReceiptsListFilters>) => void
   onRefreshPanelHealth?: () => void
@@ -97,6 +101,9 @@ export function DashboardAdminView({
   setListQuery,
   usersSearchQuery,
   onUsersSearchQueryChange,
+  resellersSearchQuery,
+  resellersStatusFilter,
+  onResellersFiltersChange,
   receiptsListFilters,
   onReceiptsListFiltersChange,
   onRefreshPanelHealth,
@@ -142,9 +149,6 @@ export function DashboardAdminView({
   const discountUsageSummary = (data.discountUsageSummary as Record<string, unknown> | undefined) ?? null
   const broadcasts = asRecordArray(data.broadcasts)
   const resellers = asRecordArray(data.resellers)
-  const wholesaleLinesCatalog = asRecordArray((data as Record<string, unknown>).wholesaleLinesCatalog)
-  const wholesaleLinesReseller = asRecordArray((data as Record<string, unknown>).wholesaleLines)
-
   const notFound = (
     <p className="text-sm text-muted-foreground">{t("layout.adminUnknownSection")}</p>
   )
@@ -166,7 +170,6 @@ export function DashboardAdminView({
         onPanelsPerPageChange={(n) => setPer("panels", n)}
         compactHealthOnly={false}
         prependResellerFinance={isReseller}
-        wholesaleLines={wholesaleLinesReseller}
         actorBalance={actorBal}
       />
     )
@@ -215,10 +218,10 @@ export function DashboardAdminView({
     return (
       <DashboardBotsAdmin
         settings={settings}
-        botsList={asRecordArray(data.botsList)}
-        botsPagination={pickPagination(data, "botsList")}
+        botsList={[]}
+        botsPagination={null}
         isFa={isFa}
-        resellerSelfServe={false}
+        variant="site"
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("botsList", p)}
         onPerPageChange={(n) => setPer("botsList", n)}
@@ -233,10 +236,22 @@ export function DashboardAdminView({
         botsList={asRecordArray(data.botsList)}
         botsPagination={pickPagination(data, "botsList")}
         isFa={isFa}
-        resellerSelfServe
+        variant={isReseller ? "reseller_self" : "reseller_admin"}
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("botsList", p)}
         onPerPageChange={(n) => setPer("botsList", n)}
+      />
+    )
+  }
+
+  if (activeTab === "reseller_xui_panels") {
+    return (
+      <DashboardResellerPanelsAdmin
+        panels={panels}
+        resellerPanelPricesMap={
+          (data.resellerPanelPricesMap as Record<string, Array<Record<string, unknown>> | undefined>) ?? {}
+        }
+        isFa={isFa}
       />
     )
   }
@@ -287,9 +302,7 @@ export function DashboardAdminView({
         panels={panels}
         planCategories={planCategories}
         l2tpServers={l2tp}
-        wholesaleLinesCatalog={wholesaleLinesCatalog}
-        initialPlansView={readPlansViewFromUrl()}
-        wholesaleLines={wholesaleLinesReseller}
+        resellerChoices={resellers}
         resellerPlanFloors={asRecordArray((data as Record<string, unknown>).resellerPlanFloors)}
         resellerMode={isReseller}
         actorSvpUserId={isReseller ? dashActorSvpUserId(data) : 0}
@@ -334,7 +347,6 @@ export function DashboardAdminView({
       <DashboardResellerChargeAdmin
         receipts={receipts}
         actorBalance={actorBal}
-        wholesaleLines={wholesaleLinesReseller}
         customerCharges={charges}
         isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
@@ -360,7 +372,6 @@ export function DashboardAdminView({
         isReseller={isReseller}
         canReviewReceipts={canReviewReceipts}
         actorBalance={actorBal}
-        wholesaleLines={wholesaleLinesReseller}
         customerCharges={charges}
         listFilters={receiptsListFilters}
         onListFiltersChange={onReceiptsListFiltersChange}
@@ -477,11 +488,10 @@ export function DashboardAdminView({
       <DashboardResellersAdmin
         rows={resellers}
         panels={panels}
-        wholesaleLinesCatalog={wholesaleLinesCatalog}
-        resellerWholesaleLineIdsMap={
-          (data.resellerWholesaleLineIdsMap as Record<string, number[]> | undefined) ?? {}
-        }
         resellerPermissionsMap={(data.resellerPermissionsMap as Record<string, Record<string, boolean>>) || {}}
+        resellersSearchQuery={resellersSearchQuery}
+        resellersStatusFilter={resellersStatusFilter}
+        onResellersFiltersChange={onResellersFiltersChange}
         resellerPanelPricesMap={(data.resellerPanelPricesMap as Record<string, Array<{ panel_id?: number; price_per_gb?: number | string; panel_access?: boolean | number }>>) || {}}
         pagination={pickPagination(data, "resellers")}
         canManageResellerControls={!isReseller}
@@ -526,17 +536,35 @@ export function DashboardAdminView({
   if (activeTab === "referral") {
     return (
       <DashboardReferralAdmin
+        mode="settings"
+        settings={settings}
+        referralStats={null}
+        referralEvents={[]}
+        eventsPagination={null}
+        readOnlySettings={isReseller}
+        isFa={isFa}
+        onMutateSuccess={onAdminMutateSuccess}
+      />
+    )
+  }
+
+  if (activeTab === "referral_reports") {
+    return (
+      <DashboardReferralAdmin
+        mode="reports"
         settings={settings}
         referralStats={data.referralStats}
         referralEvents={asRecordArray(data.referralEvents)}
         eventsPagination={pickPagination(data, "referralEvents")}
-        readOnlySettings={isReseller}
         isFa={isFa}
-        onMutateSuccess={onAdminMutateSuccess}
         onEventsPageChange={(p) => setPage("referralEvents", p)}
         onEventsPerPageChange={(n) => setPer("referralEvents", n)}
       />
     )
+  }
+
+  if (activeTab === "reseller_reports") {
+    return <DashboardResellerReportsPlaceholder isFa={isFa} />
   }
 
   if (activeTab === "discounts") {

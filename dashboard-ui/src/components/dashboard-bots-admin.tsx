@@ -82,25 +82,31 @@ function asIdList(v: unknown): number[] {
   return v.map((x) => num(x)).filter((x) => x > 0)
 }
 
+export type BotsAdminVariant = "site" | "reseller_admin" | "reseller_self"
+
 export function DashboardBotsAdmin({
   settings,
   botsList = [],
   botsPagination,
   isFa,
-  resellerSelfServe = false,
+  variant = "site",
   onPageChange,
   onPerPageChange,
   onMutateSuccess,
 }: {
   settings: DashRecord | undefined
   isFa: boolean
-  resellerSelfServe?: boolean
+  /** site = main bot only; reseller_admin = reseller bot table; reseller_self = own reseller bot. */
+  variant?: BotsAdminVariant
   botsList?: BotRow[]
   botsPagination?: PaginationMeta | null
   onPageChange?: (p: number) => void
   onPerPageChange?: (n: number) => void
   onMutateSuccess?: () => void
 }) {
+  const resellerSelfServe = variant === "reseller_self"
+  const showMainBot = variant === "site"
+  const showResellerTable = variant === "reseller_admin" || variant === "reseller_self"
   const { t } = useTranslation()
   const tp = (k: string) => t(`botsAdmin.${k}`)
   const s = settings ?? {}
@@ -264,7 +270,7 @@ export function DashboardBotsAdmin({
         <p className="text-sm text-emerald-600 dark:text-emerald-400">{okMsg}</p>
       ) : null}
 
-      {!resellerSelfServe ? (
+      {showMainBot ? (
         <Card>
           <CardHeader className="pb-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -439,7 +445,7 @@ export function DashboardBotsAdmin({
         </Card>
       ) : null}
 
-      {!resellerSelfServe ? (
+      {showMainBot ? (
         <Card>
           <CardContent className="pt-6">
             <DashboardForceJoinAdmin
@@ -451,6 +457,7 @@ export function DashboardBotsAdmin({
         </Card>
       ) : null}
 
+      {showResellerTable ? (
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">{tp("resellerBots")}</CardTitle>
@@ -597,6 +604,7 @@ export function DashboardBotsAdmin({
           />
         </CardContent>
       </Card>
+      ) : null}
 
       <Dialog open={deleteHookDlg !== null} onOpenChange={(o) => !o && setDeleteHookDlg(null)}>
         <DialogContent className={cn("sm:max-w-md", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>

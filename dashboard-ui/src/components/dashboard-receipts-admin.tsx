@@ -1,10 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { DashboardDateTimePicker } from "@/components/dashboard-datetime-picker"
-import { WholesaleLadderTimeline } from "@/components/dashboard-wholesale-ladder-timeline"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -165,7 +164,6 @@ export function DashboardReceiptsAdmin({
   isReseller = false,
   canReviewReceipts = true,
   actorBalance,
-  wholesaleLines = [],
   customerCharges = [],
   listFilters,
   onListFiltersChange,
@@ -182,7 +180,6 @@ export function DashboardReceiptsAdmin({
   isReseller?: boolean
   canReviewReceipts?: boolean
   actorBalance?: number
-  wholesaleLines?: DashRecord[]
   customerCharges?: DashRecord[]
   listFilters: ReceiptsListFilters
   onListFiltersChange: (patch: Partial<ReceiptsListFilters>) => void
@@ -196,10 +193,7 @@ export function DashboardReceiptsAdmin({
   const tw = (k: string, opts?: Record<string, string | number>) => t(`resellerFinance.${k}`, opts)
 
   const showWalletSection =
-    isReseller ||
-    typeof actorBalance === "number" ||
-    wholesaleLines.length > 0 ||
-    customerCharges.length > 0
+    isReseller || typeof actorBalance === "number" || customerCharges.length > 0
 
   const showFullReviewUi = canReviewReceipts
 
@@ -371,10 +365,6 @@ export function DashboardReceiptsAdmin({
                 <p className="text-3xl font-semibold tabular-nums">{formatNumber(actorBalance, isFa)}</p>
               </CardContent>
             </Card>
-          ) : null}
-
-          {wholesaleLines.length > 0 ? (
-            <WholesaleLadderTimeline wholesaleLines={wholesaleLines} isFa={isFa} />
           ) : null}
 
           {customerCharges.length > 0 ? (
@@ -813,8 +803,4 @@ export function DashboardReceiptsAdmin({
       </Dialog>
     </div>
   )
-}
-
-function LabelInline({ children, isFa }: { children: ReactNode; isFa: boolean }) {
-  return <span className={cn("text-sm text-muted-foreground", isFa && "text-right")}>{children}</span>
 }

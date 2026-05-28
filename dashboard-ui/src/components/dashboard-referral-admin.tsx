@@ -14,6 +14,7 @@ import {
 import { DataPagination } from "@/components/data-pagination"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import { formatDateTime, formatNumber } from "@/lib/format-locale"
 import type { PaginationMeta } from "@/lib/dash-pagination"
@@ -35,6 +36,7 @@ function asRecord(v: unknown): DashRecord {
 }
 
 export function DashboardReferralAdmin({
+  mode = "settings",
   settings,
   referralStats,
   referralEvents,
@@ -45,6 +47,7 @@ export function DashboardReferralAdmin({
   onEventsPageChange,
   onEventsPerPageChange,
 }: {
+  mode?: "settings" | "reports"
   settings: DashRecord | undefined
   referralStats: unknown
   referralEvents: DashRecord[]
@@ -58,10 +61,12 @@ export function DashboardReferralAdmin({
 }) {
   const { t } = useTranslation()
   const tp = (k: string) => t(`referralAdmin.${k}`)
+  const isReports = mode === "reports"
   const s = settings ?? {}
   const stats =
     referralStats != null && typeof referralStats === "object" ? asRecord(referralStats) : null
   const summary = stats ? asRecord(stats.summary) : {}
+  const statsLoading = isReports && referralStats == null
 
   const initial = useMemo(
     () => ({
@@ -113,19 +118,32 @@ export function DashboardReferralAdmin({
     stats && Array.isArray(stats.topReferrers) ? (stats.topReferrers as DashRecord[]) : []
 
   const hasEvents = referralEvents.length > 0 || (eventsPagination && eventsPagination.total > 0)
-  const showDataGrid = Boolean(stats) || hasEvents
+  const showSettings = !isReports && !readOnlySettings
 
   return (
     <div className={cn("mx-auto w-full max-w-7xl space-y-6", isFa && "text-right")}>
       <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
+        <h2 className="text-lg font-medium">{isReports ? tp("reportsTitle") : tp("title")}</h2>
+        <p className="text-sm text-muted-foreground">
+          {isReports ? tp("reportsSubtitle") : tp("subtitle")}
+        </p>
       </div>
 
-      {showDataGrid ? (
+      {isReports ? (
         <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
           <div className="min-w-0 space-y-4">
-            {stats ? (
+            {statsLoading ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Card key={i}>
+                    <CardHeader className="pb-2">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="mt-2 h-8 w-20" />
+                    </CardHeader>
+                  </Card>
+                ))}
+              </div>
+            ) : stats ? (
               <div className="grid gap-4 sm:grid-cols-2">
                 <StatCard label={tp("statEvents30")} value={formatNumber(num(summary.eventsLast30), isFa)} />
                 <StatCard label={tp("statInvitedUsers")} value={formatNumber(num(summary.invitedUsersWithReferrer), isFa)} />
@@ -137,7 +155,17 @@ export function DashboardReferralAdmin({
               </div>
             ) : null}
 
-            {stats && top.length > 0 ? (
+            {statsLoading ? (
+              <Card>
+                <CardHeader>
+                  <Skeleton className="h-5 w-40" />
+                  <Skeleton className="mt-2 h-4 w-64" />
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="h-32 w-full" />
+                </CardContent>
+              </Card>
+            ) : stats && top.length > 0 ? (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">{tp("topReferrers")}</CardTitle>
@@ -183,61 +211,65 @@ export function DashboardReferralAdmin({
             ) : null}
           </div>
 
-          {hasEvents ? (
-            <Card className="min-w-0">
-              <CardHeader>
-                <CardTitle className="text-base">{tp("recentEvents")}</CardTitle>
-                <CardDescription>{tp("recentEventsDesc")}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="overflow-x-auto">
-                  <table
-                    className={cn(
-                      "w-full min-w-[36rem] border-collapse text-xs [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
-                      isFa ? "text-right" : "text-left"
-                    )}
-                  >
-                    <thead>
-                      <tr>
-                        <th className="p-2">{tp("colTime")}</th>
-                        <th className="p-2">{tp("colInviter")}</th>
-                        <th className="p-2">{tp("colPlatform")}</th>
-                        <th className="p-2">{tp("colOutcome")}</th>
-                        <th className="p-2">{tp("colVisitor")}</th>
-                        <th className="p-2">{tp("colPayload")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {referralEvents.map((ev) => (
-                        <tr key={String(ev.id ?? "")}>
-                          <td className="p-2 whitespace-nowrap">
-                            {ev.created_at ? formatDateTime(String(ev.created_at), isFa) : "—"}
-                          </td>
-                          <td className="p-2 font-mono">{formatNumber(num(ev.inviter_svp_user_id), isFa)}</td>
-                          <td className="p-2">{String(ev.platform ?? "")}</td>
-                          <td className="p-2">{String(ev.outcome ?? "")}</td>
-                          <td className="p-2 font-mono">{formatNumber(num(ev.resulting_svp_user_id), isFa)}</td>
-                          <td className="max-w-[10rem] truncate p-2 font-mono">{String(ev.start_payload ?? "")}</td>
+          <Card className="min-w-0">
+            <CardHeader>
+              <CardTitle className="text-base">{tp("recentEvents")}</CardTitle>
+              <CardDescription>{tp("recentEventsDesc")}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {statsLoading ? (
+                <Skeleton className="h-48 w-full" />
+              ) : hasEvents ? (
+                <>
+                  <div className="overflow-x-auto">
+                    <table
+                      className={cn(
+                        "w-full min-w-[36rem] border-collapse text-xs [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
+                        isFa ? "text-right" : "text-left"
+                      )}
+                    >
+                      <thead>
+                        <tr>
+                          <th className="p-2">{tp("colTime")}</th>
+                          <th className="p-2">{tp("colInviter")}</th>
+                          <th className="p-2">{tp("colPlatform")}</th>
+                          <th className="p-2">{tp("colOutcome")}</th>
+                          <th className="p-2">{tp("colVisitor")}</th>
+                          <th className="p-2">{tp("colPayload")}</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <DataPagination
-                  meta={eventsPagination}
-                  isFa={isFa}
-                  onPageChange={(p) => onEventsPageChange?.(p)}
-                  onPerPageChange={(n) => onEventsPerPageChange?.(n)}
-                />
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="hidden lg:block" aria-hidden />
-          )}
+                      </thead>
+                      <tbody>
+                        {referralEvents.map((ev) => (
+                          <tr key={String(ev.id ?? "")}>
+                            <td className="p-2 whitespace-nowrap">
+                              {ev.created_at ? formatDateTime(String(ev.created_at), isFa) : "—"}
+                            </td>
+                            <td className="p-2 font-mono">{formatNumber(num(ev.inviter_svp_user_id), isFa)}</td>
+                            <td className="p-2">{String(ev.platform ?? "")}</td>
+                            <td className="p-2">{String(ev.outcome ?? "")}</td>
+                            <td className="p-2 font-mono">{formatNumber(num(ev.resulting_svp_user_id), isFa)}</td>
+                            <td className="max-w-[10rem] truncate p-2 font-mono">{String(ev.start_payload ?? "")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <DataPagination
+                    meta={eventsPagination}
+                    isFa={isFa}
+                    onPageChange={(p) => onEventsPageChange?.(p)}
+                    onPerPageChange={(n) => onEventsPerPageChange?.(n)}
+                  />
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">{tp("recentEventsDesc")}</p>
+              )}
+            </CardContent>
+          </Card>
         </div>
       ) : null}
 
-      {readOnlySettings ? null : (
+      {showSettings ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{tp("cardTitle")}</CardTitle>
@@ -330,7 +362,7 @@ export function DashboardReferralAdmin({
             </Button>
           </CardContent>
         </Card>
-      )}
+      ) : null}
     </div>
   )
 }

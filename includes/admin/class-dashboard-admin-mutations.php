@@ -377,12 +377,6 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return self::op_reseller_wp_provision( $params );
 			case 'reseller_panel_prices_save':
 				return self::op_reseller_panel_prices_save( $params );
-			case 'wholesale_line_save':
-				return self::op_wholesale_line_save( $params );
-			case 'wholesale_line_delete':
-				return self::op_wholesale_line_delete( $params );
-			case 'reseller_wholesale_lines_assign':
-				return self::op_reseller_wholesale_lines_assign( $params );
 			case 'reseller_permissions_save':
 				return self::op_reseller_permissions_save( $params );
 			case 'reseller_bot_tokens_save':

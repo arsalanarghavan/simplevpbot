@@ -1591,7 +1591,8 @@ class SimpleVPBot_Rest_Dashboard {
 			'receipts'        => 'receipts.review',
 			'reseller_charge' => 'plans.manage',
 			'monitoring'      => 'services.manage',
-			'referral'      => 'users.manage',
+			'referral'          => 'users.manage',
+			'referral_reports'  => 'users.manage',
 		);
 		$all_tabs = array(
 			'dashboard',
@@ -1606,6 +1607,7 @@ class SimpleVPBot_Rest_Dashboard {
 			'receipts',
 			'reseller_charge',
 			'referral',
+			'referral_reports',
 			'discounts',
 			'reseller_bots',
 			'bot_ui',
@@ -1676,6 +1678,13 @@ class SimpleVPBot_Rest_Dashboard {
 			$users_q = substr( $users_q, 0, 128 );
 		}
 		$user_filter = SimpleVPBot_Model_User::admin_search_users_clause( $users_q );
+		$resellers_status = sanitize_key( (string) wp_unslash( (string) $req->get_param( 'resellers_status' ) ) );
+		$reseller_status_sql   = '';
+		$reseller_status_vals  = array();
+		if ( in_array( $resellers_status, array( 'pending', 'approved', 'rejected', 'blocked' ), true ) ) {
+			$reseller_status_sql  = ' AND u.status = %s';
+			$reseller_status_vals = array( $resellers_status );
+		}
 		$ctx           = self::dashboard_actor_context();
 		$is_reseller   = ! empty( $ctx['isReseller'] );
 		$actor_uid     = (int) ( $ctx['actorUserId'] ?? 0 );
@@ -1735,16 +1744,6 @@ class SimpleVPBot_Rest_Dashboard {
 			);
 			$reseller_allowed_panel_ids = array_values( array_unique( array_filter( $reseller_allowed_panel_ids ) ) );
 		}
-		if ( $reseller_mode && $actor_uid > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' ) ) {
-			foreach ( SimpleVPBot_Model_Reseller_Wholesale_Line::lines_for_reseller( $actor_uid ) as $_wl ) {
-				$_pid = (int) ( $_wl->panel_id ?? 0 );
-				if ( $_pid > 0 ) {
-					$reseller_allowed_panel_ids[] = $_pid;
-				}
-			}
-			$reseller_allowed_panel_ids = array_values( array_unique( array_filter( array_map( 'intval', $reseller_allowed_panel_ids ) ) ) );
-		}
-
 		if ( $reseller_mode ) {
 			$settings = SimpleVPBot_Settings::dashboard_slice_for_reseller_operator();
 		} else {
@@ -1795,8 +1794,8 @@ class SimpleVPBot_Rest_Dashboard {
 			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			$tot_res_list = (int) $wpdb->get_var(
 				$wpdb->prepare(
-					"SELECT COUNT(*) FROM {$u_tbl} u {$where_sql} AND u.role = %s",
-					array_merge( $where_values, array( 'reseller' ) )
+					"SELECT COUNT(*) FROM {$u_tbl} u {$where_sql} AND u.role = %s{$reseller_status_sql}",
+					array_merge( $where_values, array( 'reseller' ), $reseller_status_vals )
 				)
 			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
@@ -1821,9 +1820,9 @@ class SimpleVPBot_Rest_Dashboard {
 					"SELECT u.*, COALESCE(s.svc_count, 0) AS svc_count
 					FROM {$u_tbl} u
 					LEFT JOIN (SELECT user_id, COUNT(*) AS svc_count FROM {$s_tbl} WHERE deleted_at IS NULL GROUP BY user_id) s ON s.user_id = u.id
-					{$where_sql} AND u.role = %s
+					{$where_sql} AND u.role = %s{$reseller_status_sql}
 					ORDER BY u.id DESC LIMIT %d OFFSET %d",
-					array_merge( $where_values, array( 'reseller', $p_res['per_page'], $p_res['offset'] ) )
+					array_merge( $where_values, array( 'reseller' ), $reseller_status_vals, array( $p_res['per_page'], $p_res['offset'] ) )
 				)
 			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
@@ -1915,7 +1914,16 @@ class SimpleVPBot_Rest_Dashboard {
 		if ( ! $users_from_reseller_scope ) {
 			$tot_users     = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$u_tbl}" ); // phpcs:ignore
 			$tot_pend      = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$u_tbl} WHERE status = %s", 'pending' ) ); // phpcs:ignore
-			$tot_resellers = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$u_tbl} WHERE role = %s", 'reseller' ) ); // phpcs:ignore
+			$cnt_res_sql = "SELECT COUNT(*) FROM {$u_tbl} u WHERE u.role = 'reseller'{$reseller_status_sql}";
+			if ( $user_filter ) {
+				$cnt_res_sql .= $user_filter['sql'];
+			}
+			$cnt_res_vals = array_merge( $reseller_status_vals, $user_filter ? $user_filter['values'] : array() );
+			if ( ! empty( $cnt_res_vals ) ) {
+				$tot_resellers = (int) $wpdb->get_var( $wpdb->prepare( $cnt_res_sql, $cnt_res_vals ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			} else {
+				$tot_resellers = (int) $wpdb->get_var( $cnt_res_sql ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			}
 
 			if ( $user_filter ) {
 				$cnt_users_sql = "SELECT COUNT(*) FROM {$u_tbl} u WHERE 1=1" . $user_filter['sql'];
@@ -2113,23 +2121,15 @@ class SimpleVPBot_Rest_Dashboard {
 			$res_sql = "SELECT u.*, COALESCE(s.svc_count, 0) AS svc_count
 				FROM {$u_tbl} u
 				LEFT JOIN (SELECT user_id, COUNT(*) AS svc_count FROM {$s_tbl} WHERE deleted_at IS NULL GROUP BY user_id) s ON s.user_id = u.id
-				WHERE u.role = 'reseller'";
+				WHERE u.role = 'reseller'{$reseller_status_sql}";
 			if ( $user_filter ) {
 				$res_sql .= $user_filter['sql'];
 			}
 			$res_sql .= ' ORDER BY u.id DESC LIMIT %d OFFSET %d';
-			if ( $user_filter && ! empty( $user_filter['values'] ) ) {
-				$resellers = $wpdb->get_results(
-					$wpdb->prepare(
-						$res_sql,
-						array_merge( $user_filter['values'], array( $p_res['per_page'], $p_res['offset'] ) )
-					)
-				);
-			} else {
-				$resellers = $wpdb->get_results(
-					$wpdb->prepare( $res_sql, $p_res['per_page'], $p_res['offset'] )
-				);
-			}
+			$res_vals = array_merge( $reseller_status_vals, $user_filter ? $user_filter['values'] : array(), array( $p_res['per_page'], $p_res['offset'] ) );
+			$resellers = $wpdb->get_results(
+				$wpdb->prepare( $res_sql, $res_vals )
+			); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		}
 
 		if ( $dash_users_tab_light ) {
@@ -2172,7 +2172,6 @@ class SimpleVPBot_Rest_Dashboard {
 
 		$reseller_permissions_map          = array();
 		$reseller_panel_prices_map         = array();
-		$reseller_wholesale_line_ids_map   = array();
 		$reseller_bot_map                  = array();
 		foreach ( (array) $resellers as $rr ) {
 			$rid = (int) ( is_object( $rr ) ? ( $rr->id ?? 0 ) : 0 );
@@ -2206,9 +2205,6 @@ class SimpleVPBot_Rest_Dashboard {
 					'enabled' => $bp ? ! empty( $bp->enabled ) : false,
 					'brand'   => $bp ? (string) ( $bp->brand_name ?? '' ) : '',
 				);
-			}
-			if ( class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Assignment' ) ) {
-				$reseller_wholesale_line_ids_map[ (string) $rid ] = SimpleVPBot_Model_Reseller_Wholesale_Assignment::line_ids_for_reseller( $rid );
 			}
 		}
 
@@ -2330,68 +2326,7 @@ class SimpleVPBot_Rest_Dashboard {
 			$discounts[] = $ra;
 		}
 
-		$wholesale_lines_catalog          = array();
-		$reseller_wholesale_lines_payload = array();
-		if ( class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' ) ) {
-			if ( ! $reseller_mode ) {
-				foreach ( SimpleVPBot_Model_Reseller_Wholesale_Line::all_rows() as $_ln ) {
-					$la = self::row_array( $_ln );
-					if ( $la ) {
-						$tier_rows = SimpleVPBot_Model_Reseller_Wholesale_Tier::by_line( (int) $_ln->id );
-						$la['tiers'] = array();
-						foreach ( (array) $tier_rows as $_t ) {
-							$ta = self::row_array( $_t );
-							if ( $ta ) {
-								$la['tiers'][] = $ta;
-							}
-						}
-						$wholesale_lines_catalog[] = $la;
-					}
-				}
-			} elseif ( $actor_uid > 0 && class_exists( 'SimpleVPBot_Service_Reseller_Wholesale_Pricing' ) ) {
-				foreach ( SimpleVPBot_Model_Reseller_Wholesale_Line::lines_for_reseller( $actor_uid ) as $_ln ) {
-					$pub           = SimpleVPBot_Model_Reseller_Wholesale_Line::to_reseller_public_array( $_ln );
-					$pub['ladder'] = SimpleVPBot_Service_Reseller_Wholesale_Pricing::ladder_snapshot( $actor_uid, (int) $_ln->id );
-					$reseller_wholesale_lines_payload[] = $pub;
-				}
-			}
-		}
-
-		if ( $reseller_mode && empty( $panels ) && $actor_uid > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' ) ) {
-			$by_pid = array();
-			foreach ( SimpleVPBot_Model_Reseller_Wholesale_Line::lines_for_reseller( $actor_uid ) as $_ln ) {
-				$pid = (int) ( $_ln->panel_id ?? 0 );
-				if ( $pid < 1 ) {
-					continue;
-				}
-				$lbl = (string) ( $_ln->label ?? '' );
-				if ( ! isset( $by_pid[ $pid ] ) ) {
-					$by_pid[ $pid ] = array(
-						'id'         => $pid,
-						'label'      => $lbl,
-						'name'       => $lbl,
-						'sort_order' => (int) ( $_ln->sort_order ?? 0 ),
-						'active'     => 1,
-					);
-				} elseif ( '' !== $lbl ) {
-					$cur = (string) ( $by_pid[ $pid ]['label'] ?? '' );
-					if ( '' === $cur ) {
-						$by_pid[ $pid ]['label'] = $lbl;
-						$by_pid[ $pid ]['name']  = $lbl;
-					} elseif ( false === strpos( $cur, $lbl ) ) {
-						$by_pid[ $pid ]['label'] = $cur . ' · ' . $lbl;
-						$by_pid[ $pid ]['name']  = $by_pid[ $pid ]['label'];
-					}
-				}
-			}
-			ksort( $by_pid );
-			foreach ( $by_pid as $pub ) {
-				$panels[] = self::format_panel_for_dashboard( $pub );
-			}
-		}
-
-		// Synthetic panels for wholesale-line assignment already handled above; still merge panels when only
-		// «قیمت پنل‌ها» rows grant access (joinable panel_prices), without wholesale catalog assignments.
+		// Merge panels from reseller panel_prices when catalog rows grant access.
 		if ( $reseller_mode && $actor_uid > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) && class_exists( 'SimpleVPBot_Model_Panel' ) ) {
 			$have_panel_ids = array();
 			foreach ( $panels as $_pub ) {
@@ -2570,6 +2505,8 @@ class SimpleVPBot_Rest_Dashboard {
 			array( 'key' => 'backup', 'label' => __( 'بکاپ', 'simplevpbot' ) ),
 			array( 'key' => 'notifications', 'label' => __( 'نوتیفیکیشن', 'simplevpbot' ) ),
 			array( 'key' => 'referral', 'label' => __( 'ریفرال و لینک ربات', 'simplevpbot' ) ),
+			array( 'key' => 'referral_reports', 'label' => __( 'گزارشات رفرال', 'simplevpbot' ) ),
+			array( 'key' => 'reseller_reports', 'label' => __( 'گزارشات نمایندگان', 'simplevpbot' ) ),
 			array( 'key' => 'discounts', 'label' => __( 'کدهای تخفیف', 'simplevpbot' ) ),
 			array( 'key' => 'logs', 'label' => __( 'لاگ‌ها', 'simplevpbot' ) ),
 			)
@@ -2595,7 +2532,7 @@ class SimpleVPBot_Rest_Dashboard {
 		$referral_stats     = null;
 		$referral_events    = array();
 		$tot_referral_ev    = 0;
-		if ( 'referral' === $active_tab && class_exists( 'SimpleVPBot_Model_Referral_Event' ) ) {
+		if ( 'referral_reports' === $active_tab && class_exists( 'SimpleVPBot_Model_Referral_Event' ) ) {
 			$t_tx        = SimpleVPBot_Model_Transaction::table();
 			$ref_ev_tbl  = SimpleVPBot_Model_Referral_Event::table();
 			$since_ts    = strtotime( '-30 days', (int) current_time( 'timestamp' ) );
@@ -2834,7 +2771,9 @@ class SimpleVPBot_Rest_Dashboard {
 
 		$bots_list_payload = array();
 		$tot_bots_list     = 0;
-		if ( ! $dash_users_tab_light && class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+		$load_reseller_bots_list = ! $dash_users_tab_light
+			&& ( $reseller_mode || 'reseller_bots' === $active_tab );
+		if ( $load_reseller_bots_list && class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
 			if ( $reseller_mode && $actor_uid > 0 ) {
 				$p = SimpleVPBot_Model_Reseller_Bot_Profile::table();
 				$u            = SimpleVPBot_Model_User::table();
@@ -2948,9 +2887,6 @@ class SimpleVPBot_Rest_Dashboard {
 			'resellers'                => array_map( array( __CLASS__, 'row_array' ), (array) $resellers ),
 			'resellerPermissionsMap'   => $reseller_permissions_map,
 			'resellerPanelPricesMap'   => $reseller_panel_prices_map,
-			'resellerWholesaleLineIdsMap' => $reseller_wholesale_line_ids_map,
-			'wholesaleLinesCatalog'    => $wholesale_lines_catalog,
-			'wholesaleLines'           => $reseller_wholesale_lines_payload,
 			'resellerBotMap'           => $reseller_bot_map,
 			'botsList'                 => $bots_list_payload,
 			'receipts'                 => array_values( array_filter( array_map( array( __CLASS__, 'format_receipt_for_dashboard' ), (array) $receipts ) ) ),
@@ -2968,8 +2904,7 @@ class SimpleVPBot_Rest_Dashboard {
 			$payload['resellerAllowedTabs']   = self::reseller_dashboard_allowed_tabs_map( $actor_uid );
 			$payload['actorPermissions']    = SimpleVPBot_Model_User::reseller_permissions( $actor_uid );
 			$payload['resellerPlanFloors'] = $reseller_plan_floors;
-			if ( $actor_uid > 0 && empty( $panels ) && empty( $reseller_wholesale_lines_payload )
-				&& class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
+			if ( $actor_uid > 0 && empty( $panels ) && class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
 				$payload['resellerPanelAccessDiagnostics'] = SimpleVPBot_Model_Reseller_Panel_Price::access_diagnostics( $actor_uid );
 			}
 			$reseller_customer_charges = array();

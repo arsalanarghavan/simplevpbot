@@ -16,7 +16,6 @@ import { useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { DashboardDateTimePicker } from "@/components/dashboard-datetime-picker"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -41,7 +40,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
+import { Switch } from "@/components/ui/switch"
 import {
   Sheet,
   SheetContent,
@@ -214,6 +213,140 @@ function typeLabelKey(dtype: string): string {
   return "typePercent"
 }
 
+function flagIcon(ok: boolean) {
+  return ok ? <Check className="size-3.5 text-primary" aria-hidden /> : <X className="size-3.5 text-muted-foreground" aria-hidden />
+}
+
+function DiscountCodeTile({
+  d,
+  isFa,
+  saving,
+  tp,
+  typeLabel,
+  planNameById,
+  onToggleActive,
+  onUsage,
+  onEdit,
+  onDelete,
+}: {
+  d: DashRecord
+  isFa: boolean
+  saving: boolean
+  tp: (k: string) => string
+  typeLabel: (dtype: string) => string
+  planNameById: Map<number, string>
+  onToggleActive: (row: DashRecord, checked: boolean) => void
+  onUsage: (row: DashRecord) => void
+  onEdit: (row: DashRecord) => void
+  onDelete: (row: DashRecord) => void
+}) {
+  const act = isDiscountActive(d)
+  const dtype = String(d.discount_type ?? "percent")
+  const planIds = parsePlanIds(d.allowed_plan_ids)
+  const restricted = num(d.restricted_svp_user_id)
+  const TypeIcon = dtype === "fixed_toman" || dtype === "fixed_per_gb" ? Banknote : Percent
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+        <div className="flex min-w-0 items-start gap-2">
+          <Tag className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <div className="min-w-0">
+            <CardTitle className="font-mono text-base">{String(d.code ?? "")}</CardTitle>
+            <CardDescription className="flex items-center gap-1">
+              <TypeIcon className="size-3.5 shrink-0" aria-hidden />
+              {typeLabel(dtype)}
+            </CardDescription>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Switch
+            checked={act}
+            disabled={saving}
+            onCheckedChange={(checked) => onToggleActive(d, checked)}
+            aria-label={act ? tp("badgeActive") : tp("badgeInactive")}
+          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" className="size-8">
+                <EllipsisVerticalIcon className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align={isFa ? "start" : "end"}>
+              <DropdownMenuItem onClick={() => onUsage(d)}>{tp("details")}</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onEdit(d)}>{tp("edit")}</DropdownMenuItem>
+              <DropdownMenuItem className="text-destructive" onClick={() => onDelete(d)}>
+                {tp("delete")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <Percent className="size-3.5 shrink-0" aria-hidden />
+          <span>
+            {tp("value")}: {formatNumber(num(d.discount_value), isFa)}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Hash className="size-3.5 shrink-0" aria-hidden />
+          <span>
+            {tp("uses")}: {formatNumber(num(d.uses_count), isFa)}
+            {d.max_uses != null && d.max_uses !== ""
+              ? ` / ${formatNumber(num(d.max_uses), isFa)}`
+              : ` / ${tp("unlimited")}`}
+          </span>
+        </div>
+        <div className="flex items-start gap-2">
+          <CalendarRange className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          <span>
+            {formatDateTime(d.valid_from as string | undefined, isFa)} →{" "}
+            {formatDateTime(d.valid_until as string | undefined, isFa)}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <User className="size-3.5 shrink-0" aria-hidden />
+          <span>
+            {restricted > 0 ? `${tp("restrictedUser")}: #${formatNumber(restricted, isFa)}` : tp("allUsers")}
+          </span>
+        </div>
+        <div className="flex items-start gap-2">
+          <Layers className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          <span>
+            {planIds.length > 0
+              ? planIds.map((pid) => planNameById.get(pid) ?? `#${pid}`).join(", ")
+              : tp("allPlans")}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 border-t border-border/50 pt-2">
+          <span className="inline-flex items-center gap-1">
+            {flagIcon(!!(d.allow_new_purchase === true || d.allow_new_purchase === 1 || d.allow_new_purchase === "1"))}
+            {tp("flagNew")}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            {flagIcon(!!(d.allow_renew_same === true || d.allow_renew_same === 1 || d.allow_renew_same === "1"))}
+            {tp("flagRenew")}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            {flagIcon(!!(d.allow_add_volume === true || d.allow_add_volume === 1 || d.allow_add_volume === "1"))}
+            {tp("flagVol")}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            {flagIcon(
+              !!(d.allow_add_user_slots === true || d.allow_add_user_slots === 1 || d.allow_add_user_slots === "1")
+            )}
+            {tp("flagUsers")}
+          </span>
+        </div>
+        <p className="text-[11px]">
+          {tp("cardTotalDiscount")}: {formatNumber(num(d.total_discount_toman), isFa)}
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function DashboardDiscountsAdmin({
   discountCodes,
   discountUsageSummary,
@@ -381,6 +514,26 @@ export function DashboardDiscountsAdmin({
     })
   }
 
+  const onToggleActive = useCallback(
+    async (d: DashRecord, checked: boolean) => {
+      const f = formFromRow(d)
+      f.svpc_active = checked
+      setSaving(true)
+      setError(null)
+      try {
+        const res = await postAdminMutate("discount_save", formToPayload(f))
+        if (!res.ok) {
+          setError(res.message === "plan_overlap" ? tp("errorPlanOverlap") : res.message || tp("mutateError"))
+          return
+        }
+        onMutateSuccess?.()
+      } finally {
+        setSaving(false)
+      }
+    },
+    [onMutateSuccess, tp]
+  )
+
   const filterLabel =
     filter === "active" ? tp("filterActive") : filter === "inactive" ? tp("filterInactive") : tp("filterAll")
 
@@ -431,149 +584,55 @@ export function DashboardDiscountsAdmin({
         <p className="text-xs text-muted-foreground">{tp("statsPageBreakdown")}</p>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] lg:items-start">
-        <div className="min-w-0 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <Label className="text-muted-foreground">{tp("filterLabel")}</Label>
-              <select
-                className={selectClass + " w-auto min-w-[8rem]"}
-                value={filter}
-                onChange={(e) => setFilter(e.target.value as typeof filter)}
-              >
-                <option value="all">{tp("filterAll")}</option>
-                <option value="active">{tp("filterActive")}</option>
-                <option value="inactive">{tp("filterInactive")}</option>
-              </select>
-            </div>
-            <Button type="button" size="sm" className="lg:hidden" onClick={openAdd}>
-              {tp("addCode")}
-            </Button>
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Label className="text-muted-foreground">{tp("filterLabel")}</Label>
+            <select
+              className={selectClass + " w-auto min-w-[8rem]"}
+              value={filter}
+              onChange={(e) => setFilter(e.target.value as typeof filter)}
+            >
+              <option value="all">{tp("filterAll")}</option>
+              <option value="active">{tp("filterActive")}</option>
+              <option value="inactive">{tp("filterInactive")}</option>
+            </select>
+            <span className="text-xs text-muted-foreground">{filterLabel}</span>
           </div>
-
-          <Separator />
-
-          {filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{tp("empty")}</p>
-          ) : (
-            <ul className="space-y-3">
-              {filtered.map((d) => {
-                const id = num(d.id)
-                const act = isDiscountActive(d)
-                const dtype = String(d.discount_type ?? "percent")
-                const planIds = parsePlanIds(d.allowed_plan_ids)
-                const restricted = num(d.restricted_svp_user_id)
-                return (
-                  <li key={id}>
-                <Card>
-                  <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
-                    <div className="min-w-0 space-y-1">
-                      <CardTitle className="font-mono text-base">{String(d.code ?? "")}</CardTitle>
-                      <CardDescription>
-                        {tp(typeLabelKey(dtype))} · {tp("value")}: {formatNumber(num(d.discount_value), isFa)}
-                        {" · "}
-                        {tp("uses")}: {formatNumber(num(d.uses_count), isFa)}
-                        {d.max_uses != null && d.max_uses !== ""
-                          ? ` / ${formatNumber(num(d.max_uses), isFa)}`
-                          : ` / ${tp("unlimited")}`}
-                        {" · "}
-                        {tp("cardTotalDiscount")}: {formatNumber(num(d.total_discount_toman), isFa)}
-                      </CardDescription>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <Badge variant={act ? "default" : "secondary"}>{act ? tp("badgeActive") : tp("badgeInactive")}</Badge>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button type="button" variant="ghost" size="icon" className="size-8">
-                            <EllipsisVerticalIcon className="size-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align={isFa ? "start" : "end"}>
-                          <DropdownMenuItem onClick={() => void openUsage(d)}>{tp("usageDetails")}</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openEdit(d)}>{tp("edit")}</DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(d)}>
-                            {tp("delete")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="text-xs text-muted-foreground">
-                    <span>
-                      {tp("validFrom")}: {formatDateTime(d.valid_from as string | undefined, isFa)}
-                    </span>
-                    {" · "}
-                    <span>
-                      {tp("validUntil")}: {formatDateTime(d.valid_until as string | undefined, isFa)}
-                    </span>
-                    <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
-                      {restricted > 0 ? (
-                        <span>
-                          {tp("restrictedUser")}: #{formatNumber(restricted, isFa)}
-                        </span>
-                      ) : (
-                        <span>{tp("allUsers")}</span>
-                      )}
-                      {planIds.length > 0 ? (
-                        <span>
-                          {tp("allowedPlans")}:{" "}
-                          {planIds.map((pid) => planNameById.get(pid) ?? `#${pid}`).join(", ")}
-                        </span>
-                      ) : (
-                        <span>{tp("allPlans")}</span>
-                      )}
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
-                      <span>{flagLabel(d, "allow_new_purchase", tp("flagNew"))}</span>
-                      <span>{flagLabel(d, "allow_renew_same", tp("flagRenew"))}</span>
-                      <span>{flagLabel(d, "allow_add_volume", tp("flagVol"))}</span>
-                      <span>{flagLabel(d, "allow_add_user_slots", tp("flagUsers"))}</span>
-                    </div>
-                  </CardContent>
-                </Card>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-
-          <DataPagination
-            meta={pagination}
-            isFa={isFa}
-            onPageChange={onPageChange}
-            onPerPageChange={onPerPageChange}
-          />
+          <Button type="button" size="sm" onClick={openAdd}>
+            {tp("addCode")}
+          </Button>
         </div>
 
-        <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">{tp("title")}</CardTitle>
-              <CardDescription>{filterLabel}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div className="flex justify-between gap-2">
-                <span className="text-muted-foreground">{tp("statsTotal")}</span>
-                <span className="font-medium tabular-nums">{formatNumber(stats.total, isFa)}</span>
-              </div>
-              <div className="flex justify-between gap-2">
-                <span className="text-muted-foreground">{tp("statsActive")}</span>
-                <span className="font-medium tabular-nums">{formatNumber(stats.active, isFa)}</span>
-              </div>
-              <div className="flex justify-between gap-2">
-                <span className="text-muted-foreground">{tp("statsTotalRedemptions")}</span>
-                <span className="font-medium tabular-nums">{formatNumber(stats.totalRedemptions, isFa)}</span>
-              </div>
-              <div className="flex justify-between gap-2">
-                <span className="text-muted-foreground">{tp("statsTotalDiscount")}</span>
-                <span className="font-medium tabular-nums">{formatNumber(stats.totalDiscountToman, isFa)}</span>
-              </div>
-              <Button type="button" className="mt-2 w-full" onClick={openAdd}>
-                {tp("addCode")}
-              </Button>
-            </CardContent>
-          </Card>
-        </aside>
+        {filtered.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{tp("empty")}</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {filtered.map((d) => (
+              <DiscountCodeTile
+                key={num(d.id) || String(d.code)}
+                d={d}
+                isFa={isFa}
+                saving={saving}
+                tp={tp}
+                typeLabel={(dtype) => tp(typeLabelKey(dtype))}
+                planNameById={planNameById}
+                onToggleActive={(row, checked) => void onToggleActive(row, checked)}
+                onUsage={(row) => void openUsage(row)}
+                onEdit={openEdit}
+                onDelete={setDeleteTarget}
+              />
+            ))}
+          </div>
+        )}
+
+        <DataPagination
+          meta={pagination}
+          isFa={isFa}
+          onPageChange={onPageChange}
+          onPerPageChange={onPerPageChange}
+          perPageOptions={[40, 80, 120, 200]}
+        />
       </div>
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
@@ -835,10 +894,4 @@ export function DashboardDiscountsAdmin({
       </Dialog>
     </div>
   )
-}
-
-function flagLabel(d: DashRecord, key: string, label: string): string {
-  const v = d[key]
-  const on = v === true || v === 1 || v === "1"
-  return `${label}: ${on ? "✓" : "—"}`
 }

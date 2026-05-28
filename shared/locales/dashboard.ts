@@ -15,12 +15,15 @@ const enSidebar = {
   sections: {
     overview: "Overview",
     users: "Users",
+    marketing: "Marketing",
     finance: "Billing",
     bot: "Bot configuration",
     settings: "Settings",
   },
   groups: {
     users: "Users",
+    resellers: "Resellers",
+    marketing: "Marketing",
     finance: "Finance",
     botSettings: "Bot settings",
     servers: "Servers",
@@ -41,12 +44,16 @@ const enSidebar = {
     reseller_finance: "Wallet & billing",
     reseller_charge: "Charge account",
     referral: "Referral & bot link",
+    referral_reports: "Referral reports",
+    reseller_reports: "Reseller reports",
     discounts: "Discount codes",
     plan_cats: "Plan categories",
     texts: "Texts",
     bot_ui: "Bot UI Studio",
     notifications: "Notifications",
     bots: "Bots",
+    reseller_bots: "Reseller bots",
+    reseller_xui_panels: "Reseller panels",
     xui_panels: "3x-ui panels",
     configs: "Configs (by plan)",
     l2tp_servers: "L2TP servers",
@@ -84,12 +91,15 @@ const faSidebar = {
   sections: {
     overview: "پیشخوان",
     users: "کاربران",
+    marketing: "بازاریابی",
     finance: "مالی",
     bot: "تنظیمات ربات",
     settings: "تنظیمات",
   },
   groups: {
     users: "کاربران",
+    resellers: "نمایندگان",
+    marketing: "بازاریابی",
     finance: "مالی",
     botSettings: "تنظیمات ربات",
     servers: "سرورها",
@@ -110,12 +120,16 @@ const faSidebar = {
     reseller_finance: "کیف پول و تراکنش‌ها",
     reseller_charge: "شارژ حساب",
     referral: "ریفرال و لینک ربات",
+    referral_reports: "گزارشات رفرال",
+    reseller_reports: "گزارشات نمایندگان",
     discounts: "کدهای تخفیف",
     plan_cats: "دسته‌های خرید",
     texts: "متن‌ها",
     bot_ui: "صفحه‌ساز ربات",
     notifications: "نوتیفیکیشن",
     bots: "ربات‌ها",
+    reseller_bots: "ربات‌های نمایندگان",
+    reseller_xui_panels: "پنل‌های نمایندگان",
     xui_panels: "پنل‌های 3x-ui",
     configs: "کانفیگ‌ها (بر اساس پلن)",
     l2tp_servers: "سرورهای L2TP",
@@ -271,6 +285,10 @@ const enPlansAdmin = {
   filterPanel: "Panel filter",
   filterAll: "All panels",
   addPlan: "New plan",
+  addResellerPlan: "Reseller plan",
+  resellerPlansSection: "Reseller plans",
+  sitePlansSection: "Site plans",
+  pickReseller: "Reseller",
   editPlan: "Edit plan",
   usersLabel: "Users",
   gbSuffix: "GB",
@@ -680,6 +698,10 @@ const enResellersAdmin = {
   createError: "Create failed",
   listTitle: "All resellers",
   listCount: "{{n}} resellers",
+  searchPlaceholder: "Search by name, @username, ID, or phone…",
+  searchHint: "Uses the same search as the users list.",
+  filterStatus: "Status",
+  filterStatusAll: "All statuses",
   empty: "No resellers found.",
   colId: "ID",
   colName: "Name",
@@ -744,6 +766,25 @@ const enResellersAdmin = {
   backfillResult:
     "Billing: {{billingUpdated}} updated / {{billingScanned}} scanned (last tx #{{billingLast}}). Invited_by: {{invitedUpdated}} updated / {{invitedScanned}} scanned (last user #{{invitedLast}}).",
   backfillError: "Backfill failed",
+}
+
+const enResellerReportsPlaceholder = {
+  title: "Reseller reports",
+  subtitle: "Sales and performance reports for resellers will appear here.",
+  comingSoon: "Coming soon",
+}
+
+const enResellerPanelsAdmin = {
+  title: "Reseller panel access",
+  subtitle: "How many resellers can sell on each catalog panel (from panel prices / access).",
+  tableTitle: "Panels",
+  colPanel: "Panel",
+  colStatus: "Status",
+  colResellers: "Resellers with access",
+  statusActive: "Active",
+  statusInactive: "Inactive",
+  empty: "No catalog panels.",
+  hint: "Edit per-reseller access under Resellers → panel prices, or add servers under Settings → 3x-ui panels.",
 }
 
 const enUserDetailAdmin = {
@@ -1345,7 +1386,9 @@ const enBackupAdmin = {
 
 const enReferralAdmin = {
   title: "Referral program",
-  subtitle: "Percent reward, payout threshold, bot usernames, and referral analytics.",
+  subtitle: "Percent reward, payout threshold, and bot usernames for referral links.",
+  reportsTitle: "Referral reports",
+  reportsSubtitle: "Referral stats, top referrers, and recent /start events.",
   cardTitle: "Referral settings",
   cardDesc: "Changes apply to new referrals according to server rules.",
   enabled: "Referral enabled",
@@ -2362,7 +2405,9 @@ const faBackupAdmin = {
 
 const faReferralAdmin = {
   title: "ریفرال",
-  subtitle: "درصد پاداش، آستانه، نام کاربری ربات‌ها و آمار ریفرال.",
+  subtitle: "درصد پاداش، آستانه و نام کاربری ربات‌ها برای لینک ریفرال.",
+  reportsTitle: "گزارشات رفرال",
+  reportsSubtitle: "آمار ریفرال، برترین معرف‌ها و رویدادهای اخیر /start.",
   cardTitle: "تنظیمات ریفرال",
   cardDesc: "تغییرات طبق قوانین سرور برای ریفرال‌های جدید اعمال می‌شود.",
   enabled: "ریفرال فعال",
@@ -2837,6 +2882,10 @@ const faPlansAdmin = {
   filterPanel: "فیلتر پنل",
   filterAll: "همهٔ پنل‌ها",
   addPlan: "پلن جدید",
+  addResellerPlan: "پلن نماینده",
+  resellerPlansSection: "پلن‌های نماینده",
+  sitePlansSection: "پلن‌های سایت",
+  pickReseller: "نماینده",
   editPlan: "ویرایش پلن",
   usersLabel: "کاربر",
   gbSuffix: "گیگابایت",
@@ -3248,6 +3297,10 @@ const faResellersAdmin = {
   createError: "ایجاد ناموفق بود",
   listTitle: "همه نمایندگان",
   listCount: "{{n}} نماینده",
+  searchPlaceholder: "جستجو با نام، @نام‌کاربری، شناسه یا تلفن…",
+  searchHint: "همان جستجوی فهرست کاربران.",
+  filterStatus: "وضعیت",
+  filterStatusAll: "همه وضعیت‌ها",
   empty: "نماینده‌ای یافت نشد.",
   colId: "شناسه",
   colName: "نام",
@@ -3313,6 +3366,25 @@ const faResellersAdmin = {
   backfillResult:
     "مالی: {{billingUpdated}} به‌روز / {{billingScanned}} بررسی (آخرین تراکنش #{{billingLast}}). invited_by: {{invitedUpdated}} به‌روز / {{invitedScanned}} بررسی (آخرین کاربر #{{invitedLast}}).",
   backfillError: "Backfill ناموفق بود",
+}
+
+const faResellerReportsPlaceholder = {
+  title: "گزارشات نمایندگان",
+  subtitle: "گزارش فروش و عملکرد نمایندگان به‌زودی در این بخش قرار می‌گیرد.",
+  comingSoon: "به‌زودی",
+}
+
+const faResellerPanelsAdmin = {
+  title: "دسترسی پنل نمایندگان",
+  subtitle: "تعداد نمایندگانی که روی هر پنل کاتالوگ می‌توانند بفروشند (از قیمت پنل / دسترسی).",
+  tableTitle: "پنل‌ها",
+  colPanel: "پنل",
+  colStatus: "وضعیت",
+  colResellers: "نمایندگان با دسترسی",
+  statusActive: "فعال",
+  statusInactive: "غیرفعال",
+  empty: "پنلی در کاتالوگ نیست.",
+  hint: "دسترسی هر نماینده از مسیر نمایندگان → قیمت پنل‌ها؛ افزودن سرور از تنظیمات → پنل‌های 3x-ui.",
 }
 
 const faUserDetailAdmin = {
@@ -4147,6 +4219,8 @@ export function buildDashboardResources(): {
         discountsAdmin: enDiscountsAdmin,
         usersAdmin: enUsersAdmin,
         resellersAdmin: enResellersAdmin,
+        resellerReportsPlaceholder: enResellerReportsPlaceholder,
+        resellerPanelsAdmin: enResellerPanelsAdmin,
         userDetailAdmin: enUserDetailAdmin,
         broadcastAdmin: enBroadcastAdmin,
         pagination: enPagination,
@@ -4198,6 +4272,8 @@ export function buildDashboardResources(): {
         discountsAdmin: faDiscountsAdmin,
         usersAdmin: faUsersAdmin,
         resellersAdmin: faResellersAdmin,
+        resellerReportsPlaceholder: faResellerReportsPlaceholder,
+        resellerPanelsAdmin: faResellerPanelsAdmin,
         userDetailAdmin: faUserDetailAdmin,
         broadcastAdmin: faBroadcastAdmin,
         pagination: faPagination,

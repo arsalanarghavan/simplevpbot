@@ -5,7 +5,6 @@ import {
   Clock,
   EllipsisVerticalIcon,
   HardDrive,
-  Package,
   Radio,
   Server,
   Settings2,
@@ -15,7 +14,6 @@ import {
 import { useCallback, useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 
-import { DashboardWholesaleLinesAdmin } from "@/components/dashboard-wholesale-lines-admin"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -25,7 +23,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Dialog,
   DialogContent,
@@ -42,7 +39,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Progress } from "@/components/ui/progress"
 import {
   Sheet,
   SheetContent,
@@ -53,12 +49,6 @@ import {
 import { DataPagination } from "@/components/data-pagination"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import type { PaginationMeta } from "@/lib/dash-pagination"
-import {
-  type PlansView,
-  isPlansView,
-  readPlansViewFromUrl,
-  writePlansViewToUrl,
-} from "@/lib/plans-subview"
 import { formatNumber } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
 
@@ -105,35 +95,12 @@ function PlanInfoRow({
   )
 }
 
-/** Approximate progress toward next tier (0–100) for ladder UI. */
-function ladderProgressApprox(ladder: DashRecord | undefined): number {
-  if (!ladder) return 0
-  const tg = num(ladder.total_gb)
-  const tt = num(ladder.total_wholesale_toman)
-  const nextId = ladder.next_tier_id
-  if (nextId == null || nextId === undefined || num(nextId) < 1) return 100
-  let best = 0
-  const gbNeedRaw = ladder.gb_to_next_tier
-  const toNeedRaw = ladder.toman_to_next_tier
-  if (gbNeedRaw != null && Number.isFinite(Number(gbNeedRaw)) && Number(gbNeedRaw) > 0) {
-    const need = Number(gbNeedRaw)
-    const target = tg + need
-    best = Math.max(best, target > 0 ? Math.min(100, (tg / target) * 100) : 0)
-  }
-  if (toNeedRaw != null && Number.isFinite(Number(toNeedRaw)) && Number(toNeedRaw) > 0) {
-    const need = Number(toNeedRaw)
-    const target = tt + need
-    best = Math.max(best, target > 0 ? Math.min(100, (tt / target) * 100) : 0)
-  }
-  return best > 0 ? best : 0
-}
-
 type PlanFormState = {
   plan_id: number
   name: string
   category: string
   plan_panel_id: number
-  wholesale_line_id: number
+  owner_svp_user_id: number
   traffic_gb: number
   price: number
   plan_pricing_type: "fixed" | "per_gb"
@@ -149,13 +116,13 @@ type PlanFormState = {
   plan_active: boolean
 }
 
-function emptyForm(defaultPanelId: number, defaultCategory: string, wholesaleLineId = 0): PlanFormState {
+function emptyForm(defaultPanelId: number, defaultCategory: string, ownerId = 0): PlanFormState {
   return {
     plan_id: 0,
     name: "",
     category: defaultCategory,
     plan_panel_id: defaultPanelId,
-    wholesale_line_id: wholesaleLineId,
+    owner_svp_user_id: ownerId,
     traffic_gb: 0,
     price: 0,
     plan_pricing_type: "fixed",
@@ -178,7 +145,7 @@ function formFromPlan(p: DashRecord): PlanFormState {
     name: String(p.name ?? ""),
     category: String(p.category ?? ""),
     plan_panel_id: num(p.panel_id) || 1,
-    wholesale_line_id: num(p.wholesale_line_id),
+    owner_svp_user_id: num(p.owner_svp_user_id),
     traffic_gb: num(p.traffic_gb),
     price: num(p.price),
     plan_pricing_type: p.pricing_type === "per_gb" ? "per_gb" : "fixed",
@@ -200,7 +167,7 @@ function formToPayload(f: PlanFormState): Record<string, unknown> {
     name: f.name,
     category: f.category,
     plan_panel_id: f.plan_panel_id,
-    wholesale_line_id: f.wholesale_line_id > 0 ? f.wholesale_line_id : 0,
+    owner_svp_user_id: f.owner_svp_user_id,
     traffic_gb: f.traffic_gb,
     price: f.price,
     plan_pricing_type: f.plan_pricing_type,
@@ -210,18 +177,23 @@ function formToPayload(f: PlanFormState): Record<string, unknown> {
     duration_days: f.duration_days,
     clients_count: f.clients_count,
     inbound_id: f.inbound_id,
-    service_type: "xray",
-    l2tp_server_id: 0,
+    service_type: f.service_type,
+    l2tp_server_id: f.l2tp_server_id,
     sort_order: f.sort_order,
     plan_active: f.plan_active ? 1 : 0,
   }
 }
 
-function validateForm(f: PlanFormState, resellerMode: boolean, requireWholesaleLine: boolean): string | null {
+function validateForm(
+  f: PlanFormState,
+  resellerMode: boolean,
+  formTarget: "site" | "reseller"
+): string | null {
   if (!f.name.trim()) return "name"
   if (!f.category.trim()) return "category"
-  if (resellerMode && requireWholesaleLine && f.wholesale_line_id < 1) return "wholesale_line"
-  if (!resellerMode && f.inbound_id <= 0) return "inbound"
+  if (!resellerMode && formTarget === "reseller" && f.owner_svp_user_id < 1) return "reseller"
+  if (!resellerMode && formTarget === "site" && f.inbound_id <= 0) return "inbound"
+  if (resellerMode && f.inbound_id <= 0 && f.service_type === "xray") return "inbound"
   if (f.plan_pricing_type === "fixed" && f.price <= 0) return "price"
   if (f.plan_pricing_type === "per_gb") {
     if (f.price_per_gb <= 0) return "price_per_gb"
@@ -234,7 +206,7 @@ function validateForm(f: PlanFormState, resellerMode: boolean, requireWholesaleL
 const CLIENT_VALIDATION_LOCALE: Record<string, string> = {
   name: "validationName",
   category: "validationCategory",
-  wholesale_line: "validationWholesaleLine",
+  reseller: "pickReseller",
   inbound: "validationInbound",
   price: "validationPrice",
   price_per_gb: "validationPricePerGb",
@@ -283,10 +255,8 @@ export function DashboardPlansAdmin({
   plans,
   panels,
   planCategories,
-  l2tpServers = [],
-  wholesaleLines = [],
-  wholesaleLinesCatalog = [],
-  initialPlansView = "plans",
+  l2tpServers: _l2tpServers = [],
+  resellerChoices = [],
   resellerPlanFloors = [],
   resellerMode = false,
   actorSvpUserId = 0,
@@ -303,21 +273,13 @@ export function DashboardPlansAdmin({
   panels: DashRecord[]
   planCategories: DashRecord[]
   l2tpServers: DashRecord[]
-  /** Site admin: full wholesale catalog CRUD (embedded under Plans). */
-  wholesaleLinesCatalog?: DashRecord[]
-  /** Open wholesale sub-view when landing from legacy URL. */
-  initialPlansView?: PlansView
-  /** Reseller dashboard: assigned catalog lines with ladder snapshots. */
-  wholesaleLines?: DashRecord[]
-  /** Per-panel wholesale floor + admin connection presets (reseller dashboard only). */
+  resellerChoices?: DashRecord[]
   resellerPlanFloors?: DashRecord[]
   resellerMode?: boolean
-  /** Current actor `svp_users.id` (sidebar) for reseller troubleshooting copy. */
   actorSvpUserId?: number
   panelAccessDiagnostics?: ResellerPanelAccessDiagnostics | null
   pagination: PaginationMeta | null
   settings?: DashRecord
-  /** Resellers cannot mutate global catalog defaults (`plans_catalog` / settings_tab). */
   showCatalogDefaultsSave?: boolean
   isFa: boolean
   onMutateSuccess?: () => void
@@ -327,17 +289,12 @@ export function DashboardPlansAdmin({
   const { t } = useTranslation()
   const tp = (k: string, opts?: Record<string, string | number>) => t(`plansAdmin.${k}`, opts)
 
-  const hasWholesaleCatalog = resellerMode && wholesaleLines.length > 0
-  const [plansView, setPlansView] = useState<PlansView>(initialPlansView)
+  const [sitePanelFilter, setSitePanelFilter] = useState<string>("all")
+  const [resellerPanelFilter, setResellerPanelFilter] = useState<string>("all")
   const [panelFilter, setPanelFilter] = useState<string>("all")
-
-  useEffect(() => {
-    if (resellerMode) return
-    setPlansView(readPlansViewFromUrl())
-  }, [resellerMode])
-  const [lineFilter, setLineFilter] = useState<string>("all")
   const [sheetOpen, setSheetOpen] = useState(false)
   const [formMode, setFormMode] = useState<"add" | "edit">("add")
+  const [formTarget, setFormTarget] = useState<"site" | "reseller">("site")
   const [form, setForm] = useState<PlanFormState>(() =>
     emptyForm(num(panels[0]?.id) || 1, "")
   )
@@ -405,16 +362,34 @@ export function DashboardPlansAdmin({
     [plans]
   )
 
+  const resellerPlansAll = useMemo(
+    () => (resellerMode ? visiblePlans : visiblePlans.filter((p) => num(p.owner_svp_user_id) > 0)),
+    [visiblePlans, resellerMode]
+  )
+  const sitePlansAll = useMemo(
+    () => (resellerMode ? [] : visiblePlans.filter((p) => num(p.owner_svp_user_id) === 0)),
+    [visiblePlans, resellerMode]
+  )
+
+  const filterByPanel = useCallback((list: DashRecord[], pf: string) => {
+    if (pf === "all") return list
+    const pid = num(pf)
+    return list.filter((p) => num(p.panel_id) === pid)
+  }, [])
+
   const filteredPlans = useMemo(() => {
-    if (hasWholesaleCatalog) {
-      if (lineFilter === "all") return visiblePlans
-      const lid = num(lineFilter)
-      return visiblePlans.filter((p) => num(p.wholesale_line_id) === lid)
-    }
-    if (panelFilter === "all") return visiblePlans
-    const pid = num(panelFilter)
-    return visiblePlans.filter((p) => num(p.panel_id) === pid)
-  }, [visiblePlans, panelFilter, lineFilter, hasWholesaleCatalog])
+    const pf = resellerMode ? panelFilter : sitePanelFilter
+    return filterByPanel(resellerMode ? visiblePlans : sitePlansAll, pf)
+  }, [visiblePlans, sitePlansAll, panelFilter, sitePanelFilter, resellerMode, filterByPanel])
+
+  const filteredResellerPlans = useMemo(
+    () => filterByPanel(resellerPlansAll, resellerPanelFilter),
+    [resellerPlansAll, resellerPanelFilter, filterByPanel]
+  )
+  const filteredSitePlans = useMemo(
+    () => filterByPanel(sitePlansAll, sitePanelFilter),
+    [sitePlansAll, sitePanelFilter, filterByPanel]
+  )
 
   const stats = useMemo(() => {
     let active = 0
@@ -429,27 +404,19 @@ export function DashboardPlansAdmin({
   }, [visiblePlans, pagination])
 
   const ranked = useMemo(() => {
-    return [...filteredPlans].sort((a, b) => {
+    return [...(resellerMode ? filteredPlans : filteredSitePlans)].sort((a, b) => {
       const uc = num(b.userCount) - num(a.userCount)
       if (uc !== 0) return uc
       return String(a.name ?? "").localeCompare(String(b.name ?? ""))
     })
-  }, [filteredPlans])
+  }, [filteredPlans, filteredSitePlans, resellerMode])
 
   const floorForPanel = useMemo(() => {
     const pid = form.plan_panel_id
     return resellerPlanFloors.find((x) => num(x.panel_id) === pid)
   }, [form.plan_panel_id, resellerPlanFloors])
 
-  const minPriceFloorPerGb = useMemo(() => {
-    if (hasWholesaleCatalog && form.wholesale_line_id > 0) {
-      const line = wholesaleLines.find((w) => num(w.id) === form.wholesale_line_id)
-      const ladder = line?.ladder as DashRecord | undefined
-      const cur = num(ladder?.current_price_per_gb)
-      if (cur > 0) return cur
-    }
-    return num(floorForPanel?.min_price_per_gb_effective)
-  }, [hasWholesaleCatalog, form.wholesale_line_id, wholesaleLines, floorForPanel])
+  const minPriceFloorPerGb = useMemo(() => num(floorForPanel?.min_price_per_gb_effective), [floorForPanel])
 
   const categoriesForFormPanel = useMemo(
     () => planCategories.filter((c) => num(c.panel_id) === form.plan_panel_id),
@@ -472,25 +439,33 @@ export function DashboardPlansAdmin({
     }
   }, [sheetOpen, resellerMode, form.plan_panel_id, panels, sellablePanels, firstCategoryForPanel])
 
-  const openAdd = () => {
+  const openAddSite = () => {
     setError(null)
     setFormMode("add")
-    if (hasWholesaleCatalog) {
-      const lid = lineFilter !== "all" ? num(lineFilter) : num(wholesaleLines[0]?.id)
-      const line = wholesaleLines.find((w) => num(w.id) === lid) ?? wholesaleLines[0]
-      const pid = num(line?.panel_id) || defaultPanelId
-      const wlid = num(line?.id) || 0
-      setForm(emptyForm(pid, firstCategoryForPanel(pid), wlid))
-    } else {
-      const pid = defaultPanelId
-      setForm(emptyForm(pid, firstCategoryForPanel(pid), 0))
-    }
+    setFormTarget("site")
+    const pid = num(sitePanelFilter !== "all" ? sitePanelFilter : defaultPanelId)
+    setForm(emptyForm(pid, firstCategoryForPanel(pid), 0))
     setSheetOpen(true)
+  }
+
+  const openAddReseller = () => {
+    setError(null)
+    setFormMode("add")
+    setFormTarget("reseller")
+    const pid = num(resellerPanelFilter !== "all" ? resellerPanelFilter : defaultPanelId)
+    setForm(emptyForm(pid, firstCategoryForPanel(pid), num(resellerChoices[0]?.id)))
+    setSheetOpen(true)
+  }
+
+  const openAdd = () => {
+    if (resellerMode) openAddSite()
+    else openAddSite()
   }
 
   const openEdit = (p: DashRecord) => {
     setError(null)
     setFormMode("edit")
+    setFormTarget(num(p.owner_svp_user_id) > 0 ? "reseller" : "site")
     setForm(formFromPlan(p))
     setSheetOpen(true)
   }
@@ -509,7 +484,7 @@ export function DashboardPlansAdmin({
   }
 
   const onSaveSheet = async () => {
-    const inv = validateForm(form, resellerMode, hasWholesaleCatalog)
+    const inv = validateForm(form, resellerMode, formTarget)
     if (inv) {
       const key = CLIENT_VALIDATION_LOCALE[inv]
       setError(key ? tp(key) : tp("mutateInvalid"))
@@ -542,7 +517,7 @@ export function DashboardPlansAdmin({
         <p className="mt-1 text-sm text-muted-foreground">{tp("subtitle")}</p>
       </div>
 
-      {resellerMode && panels.length === 0 && wholesaleLines.length === 0 ? (
+      {resellerMode && panels.length === 0 ? (
         <div className="space-y-3">
           <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
             {tp("resellerNoPanels")}
@@ -565,103 +540,6 @@ export function DashboardPlansAdmin({
               <p>{tp("resellerPanelDiagInactive", { n: panelAccessDiagnostics.inactive_row_count ?? 0 })}</p>
             </div>
           ) : null}
-        </div>
-      ) : null}
-
-      {!resellerMode ? (
-        <Tabs
-          value={plansView}
-          onValueChange={(v) => {
-            const next = isPlansView(v) ? v : "plans"
-            setPlansView(next)
-            writePlansViewToUrl(next)
-          }}
-        >
-          <TabsList className={cn(isFa && "flex-row-reverse")}>
-            <TabsTrigger value="plans">{tp("tabPlans")}</TabsTrigger>
-            <TabsTrigger value="wholesale">{tp("tabWholesaleLines")}</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      ) : null}
-
-      {!resellerMode && plansView === "wholesale" ? (
-        <DashboardWholesaleLinesAdmin
-          catalog={wholesaleLinesCatalog}
-          panels={panels}
-          l2tpServers={l2tpServers}
-          isFa={isFa}
-          onMutateSuccess={onMutateSuccess}
-        />
-      ) : null}
-
-      {resellerMode || plansView === "plans" ? (
-        <>
-      {hasWholesaleCatalog ? (
-        <div className="space-y-3">
-          <div>
-            <h3 className="text-base font-semibold">{tp("ladderTitle")}</h3>
-            <p className="text-sm text-muted-foreground">{tp("ladderSubtitle")}</p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {wholesaleLines.map((line) => {
-              const lid = num(line.id)
-              const ladder = line.ladder as DashRecord | undefined
-              const pct = ladderProgressApprox(ladder)
-              const curRate = num(ladder?.current_price_per_gb)
-              const nextRate = num(ladder?.next_price_per_gb)
-              const gbNeed = ladder?.gb_to_next_tier
-              const tomanNeed = ladder?.toman_to_next_tier
-              const atTop = ladder?.next_tier_id == null || num(ladder?.next_tier_id) < 1
-              return (
-                <Card key={lid}>
-                  <CardHeader className="pb-2">
-                    <div className={cn("flex items-center gap-2", isFa && "flex-row-reverse")}>
-                      <span
-                        className="h-2 w-8 shrink-0 rounded-full"
-                        style={{ backgroundColor: String(line.badge_color ?? "#6366f1") }}
-                      />
-                      <CardTitle className="text-base">{String(line.label ?? `#${lid}`)}</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3 text-sm">
-                    <div className={cn("flex justify-between gap-2", isFa && "flex-row-reverse")}>
-                      <span className="text-muted-foreground">{tp("ladderCurrentRate")}</span>
-                      <span className="tabular-nums font-semibold">{formatNumber(curRate, isFa)}</span>
-                    </div>
-                    <div className={cn("flex justify-between gap-2 text-muted-foreground", isFa && "flex-row-reverse")}>
-                      <span>{tp("ladderTotalGb")}</span>
-                      <span className="tabular-nums">{formatNumber(num(ladder?.total_gb), isFa)}</span>
-                    </div>
-                    <div className={cn("flex justify-between gap-2 text-muted-foreground", isFa && "flex-row-reverse")}>
-                      <span>{tp("ladderTotalToman")}</span>
-                      <span className="tabular-nums">{formatNumber(num(ladder?.total_wholesale_toman), isFa)}</span>
-                    </div>
-                    {!atTop ? (
-                      <>
-                        <Progress value={pct} className="h-2" />
-                        <div className="space-y-1 text-xs text-muted-foreground">
-                          <p>
-                            {tp("ladderNextTier")}:{" "}
-                            <span className="font-medium text-foreground tabular-nums">
-                              {formatNumber(nextRate, isFa)}
-                            </span>
-                          </p>
-                          {gbNeed != null && Number(gbNeed) > 0 ? (
-                            <p>{tp("ladderGbToGo", { n: formatNumber(Number(gbNeed), isFa) })}</p>
-                          ) : null}
-                          {tomanNeed != null && Number(tomanNeed) > 0 ? (
-                            <p>{tp("ladderTomanToGo", { n: formatNumber(Number(tomanNeed), isFa) })}</p>
-                          ) : null}
-                        </div>
-                      </>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">{tp("ladderMaxTier")}</p>
-                    )}
-                  </CardContent>
-                </Card>
-              )
-            })}
-          </div>
         </div>
       ) : null}
 
@@ -703,35 +581,27 @@ export function DashboardPlansAdmin({
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-2">
               <Label htmlFor="catalog-filter" className="sr-only">
-                {hasWholesaleCatalog ? tp("filterWholesaleLine") : tp("filterPanel")}
+                {tp("filterPanel")}
               </Label>
-              <span className="text-sm text-muted-foreground">
-                {hasWholesaleCatalog ? tp("filterWholesaleLine") : tp("filterPanel")}
-              </span>
+              <span className="text-sm text-muted-foreground">{tp("filterPanel")}</span>
               <select
                 id="catalog-filter"
                 className={cn(selectClass, "w-full min-w-[10rem] sm:w-56")}
-                value={hasWholesaleCatalog ? lineFilter : panelFilter}
+                value={resellerMode ? panelFilter : sitePanelFilter}
                 onChange={(e) =>
-                  hasWholesaleCatalog ? setLineFilter(e.target.value) : setPanelFilter(e.target.value)
+                  resellerMode ? setPanelFilter(e.target.value) : setSitePanelFilter(e.target.value)
                 }
               >
                 <option value="all">{tp("filterAll")}</option>
-                {hasWholesaleCatalog
-                  ? wholesaleLines.map((w) => (
-                      <option key={String(w.id)} value={String(num(w.id))}>
-                        {String(w.label ?? w.id)}
-                      </option>
-                    ))
-                  : panels.map((p) => (
-                      <option key={String(p.id)} value={String(p.id)}>
-                        {String(p.label ?? p.name ?? p.id)}
-                      </option>
-                    ))}
+                {panels.map((p) => (
+                  <option key={String(p.id)} value={String(p.id)}>
+                    {String(p.label ?? p.name ?? p.id)}
+                  </option>
+                ))}
               </select>
             </div>
             <div className={cn("flex flex-wrap items-center gap-2", isFa && "flex-row-reverse")}>
-              {showCatalogDefaultsSave ? (
+              {showCatalogDefaultsSave && !resellerMode ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -743,17 +613,110 @@ export function DashboardPlansAdmin({
                   <span>{tp("catalogDefaultsButton")}</span>
                 </Button>
               ) : null}
-              <Button
-                type="button"
-                onClick={openAdd}
-                disabled={resellerMode && panels.length < 1 && wholesaleLines.length < 1}
-              >
-                {tp("addPlan")}
-              </Button>
+              {!resellerMode ? (
+                <>
+                  <Button type="button" variant="outline" onClick={openAddReseller}>
+                    {tp("addResellerPlan")}
+                  </Button>
+                  <Button type="button" onClick={openAddSite}>
+                    {tp("addPlan")}
+                  </Button>
+                </>
+              ) : (
+                <Button type="button" onClick={openAdd} disabled={panels.length < 1}>
+                  {tp("addPlan")}
+                </Button>
+              )}
             </div>
           </div>
 
-          {filteredPlans.length === 0 ? (
+          {!resellerMode ? (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-base font-semibold">{tp("resellerPlansSection")}</h3>
+                <select
+                  className={cn(selectClass, "w-full min-w-[10rem] sm:w-48")}
+                  value={resellerPanelFilter}
+                  onChange={(e) => setResellerPanelFilter(e.target.value)}
+                >
+                  <option value="all">{tp("filterAll")}</option>
+                  {panels.map((p) => (
+                    <option key={`rf-${String(p.id)}`} value={String(p.id)}>
+                      {String(p.label ?? p.name ?? p.id)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {filteredResellerPlans.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{tp("rankEmpty")}</p>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+                  {filteredResellerPlans.map((p) => {
+                    const id = num(p.id)
+                    const pid = num(p.panel_id)
+                    const ownerId = num(p.owner_svp_user_id)
+                    const uc = num(p.userCount)
+                    const price = num(p.price)
+                    const ptype = String(p.pricing_type ?? "fixed")
+                    const active = p.active === true || p.active === 1 || p.active === "1"
+                    const priceLabel =
+                      ptype === "per_gb"
+                        ? `${formatNumber(num(p.price_per_gb), isFa)} / ${tp("gbSuffix")}`
+                        : formatNumber(price, isFa)
+                    return (
+                      <Card key={`r-${id || String(p.name)}`} className="relative overflow-hidden pt-0">
+                        <CardHeader className="space-y-2 pb-3 pt-4">
+                          <div className={cn("flex items-start justify-between gap-2", isFa && "flex-row-reverse")}>
+                            <div className="min-w-0 flex-1">
+                              <CardTitle className="text-base leading-snug">{String(p.name ?? "—")}</CardTitle>
+                              <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+                                {tp("cardUsers")}: {formatNumber(uc, isFa)}
+                              </p>
+                            </div>
+                            <div className={cn("flex shrink-0 items-center gap-1", isFa && "flex-row-reverse")}>
+                              <Badge variant={active ? "default" : "outline"}>
+                                {active ? tp("statsActive") : tp("statsInactive")}
+                              </Badge>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon-sm" className="size-8">
+                                    <EllipsisVerticalIcon className="size-4" />
+                                    <span className="sr-only">{tp("actions")}</span>
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align={isFa ? "start" : "end"}>
+                                  <DropdownMenuItem onClick={() => openEdit(p)}>{tp("edit")}</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => void onToggle(p)}>{tp("toggle")}</DropdownMenuItem>
+                                  <DropdownMenuItem variant="destructive" onClick={() => setDeleteTarget(p)}>
+                                    {tp("delete")}
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="grid gap-2 pb-4 sm:grid-cols-2">
+                          {ownerId > 0 ? (
+                            <PlanInfoRow
+                              icon={Users}
+                              label={tp("pickReseller")}
+                              value={`#${formatNumber(ownerId, isFa)}`}
+                            />
+                          ) : null}
+                          <PlanInfoRow icon={Server} label={tp("cardPanel")} value={panelLabel(panels, pid)} />
+                          <PlanInfoRow icon={Tag} label={tp("cardCategory")} value={String(p.category ?? "—")} />
+                          <PlanInfoRow icon={BadgeDollarSign} label={tp("cardPrice")} value={priceLabel} />
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
+                </div>
+              )}
+              <h3 className="text-base font-semibold pt-2">{tp("sitePlansSection")}</h3>
+            </div>
+          ) : null}
+
+          {(resellerMode ? filteredPlans : filteredSitePlans).length === 0 ? (
             <Card>
               <CardContent className="py-10 text-center text-sm text-muted-foreground">
                 {tp("rankEmpty")}
@@ -761,12 +724,10 @@ export function DashboardPlansAdmin({
             </Card>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
-              {filteredPlans.map((p) => {
+              {(resellerMode ? filteredPlans : filteredSitePlans).map((p) => {
                 const id = num(p.id)
                 const pid = num(p.panel_id)
-                const wlidPlan = num(p.wholesale_line_id)
-                const lineMeta = wholesaleLines.find((w) => num(w.id) === wlidPlan)
-                const stripe = lineMeta?.badge_color ? String(lineMeta.badge_color) : undefined
+                const ownerId = num(p.owner_svp_user_id)
                 const uc = num(p.userCount)
                 const price = num(p.price)
                 const ptype = String(p.pricing_type ?? "fixed")
@@ -777,9 +738,6 @@ export function DashboardPlansAdmin({
                     : formatNumber(price, isFa)
                 return (
                   <Card key={id || String(p.name)} className="relative overflow-hidden pt-0">
-                    {stripe ? (
-                      <div className="h-1 w-full shrink-0" style={{ backgroundColor: stripe }} />
-                    ) : null}
                     <CardHeader className="space-y-2 pb-3 pt-4">
                       <div
                         className={cn(
@@ -816,15 +774,14 @@ export function DashboardPlansAdmin({
                       </div>
                     </CardHeader>
                     <CardContent className="grid gap-2 pb-4 sm:grid-cols-2">
-                      <PlanInfoRow
-                        icon={hasWholesaleCatalog && wlidPlan > 0 ? Package : Server}
-                        label={hasWholesaleCatalog && wlidPlan > 0 ? tp("cardWholesaleLine") : tp("cardPanel")}
-                        value={
-                          hasWholesaleCatalog && wlidPlan > 0
-                            ? String(lineMeta?.label ?? "—")
-                            : panelLabel(panels, pid)
-                        }
-                      />
+                      {ownerId > 0 ? (
+                        <PlanInfoRow
+                          icon={Users}
+                          label={tp("pickReseller")}
+                          value={`#${formatNumber(ownerId, isFa)}`}
+                        />
+                      ) : null}
+                      <PlanInfoRow icon={Server} label={tp("cardPanel")} value={panelLabel(panels, pid)} />
                       <PlanInfoRow icon={Tag} label={tp("cardCategory")} value={String(p.category ?? "—")} />
                       <PlanInfoRow
                         icon={Radio}
@@ -906,7 +863,13 @@ export function DashboardPlansAdmin({
           showCloseButton
         >
           <SheetHeader>
-            <SheetTitle>{formMode === "add" ? tp("addPlan") : tp("editPlan")}</SheetTitle>
+            <SheetTitle>
+              {formMode === "add"
+                ? formTarget === "reseller"
+                  ? tp("addResellerPlan")
+                  : tp("addPlan")
+                : tp("editPlan")}
+            </SheetTitle>
           </SheetHeader>
           <div className="flex flex-col gap-4 px-4 pb-4">
             <div className="space-y-2">
@@ -916,65 +879,55 @@ export function DashboardPlansAdmin({
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               />
             </div>
-            {hasWholesaleCatalog ? (
+            {!resellerMode && formTarget === "reseller" ? (
               <div className="space-y-2">
-                <Label>{tp("wholesaleLine")}</Label>
+                <Label>{tp("pickReseller")}</Label>
                 <select
                   className={selectClass}
-                  value={String(form.wholesale_line_id || 0)}
-                  onChange={(e) => {
-                    const wlid = num(e.target.value)
-                    const line = wholesaleLines.find((w) => num(w.id) === wlid)
-                    const pid = num(line?.panel_id) || form.plan_panel_id
-                    setForm((f) => ({
-                      ...f,
-                      wholesale_line_id: wlid,
-                      plan_panel_id: pid,
-                      category: firstCategoryForPanel(pid) || f.category,
-                    }))
-                  }}
+                  value={String(form.owner_svp_user_id || 0)}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, owner_svp_user_id: num(e.target.value) }))
+                  }
                 >
                   <option value="0">{isFa ? "—" : "—"}</option>
-                  {wholesaleLines.map((w) => (
-                    <option key={String(w.id)} value={String(num(w.id))}>
-                      {String(w.label ?? w.id)}
+                  {resellerChoices.map((r) => (
+                    <option key={String(r.id)} value={String(num(r.id))}>
+                      {String(r.first_name ?? "")} {String(r.last_name ?? "")} (#{num(r.id)})
                     </option>
                   ))}
                 </select>
-                <p className="text-xs text-muted-foreground">{tp("wholesaleLineHint")}</p>
               </div>
-            ) : (
-              <div className="space-y-2">
-                <Label>{tp("filterPanel")}</Label>
-                <select
-                  className={selectClass}
-                  value={String(form.plan_panel_id)}
-                  onChange={(e) => {
-                    const pid = num(e.target.value)
-                    setForm((f) => ({
-                      ...f,
-                      plan_panel_id: pid,
-                      category: firstCategoryForPanel(pid) || f.category,
-                    }))
-                  }}
-                >
-                  {panels.map((p) => {
-                    const canSell = panelCanSellPlan(p, resellerMode)
-                    const base = String(p.label ?? p.name ?? p.id)
-                    return (
-                      <option
-                        key={String(p.id)}
-                        value={String(p.id)}
-                        disabled={resellerMode && !canSell}
-                      >
-                        {base}
-                        {resellerMode && !canSell ? tp("panelNoAccessSuffix") : ""}
-                      </option>
-                    )
-                  })}
-                </select>
-              </div>
-            )}
+            ) : null}
+            <div className="space-y-2">
+              <Label>{tp("filterPanel")}</Label>
+              <select
+                className={selectClass}
+                value={String(form.plan_panel_id)}
+                onChange={(e) => {
+                  const pid = num(e.target.value)
+                  setForm((f) => ({
+                    ...f,
+                    plan_panel_id: pid,
+                    category: firstCategoryForPanel(pid) || f.category,
+                  }))
+                }}
+              >
+                {(resellerMode ? sellablePanels : panels).map((p) => {
+                  const canSell = panelCanSellPlan(p, resellerMode)
+                  const base = String(p.label ?? p.name ?? p.id)
+                  return (
+                    <option
+                      key={String(p.id)}
+                      value={String(p.id)}
+                      disabled={resellerMode && !canSell}
+                    >
+                      {base}
+                      {resellerMode && !canSell ? tp("panelNoAccessSuffix") : ""}
+                    </option>
+                  )
+                })}
+              </select>
+            </div>
             <div className="space-y-2">
               <Label>{tp("category")}</Label>
               <select
@@ -1108,44 +1061,18 @@ export function DashboardPlansAdmin({
             )}
             {resellerMode && minPriceFloorPerGb > 0 ? (
               <div className="space-y-1 text-xs text-muted-foreground">
-                {hasWholesaleCatalog && form.wholesale_line_id > 0 ? (
-                  <>
-                    <p>
-                      {t("plansAdmin.minPriceTierRatePerGb", {
-                        rate: formatNumber(minPriceFloorPerGb, isFa),
+                <p>
+                  {form.plan_pricing_type === "per_gb"
+                    ? t("plansAdmin.minPriceHintPerGb", {
+                        min: formatNumber(minPriceFloorPerGb, isFa),
+                      })
+                    : t("plansAdmin.minPriceHintFixed", {
+                        min: formatNumber(
+                          minPriceFloorPerGb * Math.max(1, form.traffic_gb || 1),
+                          isFa
+                        ),
                       })}
-                    </p>
-                    {form.plan_pricing_type === "fixed" ? (
-                      <p>
-                        {t("plansAdmin.minPriceHintFixedTotal", {
-                          min: formatNumber(
-                            minPriceFloorPerGb * Math.max(1, form.traffic_gb || 1),
-                            isFa
-                          ),
-                        })}
-                      </p>
-                    ) : (
-                      <p>
-                        {t("plansAdmin.minPriceHintPerGb", {
-                          min: formatNumber(minPriceFloorPerGb, isFa),
-                        })}
-                      </p>
-                    )}
-                  </>
-                ) : (
-                  <p>
-                    {form.plan_pricing_type === "per_gb"
-                      ? t("plansAdmin.minPriceHintPerGb", {
-                          min: formatNumber(minPriceFloorPerGb, isFa),
-                        })
-                      : t("plansAdmin.minPriceHintFixed", {
-                          min: formatNumber(
-                            minPriceFloorPerGb * Math.max(1, form.traffic_gb || 1),
-                            isFa
-                          ),
-                        })}
-                  </p>
-                )}
+                </p>
               </div>
             ) : null}
             <label className="flex items-center gap-2 text-sm">
@@ -1240,8 +1167,6 @@ export function DashboardPlansAdmin({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-        </>
-      ) : null}
     </div>
   )
 }

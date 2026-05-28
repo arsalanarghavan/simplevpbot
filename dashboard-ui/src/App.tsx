@@ -23,7 +23,7 @@ import {
 import { DashboardLogin } from "@/components/dashboard-login"
 import { buildAdminStateQuery } from "@/lib/dash-pagination"
 import { mapTabForReseller, parseActiveDashTab, parseDashFromPath } from "@/lib/dash-tab"
-import { resolveLegacyPlansTab, writePlansViewToUrl } from "@/lib/plans-subview"
+import { resolveLegacyPlansTab } from "@/lib/plans-subview"
 import { resolveLegacySiteTab, writeSiteSubtabToUrl } from "@/lib/site-settings-subtab"
 import { formatNumber } from "@/lib/format-locale"
 import {
@@ -50,6 +50,7 @@ const RESELLER_ALLOWED_BY_PERMISSION: Record<string, string | null> = {
   plan_cats: "plans.manage",
   cards: "plans.manage",
   referral: "users.manage",
+  referral_reports: "users.manage",
   discounts: "plans.manage",
   reseller_bots: "services.manage",
   bot_ui: "services.manage",
@@ -143,9 +144,6 @@ function App() {
       writeSiteSubtabToUrl(legSite.subtab)
     }
     const legPlans = resolveLegacyPlansTab(legSite.tab)
-    if (legPlans.view && typeof window !== "undefined") {
-      writePlansViewToUrl(legPlans.view)
-    }
     return legPlans.tab
   })
   const [userDetailId, setUserDetailId] = useState<number | null>(() => {
@@ -391,15 +389,12 @@ function App() {
     const legSite = resolveLegacySiteTab(activeTab)
     const legPlans = resolveLegacyPlansTab(legSite.tab)
     const nextTab = legPlans.tab
-    if (nextTab === activeTab && !legSite.subtab && !legPlans.view) return
+    if (nextTab === activeTab && !legSite.subtab) return
     const base = dashboardBaseUrl.replace(/\/?$/, "")
     if (legSite.subtab) writeSiteSubtabToUrl(legSite.subtab)
-    if (legPlans.view) writePlansViewToUrl(legPlans.view)
     let url: string
     if (legSite.subtab != null) {
       url = `${base}/site_settings/?site_subtab=${encodeURIComponent(legSite.subtab)}`
-    } else if (legPlans.view === "wholesale") {
-      url = `${base}/plans/?plans_view=wholesale`
     } else {
       url = `${base}/${encodeURIComponent(nextTab)}/`
     }
@@ -476,7 +471,6 @@ function App() {
       const legSite = resolveLegacySiteTab(loc.tab)
       const legPlans = resolveLegacyPlansTab(legSite.tab)
       if (legSite.subtab) writeSiteSubtabToUrl(legSite.subtab)
-      if (legPlans.view) writePlansViewToUrl(legPlans.view)
       setActiveTab(safeResellerTab(legPlans.tab))
       setUserDetailId(loc.userDetailId)
       setResellerContextId(loc.resellerContextId ?? null)
@@ -632,6 +626,22 @@ function App() {
                   delete next.users_q
                 } else {
                   next.users_q = q.trim()
+                }
+                return next
+              })
+            }}
+            resellersSearchQuery={listQuery.users_q ?? ""}
+            resellersStatusFilter={listQuery.resellers_status ?? "all"}
+            onResellersFiltersChange={(patch) => {
+              setListQuery((prev: Record<string, string>) => {
+                const next: Record<string, string> = { ...prev, resellers_page: "1" }
+                if (patch.q !== undefined) {
+                  if (patch.q.trim() === "") delete next.users_q
+                  else next.users_q = patch.q.trim()
+                }
+                if (patch.status !== undefined) {
+                  if (patch.status === "all") delete next.resellers_status
+                  else next.resellers_status = patch.status
                 }
                 return next
               })
