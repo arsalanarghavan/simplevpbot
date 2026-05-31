@@ -15,6 +15,8 @@ import { useCallback, useEffect, useMemo, useState, type ComponentType, type Rea
 import { useTranslation } from "react-i18next"
 
 import { Badge } from "@/components/ui/badge"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -511,11 +513,11 @@ export function DashboardPlansAdmin({
   }
 
   return (
-    <div className={cn("space-y-6", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
-      <div>
-        <h2 className="text-xl font-semibold tracking-tight">{tp("title")}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{tp("subtitle")}</p>
-      </div>
+    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+      <DashboardPageHeader
+        title={<h2 className="text-xl font-semibold tracking-tight">{tp("title")}</h2>}
+        description={tp("subtitle")}
+      />
 
       {resellerMode && panels.length === 0 ? (
         <div className="space-y-3">
@@ -600,7 +602,7 @@ export function DashboardPlansAdmin({
                 ))}
               </select>
             </div>
-            <div className={cn("flex flex-wrap items-center gap-2", isFa && "flex-row-reverse")}>
+            <div className={cn("flex flex-wrap items-center gap-2")}>
               {showCatalogDefaultsSave && !resellerMode ? (
                 <Button
                   type="button"
@@ -666,14 +668,14 @@ export function DashboardPlansAdmin({
                     return (
                       <Card key={`r-${id || String(p.name)}`} className="relative overflow-hidden pt-0">
                         <CardHeader className="space-y-2 pb-3 pt-4">
-                          <div className={cn("flex items-start justify-between gap-2", isFa && "flex-row-reverse")}>
+                          <div className={cn("flex items-start justify-between gap-2")}>
                             <div className="min-w-0 flex-1">
                               <CardTitle className="text-base leading-snug">{String(p.name ?? "—")}</CardTitle>
                               <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
                                 {tp("cardUsers")}: {formatNumber(uc, isFa)}
                               </p>
                             </div>
-                            <div className={cn("flex shrink-0 items-center gap-1", isFa && "flex-row-reverse")}>
+                            <div className={cn("flex shrink-0 items-center gap-1")}>
                               <Badge variant={active ? "default" : "outline"}>
                                 {active ? tp("statsActive") : tp("statsInactive")}
                               </Badge>
@@ -741,8 +743,7 @@ export function DashboardPlansAdmin({
                     <CardHeader className="space-y-2 pb-3 pt-4">
                       <div
                         className={cn(
-                          "flex items-start justify-between gap-2",
-                          isFa && "flex-row-reverse"
+                          "flex items-start justify-between gap-2"
                         )}
                       >
                         <div className="min-w-0 flex-1">
@@ -751,7 +752,7 @@ export function DashboardPlansAdmin({
                             {tp("cardUsers")}: {formatNumber(uc, isFa)}
                           </p>
                         </div>
-                        <div className={cn("flex shrink-0 items-center gap-1", isFa && "flex-row-reverse")}>
+                        <div className={cn("flex shrink-0 items-center gap-1")}>
                           <Badge variant={active ? "default" : "outline"}>
                             {active ? tp("statsActive") : tp("statsInactive")}
                           </Badge>
@@ -1139,7 +1140,7 @@ export function DashboardPlansAdmin({
                 />
               </div>
             </div>
-            <DialogFooter className={cn("gap-2", isFa && "sm:flex-row-reverse")}>
+            <DialogFooter className={cn("gap-2")}>
               <Button type="button" variant="outline" onClick={() => setCatalogDialogOpen(false)}>
                 {tp("cancel")}
               </Button>
@@ -1157,7 +1158,7 @@ export function DashboardPlansAdmin({
             <DialogTitle>{tp("deleteTitle")}</DialogTitle>
             <DialogDescription>{tp("deleteDescription")}</DialogDescription>
           </DialogHeader>
-          <DialogFooter className={cn("gap-2 sm:justify-between", isFa && "sm:flex-row-reverse")}>
+          <DialogFooter className={cn("gap-2 sm:justify-between")}>
             <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
               {tp("deleteCancel")}
             </Button>

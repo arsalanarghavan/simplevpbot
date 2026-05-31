@@ -47,8 +47,7 @@ export function SiteSettingsProxyTab({
       telegram_proxy_password: "",
       telegram_api_base_url: String(s.telegram_api_base_url ?? ""),
     }),
-    [s],
-  )
+    [s])
 
   const [form, setForm] = useState(initial)
   useEffect(() => setForm(initial), [initial])
@@ -103,7 +102,7 @@ export function SiteSettingsProxyTab({
     }
   }, [tp])
 
-  const row = cn("flex items-center justify-between gap-3", isFa && "flex-row-reverse")
+  const row = cn("flex items-center justify-between gap-3")
 
   return (
     <div className={cn("mx-auto max-w-2xl space-y-6", isFa && "text-right")}>
@@ -200,7 +199,7 @@ export function SiteSettingsProxyTab({
         </div>
       ) : null}
       {testMsg ? <p className="text-sm text-muted-foreground">{testMsg}</p> : null}
-      <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
+      <div className={cn("flex flex-wrap gap-2")}>
         <Button type="button" disabled={saving} onClick={() => void onSave()}>
           {tp("save")}
         </Button>

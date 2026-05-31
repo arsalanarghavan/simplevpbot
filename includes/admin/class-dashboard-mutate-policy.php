@@ -48,6 +48,7 @@ class SimpleVPBot_Dashboard_Mutate_Policy {
 			'user_reduce_days'           => 'services.manage',
 			'user_service_reduce_slots'  => 'services.manage',
 			'user_service_transfer'      => 'services.manage',
+			'user_service_toggle_enable' => 'services.manage',
 			'service_delete'             => 'services.manage',
 			'user_admin_message'         => 'users.manage',
 			'service_alerts_patch'       => 'services.manage',

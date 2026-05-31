@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { BOT_PLATFORMS } from "@/config/bot-platforms"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -158,7 +159,7 @@ export function DashboardForceJoinAdmin({
           <CardDescription className="text-xs">{tp("cardDesc")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
+          <label className={cn("flex items-center gap-2 text-sm")}>
             <input
               type="checkbox"
               className="size-4 rounded border-input"
@@ -235,7 +236,7 @@ export function DashboardForceJoinAdmin({
   }
 
   return (
-    <div className={cn("space-y-4", isFa && "text-right")}>
+    <div className={dashPageRootClass(isFa, "space-y-4")} dir={dashDir(isFa)}>
       <div>
         <h3 className="text-base font-medium">{tp("sectionTitle")}</h3>
         <p className="text-sm text-muted-foreground">{tp("sectionDesc")}</p>
@@ -256,7 +257,7 @@ export function DashboardForceJoinAdmin({
           platformCard(plat.id, t(plat.titleKey))
         )}
       </div>
-      <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
+      <div className={cn("flex flex-wrap gap-2")}>
         <Button type="button" size="sm" disabled={busy} onClick={() => void onSave()}>
           {saving ? tp("saving") : tp("save")}
         </Button>

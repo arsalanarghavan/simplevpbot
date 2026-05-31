@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { BroadcastRichEditor } from "@/components/broadcast-rich-editor"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import {
   hasBaleUnsupportedFeatures,
   htmlForTelegramPreview,
@@ -337,7 +339,7 @@ function BroadcastHtmlPreview({
 }) {
   const previewHtml = htmlForTelegramPreview(html)
   return (
-    <div className={cn("space-y-3", className)}>
+    <div className={cn("space-y-3", className)} dir={dashDir(isFa)}>
       {urls.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {urls.map((u) => (
@@ -376,7 +378,7 @@ function BroadcastBalePreview({
   const md = htmlToBalePreviewMarkdown(html)
   const warn = hasBaleUnsupportedFeatures(html)
   return (
-    <div className={cn("space-y-3", className)}>
+    <div className={cn("space-y-3", className)} dir={dashDir(isFa)}>
       {urls.length > 0 ? (
         <p className="text-xs text-muted-foreground">{urls.length} image(s) — caption on first only</p>
       ) : null}
@@ -385,8 +387,7 @@ function BroadcastBalePreview({
         <pre
           className={cn(
             "min-h-[4rem] whitespace-pre-wrap rounded-md border border-border/80 bg-muted/20 p-3 font-sans text-sm",
-            isFa && "text-right",
-          )}
+            isFa && "text-right")}
         >
           {md}
         </pre>
@@ -469,7 +470,7 @@ function BroadcastRecipientsBlock({
                       summary.barClass
                     )}
                   >
-                    <div className={cn("min-w-0 flex-1 space-y-1 px-2 py-2", isFa && "text-right")}>
+                    <div className={cn("min-w-0 flex-1 space-y-1 px-2 py-2", isFa && "text-right")} dir={dashDir(isFa)}>
                       <div className="font-medium leading-snug">{u.displayName || `#${formatNumericString(String(u.userId), isFa)}`}</div>
                       <p className="text-sm font-medium text-foreground">{label}</p>
                       {u.rows.length > 1 ? (
@@ -480,7 +481,7 @@ function BroadcastRecipientsBlock({
                               className={cn(
                                 "flex flex-wrap items-baseline gap-2 rounded-sm bg-background/50 py-1 ps-2",
                                 channelRowAccent(row),
-                                isFa && "flex-row-reverse text-right"
+                                isFa && "text-right"
                               )}
                             >
                               <span className="shrink-0 font-medium text-muted-foreground">
@@ -524,7 +525,7 @@ function BroadcastRecipientsBlock({
       )}
 
       <Dialog open={detailUser !== null} onOpenChange={(v) => !v && setDetailUser(null)}>
-        <DialogContent className={cn("max-h-[85vh] max-w-lg overflow-y-auto", isFa && "text-right")}>
+        <DialogContent className={cn("max-h-[85vh] max-w-lg overflow-y-auto", isFa && "text-right")} dir={dashDir(isFa)}>
           <DialogHeader>
             <DialogTitle>{tp("statusDialogTitle")}</DialogTitle>
             <DialogDescription className="font-mono tabular-nums">
@@ -690,19 +691,25 @@ export function DashboardBroadcastAdmin({
   }, [onMutateSuccess, t])
 
   return (
-    <div className={cn("space-y-8", isFa && "text-right")}>
-      <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{tp("cronHint")}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{tp("cronHintSysCron")}</p>
-        <div className={cn("mt-3 flex flex-wrap items-center gap-2", isFa && "flex-row-reverse")}>
-          <Button type="button" variant="secondary" size="sm" disabled={processLoading} onClick={() => void runProcessQueue()}>
-            {processLoading ? tp("processQueueRunning") : tp("processQueueNow")}
-          </Button>
-          {processNotice ? <span className="text-xs text-muted-foreground">{processNotice}</span> : null}
-        </div>
-      </div>
+    <div className={dashPageRootClass(isFa, "space-y-8")} dir={dashDir(isFa)}>
+      <DashboardPageHeader
+        title={tp("title")}
+        description={
+          <>
+            <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{tp("cronHint")}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{tp("cronHintSysCron")}</p>
+          </>
+        }
+        actions={
+          <>
+            <Button type="button" variant="secondary" size="sm" disabled={processLoading} onClick={() => void runProcessQueue()}>
+              {processLoading ? tp("processQueueRunning") : tp("processQueueNow")}
+            </Button>
+            {processNotice ? <span className="text-xs text-muted-foreground">{processNotice}</span> : null}
+          </>
+        }
+      />
 
       {error ? (
         <div
@@ -944,7 +951,7 @@ export function DashboardBroadcastAdmin({
       </div>
 
       <Dialog open={fullMsgOpen} onOpenChange={setFullMsgOpen}>
-        <DialogContent className={cn("max-h-[90vh] max-w-2xl overflow-y-auto", isFa && "text-right")}>
+        <DialogContent className={cn("max-h-[90vh] max-w-2xl overflow-y-auto", isFa && "text-right")} dir={dashDir(isFa)}>
           <DialogHeader>
             <DialogTitle>{tp("viewFullMessage")}</DialogTitle>
           </DialogHeader>
@@ -966,7 +973,7 @@ export function DashboardBroadcastAdmin({
             <DialogTitle>{tp("cancelBroadcast")}</DialogTitle>
             <DialogDescription>{tp("cancelConfirm")}</DialogDescription>
           </DialogHeader>
-          <DialogFooter className={cn("gap-2 sm:space-x-0", isFa && "flex-row-reverse")}>
+          <DialogFooter className={cn("gap-2 sm:space-x-0")} dir={dashDir(isFa)}>
             <Button type="button" variant="secondary" onClick={() => setCancelOpen(false)} disabled={cancelling}>
               {tp("cancelAction")}
             </Button>
@@ -984,7 +991,7 @@ function StatBox({ label, value, isFa }: { label: string; value: number; isFa: b
   return (
     <div className="rounded-md border border-border/80 bg-muted/30 px-2 py-1.5">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={cn("text-lg font-semibold tabular-nums", isFa && "text-right")}>{formatNumber(value, isFa)}</div>
+      <div className={cn("text-lg font-semibold tabular-nums", isFa && "text-right")} dir={dashDir(isFa)}>{formatNumber(value, isFa)}</div>
     </div>
   )
 }

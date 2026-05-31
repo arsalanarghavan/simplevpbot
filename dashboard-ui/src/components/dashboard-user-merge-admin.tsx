@@ -10,7 +10,7 @@ import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import { cn } from "@/lib/utils"
 
 export function DashboardUserMergeAdmin({
-  isFa,
+  isFa: _isFa,
   onMutateSuccess,
 }: {
   isFa: boolean
@@ -106,7 +106,7 @@ export function DashboardUserMergeAdmin({
               placeholder={tp("dropIdPlaceholder")}
             />
           </div>
-          <div className={cn("sm:col-span-2 flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
+          <div className={cn("sm:col-span-2 flex flex-wrap gap-2")}>
             <Button type="button" variant="secondary" disabled={busy} onClick={() => void runPreview()}>
               {tp("preview")}
             </Button>

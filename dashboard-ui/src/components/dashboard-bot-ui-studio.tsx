@@ -21,6 +21,8 @@ import { CSS } from "@dnd-kit/utilities"
 import { GripVertical } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
@@ -68,8 +70,7 @@ function cloneRows(raw: unknown): UiStudioCell[][] {
 function pickLabelPreview(
   textKey: string,
   textDefaults: Record<string, unknown> | undefined,
-  isFa: boolean,
-): string {
+  isFa: boolean): string {
   if (!textDefaults || !textKey) return textKey
   const row = textDefaults[textKey]
   if (row && typeof row === "object" && row !== null && ("fa" in row || "en" in row)) {
@@ -138,8 +139,7 @@ function EmptyRowDropZone({
       className={cn(
         "flex min-h-14 items-center justify-center rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground",
         isOver && "border-primary bg-primary/10 text-foreground",
-        isFa && "text-right",
-      )}
+        isFa && "text-right")}
     >
       {label}
     </div>
@@ -187,10 +187,9 @@ function SortableChip({
       className={cn(
         "flex min-w-[200px] flex-col gap-2 rounded-lg border border-border bg-card p-3 text-sm shadow-sm",
         isDragging && "opacity-70",
-        disabled && "opacity-50",
-      )}
+        disabled && "opacity-50")}
     >
-      <div className={cn("flex items-start gap-2", isFa && "flex-row-reverse")}>
+      <div className={cn("flex items-start gap-2")} dir={dashDir(isFa)}>
         <button
           type="button"
           className="mt-0.5 cursor-grab touch-none text-muted-foreground hover:text-foreground"
@@ -199,7 +198,7 @@ function SortableChip({
         >
           <GripVertical className="size-4" />
         </button>
-        <div className={cn("min-w-0 flex-1 space-y-1", isFa && "text-right")}>
+        <div className={cn("min-w-0 flex-1 space-y-1", isFa && "text-right")} dir={dashDir(isFa)}>
           <div className="break-words font-medium leading-snug">{studioTitle}</div>
           <div className="break-all font-mono text-xs text-muted-foreground">{cell.id}</div>
           {textKeyLine ? (
@@ -208,8 +207,8 @@ function SortableChip({
           <div className="break-words text-xs leading-snug text-muted-foreground">{glassPreview || labelPreview}</div>
         </div>
       </div>
-      <div className={cn("flex flex-wrap items-center gap-3", isFa && "justify-end")}>
-        <div className={cn("flex items-center gap-2", isFa && "flex-row-reverse")}>
+      <div className={cn("flex flex-wrap items-center gap-3", isFa && "justify-end")} dir={dashDir(isFa)}>
+        <div className={cn("flex items-center gap-2")} dir={dashDir(isFa)}>
           <Switch
             id={`${sortId}-en`}
             checked={cell.enabled !== false}
@@ -219,7 +218,7 @@ function SortableChip({
             {enabledLabel}
           </Label>
         </div>
-        <div className={cn("flex items-center gap-2", isFa && "flex-row-reverse")}>
+        <div className={cn("flex items-center gap-2")} dir={dashDir(isFa)}>
           <Switch id={`${sortId}-gl`} checked={Boolean(cell.glass)} onCheckedChange={onToggleGlass} />
           <Label htmlFor={`${sortId}-gl`} className="text-xs">
             {glassLabel}
@@ -309,8 +308,7 @@ export function DashboardBotUiStudio({
     (next: UiStudioCell[][]) => {
       setRowsBySurface((prev) => ({ ...prev, [surface]: next }))
     },
-    [surface],
-  )
+    [surface])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
@@ -367,8 +365,7 @@ export function DashboardBotUiStudio({
       dstRow.splice(dIx, 0, cell!)
       setRows(copy)
     },
-    [rows, setRows, surface],
-  )
+    [rows, setRows, surface])
 
   const addRow = useCallback(() => {
     setRows([...rows, []])
@@ -384,8 +381,7 @@ export function DashboardBotUiStudio({
       const next = rows.filter((_, i) => i !== ri)
       setRows(next)
     },
-    [rows, setRows, tp],
-  )
+    [rows, setRows, tp])
 
   const onSave = useCallback(async () => {
     setSaving(true)
@@ -403,8 +399,7 @@ export function DashboardBotUiStudio({
           id: c.id,
           enabled: c.enabled !== false,
           glass: Boolean(c.glass),
-        })),
-      )
+        })))
       const res = await postAdminMutate("bot_ui_layout_save", { surfaces: surfacesPayload })
       if (!res.ok) {
         const data = res.data as { errors?: string[] } | undefined
@@ -440,17 +435,21 @@ export function DashboardBotUiStudio({
   }, [onMutateSuccess, tp])
 
   return (
-    <div className={cn("mx-auto w-full max-w-7xl space-y-6", isFa && "text-right")}>
-      <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-        {layoutReadOnly ? (
-          <p className="mt-2 text-xs text-muted-foreground">{tp("readOnlyHint")}</p>
-        ) : null}
-        {(surface.startsWith("svc_menu_") || surface.includes("inline")) && (
-          <p className="mt-2 text-xs text-muted-foreground">{tp("hintInline")}</p>
-        )}
-      </div>
+    <div className={dashPageRootClass(isFa, "mx-auto w-full max-w-7xl")} dir={dashDir(isFa)}>
+      <DashboardPageHeader
+        title={tp("title")}
+        description={
+          <>
+            <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
+            {layoutReadOnly ? (
+              <p className="mt-2 text-xs text-muted-foreground">{tp("readOnlyHint")}</p>
+            ) : null}
+            {(surface.startsWith("svc_menu_") || surface.includes("inline")) && (
+              <p className="mt-2 text-xs text-muted-foreground">{tp("hintInline")}</p>
+            )}
+          </>
+        }
+      />
 
       <div className="flex flex-wrap items-end gap-4">
         <div className="space-y-2">
@@ -495,9 +494,9 @@ export function DashboardBotUiStudio({
           collisionDetection={closestCorners}
           onDragEnd={layoutReadOnly ? () => {} : handleDragEnd}
         >
-          <div className={cn("space-y-4", layoutReadOnly && "pointer-events-none opacity-90")}>
+          <div className={cn("space-y-4", layoutReadOnly && "pointer-events-none opacity-90")} dir={dashDir(isFa)}>
             {!layoutReadOnly ? (
-              <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
+              <div className={cn("flex flex-wrap gap-2")} dir={dashDir(isFa)}>
                 <Button type="button" variant="secondary" size="sm" onClick={addRow}>
                   {tp("addRow")}
                 </Button>
@@ -514,7 +513,7 @@ export function DashboardBotUiStudio({
                 const sortIds = row.map((c) => `${ITEM_PREFIX}${c.id}`)
                 return (
                   <div key={`row-${ri}-${row.map((c) => c.id).join(",")}`} className="space-y-2">
-                    <div className={cn("flex flex-wrap items-center gap-2", isFa && "flex-row-reverse")}>
+                    <div className={cn("flex flex-wrap items-center gap-2")} dir={dashDir(isFa)}>
                       <span className="text-xs font-medium text-muted-foreground">
                         {tp("row", { n: ri + 1 })}
                       </span>
@@ -533,9 +532,7 @@ export function DashboardBotUiStudio({
                       <SortableContext items={sortIds} strategy={horizontalListSortingStrategy}>
                         <div
                           className={cn(
-                            "flex flex-wrap gap-3 rounded-lg border border-dashed border-border/80 bg-muted/20 p-3",
-                            isFa && "flex-row-reverse",
-                          )}
+                            "flex flex-wrap gap-3 rounded-lg border border-dashed border-border/80 bg-muted/20 p-3")}
                         >
                           {row.map((cell) => {
                             const actionMeta = metaById.get(cell.id)

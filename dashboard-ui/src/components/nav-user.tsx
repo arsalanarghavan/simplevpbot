@@ -62,7 +62,6 @@ function MessengerIds({
         <div
           className={cn(
             "flex max-w-full items-center gap-1.5",
-            rtl && "flex-row-reverse"
           )}
           dir="ltr"
         >
@@ -76,7 +75,6 @@ function MessengerIds({
         <div
           className={cn(
             "flex max-w-full items-center gap-1.5",
-            rtl && "flex-row-reverse"
           )}
           dir="ltr"
         >
@@ -158,7 +156,7 @@ export function NavUser({
               <div
                 className={cn(
                   "flex items-start gap-2 px-1 py-1.5 text-sm",
-                  rtl ? "flex-row-reverse text-end" : "text-start"
+                  rtl ? "text-end" : "text-start"
                 )}
               >
                 <Avatar className="h-8 w-8 shrink-0 rounded-lg">
@@ -184,7 +182,7 @@ export function NavUser({
             <DropdownMenuItem asChild>
               <a
                 href={user.logoutUrl || "#"}
-                className={cn("gap-2", rtl && "flex-row-reverse justify-end")}
+                className={cn("gap-2", rtl && "justify-end")}
               >
                 <LogOut />
                 {t("sidebar.user.logout")}

@@ -31,6 +31,8 @@ import {
   type StatsPayload,
 } from "@/components/dashboard-overview"
 import { PanelServerStatusViz } from "@/components/panel-server-status-viz"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import {
   formatBytes,
   formatChartDayLabel,
@@ -199,18 +201,18 @@ export function DashboardMonitoring({
 
   if (compactHealthOnly) {
     return (
-      <div className={cn("space-y-4", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
-        <div className={cn("flex flex-wrap items-center justify-between gap-2", isFa && "flex-row-reverse")}>
-          <div>
-            <h2 className="text-lg font-semibold">{t("monitoringPage.compactTitle")}</h2>
-            <p className="text-sm text-muted-foreground">{t("monitoringPage.compactSubtitle")}</p>
-          </div>
-          {onRefreshPanelHealth ? (
-            <Button type="button" variant="secondary" size="sm" onClick={() => onRefreshPanelHealth()}>
-              {t("dashboardOverview.refreshPanelHealth")}
-            </Button>
-          ) : null}
-        </div>
+      <div className={dashPageRootClass(isFa, "space-y-4")} dir={dashDir(isFa)}>
+        <DashboardPageHeader
+          title={t("monitoringPage.compactTitle")}
+          description={t("monitoringPage.compactSubtitle")}
+          actions={
+            onRefreshPanelHealth ? (
+              <Button type="button" variant="secondary" size="sm" onClick={() => onRefreshPanelHealth()}>
+                {t("dashboardOverview.refreshPanelHealth")}
+              </Button>
+            ) : null
+          }
+        />
         <Card>
           <CardContent className="pt-6">
             {panels.length === 0 ? (
@@ -235,7 +237,7 @@ export function DashboardMonitoring({
                         <p className="font-medium">{label}</p>
                         <p className="break-all font-mono text-xs text-muted-foreground">{truncateUrl(urlRaw)}</p>
                       </div>
-                      <div className={cn("flex flex-wrap items-center gap-2", isFa && "flex-row-reverse")}>
+                      <div className={cn("flex flex-wrap items-center gap-2")}>
                         <span className="tabular-nums text-muted-foreground">
                           {lat != null ? `${formatNumber(lat, isFa)} ms` : "—"}
                         </span>
@@ -255,25 +257,25 @@ export function DashboardMonitoring({
   }
 
   return (
-    <div className={cn("space-y-6", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
-      <div className={cn("flex flex-wrap items-center justify-between gap-2", isFa && "flex-row-reverse")}>
-        <div>
-          <h2 className="text-lg font-medium">{t("monitoringPage.title")}</h2>
-          <p className="text-sm text-muted-foreground">{t("monitoringPage.subtitle")}</p>
-        </div>
-        <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
-          {onRefreshPanelHealth ? (
-            <Button type="button" variant="outline" size="sm" onClick={() => onRefreshPanelHealth()}>
-              {t("dashboardOverview.refreshPanelHealth")}
-            </Button>
-          ) : null}
-          {onRefreshLivePanelMetrics ? (
-            <Button type="button" variant="default" size="sm" onClick={() => onRefreshLivePanelMetrics()}>
-              {t("dashboardOverview.refreshLiveMetrics")}
-            </Button>
-          ) : null}
-        </div>
-      </div>
+    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+      <DashboardPageHeader
+        title={t("monitoringPage.title")}
+        description={t("monitoringPage.subtitle")}
+        actions={
+          <>
+            {onRefreshPanelHealth ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => onRefreshPanelHealth()}>
+                {t("dashboardOverview.refreshPanelHealth")}
+              </Button>
+            ) : null}
+            {onRefreshLivePanelMetrics ? (
+              <Button type="button" variant="default" size="sm" onClick={() => onRefreshLivePanelMetrics()}>
+                {t("dashboardOverview.refreshLiveMetrics")}
+              </Button>
+            ) : null}
+          </>
+        }
+      />
 
       {host != null ? (
         <Card>

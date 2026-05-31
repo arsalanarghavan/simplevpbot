@@ -4,8 +4,10 @@ import { useMemo } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Badge } from "@/components/ui/badge"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNumber } from "@/lib/format-locale"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
@@ -59,11 +61,8 @@ export function DashboardResellerPanelsAdmin({
   }, [panels, resellerPanelPricesMap])
 
   return (
-    <div className={cn("mx-auto w-full max-w-5xl space-y-6", isFa && "text-right")}>
-      <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-      </div>
+    <div className={dashPageRootClass(isFa, "mx-auto w-full max-w-5xl")} dir={dashDir(isFa)}>
+      <DashboardPageHeader title={tp("title")} description={tp("subtitle")} />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{tp("tableTitle")}</CardTitle>
@@ -72,7 +71,7 @@ export function DashboardResellerPanelsAdmin({
           <table
             className={cn(
               "w-full min-w-[28rem] border-collapse text-sm [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
-              isFa ? "text-right" : "text-left"
+              "text-start"
             )}
           >
             <thead>

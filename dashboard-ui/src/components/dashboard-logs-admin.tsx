@@ -9,18 +9,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { cn } from "@/lib/utils"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 
 export function DashboardLogsAdmin({ isFa }: { isFa: boolean }) {
   const { t } = useTranslation()
   const tp = (k: string) => t(`logsAdmin.${k}`)
 
   return (
-    <div className={cn("space-y-4", isFa && "text-right")}>
-      <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-      </div>
+    <div className={dashPageRootClass(isFa, "space-y-4")} dir={dashDir(isFa)}>
+      <DashboardPageHeader title={tp("title")} description={tp("subtitle")} />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{tp("whereTitle")}</CardTitle>

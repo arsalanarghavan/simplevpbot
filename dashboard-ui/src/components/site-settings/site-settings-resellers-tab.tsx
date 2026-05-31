@@ -69,8 +69,7 @@ export function SiteSettingsResellersTab({
       "plans.manage": tr("perm_plans_manage"),
       "services.manage": tr("perm_services_manage"),
     }),
-    [tr],
-  )
+    [tr])
 
   const defaultFromSettings = useMemo(() => {
     const raw = settings?.default_reseller_permissions
@@ -108,7 +107,7 @@ export function SiteSettingsResellersTab({
     setEditPerms(out)
   }, [selectedId, resellerPermissionsMap, defaults])
 
-  const row = cn("flex items-center justify-between gap-3", isFa && "flex-row-reverse")
+  const row = cn("flex items-center justify-between gap-3")
 
   const saveDefaults = useCallback(async () => {
     setSavingDefaults(true)

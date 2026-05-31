@@ -14,6 +14,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import {
   Card,
   CardContent,
@@ -34,6 +35,7 @@ import {
 import { getAdminJson, postAdminFormData, postAdminJson, postAdminMutate } from "@/lib/dash-admin-mutate"
 import { formatDateTime, formatNumber } from "@/lib/format-locale"
 import { useAdminTp } from "@/lib/use-admin-tp"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
@@ -105,8 +107,7 @@ type RestoreStats = {
 
 function panelDbListLabel(
   row: BackupRow,
-  tp: (k: string, o?: Record<string, string | number>) => string,
-): string {
+  tp: (k: string, o?: Record<string, string | number>) => string): string {
   const status = String(row.panel_db_status ?? (row.has_panel_db ? "full" : "none"))
   if (status === "full") return tp("panelYes")
   if (status === "partial") {
@@ -137,8 +138,7 @@ function formatRestoreReport(data: unknown, tp: (k: string, o?: Record<string, s
       tp("restoreReportPanel", {
         ok: Number(pr.ok_count ?? 0),
         fail: Number(pr.fail_count ?? 0),
-      }),
-    )
+      }))
   }
   const errN = Array.isArray(d.errors) ? d.errors.length : 0
   if (errN > 0) {
@@ -230,8 +230,7 @@ export function DashboardBackupAdmin({
         remark: String(row.remark ?? "—"),
         count: count ?? 0,
       }),
-    [tp],
-  )
+    [tp])
 
   const buildInboundMapPayload = useCallback(() => {
     const out: Record<string, number> = {}
@@ -323,15 +322,13 @@ export function DashboardBackupAdmin({
           (p) =>
             String(p.remark ?? "").toLowerCase() === String(row.remark ?? "").toLowerCase() &&
             num(p.port) === num(row.port) &&
-            String(p.protocol ?? "").toLowerCase() === String(row.protocol ?? "").toLowerCase(),
-        )
+            String(p.protocol ?? "").toLowerCase() === String(row.protocol ?? "").toLowerCase())
         if (live) {
           next[String(row.id)] = String(live.id)
           continue
         }
         const byRemark = panelInbounds.filter(
-          (p) => String(p.remark ?? "").toLowerCase() === String(row.remark ?? "").toLowerCase(),
-        )
+          (p) => String(p.remark ?? "").toLowerCase() === String(row.remark ?? "").toLowerCase())
         if (byRemark.length === 1) {
           next[String(row.id)] = String(byRemark[0].id)
         }
@@ -363,8 +360,7 @@ export function DashboardBackupAdmin({
             tp("inboundMapSaveDbOk", {
               services: num(c.services),
               plans: num(c.plans),
-            }),
-          )
+            }))
         } else {
           setInboundMapMsg(tp("inboundMapSaved"))
         }
@@ -373,8 +369,7 @@ export function DashboardBackupAdmin({
         setInboundMapLoading(false)
       }
     },
-    [buildInboundMapPayload, loadInboundMap, rebuildPanelId, tp],
-  )
+    [buildInboundMapPayload, loadInboundMap, rebuildPanelId, tp])
 
   const loadBackups = useCallback(async () => {
     setListLoading(true)
@@ -391,8 +386,7 @@ export function DashboardBackupAdmin({
       setPanelOptions(
         panels
           .map((p) => ({ id: num(p.id), label: String(p.label ?? `#${num(p.id)}`) }))
-          .filter((p) => p.id > 0),
-      )
+          .filter((p) => p.id > 0))
       setStoreOnSiteLive(bool(json.store_on_site))
       setLastBackupAt(num(json.last_backup_at))
       setLastBuiltAt(num(json.last_built_at))
@@ -566,8 +560,7 @@ export function DashboardBackupAdmin({
           rebuildDryRun ? "" : tp("rebuildDone"),
         ]
           .filter(Boolean)
-          .join("\n"),
-      )
+          .join("\n"))
       setRebuildOpen(false)
       if (!rebuildDryRun) onMutateSuccess?.()
     } finally {
@@ -621,8 +614,7 @@ export function DashboardBackupAdmin({
           tp("fix51200Done"),
         ]
           .filter(Boolean)
-          .join("\n"),
-      )
+          .join("\n"))
       setFix51200Open(false)
       await refreshFix51200Count()
       onMutateSuccess?.()
@@ -632,7 +624,7 @@ export function DashboardBackupAdmin({
   }, [buildInboundMapPayload, onMutateSuccess, refreshFix51200Count, rebuildPanelId, tp])
 
   const chk = (key: keyof typeof form, labelKey: string) => (
-    <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
+    <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
       <input
         type="checkbox"
         className="size-4 rounded border-input"
@@ -644,11 +636,8 @@ export function DashboardBackupAdmin({
   )
 
   return (
-    <div className={cn("mx-auto max-w-3xl space-y-6", isFa && "text-right")}>
-      <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-      </div>
+    <div className={dashPageRootClass(isFa, "mx-auto max-w-3xl")} dir={dashDir(isFa)}>
+      <DashboardPageHeader title={tp("title")} description={tp("subtitle")} />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{tp("cardTitle")}</CardTitle>
@@ -847,7 +836,7 @@ export function DashboardBackupAdmin({
                     {tp("inboundMapMissing", { n: inboundMapMissing })}
                   </p>
                 ) : null}
-                <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
+                <div className={cn("flex flex-wrap gap-2")} dir={dashDir(isFa)}>
                   <Button
                     type="button"
                     size="sm"
@@ -1006,7 +995,7 @@ export function DashboardBackupAdmin({
             </Button>
           </div>
 
-          <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
+          <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
             <input
               type="checkbox"
               className="size-4 rounded border-input"
@@ -1051,7 +1040,7 @@ export function DashboardBackupAdmin({
               onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
             />
           </div>
-          <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
+          <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
             <input
               type="checkbox"
               className="size-4 rounded border-input"
@@ -1060,7 +1049,7 @@ export function DashboardBackupAdmin({
             />
             {tp("uploadConfirmLabel")}
           </label>
-          <label className={cn("flex items-start gap-2 text-sm", isFa && "flex-row-reverse")}>
+          <label className={cn("flex items-start gap-2 text-sm")} dir={dashDir(isFa)}>
             <input
               type="checkbox"
               className="mt-0.5 size-4 rounded border-input"
@@ -1086,12 +1075,12 @@ export function DashboardBackupAdmin({
       </Card>
 
       <AlertDialog open={fix51200Open} onOpenChange={(open) => !open && !fix51200Busy && setFix51200Open(open)}>
-        <AlertDialogContent dir={isFa ? "rtl" : "ltr"}>
+        <AlertDialogContent dir={dashDir(isFa)}>
           <AlertDialogHeader>
             <AlertDialogTitle>{tp("fix51200ConfirmTitle")}</AlertDialogTitle>
             <AlertDialogDescription>{tp("fix51200ConfirmDesc")}</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className={cn(isFa && "flex-row-reverse")}>
+          <AlertDialogFooter className={cn("")} dir={dashDir(isFa)}>
             <AlertDialogCancel disabled={fix51200Busy}>{tp("cancel")}</AlertDialogCancel>
             <AlertDialogAction disabled={fix51200Busy} onClick={() => void onFix51200()}>
               {tp("fix51200Confirm")}
@@ -1101,12 +1090,12 @@ export function DashboardBackupAdmin({
       </AlertDialog>
 
       <AlertDialog open={rebuildOpen} onOpenChange={(open) => !open && !rebuildBusy && setRebuildOpen(open)}>
-        <AlertDialogContent dir={isFa ? "rtl" : "ltr"}>
+        <AlertDialogContent dir={dashDir(isFa)}>
           <AlertDialogHeader>
             <AlertDialogTitle>{tp("rebuildConfirmTitle")}</AlertDialogTitle>
             <AlertDialogDescription>{tp("rebuildConfirmDesc")}</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className={cn(isFa && "flex-row-reverse")}>
+          <AlertDialogFooter className={cn("")} dir={dashDir(isFa)}>
             <AlertDialogCancel disabled={rebuildBusy}>{tp("cancel")}</AlertDialogCancel>
             <AlertDialogAction disabled={rebuildBusy} onClick={() => void onRebuildPanels()}>
               {tp("rebuildConfirm")}
@@ -1124,13 +1113,13 @@ export function DashboardBackupAdmin({
           }
         }}
       >
-        <AlertDialogContent dir={isFa ? "rtl" : "ltr"}>
+        <AlertDialogContent dir={dashDir(isFa)}>
           <AlertDialogHeader>
             <AlertDialogTitle>{tp("restoreDialogTitle")}</AlertDialogTitle>
             <AlertDialogDescription className="space-y-3">
               <span className="block">{tp("restoreWarning")}</span>
               {restoreTarget?.has_panel_db ? (
-                <label className={cn("flex items-start gap-2 text-sm", isFa && "flex-row-reverse")}>
+                <label className={cn("flex items-start gap-2 text-sm")} dir={dashDir(isFa)}>
                   <input
                     type="checkbox"
                     className="mt-0.5 size-4 rounded border-input"
@@ -1146,7 +1135,7 @@ export function DashboardBackupAdmin({
               ) : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className={cn(isFa && "flex-row-reverse")}>
+          <AlertDialogFooter className={cn("")} dir={dashDir(isFa)}>
             <AlertDialogCancel disabled={restoreBusy}>{tp("cancel")}</AlertDialogCancel>
             <AlertDialogAction disabled={restoreBusy} onClick={() => void onRestoreFile()}>
               {tp("restoreConfirm")}

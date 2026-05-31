@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/tooltip"
 import type { AdminNavSection } from "@/config/admin-nav"
 import { cn } from "@/lib/utils"
+import { buildDashboardTabUrl } from "@/lib/dash-tab"
 import { writeSiteSubtabToUrl } from "@/lib/site-settings-subtab"
 
 type NavTab = {
@@ -212,7 +213,7 @@ function RoleSwitcher({
         {availablePersonas.includes("admin") ? (
           <DropdownMenuItem
             disabled={activePersona === "admin"}
-            className={cn("gap-2 text-sm", rtl && "flex-row-reverse justify-end")}
+            className={cn("gap-2 text-sm", rtl && "justify-end")}
             onClick={() => setPersona("admin")}
           >
             {activePersona === "admin" ? (
@@ -226,7 +227,7 @@ function RoleSwitcher({
         {availablePersonas.includes("reseller") ? (
           <DropdownMenuItem
             disabled={activePersona === "reseller"}
-            className={cn("gap-2 text-sm", rtl && "flex-row-reverse justify-end")}
+            className={cn("gap-2 text-sm", rtl && "justify-end")}
             onClick={() => setPersona("reseller")}
           >
             {activePersona === "reseller" ? (
@@ -240,7 +241,7 @@ function RoleSwitcher({
         {availablePersonas.includes("user") ? (
           <DropdownMenuItem
             disabled={activePersona === "user"}
-            className={cn("gap-2 text-sm", rtl && "flex-row-reverse justify-end")}
+            className={cn("gap-2 text-sm", rtl && "justify-end")}
             onClick={() => setPersona("user")}
           >
             {activePersona === "user" ? (
@@ -304,7 +305,7 @@ export function AppSidebar({
   const isFa = side === "right"
   const { t } = useTranslation()
   const base = dashboardBaseUrl.replace(/\/?$/, "")
-  const subItemUrl = (tabKey: string) => `${base}/${encodeURIComponent(tabKey)}/`
+  const subItemUrl = (tabKey: string) => buildDashboardTabUrl(base, tabKey)
 
   const displayName = siteName.trim() || t("sidebar.siteFallback")
   const isAdmin = variant === "admin"

@@ -146,6 +146,7 @@ class SimpleVPBot_Plugin {
 		'SimpleVPBot_User_Membership'   => 'helpers/class-user-membership.php',
 		'SimpleVPBot_Required_Channel'  => 'helpers/class-required-channel.php',
 		'SimpleVPBot_User_Activity_Log' => 'helpers/class-user-activity-log.php',
+		'SimpleVPBot_Activity_Callback_Label' => 'helpers/class-activity-callback-label.php',
 		'SimpleVPBot_Service_Transfer'   => 'helpers/class-service-transfer.php',
 		'SimpleVPBot_Service_Renew'      => 'helpers/class-service-renew.php',
 		'SimpleVPBot_Service_Alerts'     => 'helpers/class-service-alerts.php',

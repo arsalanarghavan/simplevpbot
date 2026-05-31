@@ -60,6 +60,7 @@ export function SiteSettingsWhitelabelTab({
       portal_page_id: String(Number(s.portal_page_id) || 0),
       default_service_plan_id: String(Number(s.default_service_plan_id) || 0),
       default_bot_locale: String(s.default_bot_locale || "fa"),
+      service_naming_mode: String(s.service_naming_mode || "legacy"),
       cards_display_mode: String(s.cards_display_mode || "list"),
       dashboard_site_name: String(s.dashboard_site_name ?? ""),
       dashboard_site_icon_url: String(s.dashboard_site_icon_url ?? ""),
@@ -77,8 +78,7 @@ export function SiteSettingsWhitelabelTab({
         ? (s.receipt_reject_reasons as string[]).join("\n")
         : "",
     }),
-    [s],
-  )
+    [s])
 
   const [form, setForm] = useState(initial)
   useEffect(() => setForm(initial), [initial])
@@ -109,6 +109,7 @@ export function SiteSettingsWhitelabelTab({
         portal_page_id: Number(form.portal_page_id) || 0,
         default_service_plan_id: Number(form.default_service_plan_id) || 0,
         default_bot_locale: form.default_bot_locale,
+        service_naming_mode: form.service_naming_mode,
         cards_display_mode: form.cards_display_mode,
         dashboard_site_name: form.dashboard_site_name,
         dashboard_site_icon_url: form.dashboard_site_icon_url,
@@ -134,7 +135,7 @@ export function SiteSettingsWhitelabelTab({
     }
   }, [form, onMutateSuccess, tp])
 
-  const row = cn("flex items-center justify-between gap-3", isFa && "flex-row-reverse")
+  const row = cn("flex items-center justify-between gap-3")
 
   return (
     <div dir={isFa ? "rtl" : "ltr"} className={cn("mx-auto max-w-6xl space-y-6", isFa && "text-right")}>
@@ -220,6 +221,21 @@ export function SiteSettingsWhitelabelTab({
                 <SelectContent dir={isFa ? "rtl" : "ltr"}>
                   <SelectItem value="fa">{tp("localeFa")}</SelectItem>
                   <SelectItem value="en">{tp("localeEn")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>{tp("serviceNamingMode")}</Label>
+              <Select
+                value={form.service_naming_mode}
+                onValueChange={(v) => setForm((f) => ({ ...f, service_naming_mode: v }))}
+              >
+                <SelectTrigger className="w-full" dir={isFa ? "rtl" : "ltr"}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent dir={isFa ? "rtl" : "ltr"}>
+                  <SelectItem value="legacy">{tp("serviceNamingLegacy")}</SelectItem>
+                  <SelectItem value="platform_slug">{tp("serviceNamingPlatformSlug")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

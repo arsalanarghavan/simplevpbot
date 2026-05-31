@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { DashboardDateTimePicker } from "@/components/dashboard-datetime-picker"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -336,13 +338,11 @@ export function DashboardReceiptsAdmin({
     "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
 
   return (
-    <div className={cn("space-y-6", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
-      <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">
-          {showWalletSection && isReseller ? tw("subtitle") : tp("subtitle")}
-        </p>
-      </div>
+    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+      <DashboardPageHeader
+        title={tp("title")}
+        description={showWalletSection && isReseller ? tw("subtitle") : tp("subtitle")}
+      />
 
       {alertText ? (
         <div
@@ -574,7 +574,7 @@ export function DashboardReceiptsAdmin({
               <CardContent className="overflow-x-auto p-0">
                 <table
                   className="w-full min-w-[920px] text-sm"
-                  dir={isFa ? "rtl" : "ltr"}
+                  dir={dashDir(isFa)}
                 >
                   <thead>
                     <tr className="border-b bg-muted/40 text-muted-foreground">

@@ -41,6 +41,14 @@ export function normalizeDashTabKey(raw: string): string {
   return t
 }
 
+/** Build SPA path for a tab. Home tab `dashboard` → bare `/dashboard/` (no duplicate segment). */
+export function buildDashboardTabUrl(base: string, tabKey: string): string {
+  const root = String(base || "").replace(/\/?$/, "")
+  const tab = String(tabKey || "").trim()
+  if (!tab || tab === "dashboard") return `${root}/`
+  return `${root}/${encodeURIComponent(tab)}/`
+}
+
 /** Resellers use `reseller_bots`; `bots` is admin-only in nav. */
 export function mapTabForReseller(tab: string, isReseller: boolean): string {
   if (!isReseller) return tab

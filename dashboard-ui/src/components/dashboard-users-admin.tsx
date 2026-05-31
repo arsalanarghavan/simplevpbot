@@ -17,7 +17,9 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { DataPagination } from "@/components/data-pagination"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { formatNumber, formatPlainLatinInt } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
@@ -231,18 +233,19 @@ export function DashboardUsersAdmin({
   }
 
   return (
-    <div className={cn("space-y-8", isFa && "text-right")}>
-      <div>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-medium">{tp("title")}</h2>
-          {canMergeUsers ? (
+    <div className={dashPageRootClass(isFa, "space-y-8")} dir={dashDir(isFa)}>
+      <DashboardPageHeader
+        title={tp("title")}
+        description={tp("subtitle")}
+        actions={
+          canMergeUsers ? (
             <Dialog open={mergeOpen} onOpenChange={setMergeOpen}>
               <DialogTrigger asChild>
                 <Button type="button" variant="outline" size="sm">
                   {tp("mergeUsers")}
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+              <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl" dir={dashDir(isFa)}>
                 <DialogHeader>
                   <DialogTitle>{tp("mergeUsers")}</DialogTitle>
                 </DialogHeader>
@@ -255,10 +258,9 @@ export function DashboardUsersAdmin({
                 />
               </DialogContent>
             </Dialog>
-          ) : null}
-        </div>
-        <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-      </div>
+          ) : null
+        }
+      />
 
       {alertText ? (
         <div
@@ -314,7 +316,6 @@ export function DashboardUsersAdmin({
               onChange={(e) => setSearchDraft(e.target.value)}
               placeholder={tp("searchPlaceholder")}
               className={cn(isFa ? "pe-9" : "ps-9")}
-              dir={isFa ? "rtl" : "ltr"}
               autoComplete="off"
             />
           </div>
@@ -332,7 +333,7 @@ export function DashboardUsersAdmin({
             <table
               className={cn(
                 "w-full min-w-[42rem] border-collapse text-sm [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
-                isFa ? "text-right" : "text-left"
+                "text-start"
               )}
             >
               <thead>

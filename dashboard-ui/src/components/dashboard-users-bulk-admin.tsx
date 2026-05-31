@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Badge } from "@/components/ui/badge"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -109,7 +111,7 @@ function StatBox({ label, value, isFa }: { label: string; value: number; isFa: b
   return (
     <div className="rounded-md border border-border/80 bg-muted/30 px-2 py-1.5">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={cn("text-lg font-semibold tabular-nums", isFa && "text-right")}>{formatNumber(value, isFa)}</div>
+      <div className={cn("text-lg font-semibold tabular-nums", isFa && "text-right")} dir={dashDir(isFa)}>{formatNumber(value, isFa)}</div>
     </div>
   )
 }
@@ -219,7 +221,7 @@ function BulkJobItemsBlock({ jobId, isFa }: { jobId: number; isFa: boolean }) {
       )}
 
       <Dialog open={detailItem !== null} onOpenChange={(v) => !v && setDetailItem(null)}>
-        <DialogContent className={cn("max-h-[85vh] max-w-lg overflow-y-auto", isFa && "text-right")}>
+        <DialogContent className={cn("max-h-[85vh] max-w-lg overflow-y-auto", isFa && "text-right")} dir={dashDir(isFa)}>
           <DialogHeader>
             <DialogTitle>{tp("jobDetailTitle")}</DialogTitle>
             <DialogDescription className="font-mono tabular-nums">
@@ -491,26 +493,32 @@ export function DashboardUsersBulkAdmin({
   }, [op, tp])
 
   return (
-    <div className={cn("mx-auto max-w-5xl space-y-8", isFa && "text-right")}>
-      <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{tp("cronHint")}</p>
-        {canRunBulkWorker ? (
-          <div className={cn("mt-3 flex flex-wrap items-center gap-2", isFa && "flex-row-reverse")}>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={processLoading}
-              onClick={() => void runProcessQueue()}
-            >
-              {processLoading ? tp("processQueueRunning") : tp("processQueueNow")}
-            </Button>
-            {processNotice ? <span className="text-xs text-muted-foreground">{processNotice}</span> : null}
-          </div>
-        ) : null}
-      </div>
+    <div className={dashPageRootClass(isFa, "mx-auto max-w-5xl space-y-8")} dir={dashDir(isFa)}>
+      <DashboardPageHeader
+        title={tp("title")}
+        description={
+          <>
+            <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{tp("cronHint")}</p>
+          </>
+        }
+        actions={
+          canRunBulkWorker ? (
+            <>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={processLoading}
+                onClick={() => void runProcessQueue()}
+              >
+                {processLoading ? tp("processQueueRunning") : tp("processQueueNow")}
+              </Button>
+              {processNotice ? <span className="text-xs text-muted-foreground">{processNotice}</span> : null}
+            </>
+          ) : undefined
+        }
+      />
 
       {err ? (
         <div
@@ -623,7 +631,7 @@ export function DashboardUsersBulkAdmin({
                 </div>
 
                 {showReduce ? (
-                  <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
+                  <div className={cn("flex flex-wrap gap-2")} dir={dashDir(isFa)}>
                     <Button
                       type="button"
                       size="sm"
@@ -717,7 +725,7 @@ export function DashboardUsersBulkAdmin({
                 ) : null}
 
                 {op === "wallet" ? (
-                  <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
+                  <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
                     <input
                       type="checkbox"
                       className="size-4 rounded border-input accent-primary"
@@ -732,7 +740,7 @@ export function DashboardUsersBulkAdmin({
                 {showServiceNotify ? (
                   <div className="space-y-3 rounded-md border border-border/60 bg-muted/20 p-3">
                     <p className="text-sm font-medium">{tp("notifySection")}</p>
-                    <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
+                    <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
                       <input
                         type="checkbox"
                         className="size-4 rounded border-input accent-primary"
@@ -780,7 +788,7 @@ export function DashboardUsersBulkAdmin({
 
           <Separator />
 
-          <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
+          <div className={cn("flex flex-wrap gap-2")} dir={dashDir(isFa)}>
             <Button type="button" variant="secondary" disabled={busy} onClick={() => void runMutation(true)}>
               {tp("dryRun")}
             </Button>

@@ -16,6 +16,7 @@ import { useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { DashboardDateTimePicker } from "@/components/dashboard-datetime-picker"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -52,6 +53,7 @@ import { DataPagination } from "@/components/data-pagination"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { formatDateTime, formatNumber } from "@/lib/format-locale"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
@@ -538,11 +540,8 @@ export function DashboardDiscountsAdmin({
     filter === "active" ? tp("filterActive") : filter === "inactive" ? tp("filterInactive") : tp("filterAll")
 
   return (
-    <div className={cn("mx-auto w-full max-w-7xl space-y-6", isFa && "text-right")}>
-      <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-      </div>
+    <div className={dashPageRootClass(isFa, "mx-auto w-full max-w-7xl")} dir={dashDir(isFa)}>
+      <DashboardPageHeader title={tp("title")} description={tp("subtitle")} />
 
       {error ? (
         <div
@@ -636,8 +635,8 @@ export function DashboardDiscountsAdmin({
       </div>
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className={cn("flex w-full flex-col gap-0 overflow-y-auto sm:max-w-md", isFa && "text-right")}>
-          <SheetHeader className="border-b p-4 text-left rtl:text-right">
+        <SheetContent className={cn("flex w-full flex-col gap-0 overflow-y-auto sm:max-w-md", isFa && "text-right")} dir={dashDir(isFa)}>
+          <SheetHeader className="border-b p-4 text-start">
             <SheetTitle>{formMode === "add" ? tp("addCode") : tp("editCode")}</SheetTitle>
           </SheetHeader>
           <div className="flex-1 space-y-4 p-4">
@@ -830,12 +829,12 @@ export function DashboardDiscountsAdmin({
       </Sheet>
 
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <DialogContent className={cn(isFa && "text-right [direction:rtl]")}>
-          <DialogHeader className={cn(isFa && "text-right sm:text-right")}>
+        <DialogContent className={cn(isFa && "text-right [direction:rtl]")} dir={dashDir(isFa)}>
+          <DialogHeader className={cn(isFa && "text-right sm:text-right")} dir={dashDir(isFa)}>
             <DialogTitle>{tp("deleteTitle")}</DialogTitle>
             <DialogDescription>{tp("deleteDescription")}</DialogDescription>
           </DialogHeader>
-          <DialogFooter className={cn("gap-2 sm:justify-between", isFa && "sm:flex-row-reverse")}>
+          <DialogFooter className={cn("gap-2 sm:justify-between")} dir={dashDir(isFa)}>
             <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
               {tp("deleteCancel")}
             </Button>
@@ -847,8 +846,8 @@ export function DashboardDiscountsAdmin({
       </Dialog>
 
       <Dialog open={Boolean(usageTarget)} onOpenChange={(o) => !o && setUsageTarget(null)}>
-        <DialogContent className={cn("max-w-lg", isFa && "text-right [direction:rtl]")}>
-          <DialogHeader className={cn(isFa && "text-right sm:text-right")}>
+        <DialogContent className={cn("max-w-lg", isFa && "text-right [direction:rtl]")} dir={dashDir(isFa)}>
+          <DialogHeader className={cn(isFa && "text-right sm:text-right")} dir={dashDir(isFa)}>
             <DialogTitle>{tp("usageDialogTitle")}</DialogTitle>
             <DialogDescription>
               {usageTarget ? String(usageTarget.code ?? "") : ""}

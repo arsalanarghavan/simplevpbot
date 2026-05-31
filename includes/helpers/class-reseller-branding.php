@@ -124,11 +124,37 @@ class SimpleVPBot_Reseller_Branding {
 	 * @return string
 	 */
 	public static function panel_client_name_for_user( $svp_user_id, $service_remark ) {
+		if ( class_exists( 'SimpleVPBot_Settings' ) && 'platform_slug' === (string) SimpleVPBot_Settings::get( 'service_naming_mode', 'legacy' ) ) {
+			$brand = self::panel_brand_only_for_user( (int) $svp_user_id );
+			if ( '' !== $brand ) {
+				return self::limit_text( $brand, 50 );
+			}
+		}
 		$frag = self::fragment_for_service( (int) $svp_user_id, (string) $service_remark );
 		if ( '' === $frag ) {
 			return trim( (string) $service_remark );
 		}
 		return self::limit_text( $frag, 50 );
+	}
+
+	/**
+	 * Panel client remark: brand name only (no service slug suffix).
+	 *
+	 * @param int $svp_user_id Service owner user id.
+	 * @return string
+	 */
+	public static function panel_brand_only_for_user( $svp_user_id ) {
+		$brand = trim( self::effective_brand_for_user( (int) $svp_user_id ) );
+		if ( '' !== $brand ) {
+			return $brand;
+		}
+		if ( class_exists( 'SimpleVPBot_Settings' ) ) {
+			$site = trim( (string) SimpleVPBot_Settings::get( 'dashboard_site_name', '' ) );
+			if ( '' !== $site ) {
+				return $site;
+			}
+		}
+		return (string) get_bloginfo( 'name' );
 	}
 
 	/**

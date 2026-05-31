@@ -3,6 +3,7 @@
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { dashActionsClass, dashDir } from "@/lib/dash-locale"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { formatNumber } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
@@ -33,22 +34,22 @@ export function DataPagination({
 
   return (
     <div
+      dir={dashDir(isFa)}
       className={cn(
         "flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-sm",
-        isFa && "flex-row-reverse",
         className
       )}
     >
-      <p className={cn("text-muted-foreground", isFa && "text-right")}>
+      <p className="text-muted-foreground">
         {t("pagination.range", {
           from: formatNumber(from, isFa),
           to: formatNumber(to, isFa),
           total: formatNumber(total, isFa),
         })}
       </p>
-      <div className={cn("flex flex-wrap items-center gap-2", isFa && "flex-row-reverse")}>
+      <div className={dashActionsClass()}>
         {onPerPageChange ? (
-          <label className={cn("flex items-center gap-1 text-xs text-muted-foreground", isFa && "flex-row-reverse")}>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
             <span>{t("pagination.perPage")}</span>
             <select
               className="h-8 rounded-md border border-input bg-background px-2 text-xs shadow-xs outline-none"
@@ -63,11 +64,11 @@ export function DataPagination({
             </select>
           </label>
         ) : null}
-        <div className={cn("flex items-center gap-1", isFa && "flex-row-reverse")}>
+        <div className="flex items-center gap-1">
           <Button type="button" variant="outline" size="sm" disabled={!canPrev} onClick={() => onPageChange(page - 1)}>
             {t("pagination.prev")}
           </Button>
-          <span className="min-w-[5rem] text-center text-xs tabular-nums text-muted-foreground">
+          <span className="min-w-[5rem] text-center text-xs tabular-nums text-muted-foreground" dir="ltr">
             {formatNumber(page, isFa)} / {formatNumber(totalPages, isFa)}
           </span>
           <Button type="button" variant="outline" size="sm" disabled={!canNext} onClick={() => onPageChange(page + 1)}>

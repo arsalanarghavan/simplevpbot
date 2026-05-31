@@ -924,7 +924,14 @@ class SimpleVPBot_Handler_Service {
 				$updated_client = null;
 				foreach ( $dec['clients'] as &$cl ) {
 					if ( isset( $cl['email'] ) && (string) $cl['email'] === (string) $svc->email ) {
-						$cl['remark']   = $text;
+						if ( self::uses_platform_slug_naming() ) {
+							$cl['remark']  = class_exists( 'SimpleVPBot_Reseller_Branding' )
+								? (string) SimpleVPBot_Reseller_Branding::panel_brand_only_for_user( (int) $svc->user_id )
+								: (string) get_bloginfo( 'name' );
+							$cl['comment'] = $text;
+						} else {
+							$cl['remark'] = $text;
+						}
 						$updated_client = $cl;
 						break;
 					}
@@ -960,7 +967,12 @@ class SimpleVPBot_Handler_Service {
 					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.panel_update_fail', $user ) );
 					return;
 				}
-				SimpleVPBot_Model_Service::update( $sid, array( 'remark' => $text ) );
+				SimpleVPBot_Model_Service::update(
+					$sid,
+					self::uses_platform_slug_naming()
+						? array( 'service_note' => $text )
+						: array( 'remark' => $text )
+				);
 				SimpleVPBot_State::clear( (int) $user->id );
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.note_and_name_updated', $user ) );
 			}
@@ -1731,5 +1743,17 @@ class SimpleVPBot_Handler_Service {
 	private static function get_config_link( $svc ) {
 		unset( $svc );
 		return '';
+	}
+
+	/**
+	 * Whether site uses platform_slug service naming for new provisions.
+	 *
+	 * @return bool
+	 */
+	private static function uses_platform_slug_naming() {
+		if ( ! class_exists( 'SimpleVPBot_Settings' ) ) {
+			return false;
+		}
+		return 'platform_slug' === (string) SimpleVPBot_Settings::get( 'service_naming_mode', 'legacy' );
 	}
 }

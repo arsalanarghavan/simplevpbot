@@ -2,11 +2,8 @@ import type { LucideIcon } from "lucide-react"
 import {
   Activity,
   Bot,
-  FileSearch,
   LayoutDashboard,
   Megaphone,
-  PanelsTopLeft,
-  Network,
   Server,
   Settings2,
   Store,
@@ -111,7 +108,7 @@ export function filterAdminNavForReseller(
       if (ent.children.some((c) => c.tabKey === "reseller_bots")) return ent
       return {
         ...ent,
-        children: [...ent.children, { tabKey: "reseller_bots", icon: Bot }],
+        children: [...ent.children, { tabKey: "reseller_bots" }],
       }
     }
     return ent
@@ -185,8 +182,8 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
         children: [
           { tabKey: "resellers" },
           { tabKey: "reseller_reports" },
-          { tabKey: "reseller_bots", icon: Bot },
-          { tabKey: "reseller_xui_panels", icon: Server },
+          { tabKey: "reseller_bots" },
+          { tabKey: "reseller_xui_panels" },
         ],
       },
     ],
@@ -235,10 +232,10 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
         icon: Bot,
         labelKey: "sidebar.groups.botSettings",
         children: [
-          { tabKey: "bots", icon: Bot },
+          { tabKey: "bots" },
           { tabKey: "plan_cats" },
           { tabKey: "texts" },
-          { tabKey: "bot_ui", icon: PanelsTopLeft },
+          { tabKey: "bot_ui" },
         ],
       },
     ],
@@ -254,7 +251,7 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
         labelKey: "sidebar.groups.servers",
         children: [
           { tabKey: "xui_panels" },
-          { tabKey: "configs", icon: Network },
+          { tabKey: "configs" },
         ],
       },
       {
@@ -264,7 +261,7 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
         labelKey: "sidebar.groups.systemPreferences",
         children: [
           { tabKey: "site_settings" },
-          { tabKey: "audit", icon: FileSearch },
+          { tabKey: "audit" },
           { tabKey: "backup" },
         ],
       },

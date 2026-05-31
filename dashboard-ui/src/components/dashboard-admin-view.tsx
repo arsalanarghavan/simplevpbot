@@ -438,6 +438,7 @@ export function DashboardAdminView({
       <DashboardUserDetailAdmin
         userId={userDetailId}
         plans={plans}
+        planCategories={planCategories}
         settings={settings}
         isFa={isFa}
         isReseller={isReseller}
@@ -514,6 +515,7 @@ export function DashboardAdminView({
         <DashboardUserDetailAdmin
           userId={ctxId}
           plans={plans}
+          planCategories={planCategories}
           settings={settings}
           isFa={isFa}
           isReseller={isReseller}

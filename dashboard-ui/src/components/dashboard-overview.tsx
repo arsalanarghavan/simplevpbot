@@ -24,6 +24,8 @@ import {
 } from "recharts"
 
 import { Badge } from "@/components/ui/badge"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { Button } from "@/components/ui/button"
 import { DataPagination } from "@/components/data-pagination"
 import {
@@ -50,6 +52,7 @@ import {
 } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
 import type { PaginationMeta } from "@/lib/dash-pagination"
+import { buildDashboardTabUrl } from "@/lib/dash-tab"
 type OverviewUsers = {
   users_approved?: number
   users_pending?: number
@@ -237,7 +240,7 @@ function QuickLink({
   onSelectTab: (k: string) => void
 }) {
   const root = base.replace(/\/?$/, "")
-  const href = `${root}/${encodeURIComponent(tabKey)}/`
+  const href = buildDashboardTabUrl(root, tabKey)
   return (
     <Button variant="outline" size="sm" className="h-8" asChild>
       <a
@@ -267,7 +270,7 @@ function DashTabLink({
   Icon: ComponentType<{ className?: string }>
 }) {
   const root = base.replace(/\/?$/, "")
-  const href = `${root}/${encodeURIComponent(tabKey)}/`
+  const href = buildDashboardTabUrl(root, tabKey)
   return (
     <Button variant="secondary" size="sm" className="h-9 max-w-full gap-2 ps-3 pe-3 font-normal" asChild>
       <a
@@ -401,21 +404,21 @@ export function DashboardOverview({
   if (compactHealthOnly) {
     const showFinance = typeof actorBalance === "number"
     return (
-      <div className={cn("space-y-4", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
-        <div className={cn("flex flex-wrap items-center justify-between gap-2", isFa && "flex-row-reverse")}>
-          <div>
-            <h2 className="text-lg font-semibold">{t("dashboardOverview.compactTitle")}</h2>
-            <p className="text-sm text-muted-foreground">{t("dashboardOverview.compactSubtitle")}</p>
-          </div>
-          {onRefreshPanelHealth ? (
-            <Button type="button" variant="secondary" size="sm" onClick={onRefreshPanelHealth}>
-              {t("dashboardOverview.refreshPanelHealth")}
-            </Button>
-          ) : null}
-        </div>
+      <div className={dashPageRootClass(isFa, "space-y-4")} dir={dashDir(isFa)}>
+        <DashboardPageHeader
+          title={<h2 className="text-lg font-semibold">{t("dashboardOverview.compactTitle")}</h2>}
+          description={t("dashboardOverview.compactSubtitle")}
+          actions={
+            onRefreshPanelHealth ? (
+              <Button type="button" variant="secondary" size="sm" onClick={onRefreshPanelHealth}>
+                {t("dashboardOverview.refreshPanelHealth")}
+              </Button>
+            ) : undefined
+          }
+        />
         {showFinance ? (
           <Card>
-            <CardContent className={cn("flex flex-wrap items-center justify-between gap-3 pt-6", isFa && "flex-row-reverse")}>
+            <CardContent className={cn("flex flex-wrap items-center justify-between gap-3 pt-6")}>
               <div>
                 <p className="text-xs font-medium text-muted-foreground">{t("dashboardOverview.actorWalletLabel")}</p>
                 <p className="text-2xl font-semibold tabular-nums">{formatNumber(actorBalance, isFa)}</p>
@@ -451,7 +454,7 @@ export function DashboardOverview({
                         <p className="font-medium">{label}</p>
                         <p className="break-all font-mono text-xs text-muted-foreground">{loc}</p>
                       </div>
-                      <div className={cn("flex flex-wrap items-center gap-2", isFa && "flex-row-reverse")}>
+                      <div className={cn("flex flex-wrap items-center gap-2")}>
                         <span className="tabular-nums text-muted-foreground">
                           {lat != null ? `${formatNumber(lat, isFa)} ms` : "—"}
                         </span>
@@ -477,16 +480,20 @@ export function DashboardOverview({
   }
 
   return (
-    <div className={cn("space-y-8", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
-      <div>
-        <h2 className="text-lg font-semibold">{t("dashboardOverview.title")}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{t("dashboardOverview.subtitle")}</p>
-        {overview?.stats?.stat_date ? (
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("dashboardOverview.statDate")}: {formatDateOnly(String(overview.stats.stat_date), isFa)}
-          </p>
-        ) : null}
-      </div>
+    <div className={dashPageRootClass(isFa, "space-y-8")} dir={dashDir(isFa)}>
+      <DashboardPageHeader
+        title={<h2 className="text-lg font-semibold">{t("dashboardOverview.title")}</h2>}
+        description={
+          <>
+            <p className="text-sm text-muted-foreground">{t("dashboardOverview.subtitle")}</p>
+            {overview?.stats?.stat_date ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("dashboardOverview.statDate")}: {formatDateOnly(String(overview.stats.stat_date), isFa)}
+              </p>
+            ) : null}
+          </>
+        }
+      />
 
       {prependResellerFinance ? (
         <div className="space-y-4">
@@ -494,8 +501,7 @@ export function DashboardOverview({
             <Card>
               <CardContent
                 className={cn(
-                  "flex flex-wrap items-center justify-between gap-3 pt-6",
-                  isFa && "flex-row-reverse"
+                  "flex flex-wrap items-center justify-between gap-3 pt-6"
                 )}
               >
                 <div>
@@ -605,7 +611,7 @@ export function DashboardOverview({
       </Card>
 
       <section className="space-y-4 rounded-2xl border border-border/70 bg-gradient-to-b from-primary/[0.04] to-transparent p-4 sm:p-5">
-        <div className={cn("flex flex-wrap items-center gap-2", isFa && "flex-row-reverse")}>
+        <div className={cn("flex flex-wrap items-center gap-2")}>
           <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <UsersRound className="size-5" aria-hidden />
           </div>
@@ -667,7 +673,7 @@ export function DashboardOverview({
               isFa ? "end-0" : "start-0"
             )}
           />
-          <div className={cn("flex items-start gap-3", isFa && "flex-row-reverse")}>
+          <div className={cn("flex items-start gap-3")}>
             <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-400">
               <Bot className="size-6" aria-hidden />
             </div>
@@ -698,7 +704,7 @@ export function DashboardOverview({
               isFa ? "end-0" : "start-0"
             )}
           />
-          <div className={cn("flex items-start gap-3", isFa && "flex-row-reverse")}>
+          <div className={cn("flex items-start gap-3")}>
             <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
               <Server className="size-6" aria-hidden />
             </div>
@@ -733,7 +739,7 @@ export function DashboardOverview({
 
       <Card className="overflow-hidden border-border/80 shadow-md">
         <CardHeader className="border-b border-border/60 bg-muted/30 pb-4">
-          <div className={cn("flex flex-wrap items-start justify-between gap-3", isFa && "flex-row-reverse")}>
+          <div className={cn("flex flex-wrap items-start justify-between gap-3")}>
             <div className={cn("space-y-1", isFa && "text-right")}>
               <CardTitle className="text-lg">{t("dashboardOverview.financeCard")}</CardTitle>
               <CardDescription className="max-w-2xl text-pretty">
@@ -840,7 +846,7 @@ export function DashboardOverview({
             </div>
           ) : null}
 
-          <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
+          <div className={cn("flex flex-wrap gap-2")}>
             {allowTab("plans") ? (
               <DashTabLink
                 tabKey="plans"
@@ -893,11 +899,10 @@ export function DashboardOverview({
       <section className="space-y-4">
         <div
           className={cn(
-            "flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3",
-            isFa && "flex-row-reverse"
+            "flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3"
           )}
         >
-          <div className={cn("flex items-center gap-2", isFa && "flex-row-reverse")}>
+          <div className={cn("flex items-center gap-2")}>
             <Radio className="size-5 text-primary" aria-hidden />
             <h3 className="text-base font-semibold">{t("dashboardOverview.panelCards")}</h3>
           </div>

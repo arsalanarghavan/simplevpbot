@@ -168,7 +168,6 @@ export function BroadcastRichEditor({
       <div
         className={cn(
           "flex flex-wrap gap-1 rounded-md border border-input bg-muted/30 p-1",
-          isFa && "flex-row-reverse",
         )}
       >
         {btn("B", "editorTipBold", runBold, "font-bold")}

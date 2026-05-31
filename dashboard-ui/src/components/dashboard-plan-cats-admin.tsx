@@ -5,6 +5,7 @@ import { useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Badge } from "@/components/ui/badge"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -33,6 +34,7 @@ import { DataPagination } from "@/components/data-pagination"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { formatNumber } from "@/lib/format-locale"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
@@ -168,16 +170,16 @@ export function DashboardPlanCatsAdmin({
   }, [panels])
 
   return (
-    <div className={cn("space-y-6", isFa && "text-right")}>
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-medium">{tp("title")}</h2>
-          <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-        </div>
-        <Button type="button" size="sm" onClick={openAdd}>
-          {tp("add")}
-        </Button>
-      </div>
+    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+      <DashboardPageHeader
+        title={tp("title")}
+        description={tp("subtitle")}
+        actions={
+          <Button type="button" size="sm" onClick={openAdd}>
+            {tp("add")}
+          </Button>
+        }
+      />
 
       {error ? (
         <div role="alert" className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -192,7 +194,7 @@ export function DashboardPlanCatsAdmin({
           <table
             className={cn(
               "w-full min-w-[36rem] border-collapse text-sm [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
-              isFa ? "text-right" : "text-left"
+              "text-start"
             )}
           >
             <thead>
@@ -256,7 +258,7 @@ export function DashboardPlanCatsAdmin({
       />
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className={cn("flex w-full flex-col sm:max-w-md", isFa && "text-right")} side={isFa ? "left" : "right"}>
+        <SheetContent className={cn("flex w-full flex-col sm:max-w-md", isFa && "text-right")} dir={dashDir(isFa)} side={isFa ? "left" : "right"}>
           <SheetHeader>
             <SheetTitle>{mode === "add" ? tp("sheetAdd") : tp("sheetEdit")}</SheetTitle>
           </SheetHeader>
@@ -299,7 +301,7 @@ export function DashboardPlanCatsAdmin({
                 onChange={(e) => setForm((f) => ({ ...f, pc_sort: num(e.target.value) }))}
               />
             </div>
-            <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
+            <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
               <input
                 type="checkbox"
                 className="size-4 rounded border-input"
@@ -321,12 +323,12 @@ export function DashboardPlanCatsAdmin({
       </Sheet>
 
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <DialogContent className={cn(isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
+        <DialogContent className={cn(isFa && "text-right")} dir={dashDir(isFa)}>
           <DialogHeader>
             <DialogTitle>{tp("deleteTitle")}</DialogTitle>
             <DialogDescription>{tp("deleteDesc")}</DialogDescription>
           </DialogHeader>
-          <DialogFooter className={cn("gap-2", isFa && "flex-row-reverse")}>
+          <DialogFooter className={cn("gap-2")} dir={dashDir(isFa)}>
             <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
               {tp("cancel")}
             </Button>

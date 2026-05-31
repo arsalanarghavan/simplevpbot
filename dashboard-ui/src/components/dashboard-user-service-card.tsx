@@ -12,15 +12,18 @@ import {
   Minus,
   Package,
   Plus,
+  Power,
   Radio,
   RefreshCw,
   Send,
   Server,
+  StickyNote,
   Trash2,
   Users,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
+import { dashDir } from "@/lib/dash-locale"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -92,19 +95,26 @@ function InfoRow({
   icon: Icon,
   label,
   children,
-  dir,
+  isFa,
+  valueDir,
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
   children: ReactNode
-  dir?: "ltr" | "rtl"
+  isFa?: boolean
+  valueDir?: "ltr" | "rtl"
 }) {
   return (
-    <div className="flex gap-2 text-xs">
+    <div className={cn("flex gap-2 text-xs", isFa && "text-right")} dir={dashDir(isFa ?? false)}>
       <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-      <div className={cn("min-w-0 flex-1", dir === "ltr" && "text-left")} dir={dir}>
+      <div className="min-w-0 flex-1">
         <p className="text-muted-foreground">{label}</p>
-        <div className="font-medium text-foreground">{children}</div>
+        <div
+          className={cn("font-medium text-foreground", valueDir === "ltr" && "text-left")}
+          dir={valueDir}
+        >
+          {children}
+        </div>
       </div>
     </div>
   )
@@ -286,7 +296,7 @@ export function ServiceActionDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className={cn("sm:max-w-md", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
+      <DialogContent className={cn("sm:max-w-md", isFa && "text-right")} dir={dashDir(isFa)}>
         <DialogHeader>
           <DialogTitle>{titleKey ? tp(titleKey) : ""}</DialogTitle>
           {descKey ? <DialogDescription>{tp(descKey)}</DialogDescription> : null}
@@ -375,7 +385,7 @@ export function ServiceActionDialog({
           ) : null}
         </div>
 
-        <DialogFooter className={cn("gap-2", isFa && "flex-row-reverse")}>
+        <DialogFooter className={cn("gap-2")} dir={dashDir(isFa)}>
           <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={busy}>
             {tp("dlgCancel")}
           </Button>
@@ -402,6 +412,7 @@ export function DashboardUserServiceCard({
   tp,
   onOpenAction,
   onPatchAlert,
+  onToggleEnable,
 }: {
   svc: DashRecord
   plans: DashRecord[]
@@ -411,6 +422,7 @@ export function DashboardUserServiceCard({
   tp: (k: string, opts?: Record<string, string | number>) => string
   onOpenAction: (kind: ServiceActionKind, svc: DashRecord) => void
   onPatchAlert: (key: "alerts_enabled" | "alerts_volume" | "alerts_expiry" | "alerts_users", val: boolean) => void
+  onToggleEnable?: (enabled: boolean) => void
 }) {
   const sid = num(svc.id)
   const expire = svc.expires_at ?? svc.expire_at ?? svc.expired_at ?? svc.expiry ?? ""
@@ -426,6 +438,12 @@ export function DashboardUserServiceCard({
     return null
   }
   const remark = String(svc.remark ?? "").trim()
+  const panelRemark = String(svc.panel_remark ?? "").trim()
+  const serviceNote = String(svc.service_note ?? "").trim()
+  const panelEnabled =
+    svc.panel_client_enabled != null && svc.panel_client_enabled !== ""
+      ? num(svc.panel_client_enabled) === 1
+      : true
   const portalSvc = String(svc.portal_service_url ?? "")
   const limitCached = svc.panel_limit_ip != null && svc.panel_limit_ip !== "" ? num(svc.panel_limit_ip) : null
   const ipRows = Array.isArray(svc.ip_log) ? (svc.ip_log as DashRecord[]) : []
@@ -454,19 +472,29 @@ export function DashboardUserServiceCard({
   }
 
   return (
-    <Card className="overflow-hidden" dir={isFa ? "rtl" : "ltr"}>
-      <CardHeader className="pb-2">
-        <div className="flex flex-wrap items-start justify-between gap-2">
+    <Card className="overflow-hidden" dir={dashDir(isFa)}>
+      <CardHeader className={cn("pb-2", isFa && "text-right")} dir={dashDir(isFa)}>
+        <div
+          className={cn(
+            "flex flex-wrap items-start gap-2",
+            "justify-between"
+          )}
+        >
           <div className="min-w-0">
-            <CardTitle className="text-base">
+            <CardTitle className={cn("text-base", isFa && "text-right")} dir={dashDir(isFa)}>
               {remark || tp("serviceUntitled")}
               <span className="ms-2 font-mono text-xs font-normal text-muted-foreground" dir="ltr">
                 #{formatPlainLatinInt(sid)}
               </span>
             </CardTitle>
-            <CardDescription className="mt-1 flex items-center gap-1 break-all text-xs">
+            <CardDescription
+              className={cn(
+                "mt-1 flex items-center gap-1 break-all text-xs",
+                isFa && "text-right"
+              )}
+            >
               <Mail className="size-3 shrink-0" />
-              {String(svc.email ?? "—")}
+              <span dir="ltr">{String(svc.email ?? "—")}</span>
             </CardDescription>
           </div>
           {portalSvc ? (
@@ -481,7 +509,7 @@ export function DashboardUserServiceCard({
 
       <CardContent className="space-y-4 text-sm">
         <div className="grid gap-3 sm:grid-cols-2">
-          <InfoRow icon={Package} label={tp("svcPlan")}>
+          <InfoRow icon={Package} label={tp("svcPlan")} isFa={isFa}>
             {planName ? (
               <>
                 {planName}
@@ -499,14 +527,14 @@ export function DashboardUserServiceCard({
               <span dir="ltr">#{formatPlainLatinInt(num(svc.plan_id))}</span>
             )}
           </InfoRow>
-          <InfoRow icon={Radio} label={tp("svcStatus")}>
+          <InfoRow icon={Radio} label={tp("svcStatus")} isFa={isFa}>
             <Badge variant={statusVariant(subState)} className="font-normal">
               {tp(`subscription_${subState}`, { defaultValue: subState })}
             </Badge>
           </InfoRow>
-          <InfoRow icon={HardDrive} label={tp("svcVolume")} dir="ltr">
+          <InfoRow icon={HardDrive} label={tp("svcVolume")} isFa={isFa} valueDir="ltr">
             <div className="space-y-1">
-              <span>
+              <span className="inline-block" dir="ltr">
                 {formatNumber(quotaGb, isFa)} GB
                 {usedGb > 0 ? (
                   <span className="text-muted-foreground">
@@ -518,15 +546,46 @@ export function DashboardUserServiceCard({
               {quotaGb > 0 ? <Progress value={usedPct} className="h-1.5" /> : null}
             </div>
           </InfoRow>
-          <InfoRow icon={Calendar} label={tp("svcExpires")} dir="ltr">
-            {expire ? formatDateTime(String(expire), isFa) : "—"}
+          <InfoRow icon={Calendar} label={tp("svcExpires")} isFa={isFa} valueDir="ltr">
+            <span className="inline-block" dir="ltr">
+              {expire ? formatDateTime(String(expire), isFa) : "—"}
+            </span>
           </InfoRow>
-          <InfoRow icon={Users} label={tp("svcUserCap")} dir="ltr">
-            {limitCached != null && limitCached > 0 ? formatPlainLatinInt(limitCached) : "—"}
+          <InfoRow icon={Users} label={tp("svcUserCap")} isFa={isFa} valueDir="ltr">
+            <span className="inline-block" dir="ltr">
+              {limitCached != null && limitCached > 0 ? formatPlainLatinInt(limitCached) : "—"}
+            </span>
           </InfoRow>
-          <InfoRow icon={Hash} label="ID" dir="ltr">
-            {formatPlainLatinInt(sid)}
+          <InfoRow icon={Hash} label="ID" isFa={isFa} valueDir="ltr">
+            <span className="inline-block" dir="ltr">{formatPlainLatinInt(sid)}</span>
           </InfoRow>
+          {(serviceNote || panelRemark || remark) && (
+            <InfoRow icon={StickyNote} label={tp("noteLabel")} isFa={isFa} valueDir="ltr">
+              <div className="space-y-0.5 text-xs">
+                {remark ? (
+                  <p>
+                    <span className="text-muted-foreground">{tp("noteBot")}: </span>
+                    {remark}
+                  </p>
+                ) : null}
+                {panelRemark && panelRemark !== remark ? (
+                  <p>
+                    <span className="text-muted-foreground">{tp("notePanel")}: </span>
+                    {panelRemark}
+                  </p>
+                ) : null}
+                {serviceNote ? (
+                  <p>
+                    <span className="text-muted-foreground">{tp("noteService")}: </span>
+                    {serviceNote}
+                  </p>
+                ) : null}
+                {panelRemark && panelRemark !== remark && !serviceNote ? (
+                  <p className="text-muted-foreground">{tp("noteSyncHint")}</p>
+                ) : null}
+              </div>
+            </InfoRow>
+          )}
         </div>
 
         {!isL2tp ? (
@@ -579,7 +638,7 @@ export function DashboardUserServiceCard({
           <p className="text-xs font-medium text-muted-foreground">{tp("serviceActions")}</p>
           <div className="space-y-2">
             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{tp("actionGroupBilling")}</p>
-            <div className="flex flex-wrap gap-1.5">
+            <div className={cn("flex flex-wrap gap-1.5", isFa && "justify-end")} dir={dashDir(isFa)}>
               {actionBtn(tp("actionRenew"), "renew", RefreshCw, "secondary")}
               {actionBtn(tp("actionTraffic"), "traffic", HardDrive)}
               {actionBtn(tp("actionDays"), "days", Calendar)}
@@ -588,7 +647,20 @@ export function DashboardUserServiceCard({
             {!isL2tp ? (
               <>
                 <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{tp("actionGroupPanel")}</p>
-                <div className="flex flex-wrap gap-1.5">
+                <div className={cn("flex flex-wrap gap-1.5", isFa && "justify-end")} dir={dashDir(isFa)}>
+                  {onToggleEnable ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={panelEnabled ? "secondary" : "outline"}
+                      className="h-8 gap-1.5 text-xs"
+                      disabled={busy}
+                      onClick={() => onToggleEnable(!panelEnabled)}
+                    >
+                      <Power className="size-3.5 shrink-0" />
+                      {panelEnabled ? tp("actionDisable") : tp("actionEnable")}
+                    </Button>
+                  ) : null}
                   {actionBtn(tp("actionRegenUuid"), "regen", KeyRound)}
                   {actionBtn(tp("actionRefreshInbound"), "refresh", Server)}
                   {actionBtn(tp("actionSyncMeta"), "sync", RefreshCw)}
@@ -597,7 +669,7 @@ export function DashboardUserServiceCard({
               </>
             ) : null}
             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{tp("actionGroupDanger")}</p>
-            <div className="flex flex-wrap gap-1.5">
+            <div className={cn("flex flex-wrap gap-1.5", isFa && "justify-end")} dir={dashDir(isFa)}>
               {actionBtn(tp("actionTransfer"), "transfer", Send)}
               {!isL2tp ? actionBtn(tp("actionDeletePanel"), "deletePanel", Trash2, "destructive") : null}
               {actionBtn(tp("actionDeleteService"), "deleteService", Archive, "destructive")}

@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class SimpleVPBot_Activator {
 
-	const DB_VERSION = '2.3.2';
+	const DB_VERSION = '2.3.3';
 
 	/**
 	 * Activate plugin.
@@ -397,6 +397,7 @@ class SimpleVPBot_Activator {
 			xui_client_uuid varchar(64) DEFAULT NULL,
 			email varchar(191) NOT NULL,
 			remark varchar(255) DEFAULT '',
+			service_note varchar(512) DEFAULT '',
 			plan_id bigint(20) unsigned DEFAULT NULL,
 			expires_at datetime DEFAULT NULL,
 			total_traffic bigint NOT NULL DEFAULT 0,
@@ -745,6 +746,9 @@ class SimpleVPBot_Activator {
 		if ( version_compare( (string) $current, '2.3.2', '<' ) ) {
 			self::maybe_migrate_232_receipt_stored_image( $p );
 		}
+		if ( version_compare( (string) $current, '2.3.3', '<' ) ) {
+			self::maybe_migrate_233_service_note( $p );
+		}
 		update_option( 'simplevpbot_db_version', self::DB_VERSION );
 	}
 
@@ -761,6 +765,22 @@ class SimpleVPBot_Activator {
 		if ( ! $has ) {
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN stored_image_path varchar(512) NOT NULL DEFAULT '' AFTER bale_file_id" );
+		}
+	}
+
+	/**
+	 * Services: optional auto-note / panel note storage (platform_slug naming).
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_233_service_note( $p ) {
+		global $wpdb;
+		$t = $p . 'svp_services';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$has = $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'service_note'" );
+		if ( ! $has ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN service_note varchar(512) NOT NULL DEFAULT '' AFTER remark" );
 		}
 	}
 

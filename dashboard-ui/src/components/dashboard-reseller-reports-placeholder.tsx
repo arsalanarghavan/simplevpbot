@@ -3,18 +3,16 @@
 import { useTranslation } from "react-i18next"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 
 export function DashboardResellerReportsPlaceholder({ isFa }: { isFa: boolean }) {
   const { t } = useTranslation()
   const tp = (k: string) => t(`resellerReportsPlaceholder.${k}`)
 
   return (
-    <div className={cn("mx-auto w-full max-w-3xl space-y-6", isFa && "text-right")}>
-      <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-      </div>
+    <div className={dashPageRootClass(isFa, "mx-auto w-full max-w-3xl")} dir={dashDir(isFa)}>
+      <DashboardPageHeader title={tp("title")} description={tp("subtitle")} />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{tp("comingSoon")}</CardTitle>

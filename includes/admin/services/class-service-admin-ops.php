@@ -244,6 +244,45 @@ class SimpleVPBot_Service_Admin_Ops {
 	}
 
 	/**
+	 * Persist @username from getMe for main bot after token save.
+	 *
+	 * @param array<int, string> $platforms telegram and/or bale.
+	 */
+	public static function sync_main_bot_usernames( array $platforms ) {
+		$platforms = array_values( array_unique( array_map( 'sanitize_key', $platforms ) ) );
+		if ( empty( $platforms ) ) {
+			return;
+		}
+		$all     = SimpleVPBot_Settings::all();
+		$changed = false;
+		if ( in_array( 'telegram', $platforms, true ) ) {
+			$t = trim( (string) ( $all['telegram_token'] ?? '' ) );
+			if ( '' !== $t ) {
+				$c   = new SimpleVPBot_Telegram_Client( $t );
+				$res = $c->get_me();
+				if ( ! empty( $res['ok'] ) && ! empty( $res['result']['username'] ) ) {
+					$all['telegram_bot_username'] = sanitize_text_field( (string) $res['result']['username'] );
+					$changed                      = true;
+				}
+			}
+		}
+		if ( in_array( 'bale', $platforms, true ) ) {
+			$t = trim( (string) ( $all['bale_token'] ?? '' ) );
+			if ( '' !== $t ) {
+				$c   = new SimpleVPBot_Bale_Client( $t );
+				$res = $c->get_me();
+				if ( ! empty( $res['ok'] ) && ! empty( $res['result']['username'] ) ) {
+					$all['bale_bot_username'] = sanitize_text_field( (string) $res['result']['username'] );
+					$changed                  = true;
+				}
+			}
+		}
+		if ( $changed ) {
+			SimpleVPBot_Settings::update( $all );
+		}
+	}
+
+	/**
 	 * Set Telegram webhook.
 	 *
 	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}

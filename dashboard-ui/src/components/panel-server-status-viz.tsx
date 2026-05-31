@@ -49,7 +49,7 @@ function ResourceRow({
         : "—"
   return (
     <div className="space-y-1">
-      <div className={cn("flex items-baseline justify-between gap-2 text-xs", isFa && "flex-row-reverse")}>
+      <div className={cn("flex items-baseline justify-between gap-2 text-xs")}>
         <span className="font-medium text-muted-foreground">{label}</span>
         <span className="tabular-nums text-[11px] text-foreground/90">{line}</span>
       </div>
@@ -130,7 +130,7 @@ export function PanelServerStatusViz({
                   </RadialBarChart>
                 </ResponsiveContainer>
               </div>
-              <div className={cn("flex flex-wrap items-center justify-center gap-1", isFa && "flex-row-reverse")}>
+              <div className={cn("flex flex-wrap items-center justify-center gap-1")}>
                 <span className="text-xs text-muted-foreground">{t("monitoringPage.metricCpu")}</span>
                 <span className="font-mono text-sm font-medium tabular-nums">
                   {formatNumber(cpuRaw, isFa)}
@@ -201,7 +201,7 @@ export function PanelServerStatusViz({
           </summary>
           <div className="mt-2 grid max-h-48 gap-1 overflow-y-auto font-mono text-[11px] sm:grid-cols-2">
             {remainder.map(([k, v]) => (
-              <div key={k} className={cn("flex justify-between gap-2", isFa && "flex-row-reverse")}>
+              <div key={k} className={cn("flex justify-between gap-2")}>
                 <span className="truncate text-muted-foreground">{k}</span>
                 <span className="shrink-0 tabular-nums">{formatNumericString(v, isFa)}</span>
               </div>

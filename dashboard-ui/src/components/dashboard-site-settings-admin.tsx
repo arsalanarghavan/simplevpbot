@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { SiteSettingsLogsTab } from "@/components/site-settings/site-settings-logs-tab"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { SiteSettingsNotificationsTab } from "@/components/site-settings/site-settings-notifications-tab"
 import { SiteSettingsProxyTab } from "@/components/site-settings/site-settings-proxy-tab"
 import { SiteSettingsResellersTab } from "@/components/site-settings/site-settings-resellers-tab"
@@ -14,6 +15,7 @@ import {
   writeSiteSubtabToUrl,
   type SiteSettingsSubtab,
 } from "@/lib/site-settings-subtab"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
@@ -61,14 +63,11 @@ export function DashboardSiteSettingsAdmin({
   const resellerMap = resellerPermissionsMap ?? {}
 
   return (
-    <div className={cn("space-y-4", isFa && "text-right")}>
-      <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-      </div>
+    <div className={dashPageRootClass(isFa, "space-y-4")} dir={dashDir(isFa)}>
+      <DashboardPageHeader title={tp("title")} description={tp("subtitle")} />
 
       <Tabs value={subtab} onValueChange={onSubtabChange} className="w-full">
-        <TabsList className={cn("flex h-auto w-full flex-wrap", isFa && "flex-row-reverse")}>
+        <TabsList className={cn("flex h-auto w-full flex-wrap")}>
           <TabsTrigger value="whitelabel">{tp("tabWhitelabel")}</TabsTrigger>
           <TabsTrigger value="proxy">{tp("tabProxy")}</TabsTrigger>
           <TabsTrigger value="notifications">{tp("tabNotifications")}</TabsTrigger>

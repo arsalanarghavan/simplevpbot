@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Plus, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
+import { dashDir } from "@/lib/dash-locale"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -85,7 +86,7 @@ export function AdminIdChips({
           {tp("adminIdAdd")}
         </Button>
       </div>
-      <div className={cn("flex flex-wrap gap-1.5", isFa && "flex-row-reverse")}>
+      <div className={cn("flex flex-wrap gap-1.5")}>
         {ids.length === 0 ? (
           <span className="text-xs text-muted-foreground">{tp("adminIdEmpty")}</span>
         ) : (
@@ -107,7 +108,7 @@ export function AdminIdChips({
       </div>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className={cn("sm:max-w-sm", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
+        <DialogContent className={cn("sm:max-w-sm", isFa && "text-right")} dir={dashDir(isFa)}>
           <DialogHeader>
             <DialogTitle>{tp("adminIdAddTitle")}</DialogTitle>
           </DialogHeader>
@@ -125,7 +126,7 @@ export function AdminIdChips({
               disabled={disabled}
             />
           </div>
-          <DialogFooter className={cn("gap-2", isFa && "flex-row-reverse")}>
+          <DialogFooter className={cn("gap-2")}>
             <Button type="button" variant="outline" onClick={() => setAddOpen(false)} disabled={disabled}>
               {tp("adminIdCancel")}
             </Button>

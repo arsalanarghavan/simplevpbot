@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import {
   Card,
   CardContent,
@@ -14,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
@@ -72,7 +74,7 @@ export function DashboardNotificationsAdmin({
   const [error, setError] = useState<string | null>(null)
 
   const chk = (key: keyof typeof form, labelKey: string) => (
-    <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
+    <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
       <input
         type="checkbox"
         className="size-4 rounded border-input"
@@ -112,11 +114,8 @@ export function DashboardNotificationsAdmin({
   }, [form, onMutateSuccess, tp])
 
   return (
-    <div className={cn("mx-auto max-w-2xl space-y-6", isFa && "text-right")}>
-      <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-      </div>
+    <div className={dashPageRootClass(isFa, "mx-auto max-w-2xl")} dir={dashDir(isFa)}>
+      <DashboardPageHeader title={tp("title")} description={tp("subtitle")} />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{tp("cardTitle")}</CardTitle>

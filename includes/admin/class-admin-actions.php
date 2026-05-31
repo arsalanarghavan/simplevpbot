@@ -15,6 +15,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 class SimpleVPBot_Admin_Actions {
 
 	/**
+	 * Main-bot platforms whose token was patched in the current bots-tab save (telegram|bale).
+	 *
+	 * @var array<int, string>
+	 */
+	private static $bots_tab_tokens_updated = array();
+
+	/**
 	 * Parse newline-separated numeric ids.
 	 *
 	 * @param string $raw Raw.
@@ -427,8 +434,21 @@ class SimpleVPBot_Admin_Actions {
 					: ( in_array( sanitize_key( $mode ), array( 'list', 'sequential' ), true ) ? sanitize_key( $mode ) : 'list' );
 				break;
 			case 'bots':
-				$all['telegram_token']           = sanitize_text_field( (string) ( $post['telegram_token'] ?? '' ) );
-				$all['bale_token']               = sanitize_text_field( (string) ( $post['bale_token'] ?? '' ) );
+				self::$bots_tab_tokens_updated = array();
+				if ( array_key_exists( 'telegram_token', $post ) ) {
+					$tg = sanitize_text_field( (string) $post['telegram_token'] );
+					if ( '' !== trim( $tg ) ) {
+						$all['telegram_token']           = $tg;
+						self::$bots_tab_tokens_updated[] = 'telegram';
+					}
+				}
+				if ( array_key_exists( 'bale_token', $post ) ) {
+					$bl = sanitize_text_field( (string) $post['bale_token'] );
+					if ( '' !== trim( $bl ) ) {
+						$all['bale_token']               = $bl;
+						self::$bots_tab_tokens_updated[] = 'bale';
+					}
+				}
 				// Optional path secrets: dashboard omits keys so DB values stay; bot merge sends keys explicitly.
 				if ( array_key_exists( 'telegram_webhook_secret', $post ) ) {
 					$all['telegram_webhook_secret'] = sanitize_text_field( (string) $post['telegram_webhook_secret'] );
@@ -436,8 +456,15 @@ class SimpleVPBot_Admin_Actions {
 				if ( array_key_exists( 'bale_webhook_secret', $post ) ) {
 					$all['bale_webhook_secret'] = sanitize_text_field( (string) $post['bale_webhook_secret'] );
 				}
-				$all['telegram_secret_header']   = sanitize_text_field( (string) ( $post['telegram_secret_header'] ?? '' ) );
-				$all['bale_wallet_provider_token'] = sanitize_text_field( (string) ( $post['bale_wallet_provider_token'] ?? '' ) );
+				if ( array_key_exists( 'telegram_secret_header', $post ) ) {
+					$all['telegram_secret_header'] = sanitize_text_field( (string) $post['telegram_secret_header'] );
+				}
+				if ( array_key_exists( 'bale_wallet_provider_token', $post ) ) {
+					$bw = sanitize_text_field( (string) $post['bale_wallet_provider_token'] );
+					if ( '' !== trim( $bw ) ) {
+						$all['bale_wallet_provider_token'] = $bw;
+					}
+				}
 				if ( isset( $post['admin_telegram_ids'] ) ) {
 					$all['admin_telegram_ids'] = self::parse_id_lines( (string) $post['admin_telegram_ids'] );
 				}
@@ -499,6 +526,8 @@ class SimpleVPBot_Admin_Actions {
 					: sanitize_text_field( ltrim( trim( (string) ( $post['support_bale_username'] ?? '' ) ), '@' ) );
 				$loc = sanitize_key( (string) ( $post['default_bot_locale'] ?? 'fa' ) );
 				$all['default_bot_locale'] = in_array( $loc, array( 'fa', 'en' ), true ) ? $loc : 'fa';
+				$nmode = sanitize_key( (string) ( $post['service_naming_mode'] ?? 'legacy' ) );
+				$all['service_naming_mode'] = in_array( $nmode, array( 'legacy', 'platform_slug' ), true ) ? $nmode : 'legacy';
 				$raw = $post['receipt_reject_reasons'] ?? array();
 				if ( is_string( $raw ) ) {
 					$raw = preg_split( '/\r\n|\r|\n/', $raw );
@@ -637,11 +666,15 @@ class SimpleVPBot_Admin_Actions {
 		if ( 'bots' === $tab ) {
 			SimpleVPBot_Settings::ensure_secrets();
 			$s = SimpleVPBot_Settings::all();
-			if ( ! empty( $s['enabled'] ) ) {
-				if ( '' !== trim( (string) ( $s['telegram_token'] ?? '' ) ) && class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			if ( ! empty( self::$bots_tab_tokens_updated ) && class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+				SimpleVPBot_Service_Admin_Ops::sync_main_bot_usernames( self::$bots_tab_tokens_updated );
+				self::$bots_tab_tokens_updated = array();
+			}
+			if ( ! empty( $s['enabled'] ) && class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+				if ( '' !== trim( (string) ( $s['telegram_token'] ?? '' ) ) ) {
 					SimpleVPBot_Service_Admin_Ops::set_webhook_telegram();
 				}
-				if ( '' !== trim( (string) ( $s['bale_token'] ?? '' ) ) && class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+				if ( '' !== trim( (string) ( $s['bale_token'] ?? '' ) ) ) {
 					SimpleVPBot_Service_Admin_Ops::set_webhook_bale();
 				}
 			}

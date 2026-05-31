@@ -115,6 +115,7 @@ class SimpleVPBot_Settings {
 				'پرداخت در حساب مقصد پیدا نشد.',
 			),
 			'default_bot_locale'             => 'fa',
+			'service_naming_mode'            => 'legacy',
 			'bot_ui_layouts'                 => array(),
 			/** When false, L2TP is hidden from dashboard, bot, and portal (data/cron unchanged). */
 			'l2tp_enabled'                   => false,

@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import {
   Card,
   CardContent,
@@ -56,6 +57,7 @@ import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { formatNumber } from "@/lib/format-locale"
 import { formatRedactedCardNumber } from "@/lib/redact-card-number"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
@@ -445,11 +447,8 @@ export function DashboardCardsAdmin({
   }, [canEditDisplayMode, displayMode, onMutateSuccess, tp])
 
   return (
-    <div className={cn("space-y-6", isFa && "text-right")}>
-      <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-      </div>
+    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+      <DashboardPageHeader title={tp("title")} description={tp("subtitle")} />
 
       {error ? (
         <div
@@ -593,7 +592,7 @@ export function DashboardCardsAdmin({
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className={cn("flex w-full flex-col gap-0 overflow-y-auto sm:max-w-md", isFa && "text-right")}>
-          <SheetHeader className="border-b p-4 text-left rtl:text-right">
+          <SheetHeader className="border-b p-4 text-start">
             <SheetTitle>{formMode === "add" ? tp("addCard") : tp("editCard")}</SheetTitle>
           </SheetHeader>
           <div className="flex-1 space-y-4 p-4">
@@ -667,7 +666,7 @@ export function DashboardCardsAdmin({
             <DialogTitle>{tp("deleteTitle")}</DialogTitle>
             <DialogDescription>{tp("deleteDescription")}</DialogDescription>
           </DialogHeader>
-          <DialogFooter className={cn("gap-2 sm:justify-between", isFa && "sm:flex-row-reverse")}>
+          <DialogFooter className={cn("gap-2 sm:justify-between")}>
             <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
               {tp("deleteCancel")}
             </Button>

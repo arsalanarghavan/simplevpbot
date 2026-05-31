@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import {
   Card,
   CardContent,
@@ -121,13 +123,11 @@ export function DashboardReferralAdmin({
   const showSettings = !isReports && !readOnlySettings
 
   return (
-    <div className={cn("mx-auto w-full max-w-7xl space-y-6", isFa && "text-right")}>
-      <div>
-        <h2 className="text-lg font-medium">{isReports ? tp("reportsTitle") : tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">
-          {isReports ? tp("reportsSubtitle") : tp("subtitle")}
-        </p>
-      </div>
+    <div className={dashPageRootClass(isFa, "mx-auto w-full max-w-7xl")} dir={dashDir(isFa)}>
+      <DashboardPageHeader
+        title={isReports ? tp("reportsTitle") : tp("title")}
+        description={isReports ? tp("reportsSubtitle") : tp("subtitle")}
+      />
 
       {isReports ? (
         <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
@@ -175,7 +175,7 @@ export function DashboardReferralAdmin({
                   <table
                     className={cn(
                       "w-full min-w-[28rem] border-collapse text-sm [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
-                      isFa ? "text-right" : "text-left"
+                      "text-start"
                     )}
                   >
                     <thead>
@@ -225,7 +225,7 @@ export function DashboardReferralAdmin({
                     <table
                       className={cn(
                         "w-full min-w-[36rem] border-collapse text-xs [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
-                        isFa ? "text-right" : "text-left"
+                        "text-start"
                       )}
                     >
                       <thead>
@@ -276,7 +276,7 @@ export function DashboardReferralAdmin({
             <CardDescription>{tp("cardDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
+            <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
               <input
                 type="checkbox"
                 className="size-4 rounded border-input"
@@ -340,7 +340,7 @@ export function DashboardReferralAdmin({
                 />
               </div>
             </div>
-            <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
+            <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
               <input
                 type="checkbox"
                 className="size-4 rounded border-input"

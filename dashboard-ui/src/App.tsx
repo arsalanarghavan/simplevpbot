@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Moon, Sun } from "lucide-react"
+import { Maximize, Minimize, Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
+import { AccentMenu } from "@/components/accent-menu"
 import { AppSidebar } from "@/components/app-sidebar"
 import { DashboardAdminView } from "@/components/dashboard-admin-view"
 import type { ReceiptsListFilters } from "@/components/dashboard-receipts-admin"
+import { BaleLogo } from "@/components/icons/bale-logo"
+import { TelegramLogo } from "@/components/icons/telegram-logo"
 import { ImpersonationBanner } from "@/components/impersonation-banner"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,8 +24,10 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { DashboardLogin } from "@/components/dashboard-login"
+import { ACCENT_BRANDING_VAR_KEYS, normalizeAccent } from "@/lib/accent"
+import { botPlatformUrl } from "@/lib/bot-links"
 import { buildAdminStateQuery } from "@/lib/dash-pagination"
-import { mapTabForReseller, parseActiveDashTab, parseDashFromPath } from "@/lib/dash-tab"
+import { buildDashboardTabUrl, mapTabForReseller, parseActiveDashTab, parseDashFromPath } from "@/lib/dash-tab"
 import { resolveLegacyPlansTab } from "@/lib/plans-subview"
 import { resolveLegacySiteTab, writeSiteSubtabToUrl } from "@/lib/site-settings-subtab"
 import { formatNumber } from "@/lib/format-locale"
@@ -64,20 +69,28 @@ function App() {
   const { t, i18n } = useTranslation()
   const { theme, setTheme } = useTheme()
   const boot = useMemo(() => window.__SIMPLEVPBOT_DASH__ || {}, [])
+  const uiAccent = normalizeAccent(boot.uiAccent)
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-accent", uiAccent)
+  }, [uiAccent])
 
   useEffect(() => {
     const vars = (boot as { branding?: { cssVariables?: Record<string, string> } }).branding?.cssVariables
     if (!vars) return
     const root = document.documentElement
+    const skipAccentVars = uiAccent !== "default"
     for (const [key, val] of Object.entries(vars)) {
-      if (val) root.style.setProperty(key, val)
+      if (!val) continue
+      if (skipAccentVars && ACCENT_BRANDING_VAR_KEYS.has(key)) continue
+      root.style.setProperty(key, val)
     }
     return () => {
       for (const key of Object.keys(vars)) {
         root.style.removeProperty(key)
       }
     }
-  }, [boot])
+  }, [boot, uiAccent])
 
   const isAdmin = Boolean(boot.isAdmin)
   const isReseller = Boolean(boot.isReseller)
@@ -132,6 +145,7 @@ function App() {
     })
   }, [])
   const [lang, setLang] = useState<"fa" | "en">(boot.lang === "fa" ? "fa" : "en")
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const [activeTab, setActiveTab] = useState(() => {
     const b = window.__SIMPLEVPBOT_DASH__ || {}
     if (!b.isAdmin && !b.isReseller) return "home"
@@ -212,7 +226,7 @@ function App() {
       mapped = mapTabForReseller(mapped, isReseller)
       const tabKey = safeResellerTab(mapped)
       const base = dashboardBaseUrl.replace(/\/?$/, "")
-      const url = `${base}/${encodeURIComponent(tabKey)}/`
+      const url = buildDashboardTabUrl(base, tabKey)
       window.history.pushState({ tab: tabKey }, "", url)
       setActiveTab(tabKey)
       setUserDetailId(null)
@@ -376,10 +390,20 @@ function App() {
   useEffect(() => {
     if (!isOperator) return
     const path = window.location.pathname.replace(/\/+$/, "") || "/"
+    if (/\/dashboard\/dashboard$/i.test(path)) {
+      const base = dashboardBaseUrl.replace(/\/?$/, "")
+      window.history.replaceState({ tab: "dashboard" }, "", buildDashboardTabUrl(base, "dashboard"))
+      setActiveTab("dashboard")
+    }
+  }, [isOperator, dashboardBaseUrl])
+
+  useEffect(() => {
+    if (!isOperator) return
+    const path = window.location.pathname.replace(/\/+$/, "") || "/"
     if (path.endsWith("/dashboard/general") || /\/dashboard\/general$/i.test(path)) {
       const base = dashboardBaseUrl.replace(/\/?$/, "")
       const tab = isReseller ? "dashboard" : "monitoring"
-      window.history.replaceState({ tab }, "", `${base}/${tab}/`)
+      window.history.replaceState({ tab }, "", buildDashboardTabUrl(base, tab))
       setActiveTab(tab)
     }
   }, [isOperator, dashboardBaseUrl, isReseller])
@@ -396,7 +420,7 @@ function App() {
     if (legSite.subtab != null) {
       url = `${base}/site_settings/?site_subtab=${encodeURIComponent(legSite.subtab)}`
     } else {
-      url = `${base}/${encodeURIComponent(nextTab)}/`
+      url = buildDashboardTabUrl(base, nextTab)
     }
     window.history.replaceState({ tab: nextTab }, "", url)
     setActiveTab(nextTab)
@@ -407,7 +431,7 @@ function App() {
     const safeTab = safeResellerTab(activeTab)
     if (safeTab === activeTab) return
     const base = dashboardBaseUrl.replace(/\/?$/, "")
-    window.history.replaceState({ tab: safeTab }, "", `${base}/${encodeURIComponent(safeTab)}/`)
+    window.history.replaceState({ tab: safeTab }, "", buildDashboardTabUrl(base, safeTab))
     setActiveTab(safeTab)
     setUserDetailId(null)
   }, [isReseller, activeTab, safeResellerTab, dashboardBaseUrl])
@@ -429,7 +453,7 @@ function App() {
     if (resellerContextId != null && resellerContextId > 0) return
     const base = dashboardBaseUrl.replace(/\/?$/, "")
     const fallback = isAdmin ? "resellers" : "dashboard"
-    window.history.replaceState({ tab: fallback }, "", `${base}/${encodeURIComponent(fallback)}/`)
+    window.history.replaceState({ tab: fallback }, "", buildDashboardTabUrl(base, fallback))
     setActiveTab(fallback)
     setResellerContextId(null)
   }, [isOperator, isAdmin, activeTab, resellerContextId, dashboardBaseUrl])
@@ -460,6 +484,24 @@ function App() {
     document.documentElement.dir = isFa ? "rtl" : "ltr"
     document.body.dir = isFa ? "rtl" : "ltr"
   }, [i18n, lang])
+
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(Boolean(document.fullscreenElement))
+    document.addEventListener("fullscreenchange", onFsChange)
+    return () => document.removeEventListener("fullscreenchange", onFsChange)
+  }, [])
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen()
+      } else {
+        await document.exitFullscreen()
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [])
 
   useEffect(() => {
     const onPop = () => {
@@ -525,6 +567,15 @@ function App() {
   const langLabel = isFa ? t("layout.langSwitchToEn") : t("layout.langSwitchToFa")
   const effectiveActiveTab = isAdmin || isReseller ? activeTab : "home"
 
+  const botLinks = useMemo(() => {
+    const overview = data?.overview as { bot?: { telegram_bot_username?: string; bale_bot_username?: string } } | undefined
+    const bot = overview?.bot
+    return {
+      telegram: botPlatformUrl("telegram", String(bot?.telegram_bot_username ?? "")),
+      bale: botPlatformUrl("bale", String(bot?.bale_bot_username ?? "")),
+    }
+  }, [data])
+
   const sidebarVariant: "admin" | "reseller" | "user" =
     activePersona === "user" ? "user" : activePersona === "reseller" ? "reseller" : "admin"
 
@@ -571,9 +622,47 @@ function App() {
           </BreadcrumbList>
         </Breadcrumb>
         <div className="ms-auto flex shrink-0 items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label={t("layout.fullscreen")}
+            onClick={() => void toggleFullscreen()}
+          >
+            {isFullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
+          </Button>
+          {botLinks.telegram ? (
+            <Button variant="outline" size="icon" asChild>
+              <a
+                href={botLinks.telegram}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={t("layout.openTelegramBot")}
+              >
+                <TelegramLogo />
+              </a>
+            </Button>
+          ) : null}
+          {botLinks.bale ? (
+            <Button variant="outline" size="icon" asChild>
+              <a
+                href={botLinks.bale}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={t("layout.openBaleBot")}
+              >
+                <BaleLogo />
+              </a>
+            </Button>
+          ) : null}
           <Button variant="outline" onClick={() => setLang(isFa ? "en" : "fa")}>
             {langLabel}
           </Button>
+          <AccentMenu
+            initialAccent={boot.uiAccent}
+            restUrl={String(boot.restUrl ?? "")}
+            nonce={String(boot.nonce ?? "")}
+          />
           <Button
             variant="outline"
             size="icon"

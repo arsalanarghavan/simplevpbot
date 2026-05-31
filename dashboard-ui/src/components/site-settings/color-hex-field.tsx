@@ -24,7 +24,7 @@ export function ColorHexField({
   value,
   onChange,
   fallback = "#2563eb",
-  rtl = false,
+  rtl: _rtl = false,
 }: {
   id?: string
   label: string
@@ -40,7 +40,7 @@ export function ColorHexField({
   return (
     <div className="space-y-2">
       <Label htmlFor={id}>{label}</Label>
-      <div className={cn("flex items-center gap-2", rtl && "flex-row-reverse")}>
+      <div className={cn("flex items-center gap-2")}>
         <Input
           type="color"
           className="h-10 w-14 shrink-0 cursor-pointer p-1"

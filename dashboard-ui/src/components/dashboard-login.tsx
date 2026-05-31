@@ -3,6 +3,7 @@
 import { type FormEvent, useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
+import { dashDir } from "@/lib/dash-locale"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -69,7 +70,7 @@ export function DashboardLogin({ isFa }: { isFa: boolean }) {
   return (
     <div
       className="flex min-h-svh w-full items-center justify-center bg-background p-4"
-      dir={isFa ? "rtl" : "ltr"}
+      dir={dashDir(isFa)}
     >
       <Card className="w-full max-w-md shadow-sm">
         <CardHeader className="space-y-1">

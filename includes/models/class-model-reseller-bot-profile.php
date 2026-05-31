@@ -428,6 +428,9 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 			return;
 		}
 		$tok = sanitize_text_field( (string) $token );
+		if ( '' === trim( $tok ) ) {
+			return;
+		}
 		$row = self::find_by_reseller( $r );
 		if ( ! $row ) {
 			self::ensure_webhook_secret( $r );
@@ -540,6 +543,105 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 			return $sec;
 		}
 		return self::ensure_webhook_secret( $r );
+	}
+
+	/**
+	 * Patch tokens: only non-empty strings replace stored values (dashboard masked fields).
+	 *
+	 * @param int         $reseller_svp_user_id Id.
+	 * @param string|null $tg_token             Telegram token or empty to skip.
+	 * @param string|null $bale_token           Bale token or empty to skip.
+	 * @param string|null $brand_name           Display brand (optional).
+	 * @return array<int, string> Platforms patched (telegram|bale).
+	 */
+	public static function patch_tokens( $reseller_svp_user_id, $tg_token, $bale_token, $brand_name = null ) {
+		global $wpdb;
+		$r = (int) $reseller_svp_user_id;
+		if ( $r < 1 ) {
+			return array();
+		}
+		$tg_raw = null !== $tg_token ? sanitize_text_field( (string) $tg_token ) : '';
+		$bl_raw = null !== $bale_token ? sanitize_text_field( (string) $bale_token ) : '';
+		$patch_tg = '' !== trim( $tg_raw );
+		$patch_bl = '' !== trim( $bl_raw );
+		if ( ! $patch_tg && ! $patch_bl && null === $brand_name ) {
+			return array();
+		}
+		$ex = self::find_by_reseller( $r );
+		if ( ! $ex && ! $patch_tg && ! $patch_bl ) {
+			if ( null !== $brand_name ) {
+				self::upsert_tokens( $r, '', '', $brand_name );
+			}
+			return array();
+		}
+		if ( ! $ex ) {
+			self::upsert_tokens( $r, $patch_tg ? $tg_raw : '', $patch_bl ? $bl_raw : '', $brand_name );
+			$out = array();
+			if ( $patch_tg ) {
+				$out[] = 'telegram';
+			}
+			if ( $patch_bl ) {
+				$out[] = 'bale';
+			}
+			return $out;
+		}
+		$data   = array( 'updated_at' => current_time( 'mysql' ) );
+		$format = array( '%s' );
+		$out    = array();
+		if ( $patch_tg ) {
+			$data['telegram_token'] = self::encrypt_token_field( $tg_raw );
+			$format[]               = '%s';
+			$out[]                  = 'telegram';
+		}
+		if ( $patch_bl ) {
+			$data['bale_token'] = self::encrypt_token_field( $bl_raw );
+			$format[]           = '%s';
+			$out[]              = 'bale';
+		}
+		$need_secret = $patch_tg || $patch_bl || strlen( (string) ( $ex->telegram_token ?? '' ) ) > 0 || strlen( (string) ( $ex->bale_token ?? '' ) ) > 0;
+		if ( $need_secret && ( ! isset( $ex->webhook_secret ) || '' === trim( (string) ( $ex->webhook_secret ?? '' ) ) ) ) {
+			$data['webhook_secret'] = self::generate_webhook_secret_value();
+			$format[]               = '%s';
+		}
+		if ( null !== $brand_name ) {
+			$data['brand_name'] = mb_substr( sanitize_text_field( (string) $brand_name ), 0, 255, 'UTF-8' );
+			$format[]           = '%s';
+		}
+		$wpdb->update(
+			self::table(),
+			$data,
+			array( 'reseller_svp_user_id' => $r ),
+			$format,
+			array( '%d' )
+		);
+		return $out;
+	}
+
+	/**
+	 * Sync @username from getMe after reseller token patch.
+	 *
+	 * @param int                  $reseller_svp_user_id Id.
+	 * @param array<int, string>   $platforms            telegram and/or bale.
+	 */
+	public static function sync_reseller_bot_usernames( $reseller_svp_user_id, array $platforms ) {
+		$r = (int) $reseller_svp_user_id;
+		if ( $r < 1 || ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			return;
+		}
+		$platforms = array_values( array_unique( array_map( 'sanitize_key', $platforms ) ) );
+		foreach ( $platforms as $plat ) {
+			if ( 'telegram' === $plat ) {
+				$res = SimpleVPBot_Service_Admin_Ops::test_telegram_for_reseller( $r );
+				if ( ! empty( $res['ok'] ) && ! empty( $res['data']['result']['username'] ) ) {
+					self::save_bot_username( $r, 'telegram', (string) $res['data']['result']['username'] );
+				}
+			} elseif ( 'bale' === $plat ) {
+				$res = SimpleVPBot_Service_Admin_Ops::test_bale_for_reseller( $r );
+				if ( ! empty( $res['ok'] ) && ! empty( $res['data']['result']['username'] ) ) {
+					self::save_bot_username( $r, 'bale', (string) $res['data']['result']['username'] );
+				}
+			}
+		}
 	}
 
 	/**

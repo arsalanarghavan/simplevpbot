@@ -30,12 +30,13 @@ class SimpleVPBot_Service_Provisioner {
 	/**
 	 * Structured provisioner: returns reason on failure for admin surface.
 	 *
-	 * @param int      $user_id   svp user id.
-	 * @param int      $plan_id   Plan id.
-	 * @param int|null $volume_gb Chosen volume for per-GB plans.
+	 * @param int      $user_id User id.
+	 * @param int      $plan_id Plan id.
+	 * @param int|null $volume_gb Chosen GB for per-GB plans; null for fixed.
+	 * @param string|null $platform telegram|bale for platform_slug naming; null auto-detect.
 	 * @return array{ok:bool, service_id?:int, reason:string, panel?:mixed, detail?:string}
 	 */
-	public static function create_from_plan_detailed( $user_id, $plan_id, $volume_gb = null ) {
+	public static function create_from_plan_detailed( $user_id, $plan_id, $volume_gb = null, $platform = null ) {
 		$plan = SimpleVPBot_Model_Plan::find( $plan_id );
 		if ( ! $plan || ! (int) $plan->active ) {
 			return array( 'ok' => false, 'reason' => 'plan_missing_or_inactive' );
@@ -62,7 +63,7 @@ class SimpleVPBot_Service_Provisioner {
 		return SimpleVPBot_Xui_Client::run_with_panel(
 			$panel_id,
 			function () use ( $user_id, $plan_id, $plan, $volume_gb ) {
-				return self::create_xray_service_on_bound_panel( $user_id, $plan_id, $plan, $volume_gb );
+				return self::create_xray_service_on_bound_panel( $user_id, $plan_id, $plan, $volume_gb, $platform );
 			}
 		);
 	}
@@ -76,7 +77,7 @@ class SimpleVPBot_Service_Provisioner {
 	 * @param int|null $volume_gb Volume for per-GB.
 	 * @return array{ok:bool, service_id?:int, reason:string, panel?:mixed, detail?:string}
 	 */
-	private static function create_xray_service_on_bound_panel( $user_id, $plan_id, $plan, $volume_gb = null ) {
+	private static function create_xray_service_on_bound_panel( $user_id, $plan_id, $plan, $volume_gb = null, $platform = null ) {
 		if ( ! SimpleVPBot_Xui_Client::login_with_retries( 7, 320000 ) ) {
 			return array( 'ok' => false, 'reason' => 'login_fail' );
 		}
@@ -113,11 +114,20 @@ class SimpleVPBot_Service_Provisioner {
 		}
 		$subid_gen   = substr( md5( $email . microtime( true ) ), 0, 16 );
 		$wp_user     = SimpleVPBot_Model_User::find( (int) $user_id );
-		$service_remark = (string) $plan->name;
-		if ( SimpleVPBot_Model_Plan::is_per_gb( $plan ) && null !== $volume_gb ) {
-			$service_remark .= ' · ' . (int) $volume_gb . ' GB';
+		$service_note = '';
+		if ( self::uses_platform_slug_naming() ) {
+			$slug           = self::generate_platform_slug( $wp_user, $platform );
+			$email          = $slug . '@svp.local';
+			$service_remark = $slug;
+			$panel_label    = self::panel_brand_only_label( (int) $user_id );
+			$service_note   = self::build_auto_service_note( $wp_user );
+		} else {
+			$service_remark = (string) $plan->name;
+			if ( SimpleVPBot_Model_Plan::is_per_gb( $plan ) && null !== $volume_gb ) {
+				$service_remark .= ' · ' . (int) $volume_gb . ' GB';
+			}
+			$panel_label = self::panel_client_label( (int) $user_id, $wp_user, $service_remark );
 		}
-		$panel_label = self::panel_client_label( (int) $user_id, $wp_user, $service_remark );
 		$def_users   = max( 0, (int) SimpleVPBot_Settings::get( 'default_concurrent_users', 2 ) );
 		$overrides   = array(
 			'id'         => (string) $uuid,
@@ -263,28 +273,122 @@ class SimpleVPBot_Service_Provisioner {
 
 		$expires_at = (int) $plan->duration_days > 0 ? gmdate( 'Y-m-d H:i:s', time() + (int) $plan->duration_days * DAY_IN_SECONDS ) : null;
 		$remark     = $service_remark;
-		$service_id = SimpleVPBot_Model_Service::insert(
-			array(
-				'user_id'         => (int) $user_id,
-				'panel_id'        => max( 1, (int) ( $plan->panel_id ?? 1 ) ),
-				'inbound_id'      => (int) $plan->inbound_id,
-				'xui_client_id'   => $uuid,
-				'xui_client_uuid' => $uuid,
-				'email'           => $email,
-				'remark'          => $remark,
-				'plan_id'         => (int) $plan_id,
-				'expires_at'      => $expires_at,
-				'total_traffic'   => $total_bytes,
-				'sub_id'          => $new_client['subId'],
-				'provision_type'  => 'plan',
-			)
+		$insert_row = array(
+			'user_id'         => (int) $user_id,
+			'panel_id'        => max( 1, (int) ( $plan->panel_id ?? 1 ) ),
+			'inbound_id'      => (int) $plan->inbound_id,
+			'xui_client_id'   => $uuid,
+			'xui_client_uuid' => $uuid,
+			'email'           => $email,
+			'remark'          => $remark,
+			'plan_id'         => (int) $plan_id,
+			'expires_at'      => $expires_at,
+			'total_traffic'   => $total_bytes,
+			'sub_id'          => $new_client['subId'],
+			'provision_type'  => 'plan',
 		);
+		if ( '' !== $service_note ) {
+			$insert_row['service_note'] = $service_note;
+		}
+		$service_id = SimpleVPBot_Model_Service::insert( $insert_row );
 		if ( ! $service_id ) {
 			SimpleVPBot_Logger::error( 'service insert failed; rolling back panel client', array( 'email' => $email ) );
 			SimpleVPBot_Xui_Client::del_client( (int) $plan->inbound_id, $uuid, $email );
 			return array( 'ok' => false, 'reason' => 'db_insert' );
 		}
 		return array( 'ok' => true, 'service_id' => (int) $service_id, 'reason' => 'ok' );
+	}
+
+	/**
+	 * Whether new provisions use platform_slug naming.
+	 *
+	 * @return bool
+	 */
+	private static function uses_platform_slug_naming() {
+		if ( ! class_exists( 'SimpleVPBot_Settings' ) ) {
+			return false;
+		}
+		return 'platform_slug' === (string) SimpleVPBot_Settings::get( 'service_naming_mode', 'legacy' );
+	}
+
+	/**
+	 * Brand-only panel remark for platform_slug mode.
+	 *
+	 * @param int $user_id svp user id.
+	 * @return string
+	 */
+	private static function panel_brand_only_label( $user_id ) {
+		if ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+			return (string) SimpleVPBot_Reseller_Branding::panel_brand_only_for_user( (int) $user_id );
+		}
+		return (string) get_bloginfo( 'name' );
+	}
+
+	/**
+	 * Auto service note with user identifiers.
+	 *
+	 * @param object|null $user User row.
+	 * @return string
+	 */
+	private static function build_auto_service_note( $user ) {
+		$uid = is_object( $user ) ? (int) ( $user->id ?? 0 ) : 0;
+		$tg  = is_object( $user ) ? (int) ( $user->tg_user_id ?? 0 ) : 0;
+		$bl  = is_object( $user ) ? (int) ( $user->bale_user_id ?? 0 ) : 0;
+		return 'SVP:' . $uid . ' TG:' . $tg . ' BL:' . $bl;
+	}
+
+	/**
+	 * Generate unique bot-t* / bot-b* service slug.
+	 *
+	 * @param object|null $user     User row.
+	 * @param string|null $platform telegram|bale.
+	 * @return string
+	 */
+	private static function generate_platform_slug( $user, $platform = null ) {
+		$plat = strtolower( trim( (string) $platform ) );
+		$tg   = is_object( $user ) ? (int) ( $user->tg_user_id ?? 0 ) : 0;
+		$bl   = is_object( $user ) ? (int) ( $user->bale_user_id ?? 0 ) : 0;
+		$uid  = is_object( $user ) ? (int) ( $user->id ?? 0 ) : 0;
+		if ( 'bale' === $plat && $bl > 0 ) {
+			$prefix = 'bot-b' . $bl;
+		} elseif ( 'telegram' === $plat && $tg > 0 ) {
+			$prefix = 'bot-t' . $tg;
+		} elseif ( $tg > 0 ) {
+			$prefix = 'bot-t' . $tg;
+		} elseif ( $bl > 0 ) {
+			$prefix = 'bot-b' . $bl;
+		} else {
+			$prefix = 'bot-u' . $uid;
+		}
+		for ( $i = 0; $i < 12; $i++ ) {
+			$slug = strtolower( $prefix . '-' . wp_generate_password( 8, false, false ) );
+			if ( ! self::platform_slug_taken( $slug ) ) {
+				return $slug;
+			}
+		}
+		return strtolower( $prefix . '-' . wp_generate_password( 8, false, false ) );
+	}
+
+	/**
+	 * @param string $slug Service slug (without @domain).
+	 * @return bool
+	 */
+	private static function platform_slug_taken( $slug ) {
+		global $wpdb;
+		$slug = strtolower( trim( (string) $slug ) );
+		if ( '' === $slug ) {
+			return true;
+		}
+		$t = $wpdb->prefix . 'svp_services';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$n = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$t} WHERE remark = %s OR email = %s LIMIT 1",
+				$slug,
+				$slug . '@svp.local'
+			)
+		);
+		return $n > 0;
 	}
 
 	/**

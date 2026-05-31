@@ -4,11 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Badge } from "@/components/ui/badge"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { getAdminJson, postAdminMutate } from "@/lib/dash-admin-mutate"
 import { formatNumber } from "@/lib/format-locale"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
@@ -286,11 +288,8 @@ export function DashboardInboundLinkAdmin({
   }, [panelId, inboundId, loadClients, onMutateSuccess, tl])
 
   return (
-    <div className={cn("space-y-6", isFa && "text-right")}>
-      <div>
-        <h2 className="text-lg font-medium">{tl("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tl("subtitle")}</p>
-      </div>
+    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+      <DashboardPageHeader title={tl("title")} description={tl("subtitle")} />
 
       <div className="flex flex-col gap-4 rounded-lg border border-border/60 p-4 sm:flex-row sm:flex-wrap sm:items-end">
         <div className="grid gap-2">
@@ -369,7 +368,7 @@ export function DashboardInboundLinkAdmin({
       ) : null}
 
       {inbounds.length > 0 || clients.length > 0 ? (
-        <div className={cn("flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground", isFa && "flex-row-reverse")}>
+        <div className={cn("flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground")}>
           {inbounds.length > 0 ? <span>{tl("statInbounds", { n: inbounds.length })}</span> : null}
           {clients.length > 0 ? (
             <>
@@ -403,12 +402,12 @@ export function DashboardInboundLinkAdmin({
           <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b bg-muted/40">
-                <th className={cn("p-2 font-medium", isFa ? "text-right" : "text-left")}>{tl("colEmail")}</th>
-                <th className={cn("p-2 font-medium", isFa ? "text-right" : "text-left")}>{tl("colRemark")}</th>
-                <th className={cn("p-2 font-medium", isFa ? "text-right" : "text-left")}>{tl("colGb")}</th>
-                <th className={cn("p-2 font-medium", isFa ? "text-right" : "text-left")}>{tl("colUser")}</th>
-                <th className={cn("p-2 font-medium", isFa ? "text-right" : "text-left")}>{tl("colService")}</th>
-                <th className={cn("p-2 font-medium", isFa ? "text-right" : "text-left")}>{tl("colLink")}</th>
+                <th className={cn("p-2 font-medium", "text-start")}>{tl("colEmail")}</th>
+                <th className={cn("p-2 font-medium", "text-start")}>{tl("colRemark")}</th>
+                <th className={cn("p-2 font-medium", "text-start")}>{tl("colGb")}</th>
+                <th className={cn("p-2 font-medium", "text-start")}>{tl("colUser")}</th>
+                <th className={cn("p-2 font-medium", "text-start")}>{tl("colService")}</th>
+                <th className={cn("p-2 font-medium", "text-start")}>{tl("colLink")}</th>
               </tr>
             </thead>
             <tbody>
@@ -481,7 +480,7 @@ export function DashboardInboundLinkAdmin({
                                     key={id}
                                     type="button"
                                     className={cn(
-                                      "block w-full px-2 py-1.5 text-left text-xs hover:bg-muted/60",
+                                      "block w-full px-2 py-1.5 text-start text-xs hover:bg-muted/60",
                                       isFa && "text-right"
                                     )}
                                     onClick={() => {

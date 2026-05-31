@@ -124,8 +124,8 @@ export function SiteSettingsLogsTab({ isFa }: { isFa: boolean }) {
 
   return (
     <div className={cn("space-y-4", isFa && "text-right")}>
-      <div className={cn("flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between", isFa && "sm:flex-row-reverse")}>
-        <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
+      <div className={cn("flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between")}>
+        <div className={cn("flex flex-wrap gap-2")}>
           <div className="space-y-1">
             <Label className="text-xs">{tp("filterLevel")}</Label>
             <Select value={level || "all"} onValueChange={(v) => { setLevel(v === "all" ? "" : v); setPage(1) }}>
@@ -184,7 +184,7 @@ export function SiteSettingsLogsTab({ isFa }: { isFa: boolean }) {
               />
               <p className="text-xs text-muted-foreground">{tp("clearOlderHint")}</p>
             </div>
-            <AlertDialogFooter className={cn(isFa && "flex-row-reverse gap-2")}>
+            <AlertDialogFooter className="gap-2">
               <AlertDialogCancel>{tp("cancel")}</AlertDialogCancel>
               <AlertDialogAction onClick={() => void onClear(false)} disabled={clearing}>
                 {tp("clearConfirm")}

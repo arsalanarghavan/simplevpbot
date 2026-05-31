@@ -42,13 +42,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { DataPagination } from "@/components/data-pagination"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import {
   DashboardDateTimePicker,
   apiDatetimeToMs,
   msToApiDatetime,
 } from "@/components/dashboard-datetime-picker"
 import { getAdminJson, postAdminJson, postAdminMutate } from "@/lib/dash-admin-mutate"
-import { dashContentClass, dashFlexRowClass } from "@/lib/dash-locale"
+import { dashContentClass, dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { formatBytes, formatDateTime, formatNumber } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
@@ -1291,8 +1292,7 @@ export function DashboardConfigsAdmin({
   const anyNeeds = merged?.panels.some((p) => p.needs_sync)
 
   const contentClass = dashContentClass(isFa)
-  const flexRow = dashFlexRowClass(isFa)
-  const dialogDir = isFa ? ("rtl" as const) : ("ltr" as const)
+    const dialogDir = isFa ? ("rtl" as const) : ("ltr" as const)
   const dialogHeaderClass = cn(
     "flex flex-col gap-2",
     isFa ? "text-right sm:text-right" : "text-center sm:text-left"
@@ -1324,10 +1324,7 @@ export function DashboardConfigsAdmin({
         )}
       >
         <div className="min-w-0 space-y-2">
-          <div
-            dir={isFa ? "rtl" : "ltr"}
-            className="flex w-full flex-wrap items-center justify-between gap-2"
-          >
+          <div className="flex w-full flex-wrap items-center justify-between gap-2">
             <span
               className={cn("min-w-0 max-w-[min(100%,20rem)] truncate font-mono text-sm font-medium", exhausted && "text-destructive")}
               title={configDisplayName(row)}
@@ -1393,7 +1390,7 @@ export function DashboardConfigsAdmin({
             </div>
           )}
         </div>
-        <div className={cn("mt-3 flex flex-wrap items-center gap-1 sm:mt-0", flexRow)}>
+        <div className={cn("mt-3 flex flex-wrap items-center gap-1 sm:mt-0")} dir={dashDir(isFa)}>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -1538,12 +1535,16 @@ export function DashboardConfigsAdmin({
   }
 
   return (
-    <div className={cn("space-y-6", contentClass)}>
-      <div>
-        <h2 className="text-lg font-medium">{tl("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tl("subtitle")}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{tl("autoSyncHint")}</p>
-      </div>
+    <div className={dashPageRootClass(isFa, contentClass)} dir={dashDir(isFa)}>
+      <DashboardPageHeader
+        title={tl("title")}
+        description={
+          <>
+            <p className="text-sm text-muted-foreground">{tl("subtitle")}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{tl("autoSyncHint")}</p>
+          </>
+        }
+      />
 
       <div className="flex flex-col gap-4 rounded-lg border border-border/60 p-4 sm:flex-row sm:flex-wrap sm:items-end">
         <div className="grid gap-2">
@@ -1585,7 +1586,7 @@ export function DashboardConfigsAdmin({
           {refreshing ? <span className="text-foreground">{tl("syncBusy")}</span> : <span>{tl("idleReady")}</span>}
         </div>
         {singlePanelMode ? (
-          <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
+          <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
             <input
               type="checkbox"
               className="size-4"
@@ -1698,7 +1699,7 @@ export function DashboardConfigsAdmin({
         <div className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
           <p className="text-sm font-medium">{tl("deleteExpired")}</p>
           <p className="text-xs text-muted-foreground">{tl("deleteExpiredHint")}</p>
-          <label className={cn("flex items-start gap-2 text-xs text-muted-foreground", isFa && "flex-row-reverse")}>
+          <label className={cn("flex items-start gap-2 text-xs text-muted-foreground")} dir={dashDir(isFa)}>
             <input
               type="checkbox"
               className="mt-0.5"
@@ -1707,7 +1708,7 @@ export function DashboardConfigsAdmin({
             />
             <span>{tl("deleteExpiredAck")}</span>
           </label>
-          <div className={cn("flex flex-wrap items-end gap-2", flexRow)}>
+          <div className={cn("flex flex-wrap items-end gap-2")} dir={dashDir(isFa)}>
             <div className="grid gap-1">
               <Label className="text-xs">{tl("confirmCount")}</Label>
               <Input
@@ -1731,12 +1732,11 @@ export function DashboardConfigsAdmin({
       {singlePanelMode && bulkCount > 0 ? (
         <div
           className={cn(
-            "flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-muted/30 p-3",
-            isFa && "flex-row-reverse"
+            "flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-muted/30 p-3"
           )}
         >
           <span className="text-sm font-medium">{tl("batchBar", { n: bulkCount, max: CONFIGS_BATCH_MAX })}</span>
-          <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
+          <div className={cn("flex flex-wrap gap-2")} dir={dashDir(isFa)}>
             <Button
               type="button"
               variant="outline"
@@ -1801,7 +1801,7 @@ export function DashboardConfigsAdmin({
 
       {merged?.panels.map((block) => (
         <div key={block.panel_id} className="space-y-3 rounded-xl border border-border/60 bg-card/30 p-3 sm:p-4">
-          <div className={cn("flex flex-wrap items-baseline justify-between gap-2 border-b border-border/50 pb-2", flexRow)}>
+          <div className={cn("flex flex-wrap items-baseline justify-between gap-2 border-b border-border/50 pb-2")} dir={dashDir(isFa)}>
             <div>
               <h3 className="text-base font-semibold">
                 {tl("panelHeading", { id: block.panel_id, label: block.panel_label })}
@@ -1842,7 +1842,7 @@ export function DashboardConfigsAdmin({
                       type="button"
                       className={cn(
                         "flex min-w-0 flex-1 items-center gap-2 p-3 text-start hover:bg-muted/40",
-                        isFa && "flex-row-reverse text-right"
+                        isFa && "text-right"
                       )}
                     >
                       <ChevronDown className="size-4 shrink-0 transition-transform group-data-[state=open]/collapsible:rotate-180" />
@@ -1945,7 +1945,7 @@ export function DashboardConfigsAdmin({
                     type="button"
                     className={cn(
                       "flex w-full items-center gap-2 border-b border-amber-500/30 bg-amber-500/5 p-3 text-start hover:bg-amber-500/10",
-                      isFa && "flex-row-reverse text-right"
+                      isFa && "text-right"
                     )}
                   >
                     <ChevronDown className="size-4 shrink-0 transition-transform group-data-[state=open]/orphan:rotate-180" />
@@ -2310,7 +2310,7 @@ export function DashboardConfigsAdmin({
               <Label>{tl("fieldLimitIp")}</Label>
               <Input inputMode="numeric" value={editLimitIp} onChange={(e) => setEditLimitIp(e.target.value)} />
             </div>
-            <div className={cn("flex items-center justify-between gap-3 rounded-md border border-border/50 px-3 py-2", flexRow)}>
+            <div className={cn("flex items-center justify-between gap-3 rounded-md border border-border/50 px-3 py-2")} dir={dashDir(isFa)}>
               <Label htmlFor="cfg-safu" className="cursor-pointer text-sm">
                 {tl("fieldStartAfterFirstUse")}
               </Label>
@@ -2332,7 +2332,7 @@ export function DashboardConfigsAdmin({
               onChange={(v) => setEditExpiryMs(apiDatetimeToMs(v))}
             />
           </div>
-          <DialogFooter className={cn(isFa && "flex-row-reverse")}>
+          <DialogFooter className={cn("")} dir={dashDir(isFa)}>
             <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
               {tl("cancel")}
             </Button>
@@ -2355,7 +2355,7 @@ export function DashboardConfigsAdmin({
           <p className="text-sm text-muted-foreground">
             {delRow && num(delRow.linked_service_id) > 0 ? tl("deleteOneLinked") : tl("deleteOneOrphan")}
           </p>
-          <DialogFooter className={cn(isFa && "flex-row-reverse")}>
+          <DialogFooter className={cn("")} dir={dashDir(isFa)}>
             <Button type="button" variant="outline" onClick={() => setDelOpen(false)}>
               {tl("cancel")}
             </Button>
@@ -2371,7 +2371,7 @@ export function DashboardConfigsAdmin({
           <DialogHeader className={dialogHeaderClass}>
             <DialogTitle>{tl("resetTrafficTitle")}</DialogTitle>
           </DialogHeader>
-          <DialogFooter className={cn(isFa && "flex-row-reverse")}>
+          <DialogFooter className={cn("")} dir={dashDir(isFa)}>
             <Button type="button" variant="outline" onClick={() => setResetOpen(false)}>
               {tl("cancel")}
             </Button>
@@ -2399,7 +2399,7 @@ export function DashboardConfigsAdmin({
               onChange={(e) => setQuickTarget(e.target.value)}
             />
           </div>
-          <DialogFooter className={cn(isFa && "flex-row-reverse")}>
+          <DialogFooter className={cn("")} dir={dashDir(isFa)}>
             <Button type="button" variant="outline" onClick={() => setQuickOpen(false)}>
               {tl("cancel")}
             </Button>
@@ -2463,7 +2463,7 @@ export function DashboardConfigsAdmin({
               ) : null}
             </div>
           ) : null}
-          <DialogFooter className={cn(isFa && "flex-row-reverse")}>
+          <DialogFooter className={cn("")} dir={dashDir(isFa)}>
             <Button type="button" variant="outline" onClick={() => setLinkOpen(false)}>
               {tl("cancel")}
             </Button>
@@ -2496,7 +2496,7 @@ export function DashboardConfigsAdmin({
               ))}
             </select>
           </div>
-          <DialogFooter className={cn(isFa && "flex-row-reverse")}>
+          <DialogFooter className={cn("")} dir={dashDir(isFa)}>
             <Button type="button" variant="outline" onClick={() => setAssignPlanOpen(false)}>
               {tl("cancel")}
             </Button>
@@ -2544,7 +2544,7 @@ export function DashboardConfigsAdmin({
               </select>
             </div>
           </div>
-          <DialogFooter className={cn(isFa && "flex-row-reverse")}>
+          <DialogFooter className={cn("")} dir={dashDir(isFa)}>
             <Button type="button" variant="outline" onClick={() => setTransferOpen(false)}>
               {tl("cancel")}
             </Button>

@@ -25,6 +25,7 @@ import {
   ServiceActionDialog,
   type ServiceActionDlg,
 } from "@/components/dashboard-user-service-card"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 
 import { DataPagination } from "@/components/data-pagination"
 import { Badge } from "@/components/ui/badge"
@@ -53,6 +54,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { adminMutateErrorText, postAdminMutate } from "@/lib/dash-admin-mutate"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import {
   formatDateTime,
   formatDigits,
@@ -107,10 +109,24 @@ function previewCreatePriceToman(plan: DashRecord | undefined, volGbStr: string)
   return Math.round(num(plan.price) * 100) / 100
 }
 
+function formatActivityChannel(
+  channel: unknown,
+  tp: (k: string) => string
+): string {
+  const c = String(channel ?? "").toLowerCase()
+  if (c === "telegram") return tp("channelTelegram")
+  if (c === "bale") return tp("channelBale")
+  if (c === "rest") return tp("channelRest")
+  return String(channel ?? "")
+}
+
 function formatUserActivityLine(
   row: DashRecord,
   t: (k: string, opts?: Record<string, string | number>) => string
 ): string {
+  const display = String(row.summary_display ?? "").trim()
+  if (display) return display
+
   const ev = String(row.event_type ?? "")
   const pl =
     row.payload && typeof row.payload === "object"
@@ -199,6 +215,15 @@ function formatUserActivityLine(
       })
     case "service_alerts_patch":
       return t("userDetailAdmin.activity_service_alerts_patch", { service: g("service_id") })
+    case "user_role_change":
+      return t("userDetailAdmin.activity_user_role_change", { role: g("role") })
+    case "user_set_referrer":
+      return t("userDetailAdmin.activity_user_set_referrer", { referrer: g("referrer_id") })
+    case "service_toggle_enable":
+      return t("userDetailAdmin.activity_service_toggle_enable", {
+        service: g("service_id"),
+        state: num(g("enable")) === 1 ? t("userDetailAdmin.enableOn") : t("userDetailAdmin.enableOff"),
+      })
     case "callback_query":
       return t("userDetailAdmin.activity_callback_query", { data: g("callback_data").slice(0, 80) })
     case "command":
@@ -213,6 +238,7 @@ function formatUserActivityLine(
 export function DashboardUserDetailAdmin({
   userId,
   plans,
+  planCategories = [],
   settings,
   isFa,
   isReseller = false,
@@ -222,6 +248,7 @@ export function DashboardUserDetailAdmin({
 }: {
   userId: number
   plans: DashRecord[]
+  planCategories?: DashRecord[]
   settings?: DashRecord
   isFa: boolean
   /** When true, «free» payment mode is hidden (reseller pays from wallet / invoice only). */
@@ -245,6 +272,7 @@ export function DashboardUserDetailAdmin({
   const [alertText, setAlertText] = useState<string | null>(null)
 
   const [planId, setPlanId] = useState("")
+  const [categorySlug, setCategorySlug] = useState("")
   const [volGb, setVolGb] = useState("")
   const [createMode, setCreateMode] = useState<"free" | "wallet" | "invoice">(() =>
     isReseller ? "wallet" : "free"
@@ -257,6 +285,10 @@ export function DashboardUserDetailAdmin({
   const [resellerChoices, setResellerChoices] = useState<Array<{ id: number; label: string }>>([])
   const [assignResellerOpen, setAssignResellerOpen] = useState(false)
   const [pickResellerId, setPickResellerId] = useState("")
+  const [rolePick, setRolePick] = useState("")
+  const [referrerQuery, setReferrerQuery] = useState("")
+  const [referrerHits, setReferrerHits] = useState<DashRecord[]>([])
+  const [pickReferrerId, setPickReferrerId] = useState("")
 
   const pricePerExtraUser = num(settings?.price_per_extra_user)
   const l2tpEnabled = useMemo(() => {
@@ -276,6 +308,7 @@ export function DashboardUserDetailAdmin({
       const sp = new URLSearchParams()
       sp.set("activity_page", String(actPage))
       sp.set("activity_per_page", "20")
+      sp.set("lang", isFa ? "fa" : "en")
       const r = await fetch(`${restBase}/dashboard/admin/user/${userId}?${sp.toString()}`, {
         headers: { "X-WP-Nonce": nonce },
         credentials: "include",
@@ -306,11 +339,16 @@ export function DashboardUserDetailAdmin({
     } finally {
       setLoading(false)
     }
-  }, [restBase, nonce, userId, actPage])
+  }, [restBase, nonce, userId, actPage, isFa])
 
   useEffect(() => {
     void load()
   }, [restBase, nonce, userId, actPage, load])
+
+  useEffect(() => {
+    if (!user) return
+    setRolePick(String(user.effective_role ?? user.role ?? "user"))
+  }, [user])
 
   const activePlans = useMemo(
     () =>
@@ -322,21 +360,55 @@ export function DashboardUserDetailAdmin({
     [plans, l2tpEnabled]
   )
 
+  const activeCategories = useMemo(
+    () =>
+      planCategories.filter((c) => num(c.active) === 1 && String(c.slug ?? "").trim() !== ""),
+    [planCategories]
+  )
+
+  const categoryPlans = useMemo(() => {
+    if (!categorySlug) return []
+    return activePlans.filter((p) => String(p.category ?? "") === categorySlug)
+  }, [activePlans, categorySlug])
+
+  const selectedPlan = useMemo(
+    () => categoryPlans.find((p) => String(num(p.id)) === planId) ?? activePlans.find((p) => String(num(p.id)) === planId),
+    [categoryPlans, activePlans, planId]
+  )
+
   const visibleServices = useMemo(
     () =>
       services.filter((s) => l2tpEnabled || String(s.service_type ?? "xray") !== "l2tp"),
     [services, l2tpEnabled]
   )
 
-  const selectedPlan = useMemo(
-    () => activePlans.find((p) => String(num(p.id)) === planId),
-    [activePlans, planId]
-  )
-
   const createPricePreview = useMemo(
     () => previewCreatePriceToman(selectedPlan, volGb),
     [selectedPlan, volGb]
   )
+
+  useEffect(() => {
+    if (!restBase || referrerQuery.trim().length < 2) {
+      setReferrerHits([])
+      return
+    }
+    const q = referrerQuery.trim()
+    const t = window.setTimeout(() => {
+      void fetch(`${restBase}/dashboard/admin/user-search?q=${encodeURIComponent(q)}`, {
+        headers: { "X-WP-Nonce": nonce },
+        credentials: "include",
+      })
+        .then((r) => r.json())
+        .then((json) => {
+          const rows = Array.isArray((json as Record<string, unknown>).users)
+            ? ((json as Record<string, unknown>).users as DashRecord[])
+            : []
+          setReferrerHits(rows.filter((u) => num(u.id) !== userId))
+        })
+        .catch(() => setReferrerHits([]))
+    }, 280)
+    return () => window.clearTimeout(t)
+  }, [restBase, nonce, referrerQuery, userId])
 
   const runMut = useCallback(
     async (op: string, params: Record<string, unknown>, okMsg?: string) => {
@@ -388,6 +460,7 @@ export function DashboardUserDetailAdmin({
   const bal = num(user.balance)
   const portalUserUrl = String(user.portal_url ?? "")
   const userRole = String(user.role ?? "")
+  const effectiveRole = String(user.effective_role ?? userRole)
   const invitedBy = num(user.invited_by)
   const invitedByLabel = String(user.invited_by_label ?? "").trim()
   const showAssignReseller = !isReseller && userRole !== "reseller" && resellerChoices.length > 0
@@ -395,7 +468,7 @@ export function DashboardUserDetailAdmin({
   return (
     <TooltipProvider delayDuration={200}>
       <Dialog open={assignResellerOpen} onOpenChange={setAssignResellerOpen}>
-        <DialogContent showCloseButton className={cn(isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
+        <DialogContent showCloseButton className={cn(isFa && "text-right")} dir={dashDir(isFa)}>
           <DialogHeader>
             <DialogTitle>{tp("assignResellerTitle")}</DialogTitle>
             <DialogDescription>{tp("assignResellerHint")}</DialogDescription>
@@ -425,7 +498,7 @@ export function DashboardUserDetailAdmin({
               </select>
             </div>
           </div>
-          <DialogFooter className={cn("gap-2", isFa && "sm:flex-row-reverse")}>
+          <DialogFooter className={cn("gap-2")}>
             {invitedBy > 0 ? (
               <Button
                 type="button"
@@ -467,7 +540,7 @@ export function DashboardUserDetailAdmin({
       </Dialog>
 
       <Dialog open={walletDialog !== null} onOpenChange={(o) => !o && setWalletDialog(null)}>
-        <DialogContent showCloseButton className={cn(isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
+        <DialogContent showCloseButton className={cn(isFa && "text-right")} dir={dashDir(isFa)}>
           <DialogHeader>
             <DialogTitle>
               {walletDialog === "add" ? tp("walletDialogAddTitle") : tp("walletDialogSubTitle")}
@@ -512,13 +585,15 @@ export function DashboardUserDetailAdmin({
         onConfirm={(op, payload) => void runMut(op, payload)}
       />
 
-      <div className={cn("mx-auto max-w-7xl space-y-6", isFa && "text-right")}>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={onBack}>
-            {tp("back")}
-          </Button>
-          <h2 className="text-lg font-medium">{tp("title")}</h2>
-        </div>
+      <div className={cn("mx-auto max-w-7xl", dashPageRootClass(isFa))} dir={dashDir(isFa)}>
+        <DashboardPageHeader
+          title={tp("title")}
+          actions={
+            <Button type="button" variant="outline" size="sm" onClick={onBack}>
+              {tp("back")}
+            </Button>
+          }
+        />
 
         {alertText ? (
           <div
@@ -531,12 +606,20 @@ export function DashboardUserDetailAdmin({
 
         <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
           <Card>
-            <CardHeader className="pb-2">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
+            <CardHeader className={cn("pb-2", isFa && "text-right")}>
+              <div
+                className={cn(
+                  "flex flex-wrap items-start gap-2",
+                  "justify-between"
+                )}
+              >
+                <div dir={dashDir(isFa)} className={cn("min-w-0", isFa && "text-right")}>
                   <CardTitle className="text-base">{displayName(user)}</CardTitle>
                   <CardDescription
-                    className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-xs", isFa && "flex-row-reverse")}
+                    className={cn(
+                      "mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs",
+                      isFa && "text-right"
+                    )}
                   >
                     <span className="inline-flex items-center gap-1 font-mono" dir="ltr">
                       <Hash className="size-3.5 shrink-0 opacity-70" aria-hidden />
@@ -757,6 +840,104 @@ export function DashboardUserDetailAdmin({
                 </div>
               </div>
 
+              {!isReseller ? (
+                <div className="space-y-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">{tp("roleLabel")}</Label>
+                    <div className={cn("flex flex-wrap items-center gap-2", isFa && "justify-end")}>
+                      <select
+                        className="h-9 min-w-[10rem] rounded-md border border-input bg-background px-2 text-sm"
+                        value={rolePick || effectiveRole}
+                        onChange={(e) => setRolePick(e.target.value)}
+                        disabled={busy}
+                      >
+                        <option value="user">{tp("roleUser")}</option>
+                        <option value="reseller">{tp("roleReseller")}</option>
+                        <option value="admin">{tp("roleAdmin")}</option>
+                      </select>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={busy || (rolePick || effectiveRole) === effectiveRole}
+                        onClick={() =>
+                          void runMut("user_set_role", {
+                            target_user_id: uid,
+                            role: rolePick || effectiveRole,
+                          })
+                        }
+                      >
+                        {tp("roleApply")}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">{tp("referrerTitle")}</Label>
+                    {invitedBy > 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        {tp("referrerFrom", {
+                          name: invitedByLabel || "—",
+                          id: formatPlainLatinInt(invitedBy),
+                        })}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">{tp("referrerNone")}</p>
+                    )}
+                    <Input
+                      dir="ltr"
+                      value={referrerQuery}
+                      onChange={(e) => setReferrerQuery(e.target.value)}
+                      placeholder={tp("referrerSearchPlaceholder")}
+                      disabled={busy}
+                    />
+                    {referrerHits.length > 0 ? (
+                      <select
+                        className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                        value={pickReferrerId}
+                        onChange={(e) => setPickReferrerId(e.target.value)}
+                        disabled={busy}
+                      >
+                        <option value="">{tp("referrerSearch")}…</option>
+                        {referrerHits.map((hit) => (
+                          <option key={num(hit.id)} value={String(num(hit.id))}>
+                            {displayName(hit)} (#{formatPlainLatinInt(num(hit.id))})
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                    <div className={cn("flex flex-wrap gap-2", isFa && "justify-end")}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || !pickReferrerId}
+                        onClick={() =>
+                          void runMut("user_set_referrer", {
+                            target_user_id: uid,
+                            referrer_id: parseInt(pickReferrerId, 10),
+                          })
+                        }
+                      >
+                        {tp("referrerSet")}
+                      </Button>
+                      {invitedBy > 0 ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() =>
+                            void runMut("user_set_referrer", { target_user_id: uid, referrer_id: 0 })
+                          }
+                        >
+                          {tp("referrerRemove")}
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-3">
                 <Label className="text-xs font-medium">{tp("adminMessageTitle")}</Label>
                 <textarea
@@ -819,17 +1000,36 @@ export function DashboardUserDetailAdmin({
               </ul>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+              <div className="space-y-1">
+                <Label>{tp("category")}</Label>
+                <select
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={categorySlug}
+                  onChange={(e) => {
+                    setCategorySlug(e.target.value)
+                    setPlanId("")
+                  }}
+                  disabled={busy}
+                >
+                  <option value="">{tp("selectCategory")}</option>
+                  {activeCategories.map((c) => (
+                    <option key={String(c.slug)} value={String(c.slug)}>
+                      {String(c.label ?? c.slug ?? "")}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="space-y-1">
                 <Label>{tp("plan")}</Label>
                 <select
                   className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                   value={planId}
                   onChange={(e) => setPlanId(e.target.value)}
-                  disabled={busy}
+                  disabled={busy || !categorySlug}
                 >
                   <option value="">{tp("selectPlan")}</option>
-                  {activePlans.map((p) => (
+                  {categoryPlans.map((p) => (
                     <option key={num(p.id)} value={String(p.id)}>
                       #{num(p.id)} — {String(p.label ?? p.name ?? "")}
                     </option>
@@ -947,6 +1147,12 @@ export function DashboardUserDetailAdmin({
                     tp={tp}
                     onOpenAction={(kind, s) => setActionDlg({ kind, sid: num(s.id), svc: s })}
                     onPatchAlert={patchAlert}
+                    onToggleEnable={(enabled) =>
+                      void runMut("user_service_toggle_enable", {
+                        service_id: sid,
+                        enable: enabled ? 1 : 0,
+                      })
+                    }
                   />
                 )
               })}
@@ -963,7 +1169,7 @@ export function DashboardUserDetailAdmin({
               <table
                 className={cn(
                   "w-full min-w-[20rem] border-collapse text-xs [&_td]:border-b [&_td]:border-border",
-                  isFa ? "text-right" : "text-left"
+                  "text-start"
                 )}
               >
                 <thead>
@@ -979,7 +1185,7 @@ export function DashboardUserDetailAdmin({
                     return (
                       <tr key={id}>
                         <td className="p-2 whitespace-nowrap">{formatDateTime(String(row.created_at ?? ""), isFa)}</td>
-                        <td className="p-2">{String(row.channel ?? "")}</td>
+                        <td className="p-2">{formatActivityChannel(row.channel, tp)}</td>
                         <td className="p-2 text-foreground">{formatUserActivityLine(row, t)}</td>
                       </tr>
                     )

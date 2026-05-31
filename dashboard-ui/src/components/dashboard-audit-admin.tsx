@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -26,6 +27,7 @@ import { getAdminJson } from "@/lib/dash-admin-mutate"
 import { parsePaginationMeta, type PaginationMeta } from "@/lib/dash-pagination"
 import { formatDateTime } from "@/lib/format-locale"
 import { useAdminTp } from "@/lib/use-admin-tp"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { cn } from "@/lib/utils"
 
 type AuditRow = {
@@ -96,13 +98,10 @@ export function DashboardAuditAdmin({ isFa }: { isFa: boolean }) {
   }
 
   return (
-    <div className={cn("space-y-4", isFa && "text-right")}>
-      <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-      </div>
+    <div className={dashPageRootClass(isFa, "space-y-4")} dir={dashDir(isFa)}>
+      <DashboardPageHeader title={tp("title")} description={tp("subtitle")} />
 
-      <div className={cn("flex flex-wrap items-end gap-3", isFa && "flex-row-reverse")}>
+      <div className={cn("flex flex-wrap items-end gap-3")}>
         <div className="space-y-1.5">
           <Label className="text-xs">{tp("filterDomain")}</Label>
           <Select value={domain || "__all"} onValueChange={(v) => setDomain(v === "__all" ? "" : v)}>

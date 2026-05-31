@@ -19,8 +19,9 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
-import { dashContentClass, dashFlexRowClass } from "@/lib/dash-locale"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { DataPagination } from "@/components/data-pagination"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { cn } from "@/lib/utils"
 
@@ -337,8 +338,7 @@ export function DashboardResellersAdmin({
       { key: "plans.manage", label: tp("perm_plans_manage") },
       { key: "services.manage", label: tp("perm_services_manage") },
     ],
-    [tp],
-  )
+    [tp])
 
   async function savePermissions() {
     if (permResellerId == null) return
@@ -360,28 +360,27 @@ export function DashboardResellersAdmin({
     }
   }
 
-  const flexRow = dashFlexRowClass(isFa)
-  const inputAlignClass = isFa ? "text-right" : "text-left"
+  const inputAlignClass = "text-start"
   const statusFilter = resellersStatusFilter || "all"
 
   return (
-    <div className={cn("space-y-4", dashContentClass(isFa))}>
-      <div className={cn("flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between", flexRow)}>
-        <div className={cn("space-y-1", isFa && "text-right")}>
-          <h2 className="text-lg font-medium">{tp("title")}</h2>
-          <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-        </div>
-        <Button
-          type="button"
-          disabled={!canManageResellerControls}
-          onClick={() => {
-            setErr("")
-            setCreateOpen(true)
-          }}
-        >
-          {tp("createTitle")}
-        </Button>
-      </div>
+    <div className={dashPageRootClass(isFa, "space-y-4")} dir={dashDir(isFa)}>
+      <DashboardPageHeader
+        title={tp("title")}
+        description={tp("subtitle")}
+        actions={
+          <Button
+            type="button"
+            disabled={!canManageResellerControls}
+            onClick={() => {
+              setErr("")
+              setCreateOpen(true)
+            }}
+          >
+            {tp("createTitle")}
+          </Button>
+        }
+      />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className={cn("sm:max-w-2xl", isFa && "text-right [direction:rtl]")}>
@@ -441,7 +440,7 @@ export function DashboardResellersAdmin({
             />
           </div>
           {err ? <p className="text-sm text-destructive">{err}</p> : null}
-          <DialogFooter className={cn("gap-2", isFa && "sm:flex-row-reverse")}>
+          <DialogFooter className={cn("gap-2")}>
             <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
               {t("a11y.close")}
             </Button>
@@ -456,7 +455,7 @@ export function DashboardResellersAdmin({
         </DialogContent>
       </Dialog>
 
-      <div className={cn("flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end", flexRow)}>
+      <div className={cn("flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end")}>
         <div className="relative min-w-0 flex-1 sm:max-w-md">
           <Search className="pointer-events-none absolute top-1/2 size-4 -translate-y-1/2 text-muted-foreground ltr:left-3 rtl:right-3" />
           <Input
@@ -483,7 +482,7 @@ export function DashboardResellersAdmin({
       </div>
 
       <Card>
-        <CardHeader className={cn("flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between", flexRow)}>
+        <CardHeader className={cn("flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between")}>
           <div className={cn("space-y-1", isFa && "text-right")}>
             <CardTitle className="text-base">{tp("listTitle")}</CardTitle>
             {pagination && pagination.total > 0 ? (
@@ -505,7 +504,7 @@ export function DashboardResellersAdmin({
                   return (
                     <Card key={id}>
                       <CardContent className="space-y-3 p-4 text-sm">
-                        <div className={cn("flex flex-wrap items-start justify-between gap-2", flexRow)}>
+                        <div className={cn("flex flex-wrap items-start justify-between gap-2")}>
                           <div className={cn("min-w-0 space-y-1", isFa && "text-right")}>
                             <p className="font-medium">{displayName(r)}</p>
                             <p className="font-mono text-xs text-muted-foreground" dir="ltr">
@@ -553,7 +552,7 @@ export function DashboardResellersAdmin({
               <div className="hidden overflow-x-auto rounded-md border md:block">
                 <table
                   className="w-full min-w-[44rem] table-fixed text-sm"
-                  dir={isFa ? "rtl" : "ltr"}
+                  dir={dashDir(isFa)}
                 >
                   <thead>
                     <tr className="bg-muted/40">
@@ -586,7 +585,7 @@ export function DashboardResellersAdmin({
                           <td className="p-2 tabular-nums text-start">{directUsersCount.get(id) ?? 0}</td>
                           <td className="p-2 text-start">
                             <TooltipProvider>
-                              <div className={cn("flex flex-wrap gap-1", isFa && "flex-row-reverse justify-end")}>
+                              <div className={cn("flex flex-wrap gap-1", isFa && "text-right")}>
                                 <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" onClick={() => onOpenUserDetail(id)}><KeyRound className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>{tp("manage")}</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" onClick={() => onOpenWorkspace?.(id)}><LayoutDashboard className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>{t("sidebar.groups.resellerWorkspace")}</TooltipContent></Tooltip>
                                 {onImpersonateReseller && canManageResellerControls ? (
@@ -633,7 +632,7 @@ export function DashboardResellersAdmin({
       >
         <DialogContent className={cn("max-h-[85vh] overflow-y-auto sm:max-w-2xl", isFa && "text-right [direction:rtl]")}>
           <DialogHeader className={cn(isFa && "text-right sm:text-right")}>
-            <DialogTitle className={cn("flex items-center gap-2", isFa && "flex-row-reverse")}>
+            <DialogTitle className={cn("flex items-center gap-2")}>
               <span>{tp("panelPricesTitle")}</span>
               {isResellerActor ? (
                 <Badge variant="secondary" className="font-normal">
@@ -675,12 +674,11 @@ export function DashboardResellersAdmin({
                 <div
                   key={row.panel_id}
                   className={cn(
-                    "flex flex-col gap-2 rounded-md border border-border/60 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between",
-                    isFa && "sm:flex-row-reverse"
+                    "flex flex-col gap-2 rounded-md border border-border/60 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
                   )}
                 >
                   <span className="min-w-0 flex-1 text-sm font-medium leading-snug">{label}</span>
-                  <div className={cn("flex flex-wrap items-center gap-3", isFa && "flex-row-reverse justify-end")}>
+                  <div className={cn("flex flex-wrap items-center gap-3", isFa && "text-right")}>
                     <Switch
                       id={`panel-access-${row.panel_id}`}
                       checked={priceRows[idx]?.panel_access ?? false}
@@ -716,7 +714,7 @@ export function DashboardResellersAdmin({
               )
             })}
           </div>
-          <DialogFooter className={cn("gap-2", isFa && "sm:flex-row-reverse")}>
+          <DialogFooter className={cn("gap-2")}>
             <Button type="button" variant="outline" onClick={() => setPriceResellerId(null)}>
               {t("a11y.close")}
             </Button>
@@ -733,7 +731,7 @@ export function DashboardResellersAdmin({
           </DialogHeader>
           <div className="grid gap-2 py-2">
             {permDefs.map((p) => (
-              <label key={p.key} className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse justify-end")}>
+              <label key={p.key} className={cn("flex items-center gap-2 text-sm", isFa && "text-right")}>
                 <input
                   type="checkbox"
                   checked={permissions[p.key] !== false}
@@ -743,7 +741,7 @@ export function DashboardResellersAdmin({
               </label>
             ))}
           </div>
-          <DialogFooter className={cn("gap-2", isFa && "sm:flex-row-reverse")}>
+          <DialogFooter className={cn("gap-2")}>
             <Button type="button" variant="outline" onClick={() => setPermResellerId(null)}>
               {t("a11y.close")}
             </Button>

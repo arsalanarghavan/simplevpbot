@@ -81,6 +81,15 @@ class SimpleVPBot_Rest_Dashboard {
 		);
 		register_rest_route(
 			self::NS,
+			'/dashboard/ui-preferences',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'route_ui_preferences' ),
+				'permission_callback' => array( __CLASS__, 'perm_logged_in' ),
+			)
+		);
+		register_rest_route(
+			self::NS,
 			'/dashboard/impersonate/start',
 			array(
 				'methods'             => 'POST',
@@ -465,6 +474,89 @@ class SimpleVPBot_Rest_Dashboard {
 	 */
 	public static function perm_logged_in() {
 		return is_user_logged_in();
+	}
+
+	/**
+	 * Allowed dashboard accent presets.
+	 *
+	 * @return string[]
+	 */
+	public static function dashboard_accent_presets() {
+		return array( 'default', 'red', 'rose', 'orange', 'green', 'blue', 'yellow', 'violet' );
+	}
+
+	/**
+	 * Normalize stored accent value.
+	 *
+	 * @param mixed $accent Raw value.
+	 * @return string
+	 */
+	public static function normalize_dashboard_accent( $accent ) {
+		$a = sanitize_key( (string) $accent );
+		if ( '' === $a || 'default' === $a ) {
+			return 'default';
+		}
+		if ( 'amber' === $a ) {
+			return 'orange';
+		}
+		return in_array( $a, self::dashboard_accent_presets(), true ) ? $a : 'default';
+	}
+
+	/**
+	 * Current WP user's saved dashboard accent.
+	 *
+	 * @param int|null $wp_user_id Optional WP user id.
+	 * @return string
+	 */
+	public static function dashboard_ui_accent_for_user( $wp_user_id = null ) {
+		$uid = null !== $wp_user_id ? (int) $wp_user_id : (int) get_current_user_id();
+		if ( $uid <= 0 ) {
+			return 'default';
+		}
+		$raw = (string) get_user_meta( $uid, 'svp_dashboard_accent', true );
+		return self::normalize_dashboard_accent( $raw );
+	}
+
+	/**
+	 * CSS variable keys overridden by accent presets (skip whitelabel when accent active).
+	 *
+	 * @return string[]
+	 */
+	public static function dashboard_accent_branding_var_keys() {
+		return array(
+			'--primary',
+			'--primary-foreground',
+			'--ring',
+			'--sidebar-primary',
+			'--sidebar-primary-foreground',
+			'--sidebar-ring',
+		);
+	}
+
+	/**
+	 * Save dashboard UI preferences (accent).
+	 *
+	 * @param WP_REST_Request $req Request.
+	 * @return WP_REST_Response
+	 */
+	public static function route_ui_preferences( WP_REST_Request $req ) {
+		$uid = (int) get_current_user_id();
+		if ( $uid <= 0 ) {
+			return new WP_REST_Response( array( 'ok' => false ), 401 );
+		}
+		$params = $req->get_json_params();
+		if ( ! is_array( $params ) ) {
+			$params = array();
+		}
+		$accent = self::normalize_dashboard_accent( $params['ui_accent'] ?? '' );
+		update_user_meta( $uid, 'svp_dashboard_accent', $accent );
+		return new WP_REST_Response(
+			array(
+				'ok'       => true,
+				'uiAccent' => $accent,
+			),
+			200
+		);
 	}
 
 	/**
@@ -2733,6 +2825,16 @@ class SimpleVPBot_Rest_Dashboard {
 			}
 		}
 
+		$overview_bot_tg   = (string) ( $settings['telegram_bot_username'] ?? '' );
+		$overview_bot_bale = (string) ( $settings['bale_bot_username'] ?? '' );
+		if ( $reseller_mode && $actor_uid > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			$reseller_prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $actor_uid );
+			if ( $reseller_prof ) {
+				$overview_bot_tg   = (string) SimpleVPBot_Model_Reseller_Bot_Profile::bot_username_for_platform( $reseller_prof, 'telegram' );
+				$overview_bot_bale = (string) SimpleVPBot_Model_Reseller_Bot_Profile::bot_username_for_platform( $reseller_prof, 'bale' );
+			}
+		}
+
 		$overview = array(
 			'stats'         => $stats_payload,
 			'counts'        => array(
@@ -2753,8 +2855,8 @@ class SimpleVPBot_Rest_Dashboard {
 			),
 			'bot'           => array(
 				'enabled'               => ! empty( $settings['enabled'] ),
-				'telegram_bot_username' => (string) ( $settings['telegram_bot_username'] ?? '' ),
-				'bale_bot_username'     => (string) ( $settings['bale_bot_username'] ?? '' ),
+				'telegram_bot_username' => $overview_bot_tg,
+				'bale_bot_username'     => $overview_bot_bale,
 			),
 			'host'          => $reseller_mode ? null : self::overview_host_metrics(),
 			'onlineDailySeries' => ( ! $dash_users_tab_light && class_exists( 'SimpleVPBot_Model_Panel_Online_Daily' ) )
@@ -3086,6 +3188,7 @@ class SimpleVPBot_Rest_Dashboard {
 			} else {
 				$lr['portal_service_url'] = '';
 			}
+			$lr['panel_remark'] = self::admin_user_service_panel_remark( $lr );
 		}
 		unset( $lr );
 		$referrals = array();
@@ -3116,6 +3219,25 @@ class SimpleVPBot_Rest_Dashboard {
 		$user_arr = self::row_array( $user );
 		if ( is_array( $user_arr ) && '' !== $portal_user ) {
 			$user_arr['portal_url'] = $portal_user;
+		}
+		if ( is_array( $user_arr ) ) {
+			$user_arr['effective_role'] = self::admin_user_effective_role( $user );
+		}
+		$dash_locale = sanitize_key( (string) $req->get_param( 'lang' ) );
+		if ( ! in_array( $dash_locale, array( 'fa', 'en' ), true ) ) {
+			$dash_locale = class_exists( 'SimpleVPBot_Texts' ) ? SimpleVPBot_Texts::site_default_locale() : 'fa';
+		}
+		if ( class_exists( 'SimpleVPBot_Activity_Callback_Label' ) && ! empty( $act['rows'] ) && is_array( $act['rows'] ) ) {
+			foreach ( $act['rows'] as &$act_row ) {
+				if ( ! is_array( $act_row ) ) {
+					continue;
+				}
+				$display = SimpleVPBot_Activity_Callback_Label::activity_summary_display( $act_row, $dash_locale );
+				if ( '' !== $display ) {
+					$act_row['summary_display'] = $display;
+				}
+			}
+			unset( $act_row );
 		}
 		$reseller_choices = array();
 		if ( empty( $ctx['isReseller'] ) && current_user_can( 'manage_options' ) ) {
@@ -3191,6 +3313,63 @@ class SimpleVPBot_Rest_Dashboard {
 			return 'no_expiry';
 		}
 		return $ts > time() ? 'active' : 'expired';
+	}
+
+	/**
+	 * Effective dashboard role: user | reseller | admin.
+	 *
+	 * @param object $user svp_users row.
+	 * @return string
+	 */
+	private static function admin_user_effective_role( $user ) {
+		if ( ! is_object( $user ) ) {
+			return 'user';
+		}
+		if ( SimpleVPBot_Model_User::is_reseller_row( $user ) ) {
+			return 'reseller';
+		}
+		$tg = (int) ( $user->tg_user_id ?? 0 );
+		$bl = (int) ( $user->bale_user_id ?? 0 );
+		if ( class_exists( 'SimpleVPBot_Settings' ) ) {
+			$all = SimpleVPBot_Settings::all();
+			$tgs = array_map( 'intval', (array) ( $all['admin_telegram_ids'] ?? array() ) );
+			$bls = array_map( 'intval', (array) ( $all['admin_bale_ids'] ?? array() ) );
+			if ( ( $tg > 0 && in_array( $tg, $tgs, true ) ) || ( $bl > 0 && in_array( $bl, $bls, true ) ) ) {
+				return 'admin';
+			}
+		}
+		$wp_id = (int) ( $user->wp_user_id ?? 0 );
+		if ( $wp_id > 0 && user_can( $wp_id, 'manage_options' ) ) {
+			return 'admin';
+		}
+		return 'user';
+	}
+
+	/**
+	 * Cached panel client remark for admin user service row.
+	 *
+	 * @param array<string, mixed> $svc Service row array.
+	 * @return string
+	 */
+	private static function admin_user_service_panel_remark( array $svc ) {
+		global $wpdb;
+		$pid = (int) ( $svc['panel_id'] ?? 0 );
+		$iid = (int) ( $svc['inbound_id'] ?? 0 );
+		$em  = trim( (string) ( $svc['email'] ?? '' ) );
+		if ( $pid < 1 || $iid < 1 || '' === $em ) {
+			return '';
+		}
+		$t = $wpdb->prefix . 'svp_panel_inbound_clients';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$row = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT remark FROM {$t} WHERE panel_id = %d AND inbound_id = %d AND email = %s LIMIT 1",
+				$pid,
+				$iid,
+				$em
+			)
+		);
+		return is_string( $row ) ? trim( $row ) : '';
 	}
 
 	/**

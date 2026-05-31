@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Badge } from "@/components/ui/badge"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -16,7 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { adminMutateErrorText, postAdminMutate } from "@/lib/dash-admin-mutate"
 import { formatNumber } from "@/lib/format-locale"
-import { cn } from "@/lib/utils"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 
 type DashRecord = Record<string, unknown>
 
@@ -92,11 +93,8 @@ export function DashboardResellerChargeAdmin({
   }
 
   return (
-    <div className={cn("space-y-6", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
-      <div>
-        <h2 className="text-lg font-medium">{tc("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tc("subtitle")}</p>
-      </div>
+    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+      <DashboardPageHeader title={tc("title")} description={tc("subtitle")} />
 
       {typeof actorBalance === "number" ? (
         <Card>

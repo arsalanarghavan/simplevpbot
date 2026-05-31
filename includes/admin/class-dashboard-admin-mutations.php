@@ -387,6 +387,12 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return self::op_reseller_bot_secret_rotate( $params );
 			case 'reseller_bind_users':
 				return self::op_reseller_bind_users( $params );
+			case 'user_set_role':
+				return self::op_user_set_role( $params );
+			case 'user_set_referrer':
+				return self::op_user_set_referrer( $params );
+			case 'user_service_toggle_enable':
+				return self::op_user_service_toggle_enable( $params );
 			case 'reseller_backfill_run':
 				return self::op_reseller_backfill_run( $params );
 			case 'inbound_link':
@@ -4078,10 +4084,18 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			}
 			$rid = (int) $wp->id;
 		}
-		$tg = (string) ( $p['telegram_token'] ?? '' );
-		$bl = (string) ( $p['bale_token'] ?? '' );
+		$tg    = array_key_exists( 'telegram_token', $p ) ? (string) $p['telegram_token'] : '';
+		$bl    = array_key_exists( 'bale_token', $p ) ? (string) $p['bale_token'] : '';
 		$brand = array_key_exists( 'brand_name', $p ) ? (string) $p['brand_name'] : null;
-		SimpleVPBot_Model_Reseller_Bot_Profile::upsert_tokens( $rid, $tg, $bl, $brand );
+		$patched = SimpleVPBot_Model_Reseller_Bot_Profile::patch_tokens(
+			$rid,
+			array_key_exists( 'telegram_token', $p ) ? $tg : null,
+			array_key_exists( 'bale_token', $p ) ? $bl : null,
+			$brand
+		);
+		if ( ! empty( $patched ) ) {
+			SimpleVPBot_Model_Reseller_Bot_Profile::sync_reseller_bot_usernames( $rid, $patched );
+		}
 		if ( isset( $p['text_overrides'] ) && is_array( $p['text_overrides'] ) ) {
 			$loc = class_exists( 'SimpleVPBot_Texts' ) ? SimpleVPBot_Texts::site_default_locale() : 'fa';
 			SimpleVPBot_Model_Reseller_Bot_Profile::save_text_overrides(
@@ -4525,10 +4539,18 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			}
 			$rid = (int) $wp->id;
 		}
-		$tg  = (string) ( $p['telegram_token'] ?? '' );
-		$bl  = (string) ( $p['bale_token'] ?? '' );
+		$tg    = array_key_exists( 'telegram_token', $p ) ? (string) $p['telegram_token'] : '';
+		$bl    = array_key_exists( 'bale_token', $p ) ? (string) $p['bale_token'] : '';
 		$brand = array_key_exists( 'brand_name', $p ) ? (string) $p['brand_name'] : null;
-		SimpleVPBot_Model_Reseller_Bot_Profile::upsert_tokens( $rid, $tg, $bl, $brand );
+		$patched = SimpleVPBot_Model_Reseller_Bot_Profile::patch_tokens(
+			$rid,
+			array_key_exists( 'telegram_token', $p ) ? $tg : null,
+			array_key_exists( 'bale_token', $p ) ? $bl : null,
+			$brand
+		);
+		if ( ! empty( $patched ) ) {
+			SimpleVPBot_Model_Reseller_Bot_Profile::sync_reseller_bot_usernames( $rid, $patched );
+		}
 		if ( array_key_exists( 'bale_wallet_provider_token', $p ) ) {
 			SimpleVPBot_Model_Reseller_Bot_Profile::save_bale_wallet_provider_token( $rid, (string) $p['bale_wallet_provider_token'] );
 		}
@@ -4593,6 +4615,164 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			self::audit_rest( 'reseller', 'reseller_bind_users', 'user', $rid, array( 'user_ids' => $ids ) );
 		}
 		return $r;
+	}
+
+	/**
+	 * Site admin: set effective platform role (user / reseller / admin).
+	 *
+	 * @param array<string, mixed> $p target_user_id, role.
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function op_user_set_role( array $p ) {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		$uid  = (int) ( $p['target_user_id'] ?? $p['svp_user_id'] ?? 0 );
+		$role = sanitize_key( (string) ( $p['role'] ?? '' ) );
+		if ( $uid < 1 || ! in_array( $role, array( 'user', 'reseller', 'admin' ), true ) ) {
+			return array( 'ok' => false, 'message' => 'invalid' );
+		}
+		$user = SimpleVPBot_Model_User::find( $uid );
+		if ( ! $user ) {
+			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		$tg = (int) ( $user->tg_user_id ?? 0 );
+		$bl = (int) ( $user->bale_user_id ?? 0 );
+		if ( 'user' === $role ) {
+			SimpleVPBot_Model_User::update( $uid, array( 'role' => 'user' ) );
+			if ( $tg > 0 ) {
+				SimpleVPBot_Admin_Actions::remove_main_admin_id( 'telegram', $tg );
+			}
+			if ( $bl > 0 ) {
+				SimpleVPBot_Admin_Actions::remove_main_admin_id( 'bale', $bl );
+			}
+			self::maybe_demote_linked_wp_user( $user );
+		} elseif ( 'reseller' === $role ) {
+			SimpleVPBot_Model_User::update( $uid, array( 'role' => 'reseller' ) );
+			if ( $tg > 0 ) {
+				SimpleVPBot_Admin_Actions::remove_main_admin_id( 'telegram', $tg );
+			}
+			if ( $bl > 0 ) {
+				SimpleVPBot_Admin_Actions::remove_main_admin_id( 'bale', $bl );
+			}
+			if ( class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+				SimpleVPBot_Model_Reseller_Bot_Profile::ensure_webhook_secret( $uid );
+			}
+			self::maybe_demote_linked_wp_user( $user );
+		} else {
+			SimpleVPBot_Model_User::update( $uid, array( 'role' => 'user' ) );
+			if ( $tg > 0 ) {
+				SimpleVPBot_Admin_Actions::add_main_admin_id( 'telegram', $tg );
+			}
+			if ( $bl > 0 ) {
+				SimpleVPBot_Admin_Actions::add_main_admin_id( 'bale', $bl );
+			}
+			self::maybe_promote_linked_wp_user( $user );
+		}
+		self::log_rest_user( $uid, 'user_role_change', array( 'role' => $role ) );
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * Site admin: set or clear referral inviter (invited_by).
+	 *
+	 * @param array<string, mixed> $p target_user_id, referrer_id (0 clears).
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function op_user_set_referrer( array $p ) {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		$uid = (int) ( $p['target_user_id'] ?? $p['svp_user_id'] ?? 0 );
+		$ref = (int) ( $p['referrer_id'] ?? $p['invited_by'] ?? -1 );
+		if ( $uid < 1 || $ref < 0 ) {
+			return array( 'ok' => false, 'message' => 'invalid' );
+		}
+		$user = SimpleVPBot_Model_User::find( $uid );
+		if ( ! $user ) {
+			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		if ( $ref > 0 ) {
+			if ( $ref === $uid ) {
+				return array( 'ok' => false, 'message' => 'self_referrer' );
+			}
+			$parent = SimpleVPBot_Model_User::find( $ref );
+			if ( ! $parent ) {
+				return array( 'ok' => false, 'message' => 'referrer_not_found' );
+			}
+		}
+		SimpleVPBot_Model_User::update(
+			$uid,
+			array(
+				'invited_by' => $ref > 0 ? $ref : null,
+			)
+		);
+		self::log_rest_user( $uid, 'user_set_referrer', array( 'referrer_id' => $ref ) );
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * Toggle X-UI client enable for a user service row.
+	 *
+	 * @param array<string, mixed> $p service_id, enable (0|1).
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function op_user_service_toggle_enable( array $p ) {
+		$sid = (int) ( $p['service_id'] ?? 0 );
+		$en  = ! empty( $p['enable'] ) ? 1 : 0;
+		if ( $sid < 1 ) {
+			return array( 'ok' => false, 'message' => 'invalid' );
+		}
+		$svc = SimpleVPBot_Model_Service::find( $sid );
+		if ( ! $svc ) {
+			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		$r = self::op_configs_client_toggle_enable(
+			array(
+				'panel_id'   => (int) ( $svc->panel_id ?? 1 ),
+				'inbound_id' => (int) ( $svc->inbound_id ?? 0 ),
+				'email'      => (string) ( $svc->email ?? '' ),
+				'enable'     => $en,
+			)
+		);
+		if ( empty( $r['ok'] ) ) {
+			return $r;
+		}
+		SimpleVPBot_Model_Service::update( $sid, array( 'panel_client_enabled' => $en ) );
+		self::log_rest_user( (int) $svc->user_id, 'service_toggle_enable', array( 'service_id' => $sid, 'enable' => $en ) );
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * Demote linked WP user to subscriber when stripping bot admin.
+	 *
+	 * @param object $user svp user row.
+	 */
+	private static function maybe_demote_linked_wp_user( $user ) {
+		$wp_id = (int) ( $user->wp_user_id ?? 0 );
+		if ( $wp_id < 1 ) {
+			return;
+		}
+		$wpuser = new WP_User( $wp_id );
+		if ( $wpuser->exists() ) {
+			$wpuser->set_role( 'subscriber' );
+		}
+	}
+
+	/**
+	 * Promote linked WP user to administrator for dashboard admin role.
+	 *
+	 * @param object $user svp user row.
+	 */
+	private static function maybe_promote_linked_wp_user( $user ) {
+		$wp_id = (int) ( $user->wp_user_id ?? 0 );
+		if ( $wp_id < 1 ) {
+			return;
+		}
+		$wpuser = new WP_User( $wp_id );
+		if ( $wpuser->exists() ) {
+			$wpuser->set_role( 'administrator' );
+		}
 	}
 
 	/**

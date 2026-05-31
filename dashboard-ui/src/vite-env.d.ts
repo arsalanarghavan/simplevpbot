@@ -46,5 +46,7 @@ interface Window {
     }
     /** IANA timezone from site (e.g. Asia/Tehran) for consistent date display */
     siteTimeZone?: string
+    /** User accent preset (default, red, blue, …) */
+    uiAccent?: string
   }
 }

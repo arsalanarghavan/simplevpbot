@@ -15,7 +15,7 @@ export function ImageUrlField({
   value,
   onChange,
   placeholder = "https://",
-  rtl = false,
+  rtl: _rtl = false,
   onUploadError,
 }: {
   id?: string
@@ -58,7 +58,7 @@ export function ImageUrlField({
   return (
     <div className="space-y-2">
       <Label htmlFor={id}>{label}</Label>
-      <div className={cn("flex flex-wrap items-start gap-2", rtl && "flex-row-reverse")}>
+      <div className={cn("flex flex-wrap items-start gap-2")}>
         {preview ? (
           <img
             src={preview}
@@ -75,7 +75,7 @@ export function ImageUrlField({
             dir="ltr"
             className="font-mono text-left"
           />
-          <div className={cn("flex gap-2", rtl && "flex-row-reverse")}>
+          <div className={cn("flex gap-2")}>
             <input
               ref={fileRef}
               type="file"

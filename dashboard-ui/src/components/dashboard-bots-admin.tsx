@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 
 import { AdminIdChips } from "@/components/dashboard-bots-admin-ids"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { DashboardForceJoinAdmin } from "@/components/dashboard-force-join-admin"
 import { BOT_PLATFORMS, type BotPlatformForm } from "@/config/bot-platforms"
 import { Badge } from "@/components/ui/badge"
@@ -82,6 +83,11 @@ function asIdList(v: unknown): number[] {
   return v.map((x) => num(x)).filter((x) => x > 0)
 }
 
+function isSetFlag(s: DashRecord, key: string): boolean {
+  const v = s[key]
+  return v === true || v === 1 || v === "1"
+}
+
 export type BotsAdminVariant = "site" | "reseller_admin" | "reseller_self"
 
 export function DashboardBotsAdmin({
@@ -114,11 +120,20 @@ export function DashboardBotsAdmin({
   const initial = useMemo(
     () =>
       ({
-        telegram_token: String(s.telegram_token ?? ""),
-        bale_token: String(s.bale_token ?? ""),
+        telegram_token: "",
+        bale_token: "",
         telegram_secret_header: String(s.telegram_secret_header ?? ""),
-        bale_wallet_provider_token: String(s.bale_wallet_provider_token ?? ""),
+        bale_wallet_provider_token: "",
       }) satisfies BotPlatformForm,
+    [s.telegram_secret_header]
+  )
+
+  const tokenConfigured = useMemo(
+    () => ({
+      telegram_token: isSetFlag(s, "telegram_token_set"),
+      bale_token: isSetFlag(s, "bale_token_set"),
+      bale_wallet_provider_token: isSetFlag(s, "bale_wallet_provider_token_set"),
+    }),
     [s]
   )
 
@@ -182,17 +197,30 @@ export function DashboardBotsAdmin({
     setError(null)
     setOkMsg(null)
     try {
-      const res = await postAdminMutate("settings_tab", {
+      const payload: Record<string, unknown> = {
         tab: "bots",
-        telegram_token: form.telegram_token,
-        bale_token: form.bale_token,
         telegram_secret_header: form.telegram_secret_header,
-        bale_wallet_provider_token: form.bale_wallet_provider_token,
-      })
+      }
+      if (form.telegram_token.trim() !== "") {
+        payload.telegram_token = form.telegram_token.trim()
+      }
+      if (form.bale_token.trim() !== "") {
+        payload.bale_token = form.bale_token.trim()
+      }
+      if (form.bale_wallet_provider_token.trim() !== "") {
+        payload.bale_wallet_provider_token = form.bale_wallet_provider_token.trim()
+      }
+      const res = await postAdminMutate("settings_tab", payload)
       if (!res.ok) {
         setError(res.message || tp("saveError"))
         return
       }
+      setForm((f) => ({
+        ...f,
+        telegram_token: "",
+        bale_token: "",
+        bale_wallet_provider_token: "",
+      }))
       setOkMsg(tp("saved"))
       onMutateSuccess?.()
     } finally {
@@ -225,7 +253,12 @@ export function DashboardBotsAdmin({
     setDlgOpen(true)
   }
 
-  const fieldInput = (key: keyof BotPlatformForm, labelKey: string, type: "text" | "password" = "password") => (
+  const fieldInput = (
+    key: keyof BotPlatformForm,
+    labelKey: string,
+    type: "text" | "password" = "password",
+    configured = false
+  ) => (
     <div className="space-y-1.5" key={key}>
       <Label htmlFor={key} className="text-xs">
         {tp(labelKey)}
@@ -237,11 +270,45 @@ export function DashboardBotsAdmin({
         className="h-9"
         value={form[key]}
         onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-        placeholder={type === "password" ? tp("placeholderSecret") : ""}
+        placeholder={
+          type === "password"
+            ? configured && !form[key]
+              ? tp("tokenConfigured")
+              : tp("placeholderSecret")
+            : ""
+        }
         disabled={busy}
       />
     </div>
   )
+
+  const buildResellerSavePayload = (): Record<string, unknown> => {
+    const payload: Record<string, unknown> = {
+      reseller_svp_user_id: Number(dlgForm.reseller_svp_user_id || "0"),
+      enabled: dlgRow?.enabled !== false,
+      brand_name: dlgForm.brand_name,
+      logo_url: dlgForm.logo_url,
+      favicon_url: dlgForm.favicon_url,
+      theme_primary: dlgForm.theme_primary,
+      theme_accent: dlgForm.theme_accent,
+      custom_domain: dlgForm.custom_domain,
+      text_overrides: {
+        "msg.welcome": String(dlgForm.text_msg_welcome ?? ""),
+        "btn.support.contact": String(dlgForm.text_btn_support_contact ?? ""),
+        "btn.support.faq": String(dlgForm.text_btn_support_faq ?? ""),
+      },
+    }
+    if (dlgForm.telegram_token?.trim()) {
+      payload.telegram_token = dlgForm.telegram_token.trim()
+    }
+    if (dlgForm.bale_token?.trim()) {
+      payload.bale_token = dlgForm.bale_token.trim()
+    }
+    if (dlgForm.bale_wallet_provider_token?.trim()) {
+      payload.bale_wallet_provider_token = dlgForm.bale_wallet_provider_token.trim()
+    }
+    return payload
+  }
 
   const webhookPayload = (platform: "telegram" | "bale", botId: number) =>
     resellerSelfServe && botId < 1
@@ -257,7 +324,7 @@ export function DashboardBotsAdmin({
     resellerSelfServe && botId < 1 ? "reseller_bot_webhook_delete" : "bot_delete_webhook"
 
   return (
-    <div className={cn("mx-auto max-w-6xl space-y-4", isFa && "text-right")}>
+    <div className={dashPageRootClass(isFa, "mx-auto max-w-6xl space-y-4")} dir={dashDir(isFa)}>
       {error ? (
         <div
           role="alert"
@@ -296,7 +363,7 @@ export function DashboardBotsAdmin({
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
+            <div className={cn("flex flex-wrap gap-2")} dir={dashDir(isFa)}>
               <Button
                 type="button"
                 size="sm"
@@ -426,7 +493,15 @@ export function DashboardBotsAdmin({
                     }
                     const lk = labelMap[fk] ?? String(fk)
                     const inputType = fk === "telegram_secret_header" ? "text" : "password"
-                    return fieldInput(fk, lk, inputType)
+                    const configured =
+                      fk === "telegram_token"
+                        ? tokenConfigured.telegram_token
+                        : fk === "bale_token"
+                          ? tokenConfigured.bale_token
+                          : fk === "bale_wallet_provider_token"
+                            ? tokenConfigured.bale_wallet_provider_token
+                            : false
+                    return fieldInput(fk, lk, inputType, configured)
                   })}
                 </div>
               ))}
@@ -607,14 +682,14 @@ export function DashboardBotsAdmin({
       ) : null}
 
       <Dialog open={deleteHookDlg !== null} onOpenChange={(o) => !o && setDeleteHookDlg(null)}>
-        <DialogContent className={cn("sm:max-w-md", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
+        <DialogContent className={cn("sm:max-w-md", isFa && "text-right")} dir={dashDir(isFa)}>
           <DialogHeader>
             <DialogTitle>
               {deleteHookDlg?.platform === "bale" ? tp("actionDeleteWebhookBale") : tp("actionDeleteWebhookTg")}
             </DialogTitle>
             <DialogDescription>{tp("confirmDeleteWebhook")}</DialogDescription>
           </DialogHeader>
-          <DialogFooter className={cn("gap-2", isFa && "flex-row-reverse")}>
+          <DialogFooter className={cn("gap-2")} dir={dashDir(isFa)}>
             <Button type="button" variant="outline" onClick={() => setDeleteHookDlg(null)} disabled={busy}>
               {tp("adminIdCancel")}
             </Button>
@@ -637,7 +712,7 @@ export function DashboardBotsAdmin({
       </Dialog>
 
       <Dialog open={dlgOpen} onOpenChange={setDlgOpen}>
-        <DialogContent className={cn("sm:max-w-lg max-h-[90vh] overflow-y-auto", isFa && "text-right")} dir={isFa ? "rtl" : "ltr"}>
+        <DialogContent className={cn("sm:max-w-lg max-h-[90vh] overflow-y-auto", isFa && "text-right")} dir={dashDir(isFa)}>
           <DialogHeader>
             <DialogTitle>{tp("resellerDialogTitle")}</DialogTitle>
             <DialogDescription className="text-xs">{tp("resellerWebhookAutoHint")}</DialogDescription>
@@ -694,7 +769,11 @@ export function DashboardBotsAdmin({
               disabled={busy}
             />
             <Input
-              placeholder={tp("dlgPhTelegramToken")}
+              placeholder={
+                dlgRow?.has_telegram_token && !dlgForm.telegram_token
+                  ? tp("tokenConfigured")
+                  : tp("dlgPhTelegramToken")
+              }
               value={dlgForm.telegram_token ?? ""}
               onChange={(e) => setDlgForm((p) => ({ ...p, telegram_token: e.target.value }))}
               type="password"
@@ -702,7 +781,11 @@ export function DashboardBotsAdmin({
               disabled={busy}
             />
             <Input
-              placeholder={tp("dlgPhBaleToken")}
+              placeholder={
+                dlgRow?.has_bale_token && !dlgForm.bale_token
+                  ? tp("tokenConfigured")
+                  : tp("dlgPhBaleToken")
+              }
               value={dlgForm.bale_token ?? ""}
               onChange={(e) => setDlgForm((p) => ({ ...p, bale_token: e.target.value }))}
               type="password"
@@ -773,23 +856,14 @@ export function DashboardBotsAdmin({
               </>
             ) : null}
           </div>
-          <DialogFooter className={cn("gap-2", isFa && "flex-row-reverse")}>
+          <DialogFooter className={cn("gap-2")} dir={dashDir(isFa)}>
             <Button variant="outline" onClick={() => setDlgOpen(false)} disabled={busy}>
               {tp("adminIdCancel")}
             </Button>
             <Button
               disabled={busy}
               onClick={() => {
-                void runBotAction("bot_reseller_save", {
-                  ...dlgForm,
-                  reseller_svp_user_id: Number(dlgForm.reseller_svp_user_id || "0"),
-                  enabled: dlgRow?.enabled !== false,
-                  text_overrides: {
-                    "msg.welcome": String(dlgForm.text_msg_welcome ?? ""),
-                    "btn.support.contact": String(dlgForm.text_btn_support_contact ?? ""),
-                    "btn.support.faq": String(dlgForm.text_btn_support_faq ?? ""),
-                  },
-                }).then((ok) => {
+                void runBotAction("bot_reseller_save", buildResellerSavePayload()).then((ok) => {
                   if (ok) setDlgOpen(false)
                 })
               }}

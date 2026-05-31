@@ -59,8 +59,7 @@ export function SiteSettingsNotificationsTab({
       alert_ip_warn_hysteresis: bool(s.alert_ip_warn_hysteresis ?? true),
       alert_ip_warn_cooldown_minutes: String(Math.max(0, num(s.alert_ip_warn_cooldown_minutes) || 0)),
     }),
-    [s],
-  )
+    [s])
 
   const [form, setForm] = useState(initial)
   useEffect(() => setForm(initial), [initial])
@@ -68,7 +67,7 @@ export function SiteSettingsNotificationsTab({
   const [error, setError] = useState<string | null>(null)
 
   const chk = (key: keyof typeof form, labelKey: string) => (
-    <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
+    <label className={cn("flex items-center gap-2 text-sm")}>
       <input
         type="checkbox"
         className="size-4 rounded border-input"
@@ -220,7 +219,7 @@ export function SiteSettingsNotificationsTab({
               onChange={(e) => setForm((f) => ({ ...f, alert_ip_warn_min_distinct: e.target.value }))}
             />
           </div>
-          <label className={cn("flex items-center gap-2 text-sm", isFa && "flex-row-reverse")}>
+          <label className={cn("flex items-center gap-2 text-sm")}>
             <input
               type="checkbox"
               className="size-4 rounded border-input"

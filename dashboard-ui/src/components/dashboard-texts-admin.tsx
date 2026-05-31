@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "rea
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import {
   Collapsible,
   CollapsibleContent,
@@ -70,8 +72,7 @@ export function DashboardTextsAdmin({
       const tr = t(k)
       return tr === k ? category : tr
     },
-    [t],
-  )
+    [t])
 
   const byCategory = useMemo(() => {
     const m = new Map<string, TextRow[]>()
@@ -89,12 +90,16 @@ export function DashboardTextsAdmin({
   const [openCategory, setOpenCategory] = useState<string | null>(null)
 
   return (
-    <div className={cn("space-y-6", isFa && "text-right")}>
-      <div>
-        <h2 className="text-lg font-medium">{tp("title")}</h2>
-        <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{tp("placeholdersHint")}</p>
-      </div>
+    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+      <DashboardPageHeader
+        title={tp("title")}
+        description={
+          <>
+            <p className="text-sm text-muted-foreground">{tp("subtitle")}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{tp("placeholdersHint")}</p>
+          </>
+        }
+      />
       {byCategory.map(([category, rows]) => (
         <Collapsible
           key={category}
@@ -131,7 +136,7 @@ export function DashboardTextsAdmin({
 function TextKeyEditor({
   row,
   defaultBundle,
-  isFa,
+  isFa: _isFa,
   tp,
   onMutateSuccess,
 }: {
@@ -238,7 +243,7 @@ function TextKeyEditor({
           {err}
         </div>
       ) : null}
-      <div className={cn("flex flex-wrap gap-2", isFa && "flex-row-reverse")}>
+      <div className={cn("flex flex-wrap gap-2")}>
         <Button type="button" size="sm" disabled={saving} onClick={() => void onSave()}>
           {tp("saveOne")}
         </Button>

@@ -301,9 +301,20 @@ class SimpleVPBot_Dashboard_Front {
 				'pluginUrl'                 => SIMPLEVPBOT_PLUGIN_URL,
 				'dashPath'                  => $dash_path,
 				'siteTimeZone'              => is_string( $tz ) ? $tz : '',
+				'uiAccent'                  => class_exists( 'SimpleVPBot_Rest_Dashboard' )
+					? SimpleVPBot_Rest_Dashboard::dashboard_ui_accent_for_user()
+					: 'default',
 			);
 			$boot = self::apply_branding_to_boot( $boot, true );
 		}
+
+		$ui_accent = isset( $boot['uiAccent'] ) && class_exists( 'SimpleVPBot_Rest_Dashboard' )
+			? SimpleVPBot_Rest_Dashboard::normalize_dashboard_accent( $boot['uiAccent'] )
+			: 'default';
+		$skip_accent_branding = 'default' !== $ui_accent;
+		$accent_branding_keys = class_exists( 'SimpleVPBot_Rest_Dashboard' )
+			? SimpleVPBot_Rest_Dashboard::dashboard_accent_branding_var_keys()
+			: array();
 
 		$base      = trailingslashit( SIMPLEVPBOT_PLUGIN_URL ) . 'assets/dashboard/dist/';
 		$js        = $base . 'assets/index.js';
@@ -322,7 +333,7 @@ class SimpleVPBot_Dashboard_Front {
 		$boot_json = wp_json_encode( $boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT );
 
 		echo '<!DOCTYPE html>';
-		echo '<html lang="' . esc_attr( $lang ) . '" dir="' . esc_attr( $rtl ? 'rtl' : 'ltr' ) . '">';
+		echo '<html lang="' . esc_attr( $lang ) . '" dir="' . esc_attr( $rtl ? 'rtl' : 'ltr' ) . '" data-accent="' . esc_attr( $ui_accent ) . '">';
 		echo '<head><meta charset="' . esc_attr( $charset ) . '"/>';
 		echo '<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />';
 		echo '<meta name="viewport" content="width=device-width, initial-scale=1"/>';
@@ -338,9 +349,13 @@ class SimpleVPBot_Dashboard_Front {
 		if ( ! empty( $boot['branding']['cssVariables'] ) && is_array( $boot['branding']['cssVariables'] ) ) {
 			echo '<style>:root{';
 			foreach ( $boot['branding']['cssVariables'] as $var_key => $var_val ) {
-				if ( is_string( $var_key ) && is_string( $var_val ) && '' !== $var_val ) {
-					echo esc_html( $var_key ) . ':' . esc_html( $var_val ) . ';';
+				if ( ! is_string( $var_key ) || ! is_string( $var_val ) || '' === $var_val ) {
+					continue;
 				}
+				if ( $skip_accent_branding && in_array( $var_key, $accent_branding_keys, true ) ) {
+					continue;
+				}
+				echo esc_html( $var_key ) . ':' . esc_html( $var_val ) . ';';
 			}
 			echo '}</style>';
 		}
