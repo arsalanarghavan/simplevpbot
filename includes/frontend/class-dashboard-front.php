@@ -220,7 +220,13 @@ class SimpleVPBot_Dashboard_Front {
 
 		$locale = determine_locale();
 		$lang   = ( 0 === strpos( $locale, 'fa' ) ) ? 'fa' : 'en';
-		$rtl    = ( 'fa' === $lang );
+		if ( is_user_logged_in() && class_exists( 'SimpleVPBot_Rest_Dashboard' ) ) {
+			$saved_lang = SimpleVPBot_Rest_Dashboard::dashboard_ui_lang_for_user();
+			if ( '' !== $saved_lang ) {
+				$lang = $saved_lang;
+			}
+		}
+		$rtl = ( 'fa' === $lang );
 
 		$rest = esc_url_raw( rest_url( 'simplevpbot/v1' ) );
 		$tz   = function_exists( 'wp_timezone_string' ) ? wp_timezone_string() : '';
@@ -304,6 +310,12 @@ class SimpleVPBot_Dashboard_Front {
 				'uiAccent'                  => class_exists( 'SimpleVPBot_Rest_Dashboard' )
 					? SimpleVPBot_Rest_Dashboard::dashboard_ui_accent_for_user()
 					: 'default',
+				'uiTheme'                   => class_exists( 'SimpleVPBot_Rest_Dashboard' )
+					? SimpleVPBot_Rest_Dashboard::dashboard_ui_theme_for_user()
+					: '',
+				'uiSidebar'                 => class_exists( 'SimpleVPBot_Rest_Dashboard' )
+					? SimpleVPBot_Rest_Dashboard::dashboard_ui_sidebar_for_user()
+					: '',
 			);
 			$boot = self::apply_branding_to_boot( $boot, true );
 		}

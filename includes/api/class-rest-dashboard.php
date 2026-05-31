@@ -518,6 +518,84 @@ class SimpleVPBot_Rest_Dashboard {
 	}
 
 	/**
+	 * @param mixed $lang Raw value.
+	 * @return string fa|en
+	 */
+	public static function normalize_dashboard_lang( $lang ) {
+		$l = sanitize_key( (string) $lang );
+		return 'en' === $l ? 'en' : 'fa';
+	}
+
+	/**
+	 * @param int|null $wp_user_id Optional WP user id.
+	 * @return string fa|en Empty string when unset (use site locale).
+	 */
+	public static function dashboard_ui_lang_for_user( $wp_user_id = null ) {
+		$uid = null !== $wp_user_id ? (int) $wp_user_id : (int) get_current_user_id();
+		if ( $uid <= 0 ) {
+			return '';
+		}
+		$raw = (string) get_user_meta( $uid, 'svp_dashboard_lang', true );
+		if ( '' === $raw ) {
+			return '';
+		}
+		return self::normalize_dashboard_lang( $raw );
+	}
+
+	/**
+	 * @param mixed $theme Raw value.
+	 * @return string light|dark|system
+	 */
+	public static function normalize_dashboard_theme( $theme ) {
+		$t = sanitize_key( (string) $theme );
+		if ( in_array( $t, array( 'light', 'dark', 'system' ), true ) ) {
+			return $t;
+		}
+		return 'system';
+	}
+
+	/**
+	 * @param int|null $wp_user_id Optional WP user id.
+	 * @return string light|dark|system Empty when unset.
+	 */
+	public static function dashboard_ui_theme_for_user( $wp_user_id = null ) {
+		$uid = null !== $wp_user_id ? (int) $wp_user_id : (int) get_current_user_id();
+		if ( $uid <= 0 ) {
+			return '';
+		}
+		$raw = (string) get_user_meta( $uid, 'svp_dashboard_theme', true );
+		if ( '' === $raw ) {
+			return '';
+		}
+		return self::normalize_dashboard_theme( $raw );
+	}
+
+	/**
+	 * @param mixed $sidebar Raw value.
+	 * @return string expanded|collapsed
+	 */
+	public static function normalize_dashboard_sidebar( $sidebar ) {
+		$s = sanitize_key( (string) $sidebar );
+		return 'collapsed' === $s ? 'collapsed' : 'expanded';
+	}
+
+	/**
+	 * @param int|null $wp_user_id Optional WP user id.
+	 * @return string expanded|collapsed Empty when unset.
+	 */
+	public static function dashboard_ui_sidebar_for_user( $wp_user_id = null ) {
+		$uid = null !== $wp_user_id ? (int) $wp_user_id : (int) get_current_user_id();
+		if ( $uid <= 0 ) {
+			return '';
+		}
+		$raw = (string) get_user_meta( $uid, 'svp_dashboard_sidebar', true );
+		if ( '' === $raw ) {
+			return '';
+		}
+		return self::normalize_dashboard_sidebar( $raw );
+	}
+
+	/**
 	 * CSS variable keys overridden by accent presets (skip whitelabel when accent active).
 	 *
 	 * @return string[]
@@ -534,7 +612,7 @@ class SimpleVPBot_Rest_Dashboard {
 	}
 
 	/**
-	 * Save dashboard UI preferences (accent).
+	 * Save dashboard UI preferences (accent, lang, theme, sidebar).
 	 *
 	 * @param WP_REST_Request $req Request.
 	 * @return WP_REST_Response
@@ -548,15 +626,30 @@ class SimpleVPBot_Rest_Dashboard {
 		if ( ! is_array( $params ) ) {
 			$params = array();
 		}
-		$accent = self::normalize_dashboard_accent( $params['ui_accent'] ?? '' );
-		update_user_meta( $uid, 'svp_dashboard_accent', $accent );
-		return new WP_REST_Response(
-			array(
-				'ok'       => true,
-				'uiAccent' => $accent,
-			),
-			200
-		);
+		$out = array( 'ok' => true );
+
+		if ( array_key_exists( 'ui_accent', $params ) ) {
+			$accent = self::normalize_dashboard_accent( $params['ui_accent'] ?? '' );
+			update_user_meta( $uid, 'svp_dashboard_accent', $accent );
+			$out['uiAccent'] = $accent;
+		}
+		if ( array_key_exists( 'ui_lang', $params ) ) {
+			$lang = self::normalize_dashboard_lang( $params['ui_lang'] ?? '' );
+			update_user_meta( $uid, 'svp_dashboard_lang', $lang );
+			$out['uiLang'] = $lang;
+		}
+		if ( array_key_exists( 'ui_theme', $params ) ) {
+			$theme = self::normalize_dashboard_theme( $params['ui_theme'] ?? '' );
+			update_user_meta( $uid, 'svp_dashboard_theme', $theme );
+			$out['uiTheme'] = $theme;
+		}
+		if ( array_key_exists( 'ui_sidebar', $params ) ) {
+			$sidebar = self::normalize_dashboard_sidebar( $params['ui_sidebar'] ?? '' );
+			update_user_meta( $uid, 'svp_dashboard_sidebar', $sidebar );
+			$out['uiSidebar'] = $sidebar;
+		}
+
+		return new WP_REST_Response( $out, 200 );
 	}
 
 	/**
@@ -2070,6 +2163,29 @@ class SimpleVPBot_Rest_Dashboard {
 						)
 					);
 				}
+				$p_pc_detail = array(
+					'per_page' => 500,
+					'offset'   => 0,
+				);
+				if ( $reseller_mode ) {
+					if ( ! empty( $reseller_allowed_panel_ids ) ) {
+						$pc_in_ph = implode( ',', array_fill( 0, count( $reseller_allowed_panel_ids ), '%d' ) );
+						$plan_cats_raw = $wpdb->get_results(
+							$wpdb->prepare(
+								"SELECT * FROM {$t_pc} WHERE panel_id IN ({$pc_in_ph}) ORDER BY panel_id ASC, sort_order ASC, id ASC LIMIT %d OFFSET %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
+								array_merge( $reseller_allowed_panel_ids, array( $p_pc_detail['per_page'], $p_pc_detail['offset'] ) )
+							)
+						);
+					}
+				} else {
+					$plan_cats_raw = $wpdb->get_results(
+						$wpdb->prepare(
+							"SELECT * FROM {$t_pc} ORDER BY panel_id ASC, sort_order ASC, id ASC LIMIT %d OFFSET %d",
+							$p_pc_detail['per_page'],
+							$p_pc_detail['offset']
+						)
+					);
+				}
 			}
 		} else {
 			if ( $reseller_mode ) {
@@ -3279,6 +3395,45 @@ class SimpleVPBot_Rest_Dashboard {
 				}
 			}
 		}
+		$detail_plan_cats = array();
+		if ( class_exists( 'SimpleVPBot_Model_Plan_Category' ) ) {
+			global $wpdb;
+			$t_pc_detail = SimpleVPBot_Model_Plan_Category::table();
+			$pc_limit    = 500;
+			if ( ! empty( $ctx['isReseller'] ) && (int) ( $ctx['actorUserId'] ?? 0 ) > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
+				$allowed = array();
+				foreach ( (array) SimpleVPBot_Model_Reseller_Panel_Price::list_for_reseller( (int) $ctx['actorUserId'] ) as $rp ) {
+					if ( SimpleVPBot_Model_Reseller_Panel_Price::row_allows_panel_use( $rp ) ) {
+						$allowed[] = (int) ( $rp->panel_id ?? 0 );
+					}
+				}
+				$allowed = array_values( array_unique( array_filter( $allowed ) ) );
+				if ( ! empty( $allowed ) ) {
+					$pc_in_ph = implode( ',', array_fill( 0, count( $allowed ), '%d' ) );
+					$pc_rows  = $wpdb->get_results(
+						$wpdb->prepare(
+							"SELECT * FROM {$t_pc_detail} WHERE panel_id IN ({$pc_in_ph}) ORDER BY panel_id ASC, sort_order ASC, id ASC LIMIT %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
+							array_merge( $allowed, array( $pc_limit ) )
+						)
+					);
+				} else {
+					$pc_rows = array();
+				}
+			} else {
+				$pc_rows = $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT * FROM {$t_pc_detail} ORDER BY panel_id ASC, sort_order ASC, id ASC LIMIT %d",
+						$pc_limit
+					)
+				);
+			}
+			foreach ( (array) ( $pc_rows ?? array() ) as $pcr ) {
+				$pra = self::row_array( $pcr );
+				if ( $pra ) {
+					$detail_plan_cats[] = $pra;
+				}
+			}
+		}
 		return new WP_REST_Response(
 			array(
 				'ok'                 => true,
@@ -3287,6 +3442,7 @@ class SimpleVPBot_Rest_Dashboard {
 				'referrals'          => $referrals,
 				'portalBaseUrl'      => $portal_base,
 				'resellerChoices'    => $reseller_choices,
+				'planCategories'     => $detail_plan_cats,
 				'activity'           => isset( $act['rows'] ) ? $act['rows'] : array(),
 				'activityPagination' => array(
 					'page'    => (int) ( $act['page'] ?? $page ),

@@ -7,7 +7,6 @@ import { useTranslation } from "react-i18next"
 import { NavGrouped } from "@/components/nav-grouped"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
-import { SidebarSearch } from "@/components/sidebar-search"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -267,9 +266,6 @@ export function AppSidebar({
   dashboardBaseUrl,
   siteName,
   siteIconUrl,
-  onOpenUserDetail,
-  userSearchRestUrl,
-  userSearchNonce,
   adminSections,
   activePersona,
   availablePersonas,
@@ -292,9 +288,6 @@ export function AppSidebar({
   dashboardBaseUrl: string
   siteName: string
   siteIconUrl?: string
-  onOpenUserDetail?: (svpUserId: number) => void
-  userSearchRestUrl?: string
-  userSearchNonce?: string
   adminSections?: AdminNavSection[]
   activePersona?: "admin" | "reseller" | "user"
   availablePersonas?: Array<"admin" | "reseller" | "user">
@@ -390,18 +383,6 @@ export function AppSidebar({
               </div>
             </div>
           )}
-          {showOperatorHeader ? (
-            <div className="px-2">
-              <SidebarSearch
-                onSelectTab={onSelectTab}
-                onOpenUserDetail={onOpenUserDetail}
-                restUrl={userSearchRestUrl}
-                nonce={userSearchNonce}
-                rtl={isFa}
-                sections={adminSections}
-              />
-            </div>
-          ) : null}
         </SidebarHeader>
       )}
       <SidebarContent>

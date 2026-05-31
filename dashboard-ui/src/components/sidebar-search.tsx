@@ -18,6 +18,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { Button } from "@/components/ui/button"
 import { ADMIN_NAV_SECTIONS, flattenNavForSearch, type AdminNavSection } from "@/config/admin-nav"
 import { formatPlainLatinInt } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
@@ -48,21 +49,25 @@ function userDisplayName(u: DashRecord): string {
   return String(u.username ?? "").trim() || "—"
 }
 
-export function SidebarSearch({
-  onSelectTab,
-  onOpenUserDetail,
-  restUrl,
-  nonce,
-  rtl = false,
-  sections = ADMIN_NAV_SECTIONS,
-}: {
+export type DashboardSearchProps = {
+  placement?: "sidebar" | "header"
   onSelectTab: (tabKey: string) => void
   onOpenUserDetail?: (id: number) => void
   restUrl?: string
   nonce?: string
   rtl?: boolean
   sections?: AdminNavSection[]
-}) {
+}
+
+export function DashboardSearch({
+  placement = "sidebar",
+  onSelectTab,
+  onOpenUserDetail,
+  restUrl,
+  nonce,
+  rtl = false,
+  sections = ADMIN_NAV_SECTIONS,
+}: DashboardSearchProps) {
   const [open, setOpen] = useState(false)
   const [paletteQuery, setPaletteQuery] = useState("")
   const [userHits, setUserHits] = useState<DashRecord[]>([])
@@ -144,34 +149,50 @@ export function SidebarSearch({
     }
   }, [canUserSearch, open, paletteQuery, restUrl, nonce])
 
+  const triggerLabel = t("sidebar.search.trigger")
+  const isHeader = placement === "header"
+
   return (
     <>
-      <SidebarMenu>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            type="button"
-            variant="outline"
-            tooltip={t("sidebar.search.trigger")}
-            className={cn(
-              menuBtnCollapsedIcon,
-              "h-9 text-muted-foreground hover:text-sidebar-accent-foreground",
-              rtl && "!text-right [&>span]:!text-right"
-            )}
-            dir={rtl ? "rtl" : "ltr"}
-            onClick={() => setOpen(true)}
-          >
-            <Search className="opacity-70" />
-            <span
+      {isHeader ? (
+        <Button
+          type="button"
+          variant="outline"
+          className="flex h-9 w-full max-w-md items-center justify-start gap-2 text-start text-muted-foreground"
+          dir={rtl ? "rtl" : "ltr"}
+          onClick={() => setOpen(true)}
+        >
+          <Search className="size-4 shrink-0 opacity-70" />
+          <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
+        </Button>
+      ) : (
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              type="button"
+              variant="outline"
+              tooltip={triggerLabel}
               className={cn(
-                "min-w-0 flex-1 truncate",
-                rtl ? "text-right" : "text-left"
+                menuBtnCollapsedIcon,
+                "h-9 text-muted-foreground hover:text-sidebar-accent-foreground",
+                rtl && "!text-right [&>span]:!text-right"
               )}
+              dir={rtl ? "rtl" : "ltr"}
+              onClick={() => setOpen(true)}
             >
-              {t("sidebar.search.trigger")}
-            </span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      </SidebarMenu>
+              <Search className="opacity-70" />
+              <span
+                className={cn(
+                  "min-w-0 flex-1 truncate",
+                  rtl ? "text-right" : "text-left"
+                )}
+              >
+                {triggerLabel}
+              </span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      )}
       <CommandDialog
         open={open}
         onOpenChange={setOpen}
@@ -251,3 +272,6 @@ export function SidebarSearch({
     </>
   )
 }
+
+/** @deprecated Use DashboardSearch */
+export const SidebarSearch = DashboardSearch

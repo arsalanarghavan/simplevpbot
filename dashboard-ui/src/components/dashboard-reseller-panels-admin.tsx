@@ -3,12 +3,14 @@
 import { useMemo } from "react"
 import { useTranslation } from "react-i18next"
 
+import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
 import { Badge } from "@/components/ui/badge"
+
+const RESELLER_PANELS_TABLE_COLS = ["55%", "20%", "15%"]
 import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { formatNumber } from "@/lib/format-locale"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
-import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
 
@@ -61,48 +63,40 @@ export function DashboardResellerPanelsAdmin({
   }, [panels, resellerPanelPricesMap])
 
   return (
-    <div className={dashPageRootClass(isFa, "mx-auto w-full max-w-5xl")} dir={dashDir(isFa)}>
+    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
       <DashboardPageHeader title={tp("title")} description={tp("subtitle")} />
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{tp("tableTitle")}</CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table
-            className={cn(
-              "w-full min-w-[28rem] border-collapse text-sm [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
-              "text-start"
-            )}
-          >
+        <CardContent className="pt-6">
+          <DashTableShell isFa={isFa} minWidth="28rem" colWidths={RESELLER_PANELS_TABLE_COLS}>
             <thead>
               <tr className="bg-muted/40">
-                <th className="p-2 font-medium">{tp("colPanel")}</th>
-                <th className="p-2 font-medium">{tp("colStatus")}</th>
-                <th className="p-2 font-medium">{tp("colResellers")}</th>
+                <DashTh>{tp("colPanel")}</DashTh>
+                <DashTh>{tp("colStatus")}</DashTh>
+                <DashTh>{tp("colResellers")}</DashTh>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="p-4 text-center text-muted-foreground">
+                  <DashTd colSpan={3} className="p-4 text-center text-muted-foreground">
                     {tp("empty")}
-                  </td>
+                  </DashTd>
                 </tr>
               ) : (
                 rows.map((row) => (
                   <tr key={row.id}>
-                    <td className="p-2 font-medium">{row.label}</td>
-                    <td className="p-2">
+                    <DashTd className="truncate font-medium">{row.label}</DashTd>
+                    <DashTd>
                       <Badge variant={row.active ? "default" : "secondary"}>
                         {row.active ? tp("statusActive") : tp("statusInactive")}
                       </Badge>
-                    </td>
-                    <td className="p-2 tabular-nums">{formatNumber(row.resellerCount, isFa)}</td>
+                    </DashTd>
+                    <DashTd className="tabular-nums">{formatNumber(row.resellerCount, isFa)}</DashTd>
                   </tr>
                 ))
               )}
             </tbody>
-          </table>
+          </DashTableShell>
         </CardContent>
       </Card>
       <p className="text-xs text-muted-foreground">{tp("hint")}</p>

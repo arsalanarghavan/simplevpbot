@@ -4,6 +4,7 @@ import { Maximize, Minimize, Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { AccentMenu } from "@/components/accent-menu"
 import { AppSidebar } from "@/components/app-sidebar"
+import { DashboardSearch } from "@/components/sidebar-search"
 import { DashboardAdminView } from "@/components/dashboard-admin-view"
 import type { ReceiptsListFilters } from "@/components/dashboard-receipts-admin"
 import { BaleLogo } from "@/components/icons/bale-logo"
@@ -36,6 +37,7 @@ import {
   filterAdminNavForReseller,
   type AdminNavSection,
 } from "@/config/admin-nav"
+import { saveUiPreferences, type UiTheme } from "@/lib/dash-ui-preferences"
 import { cn } from "@/lib/utils"
 
 type DashData = {
@@ -144,7 +146,12 @@ function App() {
       return next
     })
   }, [])
-  const [lang, setLang] = useState<"fa" | "en">(boot.lang === "fa" ? "fa" : "en")
+  const [lang, setLang] = useState<"fa" | "en">(() =>
+    boot.lang === "fa" || boot.lang === "en" ? boot.lang : "fa"
+  )
+  const prefsRest = String(boot.restUrl ?? "")
+  const prefsNonce = String(boot.nonce ?? "")
+  const sidebarDefaultOpen = boot.uiSidebar !== "collapsed"
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [activeTab, setActiveTab] = useState(() => {
     const b = window.__SIMPLEVPBOT_DASH__ || {}
@@ -485,6 +492,39 @@ function App() {
     document.body.dir = isFa ? "rtl" : "ltr"
   }, [i18n, lang])
 
+  const themeSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!theme || !prefsRest || !prefsNonce) return
+    const t = theme as UiTheme
+    if (t !== "light" && t !== "dark" && t !== "system") return
+    if (themeSaveRef.current) clearTimeout(themeSaveRef.current)
+    themeSaveRef.current = setTimeout(() => {
+      void saveUiPreferences({ ui_theme: t }, { restUrl: prefsRest, nonce: prefsNonce })
+    }, 400)
+    return () => {
+      if (themeSaveRef.current) clearTimeout(themeSaveRef.current)
+    }
+  }, [theme, prefsRest, prefsNonce])
+
+  const toggleLang = useCallback(() => {
+    const next: "fa" | "en" = lang === "fa" ? "en" : "fa"
+    setLang(next)
+    if (prefsRest && prefsNonce) {
+      void saveUiPreferences({ ui_lang: next }, { restUrl: prefsRest, nonce: prefsNonce })
+    }
+  }, [lang, prefsRest, prefsNonce])
+
+  const onSidebarOpenChange = useCallback(
+    (open: boolean) => {
+      if (!prefsRest || !prefsNonce) return
+      void saveUiPreferences(
+        { ui_sidebar: open ? "expanded" : "collapsed" },
+        { restUrl: prefsRest, nonce: prefsNonce }
+      )
+    },
+    [prefsRest, prefsNonce]
+  )
+
   useEffect(() => {
     const onFsChange = () => setIsFullscreen(Boolean(document.fullscreenElement))
     document.addEventListener("fullscreenchange", onFsChange)
@@ -590,9 +630,6 @@ function App() {
       dashboardBaseUrl={dashboardBaseUrl}
       siteName={String(boot.siteName ?? "")}
       siteIconUrl={boot.siteIconUrl}
-      onOpenUserDetail={isOperator ? openUserDetail : undefined}
-      userSearchRestUrl={isOperator ? String(boot.restUrl ?? "") : undefined}
-      userSearchNonce={isOperator ? String(boot.nonce ?? "") : undefined}
       adminSections={operatorNavSections}
       activePersona={activePersona}
       availablePersonas={availablePersonas}
@@ -608,20 +645,37 @@ function App() {
         dir={isFa ? "rtl" : "ltr"}
         className="flex h-16 w-full shrink-0 items-center gap-2 border-b px-4"
       >
-        <SidebarTrigger className={cn("-ms-1 shrink-0", isFa && "rotate-180")} />
-        <Separator orientation="vertical" className="me-2 h-4 shrink-0" />
-        <Breadcrumb className="min-w-0 flex-1" dir={isFa ? "rtl" : undefined}>
-          <BreadcrumbList>
-            <BreadcrumbItem>{t("dashboard")}</BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>
-                {isOperator ? currentSectionLabel : t("myPanel")}
-              </BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-        <div className="ms-auto flex shrink-0 items-center gap-2">
+        <div className="flex min-w-0 shrink-0 items-center gap-2">
+          <SidebarTrigger className={cn("-ms-1 shrink-0", isFa && "rotate-180")} />
+          <Separator orientation="vertical" className="me-2 h-4 shrink-0" />
+          <Breadcrumb className="min-w-0 max-w-[14rem] sm:max-w-xs" dir={isFa ? "rtl" : undefined}>
+            <BreadcrumbList>
+              <BreadcrumbItem>{t("dashboard")}</BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>
+                  {isOperator ? currentSectionLabel : t("myPanel")}
+                </BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
+        {isOperator ? (
+          <div className="flex min-w-0 flex-1 justify-center px-2">
+            <DashboardSearch
+              placement="header"
+              onSelectTab={selectTab}
+              onOpenUserDetail={openUserDetail}
+              restUrl={String(boot.restUrl ?? "")}
+              nonce={String(boot.nonce ?? "")}
+              rtl={isFa}
+              sections={operatorNavSections}
+            />
+          </div>
+        ) : (
+          <div className="flex-1" />
+        )}
+        <div className="flex shrink-0 items-center gap-2">
           <Button
             type="button"
             variant="outline"
@@ -655,7 +709,7 @@ function App() {
               </a>
             </Button>
           ) : null}
-          <Button variant="outline" onClick={() => setLang(isFa ? "en" : "fa")}>
+          <Button variant="outline" onClick={() => toggleLang()}>
             {langLabel}
           </Button>
           <AccentMenu
@@ -756,7 +810,12 @@ function App() {
   }
 
   return (
-    <SidebarProvider dir={isFa ? "rtl" : "ltr"} className="flex-col">
+    <SidebarProvider
+      dir={isFa ? "rtl" : "ltr"}
+      className="flex-col"
+      defaultOpen={sidebarDefaultOpen}
+      onOpenChange={onSidebarOpenChange}
+    >
       {impersonating && impersonationTargetLabel ? (
         <ImpersonationBanner
           targetLabel={impersonationTargetLabel}

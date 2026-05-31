@@ -4,7 +4,10 @@ import { EllipsisVerticalIcon } from "lucide-react"
 import { useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
 
+import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
 import { Badge } from "@/components/ui/badge"
+
+const PANELS_TABLE_COLS = ["5%", "16%", "22%", "10%", "14%", "10%", "5%"]
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { Button } from "@/components/ui/button"
@@ -360,70 +363,63 @@ export function DashboardPanelsAdmin({
       {panels.length === 0 ? (
         <p className="text-sm text-muted-foreground">{tp("empty")}</p>
       ) : (
-        <div className="w-full max-w-full overflow-x-auto rounded-md border border-border">
-          <table
-            className={cn(
-              "w-full min-w-[40rem] border-collapse text-sm [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
-              "text-start"
-            )}
-          >
-            <thead>
-              <tr className="bg-muted/40">
-                <th className="p-2 font-medium">#</th>
-                <th className="p-2 font-medium">{tp("colLabel")}</th>
-                <th className="p-2 font-medium">{tp("colUrl")}</th>
-                <th className="p-2 font-medium">{tp("colAuth")}</th>
-                <th className="p-2 font-medium">{tp("colApiBase")}</th>
-                <th className="p-2 font-medium">{tp("colActive")}</th>
-                <th className="p-2 w-10" />
-              </tr>
-            </thead>
-            <tbody>
-              {panels.map((r) => {
-                const id = num(r.id)
-                const act = isActiveRow(r)
-                const auth = panelAuthMode(r)
-                return (
-                  <tr key={id}>
-                    <td className="p-2 font-mono text-xs tabular-nums">{formatNumber(id, isFa)}</td>
-                    <td className="p-2">{String(r.label ?? "")}</td>
-                    <td className="max-w-[12rem] break-all p-2 text-xs">{String(r.panel_url ?? "—")}</td>
-                    <td className="p-2">{authBadge(auth)}</td>
-                    <td className="p-2 font-mono text-xs" dir="ltr">
-                      {String(r.panel_api_base ?? "panel/api")}
-                    </td>
-                    <td className="p-2">
-                      <Badge variant={act ? "default" : "secondary"}>
-                        {act ? tp("statusActive") : tp("statusInactive")}
-                      </Badge>
-                    </td>
-                    <td className="p-2">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button type="button" variant="ghost" size="icon" className="h-8 w-8">
-                            <EllipsisVerticalIcon className="size-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align={isFa ? "start" : "end"}>
-                          <DropdownMenuItem onClick={() => void run({ xp_action: "toggle", xp_id: id })}>
-                            {act ? tp("toggleDeactivate") : tp("toggleActivate")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => void runPanelTest(id)}>
-                            {tp("testConnection")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openEdit(r)}>{tp("edit")}</DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(r)}>
-                            {tp("delete")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DashTableShell isFa={isFa} minWidth="40rem" colWidths={PANELS_TABLE_COLS}>
+          <thead>
+            <tr className="bg-muted/40">
+              <DashTh>#</DashTh>
+              <DashTh>{tp("colLabel")}</DashTh>
+              <DashTh>{tp("colUrl")}</DashTh>
+              <DashTh>{tp("colAuth")}</DashTh>
+              <DashTh>{tp("colApiBase")}</DashTh>
+              <DashTh>{tp("colActive")}</DashTh>
+              <DashTh />
+            </tr>
+          </thead>
+          <tbody>
+            {panels.map((r) => {
+              const id = num(r.id)
+              const act = isActiveRow(r)
+              const auth = panelAuthMode(r)
+              return (
+                <tr key={id}>
+                  <DashTd className="font-mono text-xs tabular-nums">{formatNumber(id, isFa)}</DashTd>
+                  <DashTd className="truncate">{String(r.label ?? "")}</DashTd>
+                  <DashTd className="break-all text-xs">{String(r.panel_url ?? "—")}</DashTd>
+                  <DashTd>{authBadge(auth)}</DashTd>
+                  <DashTd dir="ltr" className="truncate font-mono text-xs">
+                    {String(r.panel_api_base ?? "panel/api")}
+                  </DashTd>
+                  <DashTd>
+                    <Badge variant={act ? "default" : "secondary"}>
+                      {act ? tp("statusActive") : tp("statusInactive")}
+                    </Badge>
+                  </DashTd>
+                  <DashTd>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button type="button" variant="ghost" size="icon" className="h-8 w-8">
+                          <EllipsisVerticalIcon className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align={isFa ? "start" : "end"}>
+                        <DropdownMenuItem onClick={() => void run({ xp_action: "toggle", xp_id: id })}>
+                          {act ? tp("toggleDeactivate") : tp("toggleActivate")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => void runPanelTest(id)}>
+                          {tp("testConnection")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEdit(r)}>{tp("edit")}</DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(r)}>
+                          {tp("delete")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </DashTd>
+                </tr>
+              )
+            })}
+          </tbody>
+        </DashTableShell>
       )}
 
       <p className="text-xs text-muted-foreground">{tp("passwordHint")}</p>

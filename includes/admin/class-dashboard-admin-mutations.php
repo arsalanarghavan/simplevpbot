@@ -79,7 +79,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			array(
 				'subject_svp_user_id' => $sid,
 				'channel'             => 'rest',
-				'actor_kind'          => $actor > 0 ? 'reseller' : 'wp_admin',
+				'actor_kind'          => $actor > 0 ? 'svp_user' : 'wp_admin',
 				'actor_wp_user_id'    => $wp > 0 ? $wp : 0,
 				'actor_svp_user_id'   => $actor,
 				'platform_chat_id'    => 0,

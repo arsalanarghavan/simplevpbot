@@ -13,9 +13,15 @@ import {
   Webhook,
 } from "lucide-react"
 
+import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
 import { AdminIdChips } from "@/components/dashboard-bots-admin-ids"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+
+const RESELLER_BOTS_TABLE_COLS = ["6%", "18%", "16%", "10%", "10%", "12%", "6%"]
+import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { DashboardForceJoinAdmin } from "@/components/dashboard-force-join-admin"
+import { BaleLogo } from "@/components/icons/bale-logo"
+import { TelegramLogo } from "@/components/icons/telegram-logo"
+import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { BOT_PLATFORMS, type BotPlatformForm } from "@/config/bot-platforms"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -86,6 +92,31 @@ function asIdList(v: unknown): number[] {
 function isSetFlag(s: DashRecord, key: string): boolean {
   const v = s[key]
   return v === true || v === 1 || v === "1"
+}
+
+function PlatformTokenCell({
+  configured,
+  platform,
+  configuredLabel,
+  emptyLabel,
+}: {
+  configured: boolean
+  platform: "telegram" | "bale"
+  configuredLabel: string
+  emptyLabel: string
+}) {
+  return (
+    <div className="flex items-center justify-start gap-1.5 text-start">
+      {platform === "telegram" ? (
+        <TelegramLogo className="size-4" />
+      ) : (
+        <BaleLogo className="size-4" />
+      )}
+      <Badge variant={configured ? "default" : "outline"} className="text-xs font-normal">
+        {configured ? configuredLabel : emptyLabel}
+      </Badge>
+    </div>
+  )
 }
 
 export type BotsAdminVariant = "site" | "reseller_admin" | "reseller_self"
@@ -323,8 +354,13 @@ export function DashboardBotsAdmin({
   const deleteWebhookOp = (botId: number) =>
     resellerSelfServe && botId < 1 ? "reseller_bot_webhook_delete" : "bot_delete_webhook"
 
+  const pageTitle = showResellerTable && !showMainBot ? tp("resellerBots") : tp("title")
+  const pageDesc = showResellerTable && !showMainBot ? tp("resellerBotsDesc") : tp("subtitle")
+  const soleResellerRow = resellerSelfServe && botsList.length === 1 ? botsList[0] : null
+
   return (
-    <div className={dashPageRootClass(isFa, "mx-auto max-w-6xl space-y-4")} dir={dashDir(isFa)}>
+    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+      <DashboardPageHeader title={pageTitle} description={pageDesc} />
       {error ? (
         <div
           role="alert"
@@ -479,7 +515,14 @@ export function DashboardBotsAdmin({
             <div className="grid gap-4 md:grid-cols-2">
               {BOT_PLATFORMS.map((plat) => (
                 <div key={plat.id} className="space-y-2 rounded-lg border border-border/60 p-3">
-                  <p className="text-sm font-medium">{t(plat.titleKey)}</p>
+                  <div className="flex items-center gap-2">
+                    {plat.id === "telegram" ? (
+                      <TelegramLogo className="size-5" />
+                    ) : (
+                      <BaleLogo className="size-5" />
+                    )}
+                    <p className="text-sm font-medium">{t(plat.titleKey)}</p>
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     {t(plat.summaryUsernameKey)}:{" "}
                     {plat.id === "telegram" ? tgUser || "—" : baleUser || "—"}
@@ -534,48 +577,96 @@ export function DashboardBotsAdmin({
 
       {showResellerTable ? (
       <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">{tp("resellerBots")}</CardTitle>
-          <CardDescription className="text-xs">{tp("resellerBotsDesc")}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="overflow-x-auto rounded-md border">
-            <table className="w-full min-w-[40rem] text-sm">
-              <thead>
-                <tr className="bg-muted/40 text-xs">
-                  <th className="p-2">#</th>
-                  <th className="p-2">{tp("resellerColReseller")}</th>
-                  <th className="p-2">{tp("resellerColBrand")}</th>
-                  <th className="p-2">{tp("colTgShort")}</th>
-                  <th className="p-2">{tp("colBaleShort")}</th>
-                  <th className="p-2">{tp("resellerColStatus")}</th>
-                  <th className="p-2 w-12">{tp("moreActions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {botsList.map((row, idx) => {
-                  const rid = num(row.reseller_id)
-                  return (
-                    <tr key={`${rid}-${idx}`} className="border-t">
-                      <td className="p-2 font-mono text-xs">{rid}</td>
-                      <td className="p-2">{row.reseller_name || "—"}</td>
-                      <td className="p-2">{row.brand_name || "—"}</td>
-                      <td className="p-2">
-                        <Badge variant={row.has_telegram_token ? "default" : "outline"} className="text-xs">
-                          {row.has_telegram_token ? "✓" : "—"}
-                        </Badge>
-                      </td>
-                      <td className="p-2">
-                        <Badge variant={row.has_bale_token ? "default" : "outline"} className="text-xs">
-                          {row.has_bale_token ? "✓" : "—"}
-                        </Badge>
-                      </td>
-                      <td className="p-2">
-                        <Badge variant={row.enabled ? "default" : "secondary"} className="text-xs">
-                          {row.enabled ? tp("statusEnabled") : tp("statusDisabled")}
-                        </Badge>
-                      </td>
-                      <td className="p-2">
+        <CardContent className="space-y-3 pt-6">
+          {soleResellerRow ? (
+            <div className="space-y-4 rounded-lg border border-border/60 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1 text-start">
+                  <p className="text-sm font-medium">{soleResellerRow.brand_name || soleResellerRow.reseller_name || "—"}</p>
+                  <p className="text-xs text-muted-foreground" dir="ltr">
+                    #{num(soleResellerRow.reseller_id)}
+                  </p>
+                </div>
+                <Badge variant={soleResellerRow.enabled ? "default" : "secondary"}>
+                  {soleResellerRow.enabled ? tp("statusEnabled") : tp("statusDisabled")}
+                </Badge>
+              </div>
+              <div className="flex flex-wrap gap-4">
+                <PlatformTokenCell
+                  platform="telegram"
+                  configured={Boolean(soleResellerRow.has_telegram_token)}
+                  configuredLabel={tp("tokenColTelegram")}
+                  emptyLabel="—"
+                />
+                <PlatformTokenCell
+                  platform="bale"
+                  configured={Boolean(soleResellerRow.has_bale_token)}
+                  configuredLabel={tp("tokenColBale")}
+                  emptyLabel="—"
+                />
+              </div>
+              <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => openResellerDlg(soleResellerRow)}>
+                <Pencil className="size-4" />
+                {tp("actionEdit")}
+              </Button>
+            </div>
+          ) : botsList.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{tp("resellerBotsDesc")}</p>
+          ) : (
+          <DashTableShell isFa={isFa} minWidth="40rem" colWidths={RESELLER_BOTS_TABLE_COLS}>
+            <thead>
+              <tr className="bg-muted/40 text-xs">
+                <DashTh>#</DashTh>
+                <DashTh>{tp("resellerColReseller")}</DashTh>
+                <DashTh>{tp("resellerColBrand")}</DashTh>
+                <DashTh>
+                  <span className="inline-flex items-center gap-1">
+                    <TelegramLogo className="size-3.5" />
+                    {tp("colTgShort")}
+                  </span>
+                </DashTh>
+                <DashTh>
+                  <span className="inline-flex items-center gap-1">
+                    <BaleLogo className="size-3.5" />
+                    {tp("colBaleShort")}
+                  </span>
+                </DashTh>
+                <DashTh>{tp("resellerColStatus")}</DashTh>
+                <DashTh>{tp("moreActions")}</DashTh>
+              </tr>
+            </thead>
+            <tbody>
+              {botsList.map((row, idx) => {
+                const rid = num(row.reseller_id)
+                return (
+                  <tr key={`${rid}-${idx}`}>
+                    <DashTd dir="ltr" className="font-mono text-xs">
+                      {rid}
+                    </DashTd>
+                    <DashTd className="truncate">{row.reseller_name || "—"}</DashTd>
+                    <DashTd className="truncate">{row.brand_name || "—"}</DashTd>
+                    <DashTd>
+                      <PlatformTokenCell
+                        platform="telegram"
+                        configured={Boolean(row.has_telegram_token)}
+                        configuredLabel="✓"
+                        emptyLabel="—"
+                      />
+                    </DashTd>
+                    <DashTd>
+                      <PlatformTokenCell
+                        platform="bale"
+                        configured={Boolean(row.has_bale_token)}
+                        configuredLabel="✓"
+                        emptyLabel="—"
+                      />
+                    </DashTd>
+                    <DashTd>
+                      <Badge variant={row.enabled ? "default" : "secondary"} className="text-xs">
+                        {row.enabled ? tp("statusEnabled") : tp("statusDisabled")}
+                      </Badge>
+                    </DashTd>
+                    <DashTd>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button type="button" size="icon" variant="ghost" className="size-8" disabled={busy}>
@@ -663,13 +754,13 @@ export function DashboardBotsAdmin({
                             ) : null}
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                    </DashTd>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </DashTableShell>
+          )}
           <DataPagination
             meta={botsPagination ?? null}
             isFa={isFa}

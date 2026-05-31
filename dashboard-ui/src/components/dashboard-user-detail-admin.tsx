@@ -14,8 +14,10 @@ import {
   Radio,
   RotateCcw,
   Send,
+  ShieldCheck,
   ShieldOff,
   Store,
+  UsersRound,
   Wallet,
   XCircle,
 } from "lucide-react"
@@ -54,7 +56,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { adminMutateErrorText, postAdminMutate } from "@/lib/dash-admin-mutate"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
+import { dashActionsClass, dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import {
   formatDateTime,
   formatDigits,
@@ -289,6 +292,10 @@ export function DashboardUserDetailAdmin({
   const [referrerQuery, setReferrerQuery] = useState("")
   const [referrerHits, setReferrerHits] = useState<DashRecord[]>([])
   const [pickReferrerId, setPickReferrerId] = useState("")
+  const [loadedPlanCats, setLoadedPlanCats] = useState<DashRecord[]>([])
+  const [roleDialogOpen, setRoleDialogOpen] = useState(false)
+  const [referrerDialogOpen, setReferrerDialogOpen] = useState(false)
+  const [messageDialogOpen, setMessageDialogOpen] = useState(false)
 
   const pricePerExtraUser = num(settings?.price_per_extra_user)
   const l2tpEnabled = useMemo(() => {
@@ -329,6 +336,8 @@ export function DashboardUserDetailAdmin({
           : []
       )
       setServices(Array.isArray(json.services) ? (json.services as DashRecord[]) : [])
+      const apiCats = json.planCategories
+      setLoadedPlanCats(Array.isArray(apiCats) ? (apiCats as DashRecord[]) : [])
       setReferrals(Array.isArray(json.referrals) ? (json.referrals as DashRecord[]) : [])
       setActivity(Array.isArray(json.activity) ? (json.activity as DashRecord[]) : [])
       const pag = json.activityPagination
@@ -360,10 +369,15 @@ export function DashboardUserDetailAdmin({
     [plans, l2tpEnabled]
   )
 
+  const effectivePlanCategories = useMemo(
+    () => (planCategories.length > 0 ? planCategories : loadedPlanCats),
+    [planCategories, loadedPlanCats]
+  )
+
   const activeCategories = useMemo(
     () =>
-      planCategories.filter((c) => num(c.active) === 1 && String(c.slug ?? "").trim() !== ""),
-    [planCategories]
+      effectivePlanCategories.filter((c) => num(c.active) === 1 && String(c.slug ?? "").trim() !== ""),
+    [effectivePlanCategories]
   )
 
   const categoryPlans = useMemo(() => {
@@ -467,8 +481,166 @@ export function DashboardUserDetailAdmin({
 
   return (
     <TooltipProvider delayDuration={200}>
+      <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
+        <DialogContent showCloseButton dir={dashDir(isFa)}>
+          <DialogHeader>
+            <DialogTitle>{tp("roleLabel")}</DialogTitle>
+            <DialogDescription>{tp("roleApply")}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <select
+              className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              value={rolePick || effectiveRole}
+              onChange={(e) => setRolePick(e.target.value)}
+              disabled={busy}
+            >
+              <option value="user">{tp("roleUser")}</option>
+              <option value="reseller">{tp("roleReseller")}</option>
+              <option value="admin">{tp("roleAdmin")}</option>
+            </select>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={() => setRoleDialogOpen(false)} disabled={busy}>
+              {tp("walletDialogCancel")}
+            </Button>
+            <Button
+              type="button"
+              disabled={busy || (rolePick || effectiveRole) === effectiveRole}
+              onClick={async () => {
+                await runMut("user_set_role", {
+                  target_user_id: uid,
+                  role: rolePick || effectiveRole,
+                })
+                setRoleDialogOpen(false)
+              }}
+            >
+              {tp("roleApply")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={referrerDialogOpen} onOpenChange={setReferrerDialogOpen}>
+        <DialogContent showCloseButton dir={dashDir(isFa)}>
+          <DialogHeader>
+            <DialogTitle>{tp("referrerTitle")}</DialogTitle>
+            <DialogDescription>
+              {invitedBy > 0
+                ? tp("referrerFrom", {
+                    name: invitedByLabel || "—",
+                    id: formatPlainLatinInt(invitedBy),
+                  })
+                : tp("referrerNone")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <Input
+              dir="ltr"
+              value={referrerQuery}
+              onChange={(e) => setReferrerQuery(e.target.value)}
+              placeholder={tp("referrerSearchPlaceholder")}
+              disabled={busy}
+            />
+            {referrerHits.length > 0 ? (
+              <select
+                className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                value={pickReferrerId}
+                onChange={(e) => setPickReferrerId(e.target.value)}
+                disabled={busy}
+              >
+                <option value="">{tp("referrerSearch")}…</option>
+                {referrerHits.map((hit) => (
+                  <option key={num(hit.id)} value={String(num(hit.id))}>
+                    {displayName(hit)} (#{formatPlainLatinInt(num(hit.id))})
+                  </option>
+                ))}
+              </select>
+            ) : null}
+          </div>
+          <DialogFooter className="gap-2">
+            {invitedBy > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={async () => {
+                  await runMut("user_set_referrer", { target_user_id: uid, referrer_id: 0 })
+                  setReferrerDialogOpen(false)
+                }}
+              >
+                {tp("referrerRemove")}
+              </Button>
+            ) : null}
+            <Button type="button" variant="outline" onClick={() => setReferrerDialogOpen(false)} disabled={busy}>
+              {tp("walletDialogCancel")}
+            </Button>
+            <Button
+              type="button"
+              disabled={busy || !pickReferrerId}
+              onClick={async () => {
+                await runMut("user_set_referrer", {
+                  target_user_id: uid,
+                  referrer_id: parseInt(pickReferrerId, 10),
+                })
+                setReferrerDialogOpen(false)
+              }}
+            >
+              {tp("referrerSet")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={messageDialogOpen} onOpenChange={setMessageDialogOpen}>
+        <DialogContent showCloseButton dir={dashDir(isFa)}>
+          <DialogHeader>
+            <DialogTitle>{tp("adminMessageTitle")}</DialogTitle>
+            <DialogDescription>{tp("adminMessagePlaceholder")}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <textarea
+              className="min-h-[5rem] w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+              value={adminMsg}
+              onChange={(e) => setAdminMsg(e.target.value)}
+              disabled={busy}
+              placeholder={tp("adminMessagePlaceholder")}
+            />
+            <select
+              className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              value={adminMsgChannel}
+              onChange={(e) => setAdminMsgChannel(e.target.value as typeof adminMsgChannel)}
+              disabled={busy}
+            >
+              <option value="both">{tp("msgChannelBoth")}</option>
+              <option value="telegram">{tp("msgChannelTelegram")}</option>
+              <option value="bale">{tp("msgChannelBale")}</option>
+            </select>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={() => setMessageDialogOpen(false)} disabled={busy}>
+              {tp("walletDialogCancel")}
+            </Button>
+            <Button
+              type="button"
+              disabled={busy || !adminMsg.trim()}
+              onClick={async () => {
+                await runMut("user_admin_message", {
+                  svp_user_id: uid,
+                  text: adminMsg.trim(),
+                  channel: adminMsgChannel,
+                })
+                setAdminMsg("")
+                setMessageDialogOpen(false)
+              }}
+            >
+              {tp("adminMessageSend")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={assignResellerOpen} onOpenChange={setAssignResellerOpen}>
-        <DialogContent showCloseButton className={cn(isFa && "text-right")} dir={dashDir(isFa)}>
+        <DialogContent showCloseButton dir={dashDir(isFa)}>
           <DialogHeader>
             <DialogTitle>{tp("assignResellerTitle")}</DialogTitle>
             <DialogDescription>{tp("assignResellerHint")}</DialogDescription>
@@ -540,7 +712,7 @@ export function DashboardUserDetailAdmin({
       </Dialog>
 
       <Dialog open={walletDialog !== null} onOpenChange={(o) => !o && setWalletDialog(null)}>
-        <DialogContent showCloseButton className={cn(isFa && "text-right")} dir={dashDir(isFa)}>
+        <DialogContent showCloseButton dir={dashDir(isFa)}>
           <DialogHeader>
             <DialogTitle>
               {walletDialog === "add" ? tp("walletDialogAddTitle") : tp("walletDialogSubTitle")}
@@ -606,48 +778,59 @@ export function DashboardUserDetailAdmin({
 
         <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
           <Card>
-            <CardHeader className={cn("pb-2", isFa && "text-right")}>
-              <div
-                className={cn(
-                  "flex flex-wrap items-start gap-2",
-                  "justify-between"
-                )}
-              >
-                <div dir={dashDir(isFa)} className={cn("min-w-0", isFa && "text-right")}>
+            <CardHeader className="pb-2">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0 flex-1 text-start">
                   <CardTitle className="text-base">{displayName(user)}</CardTitle>
-                  <CardDescription
-                    className={cn(
-                      "mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs",
-                      isFa && "text-right"
-                    )}
-                  >
-                    <span className="inline-flex items-center gap-1 font-mono" dir="ltr">
-                      <Hash className="size-3.5 shrink-0 opacity-70" aria-hidden />
-                      {tp("labelInternalId")} {formatDigits(`#${formatPlainLatinInt(uid)}`, isFa)}
-                    </span>
-                    <span className="text-muted-foreground">·</span>
-                    <span className="inline-flex items-center gap-1 font-mono" dir="ltr">
-                      <Send className="size-3.5 shrink-0 opacity-70" aria-hidden />
-                      {tp("labelTelegram")} {formatDigits(formatPlainLatinInt(num(user.tg_user_id)), isFa)}
-                    </span>
-                    <span className="text-muted-foreground">·</span>
-                    <span className="inline-flex items-center gap-1 font-mono" dir="ltr">
-                      <Radio className="size-3.5 shrink-0 opacity-70" aria-hidden />
-                      {tp("labelBale")} {formatDigits(formatPlainLatinInt(num(user.bale_user_id)), isFa)}
-                    </span>
-                  </CardDescription>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-start text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1">
+                        <Hash className="size-3.5 shrink-0 opacity-70" aria-hidden />
+                        <span>
+                          {tp("labelInternalId")}{" "}
+                          <span className="font-mono tabular-nums" dir="ltr">
+                            {formatDigits(`#${formatPlainLatinInt(uid)}`, isFa)}
+                          </span>
+                        </span>
+                      </span>
+                      <span className="text-muted-foreground" aria-hidden>
+                        ·
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <Send className="size-3.5 shrink-0 opacity-70" aria-hidden />
+                        <span>
+                          {tp("labelTelegram")}{" "}
+                          <span className="font-mono tabular-nums" dir="ltr">
+                            {formatDigits(formatPlainLatinInt(num(user.tg_user_id)), isFa)}
+                          </span>
+                        </span>
+                      </span>
+                      <span className="text-muted-foreground" aria-hidden>
+                        ·
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <Radio className="size-3.5 shrink-0 opacity-70" aria-hidden />
+                        <span>
+                          {tp("labelBale")}{" "}
+                          <span className="font-mono tabular-nums" dir="ltr">
+                            {formatDigits(formatPlainLatinInt(num(user.bale_user_id)), isFa)}
+                          </span>
+                        </span>
+                      </span>
+                    </div>
                 </div>
                 <Badge variant={statusVariant(st)}>{t(`usersAdmin.status_${st}`, { defaultValue: st })}</Badge>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4 text-sm">
+            <CardContent className="space-y-4 text-sm text-start">
               <div className="flex flex-wrap items-center gap-2">
                 <Wallet className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 <span className="text-muted-foreground">{tp("balance")}:</span>
-                <span className="font-medium tabular-nums">{formatNumber(bal, isFa)}</span>
+                <span className="font-medium tabular-nums" dir="ltr">
+                  {formatNumber(bal, isFa)}
+                </span>
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <div className={dashActionsClass()}>
                 <Button
                   type="button"
                   size="sm"
@@ -680,8 +863,11 @@ export function DashboardUserDetailAdmin({
               <p className="text-xs text-muted-foreground">{tp("walletDeltaHint")}</p>
 
               <div>
-                <p className="mb-2 text-xs font-medium text-muted-foreground">{tp("adminActions")}</p>
-                <div className={cn(actionBar, "justify-start")}>
+                <p className="mb-2 text-start text-xs font-medium text-muted-foreground">
+                  {tp("adminActions")}
+                </p>
+                <div className={actionBar}>
+                  <div className={dashActionsClass()}>
                   {st === "pending" ? (
                     <>
                       <Tooltip>
@@ -837,144 +1023,62 @@ export function DashboardUserDetailAdmin({
                       </TooltipContent>
                     </Tooltip>
                   ) : null}
-                </div>
-              </div>
-
-              {!isReseller ? (
-                <div className="space-y-3 rounded-md border border-border/60 bg-muted/20 p-3">
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{tp("roleLabel")}</Label>
-                    <div className={cn("flex flex-wrap items-center gap-2", isFa && "justify-end")}>
-                      <select
-                        className="h-9 min-w-[10rem] rounded-md border border-input bg-background px-2 text-sm"
-                        value={rolePick || effectiveRole}
-                        onChange={(e) => setRolePick(e.target.value)}
-                        disabled={busy}
-                      >
-                        <option value="user">{tp("roleUser")}</option>
-                        <option value="reseller">{tp("roleReseller")}</option>
-                        <option value="admin">{tp("roleAdmin")}</option>
-                      </select>
+                  {!isReseller ? (
+                    <>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            disabled={busy}
+                            aria-label={tp("roleLabel")}
+                            onClick={() => setRoleDialogOpen(true)}
+                          >
+                            <ShieldCheck className="size-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{tp("roleLabel")}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            disabled={busy}
+                            aria-label={tp("referrerTitle")}
+                            onClick={() => setReferrerDialogOpen(true)}
+                          >
+                            <UsersRound className="size-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{tp("referrerTitle")}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </>
+                  ) : null}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
                       <Button
                         type="button"
-                        size="sm"
-                        variant="secondary"
-                        disabled={busy || (rolePick || effectiveRole) === effectiveRole}
-                        onClick={() =>
-                          void runMut("user_set_role", {
-                            target_user_id: uid,
-                            role: rolePick || effectiveRole,
-                          })
-                        }
-                      >
-                        {tp("roleApply")}
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{tp("referrerTitle")}</Label>
-                    {invitedBy > 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        {tp("referrerFrom", {
-                          name: invitedByLabel || "—",
-                          id: formatPlainLatinInt(invitedBy),
-                        })}
-                      </p>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">{tp("referrerNone")}</p>
-                    )}
-                    <Input
-                      dir="ltr"
-                      value={referrerQuery}
-                      onChange={(e) => setReferrerQuery(e.target.value)}
-                      placeholder={tp("referrerSearchPlaceholder")}
-                      disabled={busy}
-                    />
-                    {referrerHits.length > 0 ? (
-                      <select
-                        className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                        value={pickReferrerId}
-                        onChange={(e) => setPickReferrerId(e.target.value)}
-                        disabled={busy}
-                      >
-                        <option value="">{tp("referrerSearch")}…</option>
-                        {referrerHits.map((hit) => (
-                          <option key={num(hit.id)} value={String(num(hit.id))}>
-                            {displayName(hit)} (#{formatPlainLatinInt(num(hit.id))})
-                          </option>
-                        ))}
-                      </select>
-                    ) : null}
-                    <div className={cn("flex flex-wrap gap-2", isFa && "justify-end")}>
-                      <Button
-                        type="button"
-                        size="sm"
+                        size="icon"
                         variant="outline"
-                        disabled={busy || !pickReferrerId}
-                        onClick={() =>
-                          void runMut("user_set_referrer", {
-                            target_user_id: uid,
-                            referrer_id: parseInt(pickReferrerId, 10),
-                          })
-                        }
+                        disabled={busy}
+                        aria-label={tp("adminMessageTitle")}
+                        onClick={() => setMessageDialogOpen(true)}
                       >
-                        {tp("referrerSet")}
+                        <MessageSquare className="size-4" />
                       </Button>
-                      {invitedBy > 0 ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() =>
-                            void runMut("user_set_referrer", { target_user_id: uid, referrer_id: 0 })
-                          }
-                        >
-                          {tp("referrerRemove")}
-                        </Button>
-                      ) : null}
-                    </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{tp("adminMessageTitle")}</p>
+                    </TooltipContent>
+                  </Tooltip>
                   </div>
-                </div>
-              ) : null}
-
-              <div className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-3">
-                <Label className="text-xs font-medium">{tp("adminMessageTitle")}</Label>
-                <textarea
-                  className="min-h-[4rem] w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-                  value={adminMsg}
-                  onChange={(e) => setAdminMsg(e.target.value)}
-                  disabled={busy}
-                  placeholder={tp("adminMessagePlaceholder")}
-                />
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    className="h-9 rounded-md border border-input bg-background px-2 text-xs"
-                    value={adminMsgChannel}
-                    onChange={(e) => setAdminMsgChannel(e.target.value as typeof adminMsgChannel)}
-                    disabled={busy}
-                  >
-                    <option value="both">{tp("msgChannelBoth")}</option>
-                    <option value="telegram">{tp("msgChannelTelegram")}</option>
-                    <option value="bale">{tp("msgChannelBale")}</option>
-                  </select>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="gap-2"
-                    disabled={busy || !adminMsg.trim()}
-                    onClick={() => {
-                      void runMut("user_admin_message", {
-                        svp_user_id: uid,
-                        text: adminMsg.trim(),
-                        channel: adminMsgChannel,
-                      })
-                      setAdminMsg("")
-                    }}
-                  >
-                    <MessageSquare className="size-4" aria-hidden />
-                    {tp("adminMessageSend")}
-                  </Button>
                 </div>
               </div>
             </CardContent>
@@ -983,7 +1087,7 @@ export function DashboardUserDetailAdmin({
           <Card>
             <CardHeader>
               <CardTitle className="text-base">{tp("createService")}</CardTitle>
-              <ul className="list-inside list-disc space-y-0.5 text-sm text-muted-foreground">
+              <ul className="list-inside list-disc space-y-0.5 text-start text-sm text-muted-foreground">
                 {isReseller ? (
                   <>
                     <li>{tp("createServiceHintReseller1")}</li>
@@ -1000,84 +1104,89 @@ export function DashboardUserDetailAdmin({
               </ul>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
-              <div className="space-y-1">
-                <Label>{tp("category")}</Label>
-                <select
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                  value={categorySlug}
-                  onChange={(e) => {
-                    setCategorySlug(e.target.value)
-                    setPlanId("")
+              {activeCategories.length === 0 ? (
+                <p className="text-xs text-muted-foreground">{tp("selectCategory")}</p>
+              ) : null}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>{tp("category")}</Label>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-start"
+                    value={categorySlug}
+                    onChange={(e) => {
+                      setCategorySlug(e.target.value)
+                      setPlanId("")
+                    }}
+                    disabled={busy}
+                  >
+                    <option value="">{tp("selectCategory")}</option>
+                    {activeCategories.map((c) => (
+                      <option key={String(c.slug)} value={String(c.slug)}>
+                        {String(c.label ?? c.slug ?? "")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label>{tp("plan")}</Label>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-start"
+                    value={planId}
+                    onChange={(e) => setPlanId(e.target.value)}
+                    disabled={busy || !categorySlug}
+                  >
+                    <option value="">{tp("selectPlan")}</option>
+                    {categoryPlans.map((p) => (
+                      <option key={num(p.id)} value={String(p.id)}>
+                        #{num(p.id)} — {String(p.label ?? p.name ?? "")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                <div className="space-y-1">
+                  <Label>{tp("volumeGb")}</Label>
+                  <Input
+                    dir="ltr"
+                    value={volGb}
+                    onChange={(e) => setVolGb(e.target.value)}
+                    placeholder={tp("volumeGbExamplePlaceholder")}
+                    disabled={busy}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>{tp("mode")}</Label>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-start"
+                    value={createMode}
+                    onChange={(e) => setCreateMode(e.target.value as typeof createMode)}
+                    disabled={busy}
+                  >
+                    {!isReseller ? <option value="free">{tp("modeFree")}</option> : null}
+                    <option value="wallet">{tp("modeWallet")}</option>
+                    <option value="invoice">{tp("modeInvoice")}</option>
+                  </select>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="gap-2 sm:self-end"
+                  disabled={busy || !planId}
+                  onClick={() => {
+                    const pid = parseInt(planId, 10)
+                    const v = volGb.trim() ? parseInt(volGb, 10) : NaN
+                    void runMut("user_create_service", {
+                      target_user_id: uid,
+                      plan_id: pid,
+                      volume_gb: Number.isFinite(v) ? v : null,
+                      mode: createMode,
+                    })
                   }}
-                  disabled={busy}
                 >
-                  <option value="">{tp("selectCategory")}</option>
-                  {activeCategories.map((c) => (
-                    <option key={String(c.slug)} value={String(c.slug)}>
-                      {String(c.label ?? c.slug ?? "")}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <Label>{tp("plan")}</Label>
-                <select
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                  value={planId}
-                  onChange={(e) => setPlanId(e.target.value)}
-                  disabled={busy || !categorySlug}
-                >
-                  <option value="">{tp("selectPlan")}</option>
-                  {categoryPlans.map((p) => (
-                    <option key={num(p.id)} value={String(p.id)}>
-                      #{num(p.id)} — {String(p.label ?? p.name ?? "")}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <Label>{tp("volumeGb")}</Label>
-                <Input
-                  dir="ltr"
-                  value={volGb}
-                  onChange={(e) => setVolGb(e.target.value)}
-                  placeholder={tp("volumeGbExamplePlaceholder")}
-                  disabled={busy}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>{tp("mode")}</Label>
-                <select
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                  value={createMode}
-                  onChange={(e) => setCreateMode(e.target.value as typeof createMode)}
-                  disabled={busy}
-                >
-                  {!isReseller ? <option value="free">{tp("modeFree")}</option> : null}
-                  <option value="wallet">{tp("modeWallet")}</option>
-                  <option value="invoice">{tp("modeInvoice")}</option>
-                </select>
-              </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                className="gap-2 lg:self-end"
-                      disabled={busy || !planId}
-                      onClick={() => {
-                        const pid = parseInt(planId, 10)
-                        const v = volGb.trim() ? parseInt(volGb, 10) : NaN
-                        void runMut("user_create_service", {
-                          target_user_id: uid,
-                          plan_id: pid,
-                          volume_gb: Number.isFinite(v) ? v : null,
-                          mode: createMode,
-                        })
-                      }}
-                    >
-                      <PackagePlus className="size-4" />
-                      {tp("create")}
-                    </Button>
+                  <PackagePlus className="size-4" />
+                  {tp("create")}
+                </Button>
               </div>
               {createPricePreview != null ? (
                 <p className="text-xs text-muted-foreground">
@@ -1123,7 +1232,7 @@ export function DashboardUserDetailAdmin({
         ) : null}
 
         <div className="space-y-4">
-          <h3 className="text-base font-medium">{tp("services")}</h3>
+          <h3 className="text-start text-base font-medium">{tp("services")}</h3>
           {visibleServices.length === 0 ? (
             <p className="text-sm text-muted-foreground">{tp("noServices")}</p>
           ) : (
@@ -1165,34 +1274,54 @@ export function DashboardUserDetailAdmin({
             <CardTitle className="text-base">{tp("activity")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="w-full overflow-x-auto rounded-md border border-border">
-              <table
-                className={cn(
-                  "w-full min-w-[20rem] border-collapse text-xs [&_td]:border-b [&_td]:border-border",
-                  "text-start"
-                )}
-              >
-                <thead>
-                  <tr className="bg-muted/40">
-                    <th className="p-2">{tp("colTime")}</th>
-                    <th className="p-2">{tp("colChannel")}</th>
-                    <th className="p-2">{tp("colSummary")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activity.map((row) => {
-                    const id = num(row.id)
-                    return (
-                      <tr key={id}>
-                        <td className="p-2 whitespace-nowrap">{formatDateTime(String(row.created_at ?? ""), isFa)}</td>
-                        <td className="p-2">{formatActivityChannel(row.channel, tp)}</td>
-                        <td className="p-2 text-foreground">{formatUserActivityLine(row, t)}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <DashTableShell
+              isFa={isFa}
+              minWidth="20rem"
+              colWidths={isFa ? ["50%", "22%", "28%"] : ["28%", "22%", "50%"]}
+            >
+              <thead>
+                <tr className="bg-muted/40">
+                  {isFa ? (
+                    <>
+                      <DashTh>{tp("colSummary")}</DashTh>
+                      <DashTh>{tp("colChannel")}</DashTh>
+                      <DashTh className="whitespace-nowrap">{tp("colTime")}</DashTh>
+                    </>
+                  ) : (
+                    <>
+                      <DashTh className="whitespace-nowrap">{tp("colTime")}</DashTh>
+                      <DashTh>{tp("colChannel")}</DashTh>
+                      <DashTh>{tp("colSummary")}</DashTh>
+                    </>
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {activity.map((row) => {
+                  const id = num(row.id)
+                  const summary = formatUserActivityLine(row, t)
+                  const channel = formatActivityChannel(row.channel, tp)
+                  const time = formatDateTime(String(row.created_at ?? ""), isFa)
+                  return (
+                    <tr key={id}>
+                      {isFa ? (
+                        <>
+                          <DashTd className="text-foreground">{summary}</DashTd>
+                          <DashTd>{channel}</DashTd>
+                          <DashTd className="whitespace-nowrap">{time}</DashTd>
+                        </>
+                      ) : (
+                        <>
+                          <DashTd className="whitespace-nowrap">{time}</DashTd>
+                          <DashTd>{channel}</DashTd>
+                          <DashTd className="text-foreground">{summary}</DashTd>
+                        </>
+                      )}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </DashTableShell>
             <DataPagination
               meta={actMeta}
               isFa={isFa}

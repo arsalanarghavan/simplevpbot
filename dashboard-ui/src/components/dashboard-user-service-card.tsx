@@ -95,7 +95,6 @@ function InfoRow({
   icon: Icon,
   label,
   children,
-  isFa,
   valueDir,
 }: {
   icon: React.ComponentType<{ className?: string }>
@@ -105,14 +104,11 @@ function InfoRow({
   valueDir?: "ltr" | "rtl"
 }) {
   return (
-    <div className={cn("flex gap-2 text-xs", isFa && "text-right")} dir={dashDir(isFa ?? false)}>
+    <div className="flex gap-2 text-start text-xs">
       <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
       <div className="min-w-0 flex-1">
         <p className="text-muted-foreground">{label}</p>
-        <div
-          className={cn("font-medium text-foreground", valueDir === "ltr" && "text-left")}
-          dir={valueDir}
-        >
+        <div className="font-medium text-foreground" dir={valueDir}>
           {children}
         </div>
       </div>
@@ -296,7 +292,7 @@ export function ServiceActionDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className={cn("sm:max-w-md", isFa && "text-right")} dir={dashDir(isFa)}>
+      <DialogContent className="sm:max-w-md" dir={dashDir(isFa)}>
         <DialogHeader>
           <DialogTitle>{titleKey ? tp(titleKey) : ""}</DialogTitle>
           {descKey ? <DialogDescription>{tp(descKey)}</DialogDescription> : null}
@@ -473,26 +469,16 @@ export function DashboardUserServiceCard({
 
   return (
     <Card className="overflow-hidden" dir={dashDir(isFa)}>
-      <CardHeader className={cn("pb-2", isFa && "text-right")} dir={dashDir(isFa)}>
-        <div
-          className={cn(
-            "flex flex-wrap items-start gap-2",
-            "justify-between"
-          )}
-        >
-          <div className="min-w-0">
-            <CardTitle className={cn("text-base", isFa && "text-right")} dir={dashDir(isFa)}>
+      <CardHeader className="pb-2">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0 text-start">
+            <CardTitle className="text-base">
               {remark || tp("serviceUntitled")}
               <span className="ms-2 font-mono text-xs font-normal text-muted-foreground" dir="ltr">
                 #{formatPlainLatinInt(sid)}
               </span>
             </CardTitle>
-            <CardDescription
-              className={cn(
-                "mt-1 flex items-center gap-1 break-all text-xs",
-                isFa && "text-right"
-              )}
-            >
+            <CardDescription className="mt-1 flex items-center gap-1 break-all text-start text-xs">
               <Mail className="size-3 shrink-0" />
               <span dir="ltr">{String(svc.email ?? "—")}</span>
             </CardDescription>
@@ -507,7 +493,7 @@ export function DashboardUserServiceCard({
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-4 text-sm">
+      <CardContent className="space-y-4 text-start text-sm">
         <div className="grid gap-3 sm:grid-cols-2">
           <InfoRow icon={Package} label={tp("svcPlan")} isFa={isFa}>
             {planName ? (
@@ -590,7 +576,9 @@ export function DashboardUserServiceCard({
 
         {!isL2tp ? (
           <Collapsible>
-            <CollapsibleTrigger className="flex w-full items-center justify-between rounded-md border border-border/60 px-2 py-1.5 text-xs font-medium hover:bg-muted/40">
+            <CollapsibleTrigger
+              className="flex w-full items-center justify-between rounded-md border border-border/60 px-2 py-1.5 text-start text-xs font-medium hover:bg-muted/40"
+            >
               {tp("notificationsSection")}
               <ChevronDown className="size-4" />
             </CollapsibleTrigger>
@@ -638,7 +626,7 @@ export function DashboardUserServiceCard({
           <p className="text-xs font-medium text-muted-foreground">{tp("serviceActions")}</p>
           <div className="space-y-2">
             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{tp("actionGroupBilling")}</p>
-            <div className={cn("flex flex-wrap gap-1.5", isFa && "justify-end")} dir={dashDir(isFa)}>
+            <div className="flex flex-wrap gap-1.5">
               {actionBtn(tp("actionRenew"), "renew", RefreshCw, "secondary")}
               {actionBtn(tp("actionTraffic"), "traffic", HardDrive)}
               {actionBtn(tp("actionDays"), "days", Calendar)}
@@ -647,7 +635,7 @@ export function DashboardUserServiceCard({
             {!isL2tp ? (
               <>
                 <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{tp("actionGroupPanel")}</p>
-                <div className={cn("flex flex-wrap gap-1.5", isFa && "justify-end")} dir={dashDir(isFa)}>
+                <div className="flex flex-wrap gap-1.5">
                   {onToggleEnable ? (
                     <Button
                       type="button"
@@ -669,7 +657,7 @@ export function DashboardUserServiceCard({
               </>
             ) : null}
             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{tp("actionGroupDanger")}</p>
-            <div className={cn("flex flex-wrap gap-1.5", isFa && "justify-end")} dir={dashDir(isFa)}>
+            <div className="flex flex-wrap gap-1.5">
               {actionBtn(tp("actionTransfer"), "transfer", Send)}
               {!isL2tp ? actionBtn(tp("actionDeletePanel"), "deletePanel", Trash2, "destructive") : null}
               {actionBtn(tp("actionDeleteService"), "deleteService", Archive, "destructive")}

@@ -19,8 +19,11 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { dashActionsClass, dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
 import { DataPagination } from "@/components/data-pagination"
+
+const RESELLERS_TABLE_COLS = ["8%", "14%", "12%", "18%", "8%"]
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { cn } from "@/lib/utils"
@@ -549,43 +552,40 @@ export function DashboardResellersAdmin({
                   )
                 })}
               </div>
-              <div className="hidden overflow-x-auto rounded-md border md:block">
-                <table
-                  className="w-full min-w-[44rem] table-fixed text-sm"
-                  dir={dashDir(isFa)}
-                >
+              <div className="hidden md:block">
+                <DashTableShell isFa={isFa} minWidth="44rem" colWidths={RESELLERS_TABLE_COLS}>
                   <thead>
                     <tr className="bg-muted/40">
-                      <th className="p-2 text-start">{tp("colId")}</th>
-                      <th className="p-2 text-start">{tp("colName")}</th>
-                      <th className="p-2 text-start">{tp("colStatus")}</th>
-                      <th className="p-2 text-start">{tp("colUsers")}</th>
-                      <th className="p-2 text-start w-[11rem]">{tp("colActions")}</th>
+                      <DashTh>{tp("colId")}</DashTh>
+                      <DashTh>{tp("colName")}</DashTh>
+                      <DashTh>{tp("colStatus")}</DashTh>
+                      <DashTh>{tp("colUsers")}</DashTh>
+                      <DashTh>{tp("colActions")}</DashTh>
                     </tr>
                   </thead>
                   <tbody>
                     {rows.map((r) => {
                       const id = n(r.id)
                       return (
-                        <tr key={id} className="border-t">
-                          <td className="p-2 font-mono text-start" dir="ltr">
+                        <tr key={id}>
+                          <DashTd dir="ltr" className="font-mono">
                             {id}
-                          </td>
-                          <td className="p-2 text-start">
+                          </DashTd>
+                          <DashTd>
                             <div className="space-y-0.5">
-                              <div>{displayName(r)}</div>
-                              <div className="text-xs text-muted-foreground">{String(r.phone ?? "—")}</div>
+                              <div className="truncate">{displayName(r)}</div>
+                              <div className="truncate text-xs text-muted-foreground">{String(r.phone ?? "—")}</div>
                             </div>
-                          </td>
-                          <td className="p-2 text-start">
+                          </DashTd>
+                          <DashTd>
                             <Badge variant={statusBadgeVariant(String(r.status ?? ""))} className="font-normal">
                               {resellerStatusLabel(t, r.status)}
                             </Badge>
-                          </td>
-                          <td className="p-2 tabular-nums text-start">{directUsersCount.get(id) ?? 0}</td>
-                          <td className="p-2 text-start">
+                          </DashTd>
+                          <DashTd className="tabular-nums">{directUsersCount.get(id) ?? 0}</DashTd>
+                          <DashTd>
                             <TooltipProvider>
-                              <div className={cn("flex flex-wrap gap-1", isFa && "text-right")}>
+                              <div className={dashActionsClass("gap-1")}>
                                 <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" onClick={() => onOpenUserDetail(id)}><KeyRound className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>{tp("manage")}</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" onClick={() => onOpenWorkspace?.(id)}><LayoutDashboard className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>{t("sidebar.groups.resellerWorkspace")}</TooltipContent></Tooltip>
                                 {onImpersonateReseller && canManageResellerControls ? (
@@ -602,12 +602,12 @@ export function DashboardResellersAdmin({
                                 <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" onClick={() => { setPermResellerId(id); setPermissions({ ...(resellerPermissionsMap?.[String(id)] ?? {}) }) }} disabled={!canManageResellerControls}><ShieldCheck className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>{tp("permissionsColumn")}</TooltipContent></Tooltip>
                               </div>
                             </TooltipProvider>
-                          </td>
+                          </DashTd>
                         </tr>
                       )
                     })}
                   </tbody>
-                </table>
+                </DashTableShell>
               </div>
             </>
           )}

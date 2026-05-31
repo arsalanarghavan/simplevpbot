@@ -23,7 +23,10 @@ import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { formatNumber, formatPlainLatinInt } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
+import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
 import { DashboardUserMergeAdmin } from "@/components/dashboard-user-merge-admin"
+
+const USERS_TABLE_COLS = ["7%", "20%", "11%", "9%", "14%", "14%", "10%"]
 
 type DashRecord = Record<string, unknown>
 
@@ -68,7 +71,7 @@ function IdsCell({ numericId, username, emptyLabel }: { numericId: number; usern
   if (numericId <= 0) return <span className="text-muted-foreground">{emptyLabel}</span>
   const at = formatAtUsername(username)
   return (
-    <div className="space-y-0.5">
+    <div className="space-y-0.5 text-start">
       <div dir="ltr" className="font-mono text-xs tabular-nums">
         {formatPlainLatinInt(numericId)}
       </div>
@@ -324,64 +327,52 @@ export function DashboardUsersAdmin({
         {users.length === 0 ? (
           <p className="text-sm text-muted-foreground">{tp("usersEmpty")}</p>
         ) : (
-          <div
-            className={cn(
-              "w-full max-w-full overflow-x-auto rounded-md border border-border",
-              isFa && "text-right"
-            )}
-          >
-            <table
-              className={cn(
-                "w-full min-w-[42rem] border-collapse text-sm [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
-                "text-start"
-              )}
-            >
-              <thead>
-                <tr className="bg-muted/40">
-                  <th className="p-2 font-medium">{tp("colId")}</th>
-                  <th className="p-2 font-medium">{tp("colName")}</th>
-                  <th className="p-2 font-medium">{tp("colStatus")}</th>
-                  <th className="p-2 font-medium">{tp("colServices")}</th>
-                  <th className="p-2 font-medium">{tp("colTelegram")}</th>
-                  <th className="p-2 font-medium">{tp("colBale")}</th>
-                  <th className="p-2 font-medium">{tp("colActions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => {
-                  const id = num(u.id)
-                  const st = String(u.status ?? "")
-                  const tg = num(u.tg_user_id)
-                  const bl = num(u.bale_user_id)
-                  return (
-                    <tr key={id}>
-                      <td dir="ltr" className="p-2 font-mono text-xs tabular-nums">
-                        {formatPlainLatinInt(id)}
-                      </td>
-                      <td className="p-2">{displayName(u)}</td>
-                      <td className="p-2">
-                        <Badge variant={statusBadgeVariant(st)} className="font-normal">
-                          {statusLabel(st)}
-                        </Badge>
-                      </td>
-                      <td className="p-2 tabular-nums">{formatNumber(num(u.svc_count), isFa)}</td>
-                      <td className="p-2 align-top">
-                        <IdsCell numericId={tg} username={uname(u)} emptyLabel="—" />
-                      </td>
-                      <td className="p-2 align-top">
-                        <IdsCell numericId={bl} username={uname(u)} emptyLabel="—" />
-                      </td>
-                      <td className="p-2 align-top">
-                        <Button type="button" size="sm" variant="outline" onClick={() => onOpenUserDetail(id)}>
-                          {tp("manage")}
-                        </Button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <DashTableShell isFa={isFa} minWidth="42rem" colWidths={USERS_TABLE_COLS}>
+            <thead>
+              <tr className="bg-muted/40">
+                <DashTh>{tp("colId")}</DashTh>
+                <DashTh>{tp("colName")}</DashTh>
+                <DashTh>{tp("colStatus")}</DashTh>
+                <DashTh>{tp("colServices")}</DashTh>
+                <DashTh>{tp("colTelegram")}</DashTh>
+                <DashTh>{tp("colBale")}</DashTh>
+                <DashTh>{tp("colActions")}</DashTh>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => {
+                const id = num(u.id)
+                const st = String(u.status ?? "")
+                const tg = num(u.tg_user_id)
+                const bl = num(u.bale_user_id)
+                return (
+                  <tr key={id}>
+                    <DashTd dir="ltr" className="font-mono text-xs tabular-nums">
+                      {formatPlainLatinInt(id)}
+                    </DashTd>
+                    <DashTd>{displayName(u)}</DashTd>
+                    <DashTd>
+                      <Badge variant={statusBadgeVariant(st)} className="font-normal">
+                        {statusLabel(st)}
+                      </Badge>
+                    </DashTd>
+                    <DashTd className="tabular-nums">{formatNumber(num(u.svc_count), isFa)}</DashTd>
+                    <DashTd>
+                      <IdsCell numericId={tg} username={uname(u)} emptyLabel="—" />
+                    </DashTd>
+                    <DashTd>
+                      <IdsCell numericId={bl} username={uname(u)} emptyLabel="—" />
+                    </DashTd>
+                    <DashTd>
+                      <Button type="button" size="sm" variant="outline" onClick={() => onOpenUserDetail(id)}>
+                        {tp("manage")}
+                      </Button>
+                    </DashTd>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </DashTableShell>
         )}
         <DataPagination
           meta={usersPagination}

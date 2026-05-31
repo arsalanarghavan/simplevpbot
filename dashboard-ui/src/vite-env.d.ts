@@ -1,5 +1,10 @@
 /// <reference types="vite/client" />
 
+declare module "*.svg" {
+  const src: string
+  export default src
+}
+
 interface Window {
   __SIMPLEVPBOT_DASH__?: {
     restUrl?: string
@@ -48,5 +53,11 @@ interface Window {
     siteTimeZone?: string
     /** User accent preset (default, red, blue, …) */
     uiAccent?: string
+    /** Saved dashboard language (fa|en); empty = site locale */
+    uiLang?: string
+    /** Saved theme (light|dark|system) */
+    uiTheme?: string
+    /** Saved sidebar (expanded|collapsed) */
+    uiSidebar?: string
   }
 }

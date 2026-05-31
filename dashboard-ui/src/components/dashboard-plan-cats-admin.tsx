@@ -4,7 +4,10 @@ import { EllipsisVerticalIcon } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
+import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
 import { Badge } from "@/components/ui/badge"
+
+const PLAN_CATS_TABLE_COLS = ["6%", "22%", "18%", "10%", "8%", "12%", "6%"]
 import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { Button } from "@/components/ui/button"
 import {
@@ -190,64 +193,57 @@ export function DashboardPlanCatsAdmin({
       {planCategories.length === 0 ? (
         <p className="text-sm text-muted-foreground">{tp("empty")}</p>
       ) : (
-        <div className="w-full max-w-full overflow-x-auto rounded-md border border-border">
-          <table
-            className={cn(
-              "w-full min-w-[36rem] border-collapse text-sm [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
-              "text-start"
-            )}
-          >
-            <thead>
-              <tr className="bg-muted/40">
-                <th className="p-2 font-medium">#</th>
-                <th className="p-2 font-medium">{tp("colLabel")}</th>
-                <th className="p-2 font-medium">slug</th>
-                <th className="p-2 font-medium">{tp("colPanel")}</th>
-                <th className="p-2 font-medium">{tp("colSort")}</th>
-                <th className="p-2 font-medium">{tp("colActive")}</th>
-                <th className="p-2 w-10" />
-              </tr>
-            </thead>
-            <tbody>
-              {planCategories.map((r) => {
-                const id = num(r.id)
-                const pid = num(r.panel_id)
-                return (
-                  <tr key={id}>
-                    <td className="p-2 font-mono text-xs tabular-nums">{formatNumber(id, isFa)}</td>
-                    <td className="p-2">{String(r.label ?? "")}</td>
-                    <td className="p-2 font-mono text-xs">{String(r.slug ?? "")}</td>
-                    <td className="p-2 tabular-nums">{formatNumber(pid, isFa)}</td>
-                    <td className="p-2 tabular-nums">{formatNumber(num(r.sort_order), isFa)}</td>
-                    <td className="p-2">
-                      <Badge variant={isActiveRow(r) ? "default" : "secondary"}>
-                        {isActiveRow(r) ? tp("active") : tp("inactive")}
-                      </Badge>
-                    </td>
-                    <td className="p-2">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button type="button" variant="ghost" size="icon" className="h-8 w-8">
-                            <EllipsisVerticalIcon className="size-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align={isFa ? "start" : "end"}>
-                          <DropdownMenuItem onClick={() => void run({ pc_action: "toggle", pc_id: id })}>
-                            {tp("toggle")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openEdit(r)}>{tp("edit")}</DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(r)}>
-                            {tp("delete")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DashTableShell isFa={isFa} minWidth="36rem" colWidths={PLAN_CATS_TABLE_COLS}>
+          <thead>
+            <tr className="bg-muted/40">
+              <DashTh>#</DashTh>
+              <DashTh>{tp("colLabel")}</DashTh>
+              <DashTh>slug</DashTh>
+              <DashTh>{tp("colPanel")}</DashTh>
+              <DashTh>{tp("colSort")}</DashTh>
+              <DashTh>{tp("colActive")}</DashTh>
+              <DashTh />
+            </tr>
+          </thead>
+          <tbody>
+            {planCategories.map((r) => {
+              const id = num(r.id)
+              const pid = num(r.panel_id)
+              return (
+                <tr key={id}>
+                  <DashTd className="font-mono text-xs tabular-nums">{formatNumber(id, isFa)}</DashTd>
+                  <DashTd className="truncate">{String(r.label ?? "")}</DashTd>
+                  <DashTd className="truncate font-mono text-xs">{String(r.slug ?? "")}</DashTd>
+                  <DashTd className="tabular-nums">{formatNumber(pid, isFa)}</DashTd>
+                  <DashTd className="tabular-nums">{formatNumber(num(r.sort_order), isFa)}</DashTd>
+                  <DashTd>
+                    <Badge variant={isActiveRow(r) ? "default" : "secondary"}>
+                      {isActiveRow(r) ? tp("active") : tp("inactive")}
+                    </Badge>
+                  </DashTd>
+                  <DashTd>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button type="button" variant="ghost" size="icon" className="h-8 w-8">
+                          <EllipsisVerticalIcon className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align={isFa ? "start" : "end"}>
+                        <DropdownMenuItem onClick={() => void run({ pc_action: "toggle", pc_id: id })}>
+                          {tp("toggle")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEdit(r)}>{tp("edit")}</DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(r)}>
+                          {tp("delete")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </DashTd>
+                </tr>
+              )
+            })}
+          </tbody>
+        </DashTableShell>
       )}
 
       <DataPagination

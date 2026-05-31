@@ -15,6 +15,7 @@ import {
   normalizeAccent,
   type AccentPreset,
 } from "@/lib/accent"
+import { saveUiPreferences } from "@/lib/dash-ui-preferences"
 
 type AccentMenuProps = {
   initialAccent?: string | null
@@ -36,23 +37,14 @@ export function AccentMenu({ initialAccent, restUrl, nonce }: AccentMenuProps) {
     (value: AccentPreset) => {
       setAccent(value)
       document.documentElement.setAttribute("data-accent", value)
-      const base = String(restUrl || "").replace(/\/$/, "")
-      if (!base || !nonce) return
-      void fetch(`${base}/dashboard/ui-preferences`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-WP-Nonce": nonce,
-        },
-        credentials: "include",
-        body: JSON.stringify({ ui_accent: value }),
-      }).catch(() => {})
+      if (!restUrl || !nonce) return
+      void saveUiPreferences({ ui_accent: value }, { restUrl, nonce })
     },
     [restUrl, nonce]
   )
 
   return (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
