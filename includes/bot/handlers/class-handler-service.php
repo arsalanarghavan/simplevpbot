@@ -898,7 +898,7 @@ class SimpleVPBot_Handler_Service {
 		}
 		$is_rename = ( 0 === strpos( $state, 'svc_rename_' ) );
 		if ( $is_rename ) {
-			SimpleVPBot_Model_Service::update( $sid, array( 'remark' => $text ) );
+			SimpleVPBot_Model_Service::update( $sid, array( 'display_label' => $text ) );
 			SimpleVPBot_State::clear( (int) $user->id );
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.display_name_bot_updated', $user ) );
 			return;
@@ -924,7 +924,7 @@ class SimpleVPBot_Handler_Service {
 				$updated_client = null;
 				foreach ( $dec['clients'] as &$cl ) {
 					if ( isset( $cl['email'] ) && (string) $cl['email'] === (string) $svc->email ) {
-						if ( self::uses_platform_slug_naming() ) {
+						if ( SimpleVPBot_Service_Naming::is_platform_slug_service( $svc ) ) {
 							$cl['remark']  = class_exists( 'SimpleVPBot_Reseller_Branding' )
 								? (string) SimpleVPBot_Reseller_Branding::panel_brand_only_for_user( (int) $svc->user_id )
 								: (string) get_bloginfo( 'name' );
@@ -969,7 +969,7 @@ class SimpleVPBot_Handler_Service {
 				}
 				SimpleVPBot_Model_Service::update(
 					$sid,
-					self::uses_platform_slug_naming()
+					SimpleVPBot_Service_Naming::is_platform_slug_service( $svc )
 						? array( 'service_note' => $text )
 						: array( 'remark' => $text )
 				);
@@ -986,12 +986,14 @@ class SimpleVPBot_Handler_Service {
 	 * @return string
 	 */
 	public static function service_summary_text( $svc ) {
+		$name = class_exists( 'SimpleVPBot_Service_Naming' )
+			? SimpleVPBot_Service_Naming::public_label_for_service( $svc )
+			: (string) $svc->remark;
 		return SimpleVPBot_Texts::format(
-			"📡 سرویس: {name}" . SimpleVPBot_Service_Alerts::text_sep() . "🆔 شناسه اتصال: {email}\n⏳ انقضا: {exp}\n",
+			"📡 سرویس: {name}\n⏳ انقضا: {exp}\n",
 			array(
-				'name'  => (string) $svc->remark,
-				'email' => (string) $svc->email,
-				'exp'   => $svc->expires_at ? self::format_datetime_fa( (string) $svc->expires_at ) : '♾️ بدون انقضا',
+				'name' => $name,
+				'exp'  => $svc->expires_at ? self::format_datetime_fa( (string) $svc->expires_at ) : '♾️ بدون انقضا',
 			)
 		);
 	}
@@ -1036,6 +1038,26 @@ class SimpleVPBot_Handler_Service {
 		);
 	}
 
+	private static function usage_identity_fields( $svc ) {
+		if ( class_exists( 'SimpleVPBot_Service_Naming' ) ) {
+			$canonical = SimpleVPBot_Service_Naming::canonical_label_for_service( $svc );
+			$public    = SimpleVPBot_Service_Naming::public_label_for_service( $svc );
+			return array(
+				'sub_id'            => '',
+				'subscription_id'   => '',
+				'remark'            => $public,
+				'subscription_name' => $canonical,
+			);
+		}
+		$nam = trim( (string) ( $svc->remark ?? '' ) );
+		return array(
+			'sub_id'            => '',
+			'subscription_id'   => '',
+			'remark'            => $nam,
+			'subscription_name' => $nam,
+		);
+	}
+
 	/**
 	 * Usage summary from DB only when the panel cannot be reached (never invent live traffic).
 	 *
@@ -1046,7 +1068,8 @@ class SimpleVPBot_Handler_Service {
 	private static function collect_usage_stats_fallback_db( $svc, $reason = 'panel' ) {
 		unset( $reason );
 		$now            = time();
-		$sub_id         = (string) ( $svc->sub_id ?: $svc->email );
+		$identity       = self::usage_identity_fields( $svc );
+		$sub_id         = (string) $identity['sub_id'];
 		$exp_ts         = $svc->expires_at ? strtotime( (string) $svc->expires_at . ' UTC' ) : 0;
 		$expired        = ( $exp_ts && $exp_ts < $now );
 		$total          = (int) $svc->total_traffic;
@@ -1068,8 +1091,9 @@ class SimpleVPBot_Handler_Service {
 			$emoji        = '⚠️';
 		}
 		$exp = $svc->expires_at ? self::format_datetime_fa( (string) $svc->expires_at ) : 'بدون انقضا';
-		return array(
-			'sub_id'               => $sub_id,
+		return array_merge(
+			$identity,
+			array(
 			'status'               => $status_label,
 			'status_label'         => $status_label,
 			'status_emoji'         => $emoji,
@@ -1091,8 +1115,8 @@ class SimpleVPBot_Handler_Service {
 			'last_online_fa'       => '➖',
 			'expiry'               => $exp,
 			'expiry_fa'            => $exp,
-			'remark'               => (string) $svc->remark,
 			'usage_footer_notes'   => self::usage_footer_notes_fa( 0, $total, $used_bytes ),
+			)
 		);
 	}
 
@@ -1107,11 +1131,11 @@ class SimpleVPBot_Handler_Service {
 	private static function usage_footer_notes_fa( $limit_ip, $total_bytes, $used_bytes ) {
 		$notes = array();
 		$lip   = max( 0, (int) $limit_ip );
-		if ( $lip > 1 ) {
+		$total = (int) $total_bytes;
+		if ( $lip > 1 && $total > 0 ) {
 			$lip_fa = SimpleVPBot_Bot_Persian_Text::digits_to_fa( (string) $lip );
 			$notes[] = '👥 تا ' . $lip_fa . ' اتصال هم‌زمان برای این اشتراک مجاز است؛ مصرف دانلود و آپلود برای همهٔ دستگاه‌ها یکجا محاسبه می‌شود.';
 		}
-		$total = (int) $total_bytes;
 		if ( $total > 0 && (float) $used_bytes > (float) $total + 1048576.0 ) {
 			$notes[] = '⚠️ مصرف کل از سقف نمایش‌داده‌شده بیشتر است؛ اگر تازه حجم خریده‌اید یا چند نفر هم‌زمان استفاده می‌کنند، لحظاتی برای همگام‌سازی با پنل صبر کنید یا از پشتیبانی بپرسید.';
 		}
@@ -1204,12 +1228,13 @@ class SimpleVPBot_Handler_Service {
 			$emoji        = '♾️';
 		}
 
-		$sub_id = (string) ( $svc->sub_id ?: $svc->email );
-		$last   = self::format_last_online( $obj['lastOnline'] ?? null );
-		$exp    = $svc->expires_at ? self::format_datetime_fa( (string) $svc->expires_at ) : 'بدون انقضا';
+		$identity = self::usage_identity_fields( $svc );
+		$last     = self::format_last_online( $obj['lastOnline'] ?? null );
+		$exp      = $svc->expires_at ? self::format_datetime_fa( (string) $svc->expires_at ) : 'بدون انقضا';
 
-		return array(
-			'sub_id'               => $sub_id,
+		return array_merge(
+			$identity,
+			array(
 			'status'               => $status_label,
 			'status_label'         => $status_label,
 			'status_emoji'         => $emoji,
@@ -1231,8 +1256,8 @@ class SimpleVPBot_Handler_Service {
 			'last_online_fa'       => $last,
 			'expiry'               => $exp,
 			'expiry_fa'            => $exp,
-			'remark'               => (string) $svc->remark,
 			'usage_footer_notes'   => self::usage_footer_notes_fa( $limit_ip, $total, $us_bytes ),
+			)
 		);
 	}
 
@@ -1280,7 +1305,7 @@ class SimpleVPBot_Handler_Service {
 	 */
 	private static function default_usage_template_fa() {
 		$sep = "\n──────────\n";
-		return "📊 وضعیت سرویس" . $sep . "🏷 نام: {remark}\n🆔 شناسه: {sub_id}\n📶 وضعیت: {status_emoji} {status}" . $sep . "⬇️ دانلود: {down_h}\n⬆️ آپلود: {up_h}\n📊 مصرف کل: {used_h}\n🧮 سهمیه: {total_quota}\n🎯 باقی‌مانده: {remained_h}" . $sep . "🕒 آخرین اتصال: {last_online}\n⏳ انقضا: {expiry}";
+		return "📊 وضعیت سرویس" . $sep . "🏷 نام: {remark}\n📶 وضعیت: {status_emoji} {status}" . $sep . "⬇️ دانلود: {down_h}\n⬆️ آپلود: {up_h}\n📊 مصرف کل: {used_h}\n🧮 سهمیه: {total_quota}\n🎯 باقی‌مانده: {remained_h}" . $sep . "🕒 آخرین اتصال: {last_online}\n⏳ انقضا: {expiry}";
 	}
 
 	/**
@@ -1300,6 +1325,11 @@ class SimpleVPBot_Handler_Service {
 			$tpl = SimpleVPBot_Texts::get_for_user( 'msg.subscription_panel', $owner, self::default_usage_template_fa() );
 		}
 		$txt = SimpleVPBot_Texts::format( $tpl, $v );
+		if ( '' === trim( (string) ( $v['sub_id'] ?? '' ) ) ) {
+			$txt = preg_replace( '/^.*🆔\s*شناسه:\s*$/mu', '', (string) $txt );
+			$txt = preg_replace( "/\n{3,}/", "\n\n", (string) $txt );
+			$txt = trim( (string) $txt );
+		}
 		$ufn = isset( $v['usage_footer_notes'] ) ? trim( (string) $v['usage_footer_notes'] ) : '';
 		if ( '' !== $ufn ) {
 			$txt .= "\n\n" . $ufn;
@@ -1373,14 +1403,16 @@ class SimpleVPBot_Handler_Service {
 	 * @return string
 	 */
 	private static function build_telegram_config_caption_html( array $data, $portal, &$truncated = false ) {
-		$uris  = isset( $data['config_uris'] ) && is_array( $data['config_uris'] ) ? $data['config_uris'] : array();
-		$lines = array();
-		$idx   = 1;
-		$n_uri = count( $uris );
-		foreach ( $uris as $u ) {
-			$frag = class_exists( 'SimpleVPBot_Config_Link' )
-				? SimpleVPBot_Config_Link::uri_fragment_label( (string) $u )
-				: '';
+		$uris   = isset( $data['config_uris'] ) && is_array( $data['config_uris'] ) ? $data['config_uris'] : array();
+		$labels = isset( $data['config_labels'] ) && is_array( $data['config_labels'] ) ? $data['config_labels'] : array();
+		$lines  = array();
+		$idx    = 1;
+		$n_uri  = count( $uris );
+		foreach ( $uris as $i => $u ) {
+			$frag = isset( $labels[ $i ] ) ? trim( (string) $labels[ $i ] ) : '';
+			if ( '' === $frag && class_exists( 'SimpleVPBot_Config_Link' ) ) {
+				$frag = SimpleVPBot_Config_Link::uri_fragment_label( (string) $u );
+			}
 			if ( '' !== $frag ) {
 				$title = '🧾 <b>' . esc_html( $frag ) . '</b>';
 			} elseif ( $n_uri > 1 ) {
@@ -1530,6 +1562,35 @@ class SimpleVPBot_Handler_Service {
 		$uris = $import
 			? SimpleVPBot_Config_Link::fetch_subscription( $import, (int) ( $svc->panel_id ?? 0 ) )
 			: array();
+		if ( $uid > 0 && ! empty( $uris ) && class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+			$uris = SimpleVPBot_Reseller_Branding::rewrite_subscription_uris_for_user(
+				$uris,
+				$uid,
+				(string) ( $svc->remark ?? '' ),
+				$svc
+			);
+		}
+		$sub_view = class_exists( 'SimpleVPBot_Service_Naming' )
+			? SimpleVPBot_Service_Naming::enrich_subscription_view( $svc, $uris )
+			: array(
+				'subscription_id'   => '',
+				'subscription_name' => (string) ( $v['remark'] ?? '' ),
+				'config_uris'       => $uris,
+				'config_labels'     => array(),
+				'remark'            => (string) ( $v['remark'] ?? '' ),
+				'sub_id'            => (string) ( $svc->sub_id ?? '' ),
+			);
+		$uris = isset( $sub_view['config_uris'] ) && is_array( $sub_view['config_uris'] ) ? $sub_view['config_uris'] : $uris;
+		$labels = isset( $sub_view['config_labels'] ) && is_array( $sub_view['config_labels'] ) ? $sub_view['config_labels'] : array();
+		if ( ! empty( $uris ) && class_exists( 'SimpleVPBot_Config_Link' ) ) {
+			foreach ( $uris as $i => $uri_line ) {
+				$label = isset( $labels[ $i ] ) ? trim( (string) $labels[ $i ] ) : '';
+				if ( '' === $label ) {
+					continue;
+				}
+				$uris[ $i ] = SimpleVPBot_Config_Link::replace_uri_fragment( (string) $uri_line, $label );
+			}
+		}
 		$primary = '';
 		if ( ! empty( $uris[0] ) ) {
 			$primary = (string) $uris[0];
@@ -1539,14 +1600,15 @@ class SimpleVPBot_Handler_Service {
 		}
 		return array_merge(
 			$v,
+			$sub_view,
 			array(
-				'import_sub_url'  => (string) $import,
+				'import_sub_url'   => (string) $import,
 				'subscription_url' => (string) $import,
-				'portal_url'      => (string) $portal,
-				'user_portal_url' => (string) $portal,
-				'config_uris'     => $uris,
-				'config_uri'      => ! empty( $uris ) ? (string) $uris[0] : '',
-				'primary_link'    => (string) $primary,
+				'portal_url'       => (string) $portal,
+				'user_portal_url'  => (string) $portal,
+				'config_uris'      => $uris,
+				'config_uri'       => ! empty( $uris ) ? (string) $uris[0] : '',
+				'primary_link'     => (string) $primary,
 			)
 		);
 	}
@@ -1743,17 +1805,5 @@ class SimpleVPBot_Handler_Service {
 	private static function get_config_link( $svc ) {
 		unset( $svc );
 		return '';
-	}
-
-	/**
-	 * Whether site uses platform_slug service naming for new provisions.
-	 *
-	 * @return bool
-	 */
-	private static function uses_platform_slug_naming() {
-		if ( ! class_exists( 'SimpleVPBot_Settings' ) ) {
-			return false;
-		}
-		return 'platform_slug' === (string) SimpleVPBot_Settings::get( 'service_naming_mode', 'legacy' );
 	}
 }

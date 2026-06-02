@@ -33,6 +33,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type { AdminNavSection } from "@/config/admin-nav"
+import { menuBtnCollapsedIcon } from "@/lib/sidebar-menu-classes"
 import { cn } from "@/lib/utils"
 import { buildDashboardTabUrl } from "@/lib/dash-tab"
 import { writeSiteSubtabToUrl } from "@/lib/site-settings-subtab"
@@ -41,9 +42,6 @@ type NavTab = {
   key: string
   label: string
 }
-
-const menuBtnCollapsedIcon =
-  "group-data-[collapsible=icon]:justify-center [&>span]:group-data-[collapsible=icon]:hidden"
 
 function SidebarQuickLinks({
   rtl,
@@ -187,7 +185,7 @@ function RoleSwitcher({
   }
 
   return (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
@@ -325,25 +323,58 @@ export function AppSidebar({
 
   const showOperatorHeader = variant === "admin" || variant === "reseller"
 
+  const siteLogoInitial =
+    displayName.trim().charAt(0).toUpperCase() || "?"
+
+  const brandRowClass = cn(
+    "flex h-full min-w-0 flex-1 items-center gap-2",
+    "group-data-[collapsible=icon]:justify-center",
+    isFa && "flex-row-reverse"
+  )
+
+  const brandLogo = siteIconUrl ? (
+    <img
+      src={siteIconUrl}
+      alt=""
+      className="size-8 shrink-0 rounded-md object-cover"
+    />
+  ) : (
+    <div
+      className="flex size-8 shrink-0 items-center justify-center rounded-md bg-sidebar-accent text-xs font-semibold text-sidebar-accent-foreground"
+      aria-hidden
+    >
+      {siteLogoInitial !== "?" ? (
+        siteLogoInitial
+      ) : (
+        <LayoutDashboard className="size-4 opacity-80" />
+      )}
+    </div>
+  )
+
   return (
     <Sidebar side={side} collapsible="icon">
       {(showOperatorHeader || (variant === "user" && showRoleSwitcher)) && (
         <SidebarHeader
           className={cn(
-            "gap-2 border-b border-sidebar-border pb-3",
+            "h-16 shrink-0 gap-0 border-b border-sidebar-border px-4 py-0",
             isFa && "text-right"
           )}
         >
-          {isFa ? (
-            <div dir="rtl" className="flex items-center gap-2 px-2 pt-2">
-              {siteIconUrl ? (
-                <img
-                  src={siteIconUrl}
-                  alt=""
-                  className="size-8 shrink-0 rounded-md object-cover"
-                />
-              ) : null}
-              <p className="min-w-0 flex-1 truncate text-sm font-semibold leading-tight">
+          <div
+            dir={isFa ? "rtl" : "ltr"}
+            className={cn(
+              "flex h-full w-full items-center gap-2",
+              "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+            )}
+          >
+            {brandLogo}
+            <div
+              className={cn(
+                brandRowClass,
+                "sidebar-brand-expanded group-data-[collapsible=icon]:hidden"
+              )}
+            >
+              <p className="sidebar-brand-label min-w-0 flex-1 truncate text-sm font-semibold leading-tight">
                 {displayName}
               </p>
               {showRoleSwitcher ? (
@@ -357,32 +388,19 @@ export function AppSidebar({
                 />
               ) : null}
             </div>
-          ) : (
-            <div className="flex items-center gap-2 px-2 pt-2">
-              {siteIconUrl ? (
-                <img
-                  src={siteIconUrl}
-                  alt=""
-                  className="size-8 shrink-0 rounded-md object-cover"
+            {showRoleSwitcher ? (
+              <div className="hidden shrink-0 group-data-[collapsible=icon]:block">
+                <RoleSwitcher
+                  activePersona={persona}
+                  availablePersonas={personas}
+                  restUrl={personaRestUrl!}
+                  nonce={personaNonce!}
+                  rtl={isFa}
+                  personaSwitchBlocked={personaSwitchBlocked}
                 />
-              ) : null}
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                <p className="min-w-0 flex-1 truncate text-sm font-semibold leading-tight">
-                  {displayName}
-                </p>
-                {showRoleSwitcher ? (
-                  <RoleSwitcher
-                    activePersona={persona}
-                    availablePersonas={personas}
-                    restUrl={personaRestUrl!}
-                    nonce={personaNonce!}
-                    rtl={isFa}
-                    personaSwitchBlocked={personaSwitchBlocked}
-                  />
-                ) : null}
               </div>
-            </div>
-          )}
+            ) : null}
+          </div>
         </SidebarHeader>
       )}
       <SidebarContent>

@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class SimpleVPBot_Activator {
 
-	const DB_VERSION = '2.3.3';
+	const DB_VERSION = '2.3.7';
 
 	/**
 	 * Activate plugin.
@@ -270,6 +270,7 @@ class SimpleVPBot_Activator {
 		dbDelta( self::sql_reseller_panel_prices( $p, $charset_collate ) );
 		dbDelta( self::sql_reseller_parent_panel_floors( $p, $charset_collate ) );
 		dbDelta( self::sql_reseller_bot_profiles( $p, $charset_collate ) );
+		dbDelta( self::sql_reseller_inbound_display_names( $p, $charset_collate ) );
 		dbDelta( self::sql_reseller_closure( $p, $charset_collate ) );
 		dbDelta( self::sql_audit_log( $p, $charset_collate ) );
 		if ( class_exists( 'SimpleVPBot_Service_Transfer' ) ) {
@@ -397,6 +398,7 @@ class SimpleVPBot_Activator {
 			xui_client_uuid varchar(64) DEFAULT NULL,
 			email varchar(191) NOT NULL,
 			remark varchar(255) DEFAULT '',
+			display_label varchar(255) NOT NULL DEFAULT '',
 			service_note varchar(512) DEFAULT '',
 			plan_id bigint(20) unsigned DEFAULT NULL,
 			expires_at datetime DEFAULT NULL,
@@ -749,6 +751,18 @@ class SimpleVPBot_Activator {
 		if ( version_compare( (string) $current, '2.3.3', '<' ) ) {
 			self::maybe_migrate_233_service_note( $p );
 		}
+		if ( version_compare( (string) $current, '2.3.4', '<' ) ) {
+			self::maybe_migrate_234_config_label_override( $p );
+		}
+		if ( version_compare( (string) $current, '2.3.5', '<' ) ) {
+			self::maybe_migrate_235_config_label_prefix( $p );
+		}
+		if ( version_compare( (string) $current, '2.3.6', '<' ) ) {
+			self::maybe_migrate_236_reseller_inbound_display_names( $p );
+		}
+		if ( version_compare( (string) $current, '2.3.7', '<' ) ) {
+			self::maybe_migrate_237_service_display_label( $p );
+		}
 		update_option( 'simplevpbot_db_version', self::DB_VERSION );
 	}
 
@@ -782,6 +796,91 @@ class SimpleVPBot_Activator {
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN service_note varchar(512) NOT NULL DEFAULT '' AFTER remark" );
 		}
+	}
+
+	/**
+	 * Reseller bot profiles: optional config line label override for end users.
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_234_config_label_override( $p ) {
+		global $wpdb;
+		$t = $p . 'svp_reseller_bot_profiles';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$has = $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'config_label_override'" );
+		if ( ! $has ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN config_label_override varchar(255) NOT NULL DEFAULT '' AFTER custom_domain" );
+		}
+	}
+
+	/**
+	 * Reseller bot profiles: prefix for prefix_numbered config labels.
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_235_config_label_prefix( $p ) {
+		global $wpdb;
+		$t = $p . 'svp_reseller_bot_profiles';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$has = $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'config_label_prefix'" );
+		if ( ! $has ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN config_label_prefix varchar(255) NOT NULL DEFAULT '' AFTER config_label_override" );
+		}
+	}
+
+	/**
+	 * Per-reseller inbound display name aliases.
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_236_reseller_inbound_display_names( $p ) {
+		global $wpdb;
+		$t = $p . 'svp_reseller_inbound_display_names';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $t ) );
+		if ( $exists === $t ) {
+			return;
+		}
+		$charset = $wpdb->get_charset_collate();
+		dbDelta( self::sql_reseller_inbound_display_names( $p, $charset ) );
+	}
+
+	/**
+	 * Services: bot-only display name (does not change canonical remark / panel).
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_237_service_display_label( $p ) {
+		global $wpdb;
+		$t = $p . 'svp_services';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$has = $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'display_label'" );
+		if ( ! $has ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN display_label varchar(255) NOT NULL DEFAULT '' AFTER remark" );
+		}
+	}
+
+	/**
+	 * Per-reseller inbound display name aliases.
+	 *
+	 * @param string $p               Prefix.
+	 * @param string $charset_collate Collation.
+	 * @return string
+	 */
+	public static function sql_reseller_inbound_display_names( $p, $charset_collate ) {
+		return "CREATE TABLE {$p}svp_reseller_inbound_display_names (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			reseller_svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			panel_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			inbound_id int(11) NOT NULL DEFAULT 0,
+			label varchar(255) NOT NULL DEFAULT '',
+			PRIMARY KEY (id),
+			UNIQUE KEY reseller_panel_inbound (reseller_svp_user_id, panel_id, inbound_id),
+			KEY panel_inbound (panel_id, inbound_id)
+		) {$charset_collate};";
 	}
 
 	/**
@@ -1168,6 +1267,8 @@ class SimpleVPBot_Activator {
 			theme_primary varchar(16) NOT NULL DEFAULT '',
 			theme_accent varchar(16) NOT NULL DEFAULT '',
 			custom_domain varchar(255) NOT NULL DEFAULT '',
+			config_label_override varchar(255) NOT NULL DEFAULT '',
+			config_label_prefix varchar(255) NOT NULL DEFAULT '',
 			telegram_secret_token varchar(255) NOT NULL DEFAULT '',
 			enabled tinyint(1) NOT NULL DEFAULT 1,
 			admin_telegram_ids longtext NULL,
@@ -1249,7 +1350,9 @@ class SimpleVPBot_Activator {
 			'favicon_url'    => "ADD COLUMN favicon_url varchar(512) NOT NULL DEFAULT '' AFTER logo_url",
 			'theme_primary'  => "ADD COLUMN theme_primary varchar(16) NOT NULL DEFAULT '' AFTER favicon_url",
 			'theme_accent'   => "ADD COLUMN theme_accent varchar(16) NOT NULL DEFAULT '' AFTER theme_primary",
-			'custom_domain'  => "ADD COLUMN custom_domain varchar(255) NOT NULL DEFAULT '' AFTER theme_accent",
+			'custom_domain'         => "ADD COLUMN custom_domain varchar(255) NOT NULL DEFAULT '' AFTER theme_accent",
+			'config_label_override' => "ADD COLUMN config_label_override varchar(255) NOT NULL DEFAULT '' AFTER custom_domain",
+			'config_label_prefix'   => "ADD COLUMN config_label_prefix varchar(255) NOT NULL DEFAULT '' AFTER config_label_override",
 		);
 		foreach ( $cols as $col => $ddl ) {
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared

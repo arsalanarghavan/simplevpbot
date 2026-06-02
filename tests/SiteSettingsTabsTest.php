@@ -30,13 +30,17 @@ class SiteSettingsTabsTest extends TestCase {
 				'support_bale_username',
 				'telegram_proxy_enabled',
 				'default_reseller_permissions',
+				'subscription_config_label_override',
+				'config_label_prefix',
+				'config_label_number_start',
+				'inbound_display_names',
 				'alert_ip_warn_min_distinct',
 			) as $key
 		) {
 			$this->assertStringContainsString( "'{$key}'", $settings );
 		}
 
-		foreach ( array( 'whitelabel', 'proxy', 'resellers_defaults', 'force_join' ) as $tab ) {
+		foreach ( array( 'whitelabel', 'service_naming', 'proxy', 'resellers_defaults', 'force_join' ) as $tab ) {
 			$this->assertStringContainsString( "case '{$tab}':", $actions );
 		}
 
@@ -76,6 +80,7 @@ class SiteSettingsTabsTest extends TestCase {
 				'site-settings-notifications-tab.tsx',
 				'site-settings-logs-tab.tsx',
 				'site-settings-resellers-tab.tsx',
+				'site-settings-service-naming-tab.tsx',
 			) as $f
 		) {
 			$this->assertFileExists( $root . '/components/site-settings/' . $f );

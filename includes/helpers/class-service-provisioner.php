@@ -62,7 +62,7 @@ class SimpleVPBot_Service_Provisioner {
 		$panel_id = max( 1, (int) ( $plan->panel_id ?? 1 ) );
 		return SimpleVPBot_Xui_Client::run_with_panel(
 			$panel_id,
-			function () use ( $user_id, $plan_id, $plan, $volume_gb ) {
+			function () use ( $user_id, $plan_id, $plan, $volume_gb, $platform ) {
 				return self::create_xray_service_on_bound_panel( $user_id, $plan_id, $plan, $volume_gb, $platform );
 			}
 		);
@@ -102,7 +102,15 @@ class SimpleVPBot_Service_Provisioner {
 		if ( ! $uuid || ! SimpleVPBot_Xui_Client::is_likely_client_uuid( (string) $uuid ) ) {
 			return array( 'ok' => false, 'reason' => 'uuid_missing' );
 		}
-		$email = 'u' . (int) $user_id . '_' . wp_generate_password( 6, false, false ) . '@svp.local';
+		$wp_user      = SimpleVPBot_Model_User::find( (int) $user_id );
+		$canonical    = SimpleVPBot_Service_Naming::provision_canonical_label( $wp_user, $platform, 1 );
+		$email        = SimpleVPBot_Service_Naming::provision_panel_email( $wp_user, $canonical, $platform );
+		$service_remark = $canonical;
+		$panel_label    = $canonical;
+		$service_note   = '';
+		if ( SimpleVPBot_Service_Naming::uses_platform_slug_for_new() ) {
+			$service_note = SimpleVPBot_Service_Naming::build_auto_service_note( $wp_user );
+		}
 
 		$total_gb    = SimpleVPBot_Model_Plan::is_per_gb( $plan ) ? (int) $volume_gb : (int) $plan->traffic_gb;
 		$total_bytes = $total_gb > 0 ? $total_gb * 1073741824 : 0;
@@ -112,22 +120,7 @@ class SimpleVPBot_Service_Provisioner {
 		if ( (int) $plan->duration_days > 0 ) {
 			$expiry_ms = ( time() + (int) $plan->duration_days * DAY_IN_SECONDS ) * 1000;
 		}
-		$subid_gen   = substr( md5( $email . microtime( true ) ), 0, 16 );
-		$wp_user     = SimpleVPBot_Model_User::find( (int) $user_id );
-		$service_note = '';
-		if ( self::uses_platform_slug_naming() ) {
-			$slug           = self::generate_platform_slug( $wp_user, $platform );
-			$email          = $slug . '@svp.local';
-			$service_remark = $slug;
-			$panel_label    = self::panel_brand_only_label( (int) $user_id );
-			$service_note   = self::build_auto_service_note( $wp_user );
-		} else {
-			$service_remark = (string) $plan->name;
-			if ( SimpleVPBot_Model_Plan::is_per_gb( $plan ) && null !== $volume_gb ) {
-				$service_remark .= ' · ' . (int) $volume_gb . ' GB';
-			}
-			$panel_label = self::panel_client_label( (int) $user_id, $wp_user, $service_remark );
-		}
+		$subid_gen = substr( md5( $email . microtime( true ) ), 0, 16 );
 		$def_users   = max( 0, (int) SimpleVPBot_Settings::get( 'default_concurrent_users', 2 ) );
 		$overrides   = array(
 			'id'         => (string) $uuid,
@@ -157,6 +150,9 @@ class SimpleVPBot_Service_Provisioner {
 		$new_client['email']  = $email;
 		$new_client['subId']  = (string) ( $new_client['subId'] ?? $subid_gen );
 		$new_client['remark'] = $panel_label;
+		if ( '' !== $service_note ) {
+			$new_client['comment'] = $service_note;
+		}
 		$new_client['totalGB'] = $panel_quota;
 		$new_client['expiryTime'] = (int) $new_client['expiryTime'];
 		foreach ( array( 'up', 'down', 'total', 'lastOnline' ) as $_strip ) {
@@ -297,98 +293,6 @@ class SimpleVPBot_Service_Provisioner {
 			return array( 'ok' => false, 'reason' => 'db_insert' );
 		}
 		return array( 'ok' => true, 'service_id' => (int) $service_id, 'reason' => 'ok' );
-	}
-
-	/**
-	 * Whether new provisions use platform_slug naming.
-	 *
-	 * @return bool
-	 */
-	private static function uses_platform_slug_naming() {
-		if ( ! class_exists( 'SimpleVPBot_Settings' ) ) {
-			return false;
-		}
-		return 'platform_slug' === (string) SimpleVPBot_Settings::get( 'service_naming_mode', 'legacy' );
-	}
-
-	/**
-	 * Brand-only panel remark for platform_slug mode.
-	 *
-	 * @param int $user_id svp user id.
-	 * @return string
-	 */
-	private static function panel_brand_only_label( $user_id ) {
-		if ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
-			return (string) SimpleVPBot_Reseller_Branding::panel_brand_only_for_user( (int) $user_id );
-		}
-		return (string) get_bloginfo( 'name' );
-	}
-
-	/**
-	 * Auto service note with user identifiers.
-	 *
-	 * @param object|null $user User row.
-	 * @return string
-	 */
-	private static function build_auto_service_note( $user ) {
-		$uid = is_object( $user ) ? (int) ( $user->id ?? 0 ) : 0;
-		$tg  = is_object( $user ) ? (int) ( $user->tg_user_id ?? 0 ) : 0;
-		$bl  = is_object( $user ) ? (int) ( $user->bale_user_id ?? 0 ) : 0;
-		return 'SVP:' . $uid . ' TG:' . $tg . ' BL:' . $bl;
-	}
-
-	/**
-	 * Generate unique bot-t* / bot-b* service slug.
-	 *
-	 * @param object|null $user     User row.
-	 * @param string|null $platform telegram|bale.
-	 * @return string
-	 */
-	private static function generate_platform_slug( $user, $platform = null ) {
-		$plat = strtolower( trim( (string) $platform ) );
-		$tg   = is_object( $user ) ? (int) ( $user->tg_user_id ?? 0 ) : 0;
-		$bl   = is_object( $user ) ? (int) ( $user->bale_user_id ?? 0 ) : 0;
-		$uid  = is_object( $user ) ? (int) ( $user->id ?? 0 ) : 0;
-		if ( 'bale' === $plat && $bl > 0 ) {
-			$prefix = 'bot-b' . $bl;
-		} elseif ( 'telegram' === $plat && $tg > 0 ) {
-			$prefix = 'bot-t' . $tg;
-		} elseif ( $tg > 0 ) {
-			$prefix = 'bot-t' . $tg;
-		} elseif ( $bl > 0 ) {
-			$prefix = 'bot-b' . $bl;
-		} else {
-			$prefix = 'bot-u' . $uid;
-		}
-		for ( $i = 0; $i < 12; $i++ ) {
-			$slug = strtolower( $prefix . '-' . wp_generate_password( 8, false, false ) );
-			if ( ! self::platform_slug_taken( $slug ) ) {
-				return $slug;
-			}
-		}
-		return strtolower( $prefix . '-' . wp_generate_password( 8, false, false ) );
-	}
-
-	/**
-	 * @param string $slug Service slug (without @domain).
-	 * @return bool
-	 */
-	private static function platform_slug_taken( $slug ) {
-		global $wpdb;
-		$slug = strtolower( trim( (string) $slug ) );
-		if ( '' === $slug ) {
-			return true;
-		}
-		$t = $wpdb->prefix . 'svp_services';
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$n = (int) $wpdb->get_var(
-			$wpdb->prepare(
-				"SELECT COUNT(*) FROM {$t} WHERE remark = %s OR email = %s LIMIT 1",
-				$slug,
-				$slug . '@svp.local'
-			)
-		);
-		return $n > 0;
 	}
 
 	/**
@@ -621,10 +525,12 @@ class SimpleVPBot_Service_Provisioner {
 		if ( '' === $subid ) {
 			$subid = substr( md5( $email . microtime( true ) ), 0, 16 );
 		}
-		$uid         = (int) ( $svc->user_id ?? 0 );
-		$wp_user     = $uid > 0 ? SimpleVPBot_Model_User::find( $uid ) : null;
-		$remark      = trim( (string) ( $svc->remark ?? '' ) );
-		$panel_label = self::panel_client_label( $uid, $wp_user, $remark );
+		$panel_label = class_exists( 'SimpleVPBot_Service_Naming' )
+			? SimpleVPBot_Service_Naming::panel_remark_for_service( (int) ( $svc->user_id ?? 0 ), $svc )
+			: trim( (string) ( $svc->remark ?? '' ) );
+		if ( '' === $panel_label ) {
+			$panel_label = trim( (string) ( $svc->remark ?? '' ) );
+		}
 		$limit_ip    = (int) ( $svc->panel_limit_ip ?? 0 );
 		if ( $limit_ip < 1 ) {
 			$limit_ip = max( 0, (int) SimpleVPBot_Settings::get( 'default_concurrent_users', 2 ) );

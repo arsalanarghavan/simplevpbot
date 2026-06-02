@@ -154,8 +154,9 @@ class SimpleVPBot_Shortcode_Portal {
 		$cfg_uri = (string) ( $data['config_uri'] ?? ( ! empty( $uris ) ? $uris[0] : '' ) );
 		$primary = (string) ( $data['primary_link'] ?? '' );
 		$portal  = (string) ( $data['portal_url'] ?? '' );
-		$remark = (string) ( $data['remark'] ?? $svc->remark );
-		$sub_id = (string) ( $data['sub_id'] ?? '' );
+		$sub_name = (string) ( $data['subscription_name'] ?? $data['remark'] ?? $svc->remark );
+		$labels   = isset( $data['config_labels'] ) && is_array( $data['config_labels'] ) ? $data['config_labels'] : array();
+		$remark   = $sub_name;
 
 		$qr_payload = '' !== $cfg_uri ? $cfg_uri : ( '' !== $primary ? $primary : $portal );
 		$qr_src = '';
@@ -173,12 +174,11 @@ class SimpleVPBot_Shortcode_Portal {
 		$out  = '<article class="' . esc_attr( $article_cls ) . '" data-sub="' . esc_attr( $sub_url ? $sub_url : $primary ) . '" data-cfg="' . esc_attr( $cfg_uri ) . '" data-remark="' . esc_attr( $remark ) . '">';
 		$out .= '<header class="svp-card__head">';
 		$out .= '<span class="svp-chip">' . esc_html__( 'اطلاعات اشتراک', 'simplevpbot' ) . '</span>';
-		$out .= '<span class="svp-subid">' . esc_html( $sub_id ) . '</span>';
+		if ( '' !== $sub_name ) {
+			$out .= '<span class="svp-subid">' . esc_html( $sub_name ) . '</span>';
+		}
 		$out .= '<button type="button" class="svp-gear" aria-label="' . esc_attr__( 'تنظیمات', 'simplevpbot' ) . '">' . self::svg_gear() . '</button>';
 		$out .= '<div class="svp-gear__menu">';
-		if ( $sub_id ) {
-			$out .= '<button type="button" data-copy="' . esc_attr( $sub_id ) . '">' . esc_html__( 'کپی شناسه اشتراک', 'simplevpbot' ) . '</button>';
-		}
 		if ( $portal ) {
 			$out .= '<a class="button button-small" href="' . esc_url( $portal ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'پنل وب', 'simplevpbot' ) . '</a> ';
 		}
@@ -194,7 +194,9 @@ class SimpleVPBot_Shortcode_Portal {
 		}
 
 		$out .= '<dl class="svp-rows">';
-		$out .= self::row( __( 'شناسه اشتراک', 'simplevpbot' ), esc_html( $sub_id ), true );
+		if ( '' !== $sub_name ) {
+			$out .= self::row( __( 'نام سرویس', 'simplevpbot' ), esc_html( $sub_name ) );
+		}
 		$out .= self::row( __( 'وضعیت', 'simplevpbot' ), '<span class="svp-pill ' . esc_attr( (string) $viz['pill_class'] ) . '">' . esc_html( (string) $viz['pill_label'] ) . '</span>' );
 		$out .= self::row( __( 'دانلود', 'simplevpbot' ), esc_html( (string) ( $data['down_h'] ?? '0 B' ) ), true );
 		$out .= self::row( __( 'آپلود', 'simplevpbot' ), esc_html( (string) ( $data['up_h'] ?? '0 B' ) ), true );
@@ -207,16 +209,23 @@ class SimpleVPBot_Shortcode_Portal {
 
 		if ( ! empty( $uris ) ) {
 			$idx = 1;
-			foreach ( $uris as $uri ) {
+			foreach ( $uris as $i => $uri ) {
 				$uri = (string) $uri;
 				if ( '' === $uri ) {
 					continue;
 				}
-				$tag = class_exists( 'SimpleVPBot_Config_Link' )
-					? SimpleVPBot_Config_Link::uri_fragment_label( $uri )
-					: '';
+				$tag = isset( $labels[ $i ] ) ? trim( (string) $labels[ $i ] ) : '';
+				if ( '' === $tag && class_exists( 'SimpleVPBot_Config_Link' ) ) {
+					$tag = SimpleVPBot_Config_Link::uri_fragment_label( $uri );
+				}
 				if ( '' === $tag ) {
-					$tag = count( $uris ) > 1 ? trim( $remark . ' · ' . $idx ) : $remark;
+					$tag = count( $uris ) > 1
+						? sprintf(
+							/* translators: %d: config line number */
+							__( 'کانفیگ %d', 'simplevpbot' ),
+							$idx
+						)
+						: __( 'کانفیگ', 'simplevpbot' );
 				}
 				$out .= '<div class="svp-cfg">';
 				$out .= '<span class="svp-cfg__tag">' . esc_html( $tag ) . '</span>';
@@ -246,8 +255,7 @@ class SimpleVPBot_Shortcode_Portal {
 	 */
 	private static function render_l2tp_card( $svc, $user_id = 0 ) {
 		$data   = SimpleVPBot_Handler_Service::get_portal_service_data( $svc, (int) $user_id );
-		$remark = (string) ( $data['remark'] ?? $svc->remark );
-		$sub_id = (string) ( $data['sub_id'] ?? '' );
+		$remark = (string) ( $data['subscription_name'] ?? $data['remark'] ?? $svc->remark );
 		$l2tp   = is_array( $data['l2tp'] ?? null ) ? $data['l2tp'] : array();
 		$host    = (string) ( $l2tp['host'] ?? '' );
 		$psk     = (string) ( $l2tp['psk'] ?? '' );
@@ -260,7 +268,9 @@ class SimpleVPBot_Shortcode_Portal {
 		$out  = '<article class="' . esc_attr( $article_cls ) . '">';
 		$out .= '<header class="svp-card__head">';
 		$out .= '<span class="svp-chip">' . esc_html__( 'اتصال L2TP / IPsec', 'simplevpbot' ) . '</span>';
-		$out .= '<span class="svp-subid">' . esc_html( $sub_id ) . '</span>';
+		if ( '' !== $remark ) {
+			$out .= '<span class="svp-subid">' . esc_html( $remark ) . '</span>';
+		}
 		$out .= '</header>';
 
 		$out .= '<dl class="svp-rows">';

@@ -253,10 +253,13 @@ class SimpleVPBot_Service_Renew {
 						$cl['enable'] = true;
 					}
 					if ( ! empty( $opts['touch_remark'] ) ) {
-						$remark = isset( $opts['remark'] ) ? (string) $opts['remark'] : (string) ( $cl['remark'] ?? '' );
-						$uid    = (int) ( $opts['user_id'] ?? 0 );
-						if ( $uid > 0 && class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
-							$remark = SimpleVPBot_Reseller_Branding::panel_client_name_for_user( $uid, $remark );
+						$uid = (int) ( $opts['user_id'] ?? 0 );
+						if ( $uid > 0 && ! empty( $opts['service'] ) && class_exists( 'SimpleVPBot_Service_Naming' ) ) {
+							$remark = SimpleVPBot_Service_Naming::panel_remark_for_service( $uid, $opts['service'] );
+						} elseif ( $uid > 0 && isset( $opts['remark'] ) && class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+							$remark = SimpleVPBot_Reseller_Branding::panel_client_name_for_user( $uid, (string) $opts['remark'] );
+						} else {
+							$remark = isset( $opts['remark'] ) ? (string) $opts['remark'] : (string) ( $cl['remark'] ?? '' );
 						}
 						$cl['remark'] = $remark;
 					}
@@ -585,7 +588,9 @@ class SimpleVPBot_Service_Renew {
 
 				$updated = null;
 				$panel_remark = (string) $svc->remark;
-				if ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+				if ( class_exists( 'SimpleVPBot_Service_Naming' ) ) {
+					$panel_remark = SimpleVPBot_Service_Naming::panel_remark_for_service( (int) $svc->user_id, $svc );
+				} elseif ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
 					$panel_remark = SimpleVPBot_Reseller_Branding::panel_client_name_for_user( (int) $svc->user_id, (string) $svc->remark );
 				}
 				foreach ( $dec['clients'] as &$cl ) {
@@ -696,6 +701,7 @@ class SimpleVPBot_Service_Renew {
 				'touch_remark'   => true,
 				'user_id'        => (int) $svc->user_id,
 				'remark'         => (string) $svc->remark,
+				'service'        => $svc,
 				'xui_client_id'  => (string) $svc->xui_client_id,
 			)
 		);
@@ -750,6 +756,7 @@ class SimpleVPBot_Service_Renew {
 				'touch_remark'  => true,
 				'user_id'       => (int) $svc->user_id,
 				'remark'        => (string) $svc->remark,
+				'service'       => $svc,
 				'xui_client_id' => (string) $svc->xui_client_id,
 			)
 		);
@@ -803,7 +810,9 @@ class SimpleVPBot_Service_Renew {
 
 				$updated = null;
 				$panel_remark = (string) $svc->remark;
-				if ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+				if ( class_exists( 'SimpleVPBot_Service_Naming' ) ) {
+					$panel_remark = SimpleVPBot_Service_Naming::panel_remark_for_service( (int) $svc->user_id, $svc );
+				} elseif ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
 					$panel_remark = SimpleVPBot_Reseller_Branding::panel_client_name_for_user( (int) $svc->user_id, (string) $svc->remark );
 				}
 				foreach ( $dec['clients'] as &$cl ) {
@@ -890,7 +899,9 @@ class SimpleVPBot_Service_Renew {
 				$updated = null;
 				$applied = 0;
 				$panel_remark = (string) $svc->remark;
-				if ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+				if ( class_exists( 'SimpleVPBot_Service_Naming' ) ) {
+					$panel_remark = SimpleVPBot_Service_Naming::panel_remark_for_service( (int) $svc->user_id, $svc );
+				} elseif ( class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
 					$panel_remark = SimpleVPBot_Reseller_Branding::panel_client_name_for_user( (int) $svc->user_id, (string) $svc->remark );
 				}
 				foreach ( $dec['clients'] as &$cl ) {
@@ -969,6 +980,7 @@ class SimpleVPBot_Service_Renew {
 				'touch_remark'  => true,
 				'user_id'       => (int) $svc->user_id,
 				'remark'        => (string) $svc->remark,
+				'service'       => $svc,
 				'xui_client_id' => (string) $svc->xui_client_id,
 			)
 		);
@@ -1013,6 +1025,7 @@ class SimpleVPBot_Service_Renew {
 				'touch_remark'  => true,
 				'user_id'       => (int) $svc->user_id,
 				'remark'        => (string) $svc->remark,
+				'service'       => $svc,
 				'xui_client_id' => (string) $svc->xui_client_id,
 			)
 		);
@@ -1068,6 +1081,7 @@ class SimpleVPBot_Service_Renew {
 				'touch_remark'  => true,
 				'user_id'       => $uid,
 				'remark'        => $remark,
+				'service'       => $svc,
 				'xui_client_id' => $uuid,
 				'service_id'    => (int) ( $svc->id ?? 0 ),
 			)

@@ -166,16 +166,55 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	}
 
 	/**
+	 * Strip DB rows and heavy panel payloads so REST responses always json_encode.
+	 *
+	 * @param array<string, mixed> $res Processor result.
+	 * @return array<string, mixed>
+	 */
+	private static function sanitize_receipt_processor_result_for_json( array $res ) {
+		$out = array(
+			'ok' => ! empty( $res['ok'] ),
+		);
+		foreach ( array( 'reason', 'reason_code', 'message', 'provision_error', 'provision_reason' ) as $key ) {
+			if ( isset( $res[ $key ] ) && is_scalar( $res[ $key ] ) ) {
+				$out[ $key ] = (string) $res[ $key ];
+			}
+		}
+		if ( ! empty( $res['purchase_failed'] ) ) {
+			$out['purchase_failed'] = true;
+		}
+		if ( isset( $res['provision_info'] ) && is_array( $res['provision_info'] ) ) {
+			$info = $res['provision_info'];
+			$safe = array();
+			if ( isset( $info['reason'] ) && is_scalar( $info['reason'] ) ) {
+				$safe['reason'] = (string) $info['reason'];
+			}
+			if ( isset( $info['detail'] ) && is_scalar( $info['detail'] ) ) {
+				$safe['detail'] = (string) $info['detail'];
+			}
+			$panel = $info['panel'] ?? null;
+			if ( is_array( $panel ) && isset( $panel['msg'] ) && is_scalar( $panel['msg'] ) ) {
+				$safe['panel_msg'] = (string) $panel['msg'];
+			}
+			if ( ! empty( $safe ) ) {
+				$out['provision_info'] = $safe;
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * Map Receipt_Processor result to REST mutate shape (surface provision_error to UI).
 	 *
 	 * @param array<string, mixed> $res Processor result.
 	 * @return array{ok:bool, message?:string, reason?:string, data?:array<string,mixed>}
 	 */
 	private static function receipt_mutate_rest_response( array $res ) {
-		$ok  = ! empty( $res['ok'] );
-		$out = array(
+		$ok   = ! empty( $res['ok'] );
+		$data = self::sanitize_receipt_processor_result_for_json( $res );
+		$out  = array(
 			'ok'   => $ok,
-			'data' => $res,
+			'data' => $data,
 		);
 		if ( ! $ok ) {
 			$msg = '';
@@ -329,6 +368,8 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return self::op_link_wp_user( $params );
 			case 'service_delete':
 				return self::op_service_delete( $params );
+			case 'service_apply_canonical_panel_identity':
+				return self::op_service_apply_canonical_panel_identity( $params );
 			case 'user_status':
 				return self::op_user_status( $params );
 			case 'user_balance_delta':
@@ -455,6 +496,8 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return self::op_bot_reseller_delete( $params );
 			case 'bot_reseller_save':
 				return self::op_bot_reseller_save( $params );
+			case 'reseller_inbound_labels_save':
+				return self::op_reseller_inbound_labels_save( $params );
 			default:
 				return array( 'ok' => false, 'message' => 'unknown_op' );
 		}
@@ -1179,6 +1222,9 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		}
 		$new = isset( $p['status'] ) ? sanitize_key( (string) $p['status'] ) : '';
 		if ( '' !== $new ) {
+			if ( 'approved' === $new ) {
+				@set_time_limit( 120 );
+			}
 			$reason = isset( $p['reject_reason'] ) ? sanitize_textarea_field( (string) $p['reject_reason'] ) : '';
 			$label  = (string) wp_get_current_user()->user_login;
 			$res    = SimpleVPBot_Receipt_Processor::admin_set_receipt_status( $rid, $new, $label, $reason );
@@ -1687,6 +1733,35 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		return $ok
 			? array( 'ok' => true, 'message' => 'deleted' )
 			: array( 'ok' => false, 'message' => 'not_found' );
+	}
+
+	/**
+	 * @param array<string, mixed> $p service_id.
+	 * @return array{ok:bool, message?:string, data?:array<string, mixed>}
+	 */
+	private static function op_service_apply_canonical_panel_identity( array $p ) {
+		$sid = isset( $p['service_id'] ) ? (int) $p['service_id'] : 0;
+		if ( $sid < 1 ) {
+			return array( 'ok' => false, 'message' => 'invalid_service' );
+		}
+		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			return array( 'ok' => false, 'message' => 'unavailable' );
+		}
+		$out = SimpleVPBot_Service_Admin_Ops::service_apply_canonical_panel_identity( $sid );
+		if ( empty( $out['ok'] ) ) {
+			return array(
+				'ok'      => false,
+				'message' => (string) ( $out['message'] ?? 'failed' ),
+			);
+		}
+		return array(
+			'ok'      => true,
+			'message' => 'ok',
+			'data'    => array(
+				'canonical' => (string) ( $out['canonical'] ?? '' ),
+				'email'     => (string) ( $out['email'] ?? '' ),
+			),
+		);
 	}
 
 	/**
@@ -4568,20 +4643,59 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				)
 			);
 		}
-		if ( array_key_exists( 'logo_url', $p ) || array_key_exists( 'custom_domain', $p ) ) {
+		if (
+			array_key_exists( 'logo_url', $p )
+			|| array_key_exists( 'custom_domain', $p )
+			|| array_key_exists( 'config_label_override', $p )
+			|| array_key_exists( 'config_label_prefix', $p )
+		) {
 			SimpleVPBot_Model_Reseller_Bot_Profile::save_branding_fields(
 				$rid,
 				array(
-					'logo_url'       => (string) ( $p['logo_url'] ?? '' ),
-					'favicon_url'    => (string) ( $p['favicon_url'] ?? '' ),
-					'theme_primary'  => (string) ( $p['theme_primary'] ?? '' ),
-					'theme_accent'   => (string) ( $p['theme_accent'] ?? '' ),
-					'custom_domain'  => (string) ( $p['custom_domain'] ?? '' ),
+					'logo_url'              => (string) ( $p['logo_url'] ?? '' ),
+					'favicon_url'           => (string) ( $p['favicon_url'] ?? '' ),
+					'theme_primary'         => (string) ( $p['theme_primary'] ?? '' ),
+					'theme_accent'          => (string) ( $p['theme_accent'] ?? '' ),
+					'custom_domain'         => (string) ( $p['custom_domain'] ?? '' ),
+					'config_label_override' => (string) ( $p['config_label_override'] ?? '' ),
+					'config_label_prefix'   => (string) ( $p['config_label_prefix'] ?? '' ),
 				)
 			);
 		}
+		if ( isset( $p['inbound_display_names'] ) && class_exists( 'SimpleVPBot_Model_Reseller_Inbound_Display_Name' ) ) {
+			$map = SimpleVPBot_Settings::sanitize_inbound_display_names_input( $p['inbound_display_names'] );
+			SimpleVPBot_Model_Reseller_Inbound_Display_Name::replace_map_for_reseller( $rid, $map );
+		}
 		self::log_rest_user( $rid, 'bot_reseller_save', array( 'enabled' => $en ) );
 		self::audit_rest( 'reseller', 'bot_reseller_save', 'user', $rid, array( 'enabled' => $en ) );
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * Save per-inbound display names for a reseller.
+	 *
+	 * @param array<string, mixed> $p reseller_svp_user_id, inbound_display_names map.
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function op_reseller_inbound_labels_save( array $p ) {
+		if ( ! class_exists( 'SimpleVPBot_Model_Reseller_Inbound_Display_Name' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		if ( self::mutate_is_unrestricted_site_admin() ) {
+			$rid = (int) ( $p['reseller_svp_user_id'] ?? 0 );
+			if ( $rid < 1 ) {
+				return array( 'ok' => false, 'message' => 'invalid_reseller' );
+			}
+		} else {
+			$wp = SimpleVPBot_Model_User::find_by_wp_user( get_current_user_id() );
+			if ( ! $wp || ! SimpleVPBot_Model_User::is_reseller_row( $wp ) ) {
+				return array( 'ok' => false, 'message' => 'forbidden' );
+			}
+			$rid = (int) $wp->id;
+		}
+		$map = SimpleVPBot_Settings::sanitize_inbound_display_names_input( $p['inbound_display_names'] ?? array() );
+		SimpleVPBot_Model_Reseller_Inbound_Display_Name::replace_map_for_reseller( $rid, $map );
+		self::audit_rest( 'reseller', 'reseller_inbound_labels_save', 'user', $rid, array( 'count' => count( $map ) ) );
 		return array( 'ok' => true );
 	}
 

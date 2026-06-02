@@ -47,6 +47,7 @@ export const ADMIN_ONLY_TAB_KEYS = new Set<string>([
   "reseller_reports",
   "reseller_bots",
   "reseller_xui_panels",
+  "reseller_settings",
 ])
 
 /**
@@ -91,6 +92,23 @@ export function filterAdminNavForReseller(
             children: [{ tabKey: "reseller_charge", icon: Wallet }, ...ent.children],
           }
         }),
+      }
+    })
+  }
+
+  if (allowedTabs.has("reseller_settings")) {
+    patched = patched.map((sec) => {
+      if (sec.id !== "settings") return sec
+      const has = sec.entries.some(
+        (ent) => ent.kind === "leaf" && ent.tabKey === "reseller_settings"
+      )
+      if (has) return sec
+      return {
+        ...sec,
+        entries: [
+          { kind: "leaf", tabKey: "reseller_settings", icon: Settings2 },
+          ...sec.entries,
+        ],
       }
     })
   }

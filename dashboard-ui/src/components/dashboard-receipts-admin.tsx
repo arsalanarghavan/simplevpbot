@@ -85,11 +85,19 @@ function formatReceiptAmount(amount: number, isFa: boolean, tp: (k: string) => s
   return formatNumber(amount, isFa)
 }
 
+function receiptMutateDetailMessage(raw: string, tp: (k: string) => string): string {
+  if (raw === "bad_amount") return tp("badAmount")
+  if (raw === "invalid_html_response") return tp("invalidHtmlResponse")
+  if (raw === "server_error" || raw === "response_encode_failed") return tp("serverError")
+  if (raw.startsWith("bad_json")) return tp("invalidHtmlResponse")
+  return raw
+}
+
 function formatReceiptMutateFeedback(res: AdminMutateResult, tp: (k: string) => string): string | null {
   const d = res.data
   if (!res.ok) {
     const raw = adminMutateErrorText(res, tp("mutateError"))
-    const detail = raw === "bad_amount" ? tp("badAmount") : raw
+    const detail = receiptMutateDetailMessage(raw, tp)
     return `${tp("mutateError")}: ${detail}`
   }
   const msgKey = typeof res.message === "string" ? res.message : ""

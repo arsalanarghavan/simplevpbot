@@ -152,6 +152,10 @@ class SimpleVPBot_Handler_Buy {
 		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
 			$meta = SimpleVPBot_Bot_Reseller_Scope::enrich_checkout_meta( $meta );
 		}
+		$plat = sanitize_key( (string) $platform );
+		if ( in_array( $plat, array( 'telegram', 'bale' ), true ) ) {
+			$meta['platform'] = $plat;
+		}
 		$user   = SimpleVPBot_Model_User::find( (int) $user_id );
 		$svc_id = isset( $meta['service_id'] ) ? (int) $meta['service_id'] : 0;
 		$tid    = SimpleVPBot_Model_Transaction::insert(

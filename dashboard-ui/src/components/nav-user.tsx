@@ -21,6 +21,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { formatPlainLatinInt } from "@/lib/format-locale"
+import { menuBtnCollapsedIcon } from "@/lib/sidebar-menu-classes"
 import { cn } from "@/lib/utils"
 
 function IconTelegram({ className }: { className?: string }) {
@@ -110,22 +111,23 @@ export function NavUser({
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <DropdownMenu>
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               dir={rtl ? "rtl" : undefined}
               size="lg"
-              className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+              className={cn(
+                menuBtnCollapsedIcon,
+                "data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground",
+                "group-data-[collapsible=icon]:[&>div]:hidden"
+              )}
             >
               <Avatar className="h-8 w-8 shrink-0 rounded-lg">
                 <AvatarImage src={user.avatar} alt={user.name} />
                 <AvatarFallback className="rounded-lg">U</AvatarFallback>
               </Avatar>
               <div
-                className={cn(
-                  "grid min-w-0 flex-1 gap-0.5 text-sm leading-tight",
-                  rtl ? "text-end" : "text-start"
-                )}
+                className="grid min-w-0 flex-1 gap-0.5 text-sm leading-tight text-start"
               >
                 <span className="truncate font-medium">{user.name}</span>
                 <MessengerIds
@@ -136,7 +138,7 @@ export function NavUser({
               </div>
               <ChevronsUpDown
                 className={cn(
-                  "size-4 shrink-0 opacity-70",
+                  "size-4 shrink-0 opacity-70 group-data-[collapsible=icon]:hidden",
                   rtl ? "me-auto ms-0 rotate-180" : "ms-auto"
                 )}
               />
@@ -153,22 +155,12 @@ export function NavUser({
             sideOffset={4}
           >
             <DropdownMenuLabel className="p-0 font-normal">
-              <div
-                className={cn(
-                  "flex items-start gap-2 px-1 py-1.5 text-sm",
-                  rtl ? "text-end" : "text-start"
-                )}
-              >
+              <div className="flex items-start gap-2 px-1 py-1.5 text-sm text-start">
                 <Avatar className="h-8 w-8 shrink-0 rounded-lg">
                   <AvatarImage src={user.avatar} alt={user.name} />
                   <AvatarFallback className="rounded-lg">U</AvatarFallback>
                 </Avatar>
-                <div
-                  className={cn(
-                    "grid min-w-0 flex-1 gap-1 text-sm leading-tight",
-                    rtl ? "text-end" : "text-start"
-                  )}
-                >
+                <div className="grid min-w-0 flex-1 gap-1 text-sm leading-tight text-start">
                   <span className="truncate font-medium">{user.name}</span>
                   <MessengerIds
                     tgUserId={user.tgUserId}

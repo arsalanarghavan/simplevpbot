@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { SiteSettingsLogsTab } from "@/components/site-settings/site-settings-logs-tab"
@@ -8,6 +8,7 @@ import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
 import { SiteSettingsNotificationsTab } from "@/components/site-settings/site-settings-notifications-tab"
 import { SiteSettingsProxyTab } from "@/components/site-settings/site-settings-proxy-tab"
 import { SiteSettingsResellersTab } from "@/components/site-settings/site-settings-resellers-tab"
+import { SiteSettingsServiceNamingTab } from "@/components/site-settings/site-settings-service-naming-tab"
 import { SiteSettingsWhitelabelTab } from "@/components/site-settings/site-settings-whitelabel-tab"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -25,6 +26,7 @@ export function DashboardSiteSettingsAdmin({
   settings,
   wpPages,
   plans,
+  panels,
   resellers,
   resellerPermissionsMap,
   isFa,
@@ -33,6 +35,7 @@ export function DashboardSiteSettingsAdmin({
   settings: DashRecord | undefined
   wpPages: WpPage[]
   plans: DashRecord[]
+  panels?: DashRecord[]
   resellers: DashRecord[]
   resellerPermissionsMap: Record<string, Record<string, boolean>>
   isFa: boolean
@@ -61,6 +64,16 @@ export function DashboardSiteSettingsAdmin({
 
   const pages = wpPages ?? []
   const resellerMap = resellerPermissionsMap ?? {}
+  const panelRows = useMemo(
+    () =>
+      (panels ?? [])
+        .map((p) => ({
+          id: Number(p.id) || 0,
+          name: String(p.name ?? p.title ?? "").trim() || `#${p.id}`,
+        }))
+        .filter((p) => p.id > 0),
+    [panels]
+  )
 
   return (
     <div className={dashPageRootClass(isFa, "space-y-4")} dir={dashDir(isFa)}>
@@ -69,6 +82,7 @@ export function DashboardSiteSettingsAdmin({
       <Tabs value={subtab} onValueChange={onSubtabChange} className="w-full">
         <TabsList className={cn("flex h-auto w-full flex-wrap")}>
           <TabsTrigger value="whitelabel">{tp("tabWhitelabel")}</TabsTrigger>
+          <TabsTrigger value="service_naming">{tp("tabServiceNaming")}</TabsTrigger>
           <TabsTrigger value="proxy">{tp("tabProxy")}</TabsTrigger>
           <TabsTrigger value="notifications">{tp("tabNotifications")}</TabsTrigger>
           <TabsTrigger value="logs">{tp("tabLogs")}</TabsTrigger>
@@ -80,6 +94,14 @@ export function DashboardSiteSettingsAdmin({
             settings={settings}
             wpPages={pages}
             plans={plans}
+            isFa={isFa}
+            onMutateSuccess={onMutateSuccess}
+          />
+        </TabsContent>
+        <TabsContent value="service_naming" className="mt-4">
+          <SiteSettingsServiceNamingTab
+            settings={settings}
+            panels={panelRows}
             isFa={isFa}
             onMutateSuccess={onMutateSuccess}
           />

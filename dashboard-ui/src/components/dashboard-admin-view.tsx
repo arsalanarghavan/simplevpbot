@@ -19,6 +19,7 @@ import {
   type ReceiptsListFilters,
 } from "@/components/dashboard-receipts-admin"
 import { DashboardResellerChargeAdmin } from "@/components/dashboard-reseller-charge-admin"
+import { DashboardResellerSettings } from "@/components/dashboard-reseller-settings"
 import { DashboardReferralAdmin } from "@/components/dashboard-referral-admin"
 import { DashboardResellerReportsPlaceholder } from "@/components/dashboard-reseller-reports-placeholder"
 import { DashboardResellersAdmin } from "@/components/dashboard-resellers-admin"
@@ -171,6 +172,18 @@ export function DashboardAdminView({
         compactHealthOnly={false}
         prependResellerFinance={isReseller}
         actorBalance={actorBal}
+        recentUsers={users.slice(0, 8)}
+        recentReceipts={receipts.slice(0, 8)}
+        pendingUsersPreview={pending.slice(0, 8)}
+        recentResellers={resellers.slice(0, 8)}
+        recentBroadcasts={broadcasts.slice(0, 5)}
+        isReseller={isReseller}
+        onOpenUserDetail={onOpenUserDetail}
+        onOpenResellerWorkspace={onOpenResellerWorkspace}
+        onReceiptsFilterNavigate={(status) => {
+          onSelectTab("receipts")
+          if (status) onReceiptsListFiltersChange({ status })
+        }}
       />
     )
   }
@@ -206,6 +219,7 @@ export function DashboardAdminView({
         settings={settings}
         wpPages={wpPages}
         plans={plans}
+        panels={panels}
         resellers={resellers}
         resellerPermissionsMap={permMap}
         isFa={isFa}
@@ -240,6 +254,19 @@ export function DashboardAdminView({
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("botsList", p)}
         onPerPageChange={(n) => setPer("botsList", n)}
+      />
+    )
+  }
+
+  if (activeTab === "reseller_settings" && isReseller) {
+    return (
+      <DashboardResellerSettings
+        settings={settings}
+        botsList={asRecordArray(data.botsList)}
+        panels={panels}
+        actorSvpUserId={dashActorSvpUserId(data)}
+        isFa={isFa}
+        onMutateSuccess={onAdminMutateSuccess}
       />
     )
   }

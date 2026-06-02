@@ -723,7 +723,7 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 	 * Save branding fields (logo, theme, custom domain).
 	 *
 	 * @param int                  $reseller_svp_user_id Reseller id.
-	 * @param array<string, mixed> $fields               logo_url?, favicon_url?, theme_primary?, theme_accent?, custom_domain?.
+	 * @param array<string, mixed> $fields               logo_url?, favicon_url?, theme_primary?, theme_accent?, custom_domain?, config_label_override?, config_label_prefix?.
 	 */
 	public static function save_branding_fields( $reseller_svp_user_id, array $fields ) {
 		global $wpdb;
@@ -764,6 +764,14 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 			$host = preg_replace( '#/.*$#', '', $host );
 			$data['custom_domain'] = sanitize_text_field( (string) $host );
 			$fmt[]                 = '%s';
+		}
+		if ( array_key_exists( 'config_label_override', $fields ) ) {
+			$data['config_label_override'] = sanitize_text_field( (string) $fields['config_label_override'] );
+			$fmt[]                         = '%s';
+		}
+		if ( array_key_exists( 'config_label_prefix', $fields ) ) {
+			$data['config_label_prefix'] = sanitize_text_field( (string) $fields['config_label_prefix'] );
+			$fmt[]                       = '%s';
 		}
 		if ( count( $data ) < 2 ) {
 			return;
@@ -842,7 +850,8 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 			$wpdb->prepare(
 				"SELECT u.id AS reseller_svp_user_id, u.first_name AS reseller_first_name, u.last_name AS reseller_last_name,
 					u.username AS reseller_username, u.status AS reseller_status,
-					p.brand_name, p.enabled, p.telegram_token, p.bale_token, p.telegram_secret_token,
+					p.brand_name, p.logo_url, p.favicon_url, p.theme_primary, p.theme_accent, p.custom_domain,
+					p.config_label_override, p.config_label_prefix, p.enabled, p.telegram_token, p.bale_token, p.telegram_secret_token,
 					p.telegram_bot_username, p.bale_bot_username, p.text_overrides_json,
 					p.admin_telegram_ids, p.admin_bale_ids
 				FROM {$u} u

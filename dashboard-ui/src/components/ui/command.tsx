@@ -60,12 +60,15 @@ function CommandDialog({
         className={cn(
           "overflow-hidden p-0",
           rtl &&
-            "[&_[cmdk-group-heading]]:text-end [&_[cmdk-item]]:flex-row-reverse [&_[cmdk-item]]:text-end [&_[cmdk-empty]]:text-end [&_[data-slot=command-input-wrapper]]:flex-row-reverse [&_[cmdk-input]]:text-end",
+            "[&_[cmdk-group-heading]]:w-full [&_[cmdk-group-heading]]:text-start [&_[cmdk-item]]:w-full [&_[cmdk-item]]:flex-row-reverse [&_[cmdk-item]]:justify-start [&_[cmdk-item]]:text-start [&_[cmdk-item]_span]:text-start [&_[cmdk-empty]]:w-full [&_[cmdk-empty]]:text-start [&_[data-slot=command-input-wrapper]]:flex-row-reverse [&_[cmdk-input]]:text-start [&_[cmdk-input]]:placeholder:text-start",
           className
         )}
         showCloseButton={showCloseButton}
       >
-        <Command className="**:data-[slot=command-input-wrapper]:h-12 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]]:px-2 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5">
+        <Command
+          dir={rtl ? "rtl" : undefined}
+          className="**:data-[slot=command-input-wrapper]:h-12 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]]:px-2 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5"
+        >
           {children}
         </Command>
       </DialogContent>
@@ -75,18 +78,25 @@ function CommandDialog({
 
 function CommandInput({
   className,
+  rtl = false,
   ...props
-}: React.ComponentProps<typeof CommandPrimitive.Input>) {
+}: React.ComponentProps<typeof CommandPrimitive.Input> & {
+  /** Align placeholder and typing for RTL palettes. */
+  rtl?: boolean
+}) {
   return (
     <div
       data-slot="command-input-wrapper"
+      dir={rtl ? "rtl" : undefined}
       className="flex h-9 items-center gap-2 border-b px-3"
     >
       <SearchIcon className="size-4 shrink-0 opacity-50" />
       <CommandPrimitive.Input
         data-slot="command-input"
+        dir={rtl ? "rtl" : undefined}
         className={cn(
           "flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
+          rtl && "text-start placeholder:text-start",
           className
         )}
         {...props}
@@ -117,7 +127,7 @@ function CommandEmpty({
   return (
     <CommandPrimitive.Empty
       data-slot="command-empty"
-      className="py-6 text-center text-sm"
+      className="py-6 text-sm"
       {...props}
     />
   )
@@ -176,7 +186,7 @@ function CommandShortcut({
     <span
       data-slot="command-shortcut"
       className={cn(
-        "ml-auto text-xs tracking-widest text-muted-foreground",
+        "ms-auto text-xs tracking-widest text-muted-foreground",
         className
       )}
       {...props}

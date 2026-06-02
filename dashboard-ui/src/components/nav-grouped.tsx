@@ -21,6 +21,10 @@ import {
 } from "@/components/ui/sidebar"
 import type { AdminNavSection } from "@/config/admin-nav"
 import { ADMIN_NAV_SECTIONS } from "@/config/admin-nav"
+import {
+  menuBtnCollapsedIcon,
+  menuChevronCollapsedHidden,
+} from "@/lib/sidebar-menu-classes"
 import { cn } from "@/lib/utils"
 
 function findOpenMenuId(sections: AdminNavSection[], activeTabKey: string): string | null {
@@ -74,7 +78,12 @@ export function NavGrouped({
                 const Icon = entry.icon
                 return (
                   <SidebarMenuItem key={entry.tabKey}>
-                    <SidebarMenuButton asChild isActive={isActive} tooltip={itemLabel(entry.tabKey)}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive}
+                      tooltip={itemLabel(entry.tabKey)}
+                      className={menuBtnCollapsedIcon}
+                    >
                       <a
                         href={href}
                         onClick={(e) => {
@@ -101,12 +110,16 @@ export function NavGrouped({
                 >
                   <SidebarMenuItem>
                     <CollapsibleTrigger asChild>
-                      <SidebarMenuButton tooltip={t(entry.labelKey)}>
+                      <SidebarMenuButton
+                        tooltip={t(entry.labelKey)}
+                        className={menuBtnCollapsedIcon}
+                      >
                         <ParentIcon />
                         <span>{t(entry.labelKey)}</span>
                         <ChevronRight
                           className={cn(
                             "ms-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90",
+                            menuChevronCollapsedHidden,
                             rtl && "-scale-x-100"
                           )}
                         />

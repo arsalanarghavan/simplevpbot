@@ -433,7 +433,9 @@ export function DashboardUserServiceCard({
   if (isL2tp) {
     return null
   }
-  const remark = String(svc.remark ?? "").trim()
+  const subscriptionName = String(
+    svc.subscription_name ?? svc.remark ?? svc.display_label ?? ""
+  ).trim()
   const panelRemark = String(svc.panel_remark ?? "").trim()
   const serviceNote = String(svc.service_note ?? "").trim()
   const panelEnabled =
@@ -473,7 +475,7 @@ export function DashboardUserServiceCard({
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0 text-start">
             <CardTitle className="text-base">
-              {remark || tp("serviceUntitled")}
+              {subscriptionName || tp("serviceUntitled")}
               <span className="ms-2 font-mono text-xs font-normal text-muted-foreground" dir="ltr">
                 #{formatPlainLatinInt(sid)}
               </span>
@@ -545,16 +547,16 @@ export function DashboardUserServiceCard({
           <InfoRow icon={Hash} label="ID" isFa={isFa} valueDir="ltr">
             <span className="inline-block" dir="ltr">{formatPlainLatinInt(sid)}</span>
           </InfoRow>
-          {(serviceNote || panelRemark || remark) && (
+          {(serviceNote || panelRemark || subscriptionName) && (
             <InfoRow icon={StickyNote} label={tp("noteLabel")} isFa={isFa} valueDir="ltr">
               <div className="space-y-0.5 text-xs">
-                {remark ? (
+                {subscriptionName ? (
                   <p>
-                    <span className="text-muted-foreground">{tp("noteBot")}: </span>
-                    {remark}
+                    <span className="text-muted-foreground">{tp("subscriptionName")}: </span>
+                    {subscriptionName}
                   </p>
                 ) : null}
-                {panelRemark && panelRemark !== remark ? (
+                {panelRemark && panelRemark !== subscriptionName ? (
                   <p>
                     <span className="text-muted-foreground">{tp("notePanel")}: </span>
                     {panelRemark}
@@ -566,7 +568,7 @@ export function DashboardUserServiceCard({
                     {serviceNote}
                   </p>
                 ) : null}
-                {panelRemark && panelRemark !== remark && !serviceNote ? (
+                {panelRemark && panelRemark !== subscriptionName && !serviceNote ? (
                   <p className="text-muted-foreground">{tp("noteSyncHint")}</p>
                 ) : null}
               </div>

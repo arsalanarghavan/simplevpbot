@@ -15,6 +15,10 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
+import {
+  menuBtnCollapsedIcon,
+  menuChevronCollapsedHidden,
+} from "@/lib/sidebar-menu-classes"
 import { cn } from "@/lib/utils"
 
 export function NavMain({
@@ -58,12 +62,13 @@ export function NavMain({
           >
             <SidebarMenuItem>
               <CollapsibleTrigger asChild>
-                <SidebarMenuButton tooltip={item.title}>
+                <SidebarMenuButton tooltip={item.title} className={menuBtnCollapsedIcon}>
                   {item.icon && <item.icon />}
                   <span>{item.title}</span>
                   <ChevronRight
                     className={cn(
                       "ms-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90",
+                      menuChevronCollapsedHidden,
                       rtl && "-scale-x-100"
                     )}
                   />

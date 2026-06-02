@@ -693,7 +693,7 @@ function App() {
                 rel="noopener noreferrer"
                 aria-label={t("layout.openTelegramBot")}
               >
-                <TelegramLogo />
+                <TelegramLogo className="size-4 text-muted-foreground" />
               </a>
             </Button>
           ) : null}
@@ -728,7 +728,7 @@ function App() {
       </header>
       <div
         dir={isFa ? "rtl" : "ltr"}
-        className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-auto p-4 md:p-6"
+        className="dashboard-main-scroll flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-auto p-4 md:p-6"
       >
         {!data ? (
           <p className="text-sm text-muted-foreground">{t("loading")}</p>

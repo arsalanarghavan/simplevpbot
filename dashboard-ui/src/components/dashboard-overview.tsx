@@ -50,9 +50,12 @@ import {
   formatNumber,
   formatNumericString,
 } from "@/lib/format-locale"
+import { OverviewPreviewGrid } from "@/components/dashboard-overview-sections"
+import { CHART_PRIMARY, overviewAccentOutlineBtn } from "@/lib/chart-accent"
 import { cn } from "@/lib/utils"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { buildDashboardTabUrl } from "@/lib/dash-tab"
+import type { DashRecord } from "@/lib/overview-rows"
 type OverviewUsers = {
   users_approved?: number
   users_pending?: number
@@ -142,8 +145,6 @@ export function resolvePanelHealthFlags(h: PanelHealth | undefined): {
     (Number.isFinite(code) && code >= 100 && code <= 599)
   return { httpOk, networkReachable }
 }
-
-type DashRecord = Record<string, unknown>
 
 function num(v: unknown): number {
   const n = Number(v)
@@ -242,7 +243,7 @@ function QuickLink({
   const root = base.replace(/\/?$/, "")
   const href = buildDashboardTabUrl(root, tabKey)
   return (
-    <Button variant="outline" size="sm" className="h-8" asChild>
+    <Button variant="outline" size="sm" className={cn("h-8", overviewAccentOutlineBtn)} asChild>
       <a
         href={href}
         onClick={(e) => {
@@ -272,7 +273,12 @@ function DashTabLink({
   const root = base.replace(/\/?$/, "")
   const href = buildDashboardTabUrl(root, tabKey)
   return (
-    <Button variant="secondary" size="sm" className="h-9 max-w-full gap-2 ps-3 pe-3 font-normal" asChild>
+    <Button
+      variant="outline"
+      size="sm"
+      className={cn("h-9 max-w-full gap-2 ps-3 pe-3 font-normal", overviewAccentOutlineBtn)}
+      asChild
+    >
       <a
         href={href}
         onClick={(e) => {
@@ -301,6 +307,15 @@ export function DashboardOverview({
   compactHealthOnly = false,
   prependResellerFinance = false,
   actorBalance = undefined,
+  recentUsers = [],
+  recentReceipts = [],
+  pendingUsersPreview = [],
+  recentResellers = [],
+  recentBroadcasts = [],
+  isReseller = false,
+  onOpenUserDetail,
+  onOpenResellerWorkspace,
+  onReceiptsFilterNavigate,
 }: {
   overview: OverviewPayload | undefined
   panels: DashRecord[]
@@ -319,6 +334,15 @@ export function DashboardOverview({
   prependResellerFinance?: boolean
   /** Reseller wallet balance (toman); shown when compactHealthOnly and defined. */
   actorBalance?: number
+  recentUsers?: DashRecord[]
+  recentReceipts?: DashRecord[]
+  pendingUsersPreview?: DashRecord[]
+  recentResellers?: DashRecord[]
+  recentBroadcasts?: DashRecord[]
+  isReseller?: boolean
+  onOpenUserDetail?: (svpUserId: number) => void
+  onOpenResellerWorkspace?: (resellerId: number) => void
+  onReceiptsFilterNavigate?: (status?: string) => void
 }) {
   const { t } = useTranslation()
   const allowTab = (tab: string) => !allowedNavTabs || allowedNavTabs.has(tab)
@@ -480,7 +504,7 @@ export function DashboardOverview({
   }
 
   return (
-    <div className={dashPageRootClass(isFa, "space-y-8")} dir={dashDir(isFa)}>
+    <div className={dashPageRootClass(isFa, "space-y-6")} dir={dashDir(isFa)}>
       <DashboardPageHeader
         title={<h2 className="text-lg font-semibold">{t("dashboardOverview.title")}</h2>}
         description={
@@ -556,7 +580,7 @@ export function DashboardOverview({
         </Card>
       ) : null}
 
-      <Card>
+      <Card className="border-primary/15">
         <CardHeader>
           <CardTitle className="text-base">{t("dashboardOverview.chartOnlineTitle")}</CardTitle>
           <CardDescription>{t("dashboardOverview.chartOnlineSubtitle")}</CardDescription>
@@ -569,8 +593,8 @@ export function DashboardOverview({
               <AreaChart data={chartRows} margin={{ top: 8, right: 8, left: isFa ? 8 : 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="fillOnline" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(262 83% 58%)" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="hsl(262 83% 58%)" stopOpacity={0} />
+                    <stop offset="5%" stopColor={CHART_PRIMARY} stopOpacity={0.35} />
+                    <stop offset="95%" stopColor={CHART_PRIMARY} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
@@ -600,7 +624,7 @@ export function DashboardOverview({
                 <Area
                   type="monotone"
                   dataKey="totalMaxOnline"
-                  stroke="hsl(262 83% 58%)"
+                  stroke={CHART_PRIMARY}
                   fill="url(#fillOnline)"
                   strokeWidth={2}
                 />
@@ -610,7 +634,13 @@ export function DashboardOverview({
         </CardContent>
       </Card>
 
-      <section className="space-y-4 rounded-2xl border border-border/70 bg-gradient-to-b from-primary/[0.04] to-transparent p-4 sm:p-5">
+      <section className="relative space-y-4 overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-b from-primary/[0.06] to-transparent p-4 sm:p-5">
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-y-0 w-1 bg-gradient-to-b from-primary/80 to-transparent",
+            isFa ? "end-0" : "start-0"
+          )}
+        />
         <div className={cn("flex flex-wrap items-center gap-2")}>
           <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <UsersRound className="size-5" aria-hidden />
@@ -643,13 +673,13 @@ export function DashboardOverview({
             isFa={isFa}
           />
           <StatCard
-            className="border-emerald-500/15 bg-emerald-500/[0.04]"
+            className="border-primary/15 bg-primary/[0.04]"
             title={t("dashboardOverview.usersTelegram")}
             value={num(u.users_with_telegram)}
             isFa={isFa}
           />
           <StatCard
-            className="border-sky-500/15 bg-sky-500/[0.04]"
+            className="border-primary/15 bg-primary/[0.06]"
             title={t("dashboardOverview.usersBale")}
             value={num(u.users_with_bale)}
             isFa={isFa}
@@ -663,18 +693,18 @@ export function DashboardOverview({
       <section className="grid gap-4 lg:grid-cols-2">
         <div
           className={cn(
-            "relative overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm",
+            "relative overflow-hidden rounded-2xl border border-primary/15 bg-card p-5 shadow-sm",
             isFa && "text-right"
           )}
         >
           <div
             className={cn(
-              "pointer-events-none absolute inset-y-0 w-1 bg-gradient-to-b from-violet-500/80 to-transparent",
+              "pointer-events-none absolute inset-y-0 w-1 bg-gradient-to-b from-primary/80 to-transparent",
               isFa ? "end-0" : "start-0"
             )}
           />
           <div className={cn("flex items-start gap-3")}>
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-400">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <Bot className="size-6" aria-hidden />
             </div>
             <div className="min-w-0 flex-1 space-y-2">
@@ -694,18 +724,18 @@ export function DashboardOverview({
 
         <div
           className={cn(
-            "relative overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm",
+            "relative overflow-hidden rounded-2xl border border-primary/15 bg-card p-5 shadow-sm",
             isFa && "text-right"
           )}
         >
           <div
             className={cn(
-              "pointer-events-none absolute inset-y-0 w-1 bg-gradient-to-b from-sky-500/80 to-transparent",
+              "pointer-events-none absolute inset-y-0 w-1 bg-gradient-to-b from-primary/80 to-transparent",
               isFa ? "end-0" : "start-0"
             )}
           />
           <div className={cn("flex items-start gap-3")}>
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <Server className="size-6" aria-hidden />
             </div>
             <div className="min-w-0 flex-1 space-y-2">
@@ -737,8 +767,8 @@ export function DashboardOverview({
         </div>
       </section>
 
-      <Card className="overflow-hidden border-border/80 shadow-md">
-        <CardHeader className="border-b border-border/60 bg-muted/30 pb-4">
+      <Card className="overflow-hidden border-primary/20 shadow-md">
+        <CardHeader className="border-b border-border/60 bg-primary/[0.03] pb-4">
           <div className={cn("flex flex-wrap items-start justify-between gap-3")}>
             <div className={cn("space-y-1", isFa && "text-right")}>
               <CardTitle className="text-lg">{t("dashboardOverview.financeCard")}</CardTitle>
@@ -746,7 +776,7 @@ export function DashboardOverview({
                 {t("dashboardOverview.financeCardHint")}
               </CardDescription>
             </div>
-            <Radio className="size-8 shrink-0 text-amber-500/90" aria-hidden />
+            <Radio className="size-8 shrink-0 text-primary" aria-hidden />
           </div>
         </CardHeader>
         <CardContent className="space-y-6 pt-6">
@@ -785,11 +815,11 @@ export function DashboardOverview({
             </div>
             <div
               className={cn(
-                "rounded-xl border border-emerald-500/20 bg-gradient-to-b from-emerald-500/[0.07] to-card p-4 shadow-sm",
+                "rounded-xl border border-primary/20 bg-gradient-to-b from-primary/[0.07] to-card p-4 shadow-sm",
                 isFa && "text-right"
               )}
             >
-              <Receipt className={cn("mb-2 size-5 text-emerald-600 dark:text-emerald-400", isFa && "ms-auto")} aria-hidden />
+              <Receipt className={cn("mb-2 size-5 text-primary", isFa && "ms-auto")} aria-hidden />
               <p className="text-xs font-medium text-muted-foreground">{t("dashboardOverview.receiptsTotal")}</p>
               <p className="mt-1 text-2xl font-semibold tabular-nums">
                 {formatNumber(receiptsTotalCount, isFa)}
@@ -896,10 +926,27 @@ export function DashboardOverview({
         </CardContent>
       </Card>
 
+      {onOpenUserDetail && onReceiptsFilterNavigate ? (
+        <OverviewPreviewGrid
+          isFa={isFa}
+          isReseller={isReseller}
+          allowTab={allowTab}
+          recentUsers={recentUsers}
+          recentReceipts={recentReceipts}
+          pendingUsersPreview={pendingUsersPreview}
+          recentResellers={recentResellers}
+          recentBroadcasts={recentBroadcasts}
+          onSelectTab={onSelectTab}
+          onOpenUserDetail={onOpenUserDetail}
+          onOpenResellerWorkspace={onOpenResellerWorkspace}
+          onReceiptsFilterNavigate={onReceiptsFilterNavigate}
+        />
+      ) : null}
+
       <section className="space-y-4">
         <div
           className={cn(
-            "flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3"
+            "flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/15 bg-primary/[0.03] px-4 py-3"
           )}
         >
           <div className={cn("flex items-center gap-2")}>

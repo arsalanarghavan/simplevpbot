@@ -902,10 +902,21 @@ class SimpleVPBot_Service_Admin_Ops {
 
 						$linked_sid = $svc ? (int) $svc->id : 0;
 						$linked_uid = $u ? (int) $u->id : 0;
+						$panel_rm   = (string) ( $c['remark'] ?? '' );
+						$sub_name   = $svc && class_exists( 'SimpleVPBot_Service_Naming' )
+							? SimpleVPBot_Service_Naming::canonical_label_for_service( $svc )
+							: ( $svc ? trim( (string) ( $svc->remark ?? '' ) ) : '' );
+						$sub_token  = $sub_name;
 						$clients[]  = array(
 							'email'             => $email,
 							'id'                => (string) ( $c['id'] ?? '' ),
-							'remark'            => (string) ( $c['remark'] ?? '' ),
+							'remark'            => $panel_rm,
+							'panel_remark'      => $panel_rm,
+							'subscription_name' => $sub_name,
+							'subscription_id'   => '',
+							'service_canonical' => $sub_token,
+							'service_remark'    => $sub_name,
+							'service_note'      => $svc ? trim( (string) ( $svc->service_note ?? '' ) ) : '',
 							'comment'           => $comment_val,
 							'tg_id'             => (string) ( $c['tgId'] ?? '' ),
 							'sub_id'            => (string) ( $c['subId'] ?? '' ),
@@ -1664,10 +1675,21 @@ class SimpleVPBot_Service_Admin_Ops {
 				break;
 			}
 		}
+		$panel_remark = (string) ( $c['remark'] ?? $row->remark ?? '' );
+		$canonical    = $svc && class_exists( 'SimpleVPBot_Service_Naming' )
+			? SimpleVPBot_Service_Naming::canonical_label_for_service( $svc )
+			: ( $svc ? trim( (string) ( $svc->remark ?? '' ) ) : '' );
+		$sub_name     = $canonical;
 		return array(
 			'email'               => $em,
 			'id'                  => (string) ( $c['id'] ?? ( $row->xui_client_id ?? '' ) ),
-			'remark'              => (string) ( $c['remark'] ?? $row->remark ?? '' ),
+			'remark'              => $panel_remark,
+			'panel_remark'        => $panel_remark,
+			'subscription_name'   => $sub_name,
+			'subscription_id'     => '',
+			'service_canonical'   => $canonical,
+			'service_remark'      => $sub_name,
+			'service_note'        => $svc ? trim( (string) ( $svc->service_note ?? '' ) ) : '',
 			'comment'             => $comment_val,
 			'limit_ip'            => (int) ( $c['limitIp'] ?? 0 ),
 			'first_usage'         => $first_usage,
@@ -1730,7 +1752,12 @@ class SimpleVPBot_Service_Admin_Ops {
 			$primary_uri = $primary;
 		}
 		return array(
-			'subscription_url'   => $sub,
+			'subscription_url'    => $sub,
+			'subscription_id'     => isset( $data['subscription_id'] ) ? (string) $data['subscription_id'] : ( isset( $data['sub_id'] ) ? (string) $data['sub_id'] : '' ),
+			'subscription_name'   => isset( $data['subscription_name'] ) ? (string) $data['subscription_name'] : ( isset( $data['remark'] ) ? (string) $data['remark'] : '' ),
+			'config_labels'       => isset( $data['config_labels'] ) && is_array( $data['config_labels'] )
+				? array_values( array_map( 'strval', $data['config_labels'] ) )
+				: array(),
 			'portal_url'         => $portal,
 			'primary_link'       => $primary,
 			'config_uris'        => $uris,
@@ -2292,6 +2319,12 @@ class SimpleVPBot_Service_Admin_Ops {
 						if ( array_key_exists( 'client_remark', $patch ) ) {
 							$updated['remark'] = (string) $patch['client_remark'];
 						}
+						if ( array_key_exists( 'client_email_new', $patch ) ) {
+							$new_em = trim( (string) $patch['client_email_new'] );
+							if ( '' !== $new_em ) {
+								$updated['email'] = $new_em;
+							}
+						}
 						if ( array_key_exists( 'limit_ip', $patch ) ) {
 							$lip = (int) $patch['limit_ip'];
 							if ( $lip >= 0 ) {
@@ -2415,6 +2448,69 @@ class SimpleVPBot_Service_Admin_Ops {
 			'ok'      => false,
 			'reason'  => (string) ( $out['reason'] ?? 'failed' ),
 			'message' => (string) ( $out['reason'] ?? 'failed' ),
+		);
+	}
+
+	/**
+	 * Recompute canonical remark + sync panel client email/remark (fixes legacy u{id}-@svp.local).
+	 *
+	 * @param int $service_id svp_services.id.
+	 * @return array{ok:bool, message?:string, canonical?:string, email?:string}
+	 */
+	public static function service_apply_canonical_panel_identity( $service_id ) {
+		$sid = (int) $service_id;
+		if ( $sid < 1 || ! class_exists( 'SimpleVPBot_Model_Service' ) || ! class_exists( 'SimpleVPBot_Service_Naming' ) ) {
+			return array( 'ok' => false, 'message' => __( 'پارامترها نامعتبر.', 'simplevpbot' ) );
+		}
+		$svc = SimpleVPBot_Model_Service::find( $sid );
+		if ( ! $svc ) {
+			return array( 'ok' => false, 'message' => __( 'سرویس یافت نشد.', 'simplevpbot' ) );
+		}
+		$uid = (int) ( $svc->user_id ?? 0 );
+		$user = $uid > 0 && class_exists( 'SimpleVPBot_Model_User' ) ? SimpleVPBot_Model_User::find( $uid ) : null;
+
+		$canonical = SimpleVPBot_Service_Naming::canonical_label_for_service( $svc );
+		if ( '' === $canonical || SimpleVPBot_Service_Naming::is_internal_panel_email( $canonical ) ) {
+			$canonical = SimpleVPBot_Service_Naming::provision_canonical_label( $user, null, 1 );
+		}
+		if ( '' === $canonical ) {
+			return array( 'ok' => false, 'message' => __( 'نام کانونیکال قابل محاسبه نیست.', 'simplevpbot' ) );
+		}
+
+		$old_email = trim( (string) ( $svc->email ?? '' ) );
+		$new_email = SimpleVPBot_Service_Naming::unique_panel_client_id( $canonical, $sid );
+		if ( '' === $new_email ) {
+			return array( 'ok' => false, 'message' => __( 'شناسه پنل نامعتبر.', 'simplevpbot' ) );
+		}
+
+		$pid = (int) ( $svc->panel_id ?? 0 );
+		$iid = (int) ( $svc->inbound_id ?? 0 );
+		if ( $pid > 0 && $iid > 0 && '' !== $old_email ) {
+			$patch = array(
+				'client_remark'     => $canonical,
+				'client_email_new'  => $new_email,
+			);
+			$panel = self::configs_panel_client_patch( $pid, $iid, $old_email, $patch );
+			if ( empty( $panel['ok'] ) ) {
+				return array(
+					'ok'      => false,
+					'message' => (string) ( $panel['message'] ?? __( 'به‌روزرسانی پنل ناموفق.', 'simplevpbot' ) ),
+				);
+			}
+		}
+
+		SimpleVPBot_Model_Service::update(
+			$sid,
+			array(
+				'remark' => $canonical,
+				'email'  => $new_email,
+			)
+		);
+
+		return array(
+			'ok'        => true,
+			'canonical' => $canonical,
+			'email'     => $new_email,
 		);
 	}
 }

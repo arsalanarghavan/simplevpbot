@@ -133,6 +133,22 @@ class SimpleVPBot_Rest_Dashboard {
 		);
 		register_rest_route(
 			self::NS,
+			'/dashboard/admin/inbound-display-catalog',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'route_inbound_display_catalog' ),
+				'permission_callback' => array( __CLASS__, 'perm_admin_or_reseller' ),
+				'args'                => array(
+					'panel_id' => array(
+						'required'          => true,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
+				),
+			)
+		);
+		register_rest_route(
+			self::NS,
 			'/dashboard/admin/panel-inbounds',
 			array(
 				'methods'             => 'GET',
@@ -1805,11 +1821,16 @@ class SimpleVPBot_Rest_Dashboard {
 			'l2tp_servers',
 			'texts',
 			'reseller_workspace',
+			'reseller_settings',
 		);
 		$out = array();
 		foreach ( $all_tabs as $tab ) {
 			if ( in_array( $tab, $admin_only, true ) ) {
 				$out[ $tab ] = false;
+				continue;
+			}
+			if ( 'reseller_settings' === $tab ) {
+				$out[ $tab ] = true;
 				continue;
 			}
 			$pk = isset( $tab_perm[ $tab ] ) ? $tab_perm[ $tab ] : null;
@@ -2990,7 +3011,7 @@ class SimpleVPBot_Rest_Dashboard {
 		$bots_list_payload = array();
 		$tot_bots_list     = 0;
 		$load_reseller_bots_list = ! $dash_users_tab_light
-			&& ( $reseller_mode || 'reseller_bots' === $active_tab );
+			&& ( $reseller_mode || in_array( $active_tab, array( 'reseller_bots', 'reseller_settings' ), true ) );
 		if ( $load_reseller_bots_list && class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
 			if ( $reseller_mode && $actor_uid > 0 ) {
 				$p = SimpleVPBot_Model_Reseller_Bot_Profile::table();
@@ -3001,7 +3022,9 @@ class SimpleVPBot_Rest_Dashboard {
 						$wpdb->prepare(
 							"SELECT u.id AS reseller_svp_user_id, u.first_name AS reseller_first_name, u.last_name AS reseller_last_name,
 							u.username AS reseller_username, u.status AS reseller_status,
-							p.brand_name, p.enabled, p.telegram_token, p.bale_token, p.telegram_secret_token,
+							p.brand_name, p.logo_url, p.favicon_url, p.theme_primary, p.theme_accent, p.custom_domain,
+							p.config_label_override, p.config_label_prefix, p.enabled, p.telegram_token, p.bale_token, p.telegram_secret_token,
+							p.telegram_bot_username, p.bale_bot_username, p.text_overrides_json,
 							p.admin_telegram_ids, p.admin_bale_ids
 							FROM {$u} u
 							LEFT JOIN {$p} p ON p.reseller_svp_user_id = u.id
@@ -3045,6 +3068,8 @@ class SimpleVPBot_Rest_Dashboard {
 					'theme_primary'             => (string) ( $brow->theme_primary ?? '' ),
 					'theme_accent'              => (string) ( $brow->theme_accent ?? '' ),
 					'custom_domain'             => (string) ( $brow->custom_domain ?? '' ),
+					'config_label_override'     => (string) ( $brow->config_label_override ?? '' ),
+					'config_label_prefix'       => (string) ( $brow->config_label_prefix ?? '' ),
 					'enabled'                   => ! empty( $brow->enabled ),
 					'has_telegram_token'        => '' !== $tg_tok,
 					'has_bale_token'            => '' !== $bl_tok,
@@ -3058,6 +3083,9 @@ class SimpleVPBot_Rest_Dashboard {
 					'telegram_secret_token_set' => '' !== trim( (string) ( $brow->telegram_secret_token ?? '' ) ),
 					'admin_telegram_ids'        => $tg_ids,
 					'admin_bale_ids'            => $bl_ids,
+					'inbound_display_names'     => class_exists( 'SimpleVPBot_Model_Reseller_Inbound_Display_Name' )
+						? SimpleVPBot_Model_Reseller_Inbound_Display_Name::map_for_reseller( $rid )
+						: array(),
 				);
 			}
 		}
@@ -3305,6 +3333,15 @@ class SimpleVPBot_Rest_Dashboard {
 				$lr['portal_service_url'] = '';
 			}
 			$lr['panel_remark'] = self::admin_user_service_panel_remark( $lr );
+			if ( class_exists( 'SimpleVPBot_Service_Naming' ) ) {
+				$lr['subscription_id']   = '';
+				$lr['subscription_name'] = SimpleVPBot_Service_Naming::canonical_label_for_service( $lr );
+				$lr['display_label']     = SimpleVPBot_Service_Naming::public_label_for_service( $lr );
+			} else {
+				$lr['subscription_id']   = '';
+				$lr['subscription_name'] = trim( (string) ( $lr['remark'] ?? '' ) );
+				$lr['display_label']     = '';
+			}
 		}
 		unset( $lr );
 		$referrals = array();
@@ -3542,6 +3579,55 @@ class SimpleVPBot_Rest_Dashboard {
 		$r = SimpleVPBot_Service_Admin_Ops::inbounds_list( $panel_id );
 		$code = ! empty( $r['ok'] ) ? 200 : 400;
 		return new WP_REST_Response( $r, $code );
+	}
+
+	/**
+	 * Cached inbound list for display-name settings (no live panel login).
+	 *
+	 * @param WP_REST_Request $req Request.
+	 * @return WP_REST_Response
+	 */
+	public static function route_inbound_display_catalog( WP_REST_Request $req ) {
+		$panel_id = (int) $req->get_param( 'panel_id' );
+		if ( $panel_id < 1 ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'invalid_panel' ), 400 );
+		}
+		if ( ! self::actor_can_read_panel_inbound_catalog( $panel_id ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'forbidden' ), 403 );
+		}
+		if ( ! class_exists( 'SimpleVPBot_Config_Inbound_Match' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'module_missing' ), 500 );
+		}
+		$list = SimpleVPBot_Config_Inbound_Match::inbound_catalog_for_panel( $panel_id );
+		return new WP_REST_Response(
+			array(
+				'ok'   => true,
+				'data' => array( 'inbounds' => $list ),
+			),
+			200
+		);
+	}
+
+	/**
+	 * Site admin or reseller allowed to sell on panel.
+	 *
+	 * @param int $panel_id Panel id.
+	 * @return bool
+	 */
+	private static function actor_can_read_panel_inbound_catalog( $panel_id ) {
+		$pid = (int) $panel_id;
+		if ( $pid < 1 ) {
+			return false;
+		}
+		if ( current_user_can( 'manage_options' ) ) {
+			return true;
+		}
+		$ctx   = self::dashboard_actor_context();
+		$actor = (int) ( $ctx['actorUserId'] ?? 0 );
+		if ( $actor < 1 || ! class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			return false;
+		}
+		return SimpleVPBot_Bot_Reseller_Scope::reseller_can_sell_on_panel_for( $actor, $pid );
 	}
 
 	/**
@@ -4177,7 +4263,38 @@ class SimpleVPBot_Rest_Dashboard {
 			}
 		}
 		unset( $params['op'] );
-		$res = SimpleVPBot_Dashboard_Admin_Mutations::apply( $op, $params );
+		try {
+			$res = SimpleVPBot_Dashboard_Admin_Mutations::apply( $op, $params );
+		} catch ( \Throwable $e ) {
+			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+				SimpleVPBot_Logger::error(
+					'dashboard admin mutate exception',
+					array(
+						'op'      => $op,
+						'message' => $e->getMessage(),
+					)
+				);
+			}
+			return new WP_REST_Response(
+				array(
+					'ok'      => false,
+					'message' => 'server_error',
+				),
+				500
+			);
+		}
+		if ( ! is_array( $res ) ) {
+			$res = array( 'ok' => false, 'message' => 'invalid_response' );
+		}
+		if ( false === wp_json_encode( $res ) ) {
+			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+				SimpleVPBot_Logger::error( 'dashboard admin mutate response not json encodable', array( 'op' => $op ) );
+			}
+			$res = array(
+				'ok'      => false,
+				'message' => 'response_encode_failed',
+			);
+		}
 		if ( empty( $res['ok'] ) ) {
 			return new WP_REST_Response( $res, 400 );
 		}

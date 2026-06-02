@@ -21,10 +21,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { ADMIN_NAV_SECTIONS, flattenNavForSearch, type AdminNavSection } from "@/config/admin-nav"
 import { formatPlainLatinInt } from "@/lib/format-locale"
+import { menuBtnCollapsedIcon } from "@/lib/sidebar-menu-classes"
 import { cn } from "@/lib/utils"
-
-const menuBtnCollapsedIcon =
-  "group-data-[collapsible=icon]:justify-center [&>span]:group-data-[collapsible=icon]:hidden"
 
 function CommandSearchBridge({ onSearch }: { onSearch: (q: string) => void }) {
   const q = useCommandState((state) => state.search)
@@ -175,18 +173,13 @@ export function DashboardSearch({
               className={cn(
                 menuBtnCollapsedIcon,
                 "h-9 text-muted-foreground hover:text-sidebar-accent-foreground",
-                rtl && "!text-right [&>span]:!text-right"
+                rtl && "!text-start [&>span]:!text-start"
               )}
               dir={rtl ? "rtl" : "ltr"}
               onClick={() => setOpen(true)}
             >
               <Search className="opacity-70" />
-              <span
-                className={cn(
-                  "min-w-0 flex-1 truncate",
-                  rtl ? "text-right" : "text-left"
-                )}
-              >
+              <span className="min-w-0 flex-1 truncate text-start">
                 {triggerLabel}
               </span>
             </SidebarMenuButton>
@@ -200,18 +193,33 @@ export function DashboardSearch({
         description={t("sidebar.search.placeholder")}
         rtl={rtl}
       >
-        <CommandInput placeholder={t("sidebar.search.placeholder")} />
+        <CommandInput
+          rtl={rtl}
+          placeholder={t("sidebar.search.placeholder")}
+        />
         <CommandSearchBridge onSearch={setPaletteQuery} />
         <CommandList>
-          <CommandEmpty>{t("sidebar.search.empty")}</CommandEmpty>
+          <CommandEmpty className={cn(rtl && "w-full text-start")}>
+            {t("sidebar.search.empty")}
+          </CommandEmpty>
           {canUserSearch && paletteQuery.trim().length >= 1 ? (
             <CommandGroup heading={t("sidebar.search.usersHeading")}>
               {userLoading ? (
-                <div className="px-3 py-2 text-xs text-muted-foreground">
+                <div
+                  className={cn(
+                    "w-full px-3 py-2 text-xs text-muted-foreground",
+                    rtl && "text-start"
+                  )}
+                >
                   {t("sidebar.search.usersLoading")}
                 </div>
               ) : userHits.length === 0 ? (
-                <div className="px-3 py-2 text-xs text-muted-foreground">
+                <div
+                  className={cn(
+                    "w-full px-3 py-2 text-xs text-muted-foreground",
+                    rtl && "text-start"
+                  )}
+                >
                   {t("sidebar.search.usersEmpty")}
                 </div>
               ) : (
@@ -226,14 +234,20 @@ export function DashboardSearch({
                     <CommandItem
                       key={id}
                       value={filterValue}
+                      className={cn(rtl && "w-full flex-row-reverse")}
                       onSelect={() => {
                         if (id > 0) onOpenUserDetail?.(id)
                         setOpen(false)
                       }}
                     >
                       <UserRound className="size-4 opacity-70" />
-                      <span className="min-w-0 flex-1 truncate">{name}</span>
-                      <span dir="ltr" className="shrink-0 font-mono text-xs text-muted-foreground">
+                      <span className={cn("min-w-0 flex-1 truncate", rtl && "text-start")}>
+                        {name}
+                      </span>
+                      <span
+                        dir="ltr"
+                        className="shrink-0 font-mono text-xs text-muted-foreground"
+                      >
                         #{formatPlainLatinInt(id)}
                       </span>
                     </CommandItem>
@@ -251,14 +265,22 @@ export function DashboardSearch({
                   <CommandItem
                     key={`${sec.id}-${r.tabKey}-${r.parentLabelKey ?? "x"}-${idx}`}
                     value={`${itemLabel(r.tabKey)} ${r.parentLabelKey ? t(r.parentLabelKey) : ""} ${t(sec.hintKey)}`}
+                    className={cn(
+                      rtl && "w-full flex-col items-end gap-0.5",
+                      !rtl && r.parentLabelKey && "flex-col items-start gap-0.5"
+                    )}
                     onSelect={() => {
                       onSelectTab(r.tabKey)
                       setOpen(false)
                     }}
                   >
-                    <span className="truncate">{itemLabel(r.tabKey)}</span>
+                    <span className="w-full truncate text-start">
+                      {itemLabel(r.tabKey)}
+                    </span>
                     {r.parentLabelKey ? (
-                      <span className="truncate text-xs text-muted-foreground">
+                      <span
+                        className="w-full truncate text-xs text-muted-foreground text-start"
+                      >
                         {t(r.parentLabelKey)}
                       </span>
                     ) : null}

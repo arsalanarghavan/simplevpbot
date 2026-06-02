@@ -74,6 +74,62 @@ class SimpleVPBot_Reseller_Branding {
 	}
 
 	/**
+	 * Optional config line label override for an end user (nearest reseller, else site setting).
+	 *
+	 * @param int $svp_user_id Service owner's svp user id.
+	 * @return string Empty = use panel subscription #fragment labels.
+	 */
+	public static function config_label_override_for_user( $svp_user_id ) {
+		$uid = (int) $svp_user_id;
+		$rid = self::nearest_reseller_id_for_user( $uid );
+		if ( $rid > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $rid );
+			$ov   = $prof ? trim( (string) ( $prof->config_label_override ?? '' ) ) : '';
+			if ( '' !== $ov ) {
+				return $ov;
+			}
+		}
+		if ( class_exists( 'SimpleVPBot_Settings' ) ) {
+			return trim( (string) SimpleVPBot_Settings::get( 'subscription_config_label_override', '' ) );
+		}
+		return '';
+	}
+
+	/**
+	 * Prefix for prefix_numbered labels (reseller profile, site setting, then brand/site name).
+	 *
+	 * @param int $svp_user_id Service owner's svp user id.
+	 * @return string
+	 */
+	public static function config_label_prefix_for_user( $svp_user_id ) {
+		$uid = (int) $svp_user_id;
+		$rid = self::nearest_reseller_id_for_user( $uid );
+		if ( $rid > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $rid );
+			$pref = $prof ? trim( (string) ( $prof->config_label_prefix ?? '' ) ) : '';
+			if ( '' !== $pref ) {
+				return $pref;
+			}
+		}
+		if ( class_exists( 'SimpleVPBot_Settings' ) ) {
+			$pref = trim( (string) SimpleVPBot_Settings::get( 'config_label_prefix', '' ) );
+			if ( '' !== $pref ) {
+				return $pref;
+			}
+		}
+		if ( $rid > 0 ) {
+			$brand = self::display_brand_for_reseller( $rid );
+			if ( '' !== $brand ) {
+				return $brand;
+			}
+		}
+		if ( class_exists( 'SimpleVPBot_Settings' ) ) {
+			return trim( (string) SimpleVPBot_Settings::get( 'dashboard_site_name', '' ) );
+		}
+		return '';
+	}
+
+	/**
 	 * Fragment text for subscription/config lines for an end user (chain from invited_by).
 	 *
 	 * @param int $svp_user_id Service owner's svp user id.
@@ -124,7 +180,7 @@ class SimpleVPBot_Reseller_Branding {
 	 * @return string
 	 */
 	public static function panel_client_name_for_user( $svp_user_id, $service_remark ) {
-		if ( class_exists( 'SimpleVPBot_Settings' ) && 'platform_slug' === (string) SimpleVPBot_Settings::get( 'service_naming_mode', 'legacy' ) ) {
+		if ( class_exists( 'SimpleVPBot_Service_Naming' ) && SimpleVPBot_Service_Naming::is_platform_slug_remark( (string) $service_remark ) ) {
 			$brand = self::panel_brand_only_for_user( (int) $svp_user_id );
 			if ( '' !== $brand ) {
 				return self::limit_text( $brand, 50 );
@@ -178,20 +234,42 @@ class SimpleVPBot_Reseller_Branding {
 	/**
 	 * Apply reseller brand to fetched subscription URI lines.
 	 *
-	 * @param array<int, string> $uris      Lines from panel subscription.
-	 * @param int                $svp_user_id Service owner's user id.
+	 * @param array<int, string>   $uris           Lines from panel subscription.
+	 * @param int                  $svp_user_id    Service owner's user id.
+	 * @param string               $service_remark Service remark (legacy fallback).
+	 * @param object|array|null    $svc            Optional service row for per-service naming.
 	 * @return array<int, string>
 	 */
-	public static function rewrite_subscription_uris_for_user( array $uris, $svp_user_id, $service_remark = '' ) {
+	public static function rewrite_subscription_uris_for_user( array $uris, $svp_user_id, $service_remark = '', $svc = null ) {
+		$row = $svc;
+		if ( ! $row && '' !== trim( (string) $service_remark ) ) {
+			$row = (object) array( 'remark' => (string) $service_remark );
+		}
+		if ( class_exists( 'SimpleVPBot_Service_Naming' ) ) {
+			$ctx    = $row ? SimpleVPBot_Service_Naming::context_from_service( $row ) : array();
+			$labels = SimpleVPBot_Service_Naming::config_labels_from_uris( $uris, (int) $svp_user_id, $ctx );
+			$out    = array();
+			$i      = 0;
+			foreach ( $uris as $u ) {
+				$frag = isset( $labels[ $i ] ) ? (string) $labels[ $i ] : '';
+				if ( '' !== trim( $frag ) && class_exists( 'SimpleVPBot_Config_Link' ) ) {
+					$out[] = SimpleVPBot_Config_Link::replace_uri_fragment( (string) $u, $frag );
+				} else {
+					$out[] = (string) $u;
+				}
+				$i++;
+			}
+			return $out;
+		}
 		$base_frag = self::fragment_for_service( (int) $svp_user_id, (string) $service_remark );
 		if ( '' === $base_frag ) {
 			return $uris;
 		}
-		$out = array();
+		$out   = array();
 		$multi = count( $uris ) > 1;
-		$idx = 1;
+		$idx   = 1;
 		foreach ( $uris as $u ) {
-			$frag = $multi ? ( $base_frag . '-' . $idx ) : $base_frag;
+			$frag  = $multi ? ( $base_frag . '-' . $idx ) : $base_frag;
 			$out[] = SimpleVPBot_Config_Link::replace_uri_fragment( (string) $u, $frag );
 			$idx++;
 		}

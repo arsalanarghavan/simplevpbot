@@ -30,6 +30,8 @@ const TAB_SLUG_ALIASES: Record<string, string> = {
   "wholesale-lines": "plans",
   "reseller-xui-panels": "reseller_xui_panels",
   reseller_xui_panels: "reseller_xui_panels",
+  "reseller-settings": "reseller_settings",
+  reseller_settings: "reseller_settings",
   "panel-inbounds": "configs",
 }
 

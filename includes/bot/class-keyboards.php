@@ -885,9 +885,12 @@ class SimpleVPBot_Keyboards {
 	public static function inline_service_list( array $services, $user = null ) {
 		$rows = array();
 		foreach ( $services as $s ) {
+			$svc_label = class_exists( 'SimpleVPBot_Service_Naming' )
+				? SimpleVPBot_Service_Naming::public_label_for_service( $s )
+				: (string) $s->remark;
 			$label = SimpleVPBot_Texts::format(
 				SimpleVPBot_Texts::label( 'btn.svc.list_item', $user ),
-				array( 'remark' => mb_substr( (string) $s->remark, 0, 24 ) )
+				array( 'remark' => mb_substr( $svc_label, 0, 24 ) )
 			);
 			$rows[] = array(
 				array(

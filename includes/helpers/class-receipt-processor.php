@@ -271,8 +271,9 @@ class SimpleVPBot_Receipt_Processor {
 				}
 			}
 		} elseif ( ! empty( $meta['plan_id'] ) ) {
-			$vol = isset( $meta['volume_gb'] ) ? (int) $meta['volume_gb'] : null;
-			$det = SimpleVPBot_Service_Provisioner::create_from_plan_detailed( (int) $tx->user_id, (int) $meta['plan_id'], $vol );
+			$vol      = isset( $meta['volume_gb'] ) ? (int) $meta['volume_gb'] : null;
+			$platform = class_exists( 'SimpleVPBot_Service_Naming' ) ? SimpleVPBot_Service_Naming::platform_from_meta( $meta ) : null;
+			$det      = SimpleVPBot_Service_Provisioner::create_from_plan_detailed( (int) $tx->user_id, (int) $meta['plan_id'], $vol, $platform );
 			if ( ! empty( $det['ok'] ) ) {
 				if ( ! self::try_approve_purchase_tx( $tx, $meta, (int) $det['service_id'] ) ) {
 					$purchase_failed = true;
@@ -627,8 +628,9 @@ class SimpleVPBot_Receipt_Processor {
 		if ( empty( $meta['plan_id'] ) ) {
 			return array( 'ok' => false, 'reason' => 'no_plan_id' );
 		}
-		$vol = isset( $meta['volume_gb'] ) ? (int) $meta['volume_gb'] : null;
-		$det = SimpleVPBot_Service_Provisioner::create_from_plan_detailed( (int) $tx->user_id, (int) $meta['plan_id'], $vol );
+		$vol      = isset( $meta['volume_gb'] ) ? (int) $meta['volume_gb'] : null;
+		$platform = class_exists( 'SimpleVPBot_Service_Naming' ) ? SimpleVPBot_Service_Naming::platform_from_meta( $meta ) : null;
+		$det      = SimpleVPBot_Service_Provisioner::create_from_plan_detailed( (int) $tx->user_id, (int) $meta['plan_id'], $vol, $platform );
 		if ( empty( $det['ok'] ) ) {
 			return array(
 				'ok'     => false,
@@ -827,8 +829,9 @@ class SimpleVPBot_Receipt_Processor {
 		if ( empty( $meta['plan_id'] ) ) {
 			return array( 'ok' => false, 'reason' => 'no_plan' );
 		}
-		$vol = isset( $meta['volume_gb'] ) ? (int) $meta['volume_gb'] : null;
-		$det = SimpleVPBot_Service_Provisioner::create_from_plan_detailed( (int) $tx->user_id, (int) $meta['plan_id'], $vol );
+		$vol      = isset( $meta['volume_gb'] ) ? (int) $meta['volume_gb'] : null;
+		$platform = class_exists( 'SimpleVPBot_Service_Naming' ) ? SimpleVPBot_Service_Naming::platform_from_meta( $meta ) : null;
+		$det      = SimpleVPBot_Service_Provisioner::create_from_plan_detailed( (int) $tx->user_id, (int) $meta['plan_id'], $vol, $platform );
 		if ( empty( $det['ok'] ) || empty( $det['service_id'] ) ) {
 			SimpleVPBot_Logger::error(
 				'fulfill_purchase_by_transaction: provisioning failed',

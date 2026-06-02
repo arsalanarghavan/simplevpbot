@@ -116,6 +116,16 @@ class SimpleVPBot_Settings {
 			),
 			'default_bot_locale'             => 'fa',
 			'service_naming_mode'            => 'legacy',
+			/** When set, replaces panel subscription #fragment labels in config lists (bot/portal/dashboard). */
+			'subscription_config_label_override' => '',
+			/** Prefix for prefix_numbered mode labels, e.g. GoatVPN-1001. */
+			'config_label_prefix'              => '',
+			/** First parenthesized number per service when prefix_numbered mode is active. */
+			'config_label_number_start'        => 1001,
+			/** JSON map panelId:inboundId => custom inbound display name (admin). */
+			'inbound_display_names'            => array(),
+			/** When true, config #fragment labels use explicit inbound alias + suffix (no panel remark fallback). */
+			'config_label_prepend_inbound'     => false,
 			'bot_ui_layouts'                 => array(),
 			/** When false, L2TP is hidden from dashboard, bot, and portal (data/cron unchanged). */
 			'l2tp_enabled'                   => false,
@@ -309,6 +319,8 @@ class SimpleVPBot_Settings {
 			'notify_idle_cooldown_days',
 			'webhook_rate_limit_per_min',
 			'rate_limit_trust_forwarded_for',
+			'service_naming_mode',
+			'config_label_number_start',
 		);
 		$out = array();
 		foreach ( $keys as $k ) {
@@ -336,6 +348,65 @@ class SimpleVPBot_Settings {
 	 */
 	public static function dashboard_site_icon_url_resolved() {
 		return esc_url_raw( trim( (string) self::get( 'dashboard_site_icon_url', '' ) ) );
+	}
+
+	/**
+	 * Whether config list labels prepend an inbound alias before the service suffix.
+	 *
+	 * @return bool
+	 */
+	public static function config_label_prepend_inbound() {
+		return (bool) self::get( 'config_label_prepend_inbound', false );
+	}
+
+	/**
+	 * Admin inbound display aliases: keys "panelId:inboundId".
+	 *
+	 * @return array<string, string>
+	 */
+	public static function inbound_display_names_map() {
+		$raw = self::get( 'inbound_display_names', array() );
+		if ( is_string( $raw ) ) {
+			$dec = json_decode( $raw, true );
+			$raw = is_array( $dec ) ? $dec : array();
+		}
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( $raw as $key => $val ) {
+			$k = preg_replace( '/[^0-9:]/', '', (string) $key );
+			$v = trim( sanitize_text_field( (string) $val ) );
+			if ( '' !== $k && '' !== $v ) {
+				$out[ $k ] = $v;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Parse inbound alias map from settings_tab POST (object or JSON string).
+	 *
+	 * @param mixed $raw POST value.
+	 * @return array<string, string>
+	 */
+	public static function sanitize_inbound_display_names_input( $raw ) {
+		if ( is_string( $raw ) ) {
+			$dec = json_decode( $raw, true );
+			$raw = is_array( $dec ) ? $dec : array();
+		}
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( $raw as $key => $val ) {
+			$k = preg_replace( '/[^0-9:]/', '', (string) $key );
+			$v = trim( sanitize_text_field( (string) $val ) );
+			if ( '' !== $k && '' !== $v ) {
+				$out[ $k ] = $v;
+			}
+		}
+		return $out;
 	}
 
 	/**

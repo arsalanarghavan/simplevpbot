@@ -526,8 +526,6 @@ class SimpleVPBot_Admin_Actions {
 					: sanitize_text_field( ltrim( trim( (string) ( $post['support_bale_username'] ?? '' ) ), '@' ) );
 				$loc = sanitize_key( (string) ( $post['default_bot_locale'] ?? 'fa' ) );
 				$all['default_bot_locale'] = in_array( $loc, array( 'fa', 'en' ), true ) ? $loc : 'fa';
-				$nmode = sanitize_key( (string) ( $post['service_naming_mode'] ?? 'legacy' ) );
-				$all['service_naming_mode'] = in_array( $nmode, array( 'legacy', 'platform_slug' ), true ) ? $nmode : 'legacy';
 				$raw = $post['receipt_reject_reasons'] ?? array();
 				if ( is_string( $raw ) ) {
 					$raw = preg_split( '/\r\n|\r|\n/', $raw );
@@ -542,6 +540,17 @@ class SimpleVPBot_Admin_Actions {
 				$all['receipt_reject_reasons'] = ! empty( $reasons )
 					? array_values( array_unique( $reasons ) )
 					: SimpleVPBot_Settings::defaults()['receipt_reject_reasons'];
+				break;
+			case 'service_naming':
+				$nmode = sanitize_key( (string) ( $post['service_naming_mode'] ?? 'legacy' ) );
+				$all['service_naming_mode'] = in_array( $nmode, array( 'legacy', 'platform_slug', 'prefix_numbered', 'numbered' ), true ) ? $nmode : 'legacy';
+				$all['subscription_config_label_override'] = sanitize_text_field( (string) ( $post['subscription_config_label_override'] ?? '' ) );
+				$all['config_label_prefix']                = sanitize_text_field( (string) ( $post['config_label_prefix'] ?? '' ) );
+				$all['config_label_number_start']          = max( 1, (int) ( $post['config_label_number_start'] ?? 1001 ) );
+				$all['inbound_display_names']              = SimpleVPBot_Settings::sanitize_inbound_display_names_input(
+					$post['inbound_display_names'] ?? array()
+				);
+				$all['config_label_prepend_inbound']       = ! empty( $post['config_label_prepend_inbound'] );
 				break;
 			case 'proxy':
 				$all['telegram_proxy_enabled']  = ! empty( $post['telegram_proxy_enabled'] );

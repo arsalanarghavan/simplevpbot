@@ -31,6 +31,19 @@ export function dashTextAlign(isFa: boolean): string {
 }
 
 /**
+ * Logical inline-start alignment inside dir-aware containers.
+ * NOTE: avoid `text-end` under RTL; it becomes physical left.
+ */
+export function dashLogicalAlign(isFa: boolean): string {
+  return isFa ? "text-start" : "text-start"
+}
+
+/** Physical alignment for blocks without a local dir container. */
+export function dashPhysicalAlign(isFa: boolean): string {
+  return isFa ? "text-right" : "text-left"
+}
+
+/**
  * Inline flex row for icon+label groups. Does NOT reverse — rely on parent dir.
  * @deprecated Prefer dashActionsClass; kept for gradual migration.
  */

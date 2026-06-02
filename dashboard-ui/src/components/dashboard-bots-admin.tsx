@@ -68,6 +68,8 @@ type BotRow = {
   theme_primary?: string
   theme_accent?: string
   custom_domain?: string
+  config_label_override?: string
+  config_label_prefix?: string
   enabled?: boolean
   has_telegram_token?: boolean
   has_bale_token?: boolean
@@ -274,6 +276,8 @@ export function DashboardBotsAdmin({
       theme_primary: String(row.theme_primary ?? ""),
       theme_accent: String(row.theme_accent ?? ""),
       custom_domain: String(row.custom_domain ?? ""),
+      config_label_override: String(row.config_label_override ?? ""),
+      config_label_prefix: String(row.config_label_prefix ?? ""),
       telegram_token: "",
       bale_token: "",
       bale_wallet_provider_token: "",
@@ -323,6 +327,8 @@ export function DashboardBotsAdmin({
       theme_primary: dlgForm.theme_primary,
       theme_accent: dlgForm.theme_accent,
       custom_domain: dlgForm.custom_domain,
+      config_label_override: String(dlgForm.config_label_override ?? ""),
+      config_label_prefix: String(dlgForm.config_label_prefix ?? ""),
       text_overrides: {
         "msg.welcome": String(dlgForm.text_msg_welcome ?? ""),
         "btn.support.contact": String(dlgForm.text_btn_support_contact ?? ""),
@@ -822,6 +828,7 @@ export function DashboardBotsAdmin({
                 className="h-9"
               />
             </div>
+            <p className="text-xs text-muted-foreground">{tp("configNamingMovedHint")}</p>
             <Input
               placeholder={tp("brandingLogoUrl")}
               value={dlgForm.logo_url ?? ""}

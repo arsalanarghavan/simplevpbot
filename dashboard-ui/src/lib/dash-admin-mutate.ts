@@ -44,6 +44,15 @@ async function parseAdminRestJson(res: Response): Promise<Record<string, unknown
     }
     return json
   } catch {
+    const trimmed = text.trim()
+    const lower = trimmed.slice(0, 64).toLowerCase()
+    if (lower.startsWith("<!doctype") || lower.startsWith("<html")) {
+      return {
+        ok: false,
+        message: "invalid_html_response",
+        http_status: res.status,
+      }
+    }
     const snippet = text.replace(/\s+/g, " ").trim().slice(0, 120)
     return {
       ok: false,

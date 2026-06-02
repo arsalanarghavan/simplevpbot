@@ -118,6 +118,12 @@ type ClientRow = DashRecord & {
   service_plan_id?: number
   comment?: string
   remark?: string
+  panel_remark?: string
+  subscription_name?: string
+  subscription_id?: string
+  service_canonical?: string
+  service_remark?: string
+  service_note?: string
   service_expires_at?: string
   client_ips?: unknown
 }
@@ -143,6 +149,21 @@ type QrCtx = { panel_id: number; inbound_id: number; row: ClientRow }
 function parsePayloadConfigUris(payload: Record<string, unknown> | null): string[] {
   if (!payload || !Array.isArray(payload.config_uris)) return []
   return payload.config_uris.map((x) => String(x).trim()).filter(Boolean)
+}
+
+function parsePayloadConfigLabels(payload: Record<string, unknown> | null): string[] {
+  if (!payload || !Array.isArray(payload.config_labels)) return []
+  return payload.config_labels.map((x) => String(x).trim())
+}
+
+function configLineLabel(
+  idx: number,
+  labels: string[],
+  tl: (k: string, opts?: Record<string, string | number>) => string
+): string {
+  const fromPayload = labels[idx]?.trim()
+  if (fromPayload) return fromPayload
+  return tl("configLineN", { n: idx + 1 })
 }
 
 function effectiveQrSubscriptionUrl(ctx: QrCtx | null, payload: Record<string, unknown> | null): string {
@@ -219,10 +240,27 @@ function expirySourcesDiffer(row: ClientRow): boolean {
   return Math.abs(panel - svc) > 3600000
 }
 
+function isInternalPanelEmail(email: string): boolean {
+  const em = email.trim().toLowerCase()
+  return em.length > 0 && /^u\d+[-_][^@]+@svp\.local$/.test(em)
+}
+
 function configDisplayName(row: ClientRow): string {
+  const subName = String(row.subscription_name ?? row.service_remark ?? "").trim()
+  if (subName && !isInternalPanelEmail(subName)) return subName
   const em = String(row.email ?? "").trim()
-  const rm = String(row.remark ?? "").trim()
-  return rm || em
+  if (em && !isInternalPanelEmail(em)) return em
+  if (subName) return subName
+  return em
+}
+
+function needsCanonicalPanelRepair(row: ClientRow): boolean {
+  const sid = num(row.linked_service_id)
+  if (sid < 1) return false
+  const em = String(row.email ?? "").trim()
+  if (isInternalPanelEmail(em)) return true
+  const canonical = String(row.service_canonical ?? row.service_remark ?? row.subscription_name ?? "").trim()
+  return canonical.length > 0 && em.length > 0 && canonical !== em
 }
 
 type PlanGroup = {
@@ -719,6 +757,28 @@ export function DashboardConfigsAdmin({
       setBusyRow(null)
     }
   }, [afterMutate, resetInboundId, resetPanelId, resetRow, tl])
+
+  const onApplyCanonicalIdentity = useCallback(
+    async (serviceId: number, panel_id: number, inboundId: number, row: ClientRow) => {
+      const email = String(row.email ?? "")
+      const rk = rowKey(panel_id, inboundId, email)
+      setErr(null)
+      setBusyRow(rk)
+      try {
+        const res = await postAdminMutate("service_apply_canonical_panel_identity", {
+          service_id: serviceId,
+        })
+        if (!res.ok) {
+          setErr(res.message ?? tl("mutateError"))
+          return
+        }
+        await afterMutate()
+      } finally {
+        setBusyRow(null)
+      }
+    },
+    [afterMutate, tl]
+  )
 
   const onDelete = useCallback(async () => {
     if (!delRow || delInboundId < 1 || delPanelId < 1) return
@@ -1444,6 +1504,24 @@ export function DashboardConfigsAdmin({
             </TooltipTrigger>
             <TooltipContent>{tl("qrTitle")}</TooltipContent>
           </Tooltip>
+          {needsCanonicalPanelRepair(row) ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="size-9 text-amber-600 dark:text-amber-400"
+                  disabled={batchBusy || busyRow === rk}
+                  onClick={() => void onApplyCanonicalIdentity(num(row.linked_service_id), pid, iid, row)}
+                  aria-label={tl("applyCanonicalIdentity")}
+                >
+                  <RotateCcw className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">{tl("applyCanonicalIdentityHint")}</TooltipContent>
+            </Tooltip>
+          ) : null}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button type="button" size="icon" variant="ghost" className="size-9" onClick={() => openEdit(pid, iid, row)}>
@@ -2036,7 +2114,17 @@ export function DashboardConfigsAdmin({
                   {tl("detailsIdentity")}
                 </p>
                 <DetailRow label={tl("fieldEmail")}>{String(infoRow.email ?? "—")}</DetailRow>
-                <DetailRow label={tl("fieldRemark")}>{String(infoRow.remark ?? tl("none"))}</DetailRow>
+                <DetailRow label={tl("fieldServiceName")}>
+                  {String(
+                    infoRow.service_canonical ??
+                      infoRow.subscription_name ??
+                      infoRow.service_remark ??
+                      tl("none")
+                  )}
+                </DetailRow>
+                <DetailRow label={tl("fieldRemark")}>
+                  {String(infoRow.panel_remark ?? infoRow.remark ?? tl("none"))}
+                </DetailRow>
                 <DetailRow label={tl("fieldAdminComment")}>{String(infoRow.comment ?? tl("none"))}</DetailRow>
               </div>
               <div>
@@ -2093,6 +2181,7 @@ export function DashboardConfigsAdmin({
                 ) : null}
                 {(() => {
                   const cfgUris = infoCtx ? effectiveQrConfigUris(infoCtx, infoPortalPayload) : []
+                  const cfgLabels = parsePayloadConfigLabels(infoPortalPayload)
                   if (cfgUris.length > 0) {
                     return (
                       <div className="space-y-3">
@@ -2103,7 +2192,9 @@ export function DashboardConfigsAdmin({
                         {cfgUris.map((uri, idx) => (
                           <div key={`${idx}-${uri}`} className="space-y-1 rounded-md border border-border/60 p-2">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-medium">{tl("configLineN", { n: idx + 1 })}</span>
+                              <span className="text-xs font-medium">
+                                {configLineLabel(idx, cfgLabels, tl)}
+                              </span>
                               <Button
                                 type="button"
                                 size="sm"
@@ -2260,7 +2351,9 @@ export function DashboardConfigsAdmin({
                         className="rounded-lg border border-border/60 bg-background p-3 shadow-sm transition hover:bg-muted/50"
                         onClick={() => void copyToClipboard(cfg).then((ok) => showQrCopy(ok ? "ok" : "fail"))}
                       >
-                        <div className="mb-2 text-center text-xs font-medium">{tl("qrConfigN", { n: idx + 1 })}</div>
+                        <div className="mb-2 text-center text-xs font-medium">
+                          {configLineLabel(idx, parsePayloadConfigLabels(qrPortalPayload), tl)}
+                        </div>
                         <QRCodeSVG value={cfg} size={168} level="M" />
                         <span className="mt-2 flex items-center justify-center gap-1 text-xs text-muted-foreground">
                           <Copy className="size-3" /> {tl("copyAction")}

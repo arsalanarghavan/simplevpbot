@@ -52,7 +52,7 @@ class SimpleVPBot_Service_Panel_Transfer {
 		$remaining_secs  = self::remaining_seconds( $svc );
 		$expiry_ms       = $remaining_secs > 0 ? ( ( time() + $remaining_secs ) * 1000 ) : 0;
 		$totalgb         = SimpleVPBot_Inbound_Linker::panel_client_totalgb_json_value( $remaining_bytes );
-		$new_email       = self::new_client_email( (int) ( $svc->user_id ?? 0 ) );
+		$new_email       = self::new_client_email_for_service( $svc );
 		$new_uuid        = '';
 		$new_subid       = '';
 
@@ -210,8 +210,17 @@ class SimpleVPBot_Service_Panel_Transfer {
 		return max( 0, $ts - time() );
 	}
 
-	private static function new_client_email( $user_id ) {
-		return 'u' . max( 1, (int) $user_id ) . '_' . wp_generate_password( 6, false, false ) . '@svp.local';
+	private static function new_client_email_for_service( $svc ) {
+		if ( ! $svc || ! class_exists( 'SimpleVPBot_Service_Naming' ) ) {
+			return 'u' . max( 1, (int) ( $svc->user_id ?? 0 ) ) . '_' . wp_generate_password( 6, false, false ) . '@svp.local';
+		}
+		$uid      = (int) ( $svc->user_id ?? 0 );
+		$user     = $uid > 0 && class_exists( 'SimpleVPBot_Model_User' ) ? SimpleVPBot_Model_User::find( $uid ) : null;
+		$canonical = SimpleVPBot_Service_Naming::canonical_label_for_service( $svc );
+		if ( '' === $canonical || SimpleVPBot_Service_Naming::is_internal_panel_email( $canonical ) ) {
+			$canonical = SimpleVPBot_Service_Naming::provision_canonical_label( $user, null, 1 );
+		}
+		return SimpleVPBot_Service_Naming::provision_panel_email( $user, $canonical, null );
 	}
 
 	private static function inbound_template_client( $inbound ) {

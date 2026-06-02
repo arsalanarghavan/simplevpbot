@@ -50,6 +50,17 @@ class PanelBulkOpsTest extends TestCase {
 		$this->assertStringContainsString( 'receipt_mutate_rest_response', $mut );
 	}
 
+	public function test_receipt_mutate_response_json_safe(): void {
+		$mut = (string) file_get_contents( dirname( __DIR__ ) . '/includes/admin/class-dashboard-admin-mutations.php' );
+		$this->assertStringContainsString( 'sanitize_receipt_processor_result_for_json', $mut );
+		$this->assertStringContainsString( 'sanitize_receipt_processor_result_for_json( $res )', $mut );
+		$this->assertStringNotContainsString( "'data' => \$res", $mut );
+		$rest = (string) file_get_contents( dirname( __DIR__ ) . '/includes/api/class-rest-dashboard.php' );
+		$this->assertStringContainsString( 'dashboard admin mutate exception', $rest );
+		$this->assertStringContainsString( 'response_encode_failed', $rest );
+		$this->assertStringContainsString( 'wp_json_encode( $res )', $rest );
+	}
+
 	public function test_panel_volume_delta_uses_resolve_quota_bytes(): void {
 		$renew = (string) file_get_contents( dirname( __DIR__ ) . '/includes/helpers/class-service-renew.php' );
 		$this->assertStringContainsString( 'function apply_panel_volume_delta', $renew );

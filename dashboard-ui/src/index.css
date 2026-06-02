@@ -96,8 +96,16 @@
     @apply border-border;
 }
 
-html {
+.dashboard-main-scroll {
     scrollbar-gutter: stable;
+}
+
+/* Keep fixed sidebar aligned when Radix/RemoveScroll reserves scrollbar gap. */
+body[data-scroll-locked] [data-slot='sidebar'][data-side='right'] [data-slot='sidebar-container'] {
+    right: var(--removed-body-scroll-bar-size, 0px);
+}
+body[data-scroll-locked] [data-slot='sidebar'][data-side='left'] [data-slot='sidebar-container'] {
+    left: var(--removed-body-scroll-bar-size, 0px);
 }
 
 body {
