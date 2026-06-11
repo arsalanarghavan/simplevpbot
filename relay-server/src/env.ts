@@ -30,7 +30,16 @@ export const env = {
   telegramApiBase: String(process.env.TELEGRAM_API_BASE || "https://api.telegram.org").replace(/\/$/, ""),
   forwardMaxRetries: Math.max(1, Number(process.env.FORWARD_MAX_RETRIES || 3)),
   forwardTimeoutMs: Math.max(3000, Number(process.env.FORWARD_TIMEOUT_MS || 25000)),
-  nginxConfigPath: String(process.env.NGINX_CONFIG_PATH || "/etc/nginx/sites-available/svp-relay.conf"),
+  nginxConfigPath: String(process.env.NGINX_CONFIG_PATH || "/etc/nginx/sites-available/svp-relay-telegram.conf"),
+  nginxTelegramConfigPath: String(
+    process.env.NGINX_TELEGRAM_CONFIG_PATH || "/etc/nginx/sites-available/svp-relay-telegram.conf",
+  ),
+  nginxAdminConfigPath: String(
+    process.env.NGINX_ADMIN_CONFIG_PATH || "/etc/nginx/sites-available/svp-relay-admin.conf",
+  ),
+  adminSslCertPath: String(process.env.ADMIN_SSL_CERT || "/etc/svp-relay/ssl/admin-ip.crt"),
+  adminSslKeyPath: String(process.env.ADMIN_SSL_KEY || "/etc/svp-relay/ssl/admin-ip.key"),
+  relayVersion: String(process.env.RELAY_VERSION || "1.1.0"),
 }
 
 function joinRel(base: string, rel: string): string {

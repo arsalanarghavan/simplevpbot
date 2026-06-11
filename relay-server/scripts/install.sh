@@ -30,24 +30,27 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-echo "[1/7] Installing Node.js 20 if needed..."
+echo "[1/9] Installing Node.js 20 if needed..."
 if ! command -v node >/dev/null 2>&1 || [[ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]]; then
   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   apt-get install -y nodejs
 fi
 
-echo "[2/7] Creating service user and directory..."
+echo "[2/9] UI tools (whiptail)..."
+apt-get install -y whiptail dialog openssl nginx 2>/dev/null || true
+
+echo "[3/9] Creating service user and directory..."
 id -u "$SERVICE_USER" &>/dev/null || useradd --system --home "$INSTALL_DIR" --shell /usr/sbin/nologin "$SERVICE_USER"
 mkdir -p "$INSTALL_DIR"
 rsync -a --delete --exclude node_modules "$SRC_DIR/" "$INSTALL_DIR/"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 
-echo "[3/7] Building relay..."
+echo "[4/9] Building relay..."
 cd "$INSTALL_DIR"
 sudo -u "$SERVICE_USER" npm ci
 sudo -u "$SERVICE_USER" npm run build
 
-echo "[4/7] Writing .env..."
+echo "[5/9] Writing .env..."
 MASTER_SECRET="$(openssl rand -hex 32)"
 ENV_FILE="$INSTALL_DIR/.env"
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -57,7 +60,10 @@ RELAY_MASTER_SECRET=$MASTER_SECRET
 RELAY_SHARED_SECRET=$MASTER_SECRET
 DATA_DIR=$INSTALL_DIR/data
 TENANTS_DIR=$INSTALL_DIR/data/tenants
-NGINX_CONFIG_PATH=/etc/nginx/sites-available/svp-relay.conf
+NGINX_TELEGRAM_CONFIG_PATH=/etc/nginx/sites-available/svp-relay-telegram.conf
+NGINX_ADMIN_CONFIG_PATH=/etc/nginx/sites-available/svp-relay-admin.conf
+ADMIN_SSL_CERT=/etc/svp-relay/ssl/admin-ip.crt
+ADMIN_SSL_KEY=/etc/svp-relay/ssl/admin-ip.key
 EOF
   chmod 600 "$ENV_FILE"
   chown "$SERVICE_USER:$SERVICE_USER" "$ENV_FILE"
@@ -65,7 +71,14 @@ EOF
   echo "$MASTER_SECRET"
 fi
 
-echo "[5/7] systemd unit..."
+echo "[6/9] Admin SSL + sudoers..."
+bash "$SCRIPT_DIR/gen-admin-ssl.sh" /etc/svp-relay/ssl
+if [[ -f "$SCRIPT_DIR/sudoers-svp-relay" ]]; then
+  cp "$SCRIPT_DIR/sudoers-svp-relay" /etc/sudoers.d/svp-relay
+  chmod 440 /etc/sudoers.d/svp-relay
+fi
+
+echo "[7/9] systemd unit..."
 if [[ "$NO_SYSTEMD" -eq 0 ]]; then
   cat >/etc/systemd/system/svp-relay.service <<EOF
 [Unit]
@@ -89,26 +102,29 @@ EOF
   systemctl restart svp-relay
 fi
 
-echo "[6/7] nginx..."
+echo "[8/9] nginx (telegram + admin vhosts)..."
 if [[ "$NO_NGINX" -eq 0 ]] && command -v nginx >/dev/null 2>&1; then
-  apt-get install -y nginx || true
   mkdir -p /var/www/certbot
   if [[ -n "$DOMAIN" ]]; then
     sudo -u "$SERVICE_USER" node dist/cli/svp-relay.js domain add "$DOMAIN" || true
-    sudo -u "$SERVICE_USER" node dist/cli/svp-relay.js nginx render
-    ln -sf /etc/nginx/sites-available/svp-relay.conf /etc/nginx/sites-enabled/svp-relay.conf 2>/dev/null || true
-    if [[ -n "$SSL_METHOD" ]]; then
-      node dist/cli/svp-relay.js ssl issue "$DOMAIN" --method "$SSL_METHOD" ${EMAIL:+--email "$EMAIL"}
-    fi
-    nginx -t && systemctl reload nginx
   fi
+  sudo -u "$SERVICE_USER" node dist/cli/svp-relay.js nginx render
+  ln -sf /etc/nginx/sites-available/svp-relay-telegram.conf /etc/nginx/sites-enabled/svp-relay-telegram.conf 2>/dev/null || true
+  ln -sf /etc/nginx/sites-available/svp-relay-admin.conf /etc/nginx/sites-enabled/svp-relay-admin.conf 2>/dev/null || true
+  if [[ -n "$DOMAIN" && -n "$SSL_METHOD" ]]; then
+    node dist/cli/svp-relay.js ssl issue "$DOMAIN" --method "$SSL_METHOD" ${EMAIL:+--email "$EMAIL"}
+  fi
+  nginx -t && systemctl reload nginx
 fi
 
-echo "[7/7] CLI on PATH..."
+echo "[9/9] CLI on PATH..."
 bash "$SCRIPT_DIR/install-cli-bin.sh" "$INSTALL_DIR"
 
+VPS_IP="$(curl -fsS https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
 echo "Done."
 echo "Install dir: $INSTALL_DIR"
-echo "Control panel: svp-relay"
+echo "Control panel (SSH): svp-relay"
+echo "WordPress admin URL: https://${VPS_IP}  (self-signed — disable SSL verify in WP)"
+echo "Telegram domain: ${DOMAIN:-set in WP dashboard}"
 echo "Health: curl -s http://127.0.0.1:8787/health"
 [[ -n "$WP_URL" ]] && echo "Configure WordPress at: $WP_URL → Site settings → Telegram relay"

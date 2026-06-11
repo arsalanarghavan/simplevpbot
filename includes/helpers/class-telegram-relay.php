@@ -28,12 +28,12 @@ class SimpleVPBot_Telegram_Relay {
 	 */
 	public static function is_enabled() {
 		if ( SimpleVPBot_Settings::get( 'telegram_relay_force', false ) ) {
-			return '' !== self::base_url();
+			return '' !== self::admin_url();
 		}
 		if ( ! SimpleVPBot_Settings::get( 'telegram_relay_enabled', false ) ) {
 			return false;
 		}
-		return '' !== self::base_url();
+		return '' !== self::admin_url();
 	}
 
 	/**
@@ -66,27 +66,51 @@ class SimpleVPBot_Telegram_Relay {
 	}
 
 	/**
-	 * Relay internal API base (no trailing slash).
+	 * WordPress → relay admin API (HTTPS VPS IP:443, not telegram domain).
 	 *
 	 * @return string
 	 */
-	public static function base_url() {
-		$u = trim( (string) SimpleVPBot_Settings::get( 'telegram_relay_base_url', '' ) );
+	public static function admin_url() {
+		$u = trim( (string) SimpleVPBot_Settings::get( 'telegram_relay_admin_url', '' ) );
 		if ( '' === $u ) {
-			$u = trim( (string) SimpleVPBot_Settings::get( 'telegram_relay_public_url', '' ) );
+			$ip = trim( (string) SimpleVPBot_Settings::get( 'telegram_relay_vps_ip', '' ) );
+			if ( '' !== $ip ) {
+				$u = 'https://' . preg_replace( '#^https?://#i', '', $ip );
+			}
+		}
+		if ( '' === $u ) {
+			$u = trim( (string) SimpleVPBot_Settings::get( 'telegram_relay_base_url', '' ) );
 		}
 		return untrailingslashit( esc_url_raw( $u ) );
 	}
 
 	/**
-	 * Public URL Telegram should call (webhook registration).
+	 * Relay internal API base (alias of admin_url).
+	 *
+	 * @return string
+	 */
+	public static function base_url() {
+		return self::admin_url();
+	}
+
+	/**
+	 * Whether to verify TLS for admin IP (self-signed cert).
+	 *
+	 * @return bool
+	 */
+	public static function admin_ssl_verify() {
+		return (bool) SimpleVPBot_Settings::get( 'telegram_relay_admin_ssl_verify', false );
+	}
+
+	/**
+	 * Public URL Telegram should call (webhook registration only).
 	 *
 	 * @return string
 	 */
 	public static function public_url() {
 		$u = trim( (string) SimpleVPBot_Settings::get( 'telegram_relay_public_url', '' ) );
 		if ( '' === $u ) {
-			$u = self::base_url();
+			return '';
 		}
 		return untrailingslashit( esc_url_raw( $u ) );
 	}
@@ -190,7 +214,6 @@ class SimpleVPBot_Telegram_Relay {
 			}
 		};
 		$add( self::public_url() );
-		$add( self::base_url() );
 		if ( class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
 			global $wpdb;
 			$table = SimpleVPBot_Model_Reseller_Bot_Profile::table();
@@ -275,7 +298,7 @@ class SimpleVPBot_Telegram_Relay {
 	 * @return array{ok:bool, status?:int, data?:array<string,mixed>, message?:string}
 	 */
 	public static function internal_get( $path, $timeout = 15 ) {
-		$base = self::base_url();
+		$base = self::admin_url();
 		$sec  = self::shared_secret();
 		if ( '' === $base || '' === $sec ) {
 			return array( 'ok' => false, 'message' => 'relay_not_configured' );
@@ -284,8 +307,9 @@ class SimpleVPBot_Telegram_Relay {
 		$res = wp_remote_get(
 			$url,
 			array(
-				'timeout' => max( 5, (int) $timeout ),
-				'headers' => array(
+				'timeout'   => max( 5, (int) $timeout ),
+				'sslverify' => self::admin_ssl_verify(),
+				'headers'   => array(
 					'X-SVP-Relay-Secret' => $sec,
 				),
 			)
@@ -317,19 +341,20 @@ class SimpleVPBot_Telegram_Relay {
 	 * @return array{ok:bool, status?:int, data?:array<string,mixed>, message?:string}
 	 */
 	public static function internal_request( $path, array $body = array(), $timeout = 25 ) {
-		$base = self::base_url();
+		$base = self::admin_url();
 		$sec  = self::shared_secret();
 		if ( '' === $base || '' === $sec ) {
 			return array( 'ok' => false, 'message' => 'relay_not_configured' );
 		}
 		$url  = $base . '/' . ltrim( (string) $path, '/' );
 		$args = array(
-			'timeout' => max( 5, (int) $timeout ),
-			'headers' => array(
+			'timeout'   => max( 5, (int) $timeout ),
+			'sslverify' => self::admin_ssl_verify(),
+			'headers'   => array(
 				'Content-Type'       => 'application/json',
 				'X-SVP-Relay-Secret' => $sec,
 			),
-			'body'    => wp_json_encode( $body ),
+			'body'      => wp_json_encode( $body ),
 		);
 		$res = wp_remote_post( $url, $args );
 		if ( is_wp_error( $res ) ) {
@@ -560,12 +585,94 @@ class SimpleVPBot_Telegram_Relay {
 	}
 
 	/**
+	 * GET relay admin API (master).
+	 *
+	 * @param string $path    e.g. /internal/admin/dashboard.
+	 * @param int    $timeout Timeout seconds.
+	 * @return array{ok:bool, status?:int, data?:array<string,mixed>, message?:string}
+	 */
+	public static function admin_get( $path, $timeout = 20 ) {
+		return self::internal_get( $path, $timeout );
+	}
+
+	/**
+	 * POST relay admin API (master).
+	 *
+	 * @param string               $path    Admin path.
+	 * @param array<string, mixed> $body    JSON body.
+	 * @param int                  $timeout Timeout seconds.
+	 * @return array{ok:bool, status?:int, data?:array<string,mixed>, message?:string}
+	 */
+	public static function admin_post( $path, array $body = array(), $timeout = 60 ) {
+		return self::internal_request( $path, $body, $timeout );
+	}
+
+	/**
+	 * Full auto-sync after settings save: config + domains + push WP IP to relay.
+	 *
+	 * @return array{ok:bool, steps?:array<int,array<string,mixed>>, message?:string}
+	 */
+	public static function auto_sync_after_save() {
+		if ( ! self::is_enabled() ) {
+			return array( 'ok' => false, 'message' => 'relay_disabled' );
+		}
+		$steps = array();
+		$health = self::health();
+		$steps[] = array( 'step' => 'health', 'ok' => ! empty( $health['ok'] ) );
+		if ( empty( $health['ok'] ) ) {
+			return array( 'ok' => false, 'message' => 'relay_unreachable', 'steps' => $steps );
+		}
+		$sync = self::push_config_to_relay();
+		$steps[] = array( 'step' => 'config', 'ok' => ! empty( $sync['ok'] ) );
+		if ( empty( $sync['ok'] ) ) {
+			return array( 'ok' => false, 'message' => 'config_sync_failed', 'steps' => $steps );
+		}
+		$dom = self::domains_sync_via_relay();
+		$steps[] = array( 'step' => 'domains', 'ok' => ! empty( $dom['ok'] ) );
+		$wp_ip = self::detect_wp_outbound_ip();
+		if ( '' !== $wp_ip ) {
+			$render = self::admin_post(
+				'/internal/admin/nginx/render',
+				array( 'wp_ips' => array( $wp_ip ) ),
+				30
+			);
+			$steps[] = array( 'step' => 'nginx_render', 'ok' => ! empty( $render['ok'] ) );
+		}
+		return array(
+			'ok'    => ! empty( $dom['ok'] ),
+			'steps' => $steps,
+		);
+	}
+
+	/**
+	 * Best-effort public IP of this WordPress host for relay ALLOWED_WP_IPS.
+	 *
+	 * @return string
+	 */
+	public static function detect_wp_outbound_ip() {
+		$cached = (string) get_transient( 'simplevpbot_wp_outbound_ip' );
+		if ( '' !== $cached ) {
+			return $cached;
+		}
+		$res = wp_remote_get( 'https://api.ipify.org?format=text', array( 'timeout' => 8 ) );
+		if ( is_wp_error( $res ) ) {
+			return '';
+		}
+		$ip = trim( (string) wp_remote_retrieve_body( $res ) );
+		if ( '' !== $ip && filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+			set_transient( 'simplevpbot_wp_outbound_ip', $ip, DAY_IN_SECONDS );
+			return $ip;
+		}
+		return '';
+	}
+
+	/**
 	 * After settings saved: sync if relay enabled.
 	 */
 	public static function maybe_sync_after_settings() {
 		if ( ! self::is_enabled() ) {
 			return;
 		}
-		self::push_config_to_relay();
+		self::auto_sync_after_save();
 	}
 }

@@ -4,12 +4,11 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadInstallEnv, pkgRoot } from "./paths.js";
 import { migrateLegacyConfigIfNeeded } from "../store.js";
-import { renderNginxConfig } from "./nginx.js";
 import { issueSslAcme, issueSslCertbot, renewSsl } from "./ssl.js";
 import { domainAdd, domainRemove, domainsList } from "./commands/domains.js";
 import { statusJson, runDoctor } from "./commands/status.js";
 import { tenantShowJson, tenantsListText } from "./commands/tenants.js";
-import { runPanel } from "./panel.js";
+import { runWhiptailPanel } from "./whiptail-ui.js";
 loadInstallEnv();
 const argv = process.argv.slice(2);
 const cmd = argv[0] || "";
@@ -51,7 +50,7 @@ Usage:
 }
 async function main() {
     if (!cmd || cmd === "panel") {
-        await runPanel((args) => runInstall(args));
+        await runWhiptailPanel((args) => runInstall(args));
         return;
     }
     if (cmd === "help" || cmd === "--help" || cmd === "-h") {
@@ -111,8 +110,9 @@ async function main() {
             break;
         case "nginx":
             if (sub === "render") {
-                const out = renderNginxConfig({ outPath: flag("--out") });
-                console.log(`wrote ${out}`);
+                const { renderAllNginx } = await import("./nginx.js");
+                const paths = renderAllNginx();
+                console.log(JSON.stringify(paths));
             }
             else
                 help();

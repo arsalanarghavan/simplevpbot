@@ -2,6 +2,8 @@
 
 Standalone Node.js service: fast webhook `200 OK`, multi-tenant config, per-bot domains, Bot API proxy, WordPress forward.
 
+**Full setup guide (Persian):** [SETUP-GUIDE-FA.md](./SETUP-GUIDE-FA.md)
+
 ## Quick install (VPS) — one command from GitHub
 
 ```bash
@@ -58,9 +60,12 @@ npm ci && npm run build
 npm start
 ```
 
-## Control panel (terminal)
+## Control centers
 
-After install, run the interactive menu (default when no arguments):
+**WordPress (primary):** Site settings → Telegram relay → Relay Control Center (purple tabs).  
+WP talks to relay via `https://VPS_IP` (admin, port 443). Telegram domain is separate.
+
+**VPS terminal (whiptail, Hiddify-style):**
 
 ```bash
 sudo svp-relay

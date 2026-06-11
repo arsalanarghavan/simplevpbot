@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
-import { renderNginxConfig, defaultSslPaths, acmeSslPaths } from "./nginx.js";
+import { renderAllNginx, defaultSslPaths, acmeSslPaths } from "./nginx.js";
 export function issueSslCertbot(domain, email) {
     const d = domain.replace(/^https?:\/\//, "").split("/")[0];
     const emailFlag = email ? `-m ${email}` : "--register-unsafely-without-email";
@@ -8,7 +8,7 @@ export function issueSslCertbot(domain, email) {
         stdio: "inherit",
     });
     const paths = defaultSslPaths(d);
-    renderNginxConfig({ domains: [d], sslCert: paths.cert, sslKey: paths.key });
+    renderAllNginx({ domains: [d], sslCert: paths.cert, sslKey: paths.key });
 }
 export function issueSslAcme(domain, email) {
     const d = domain.replace(/^https?:\/\//, "").split("/")[0];
@@ -20,7 +20,7 @@ export function issueSslAcme(domain, email) {
     mkdirSync("/var/www/certbot", { recursive: true });
     execSync(`${acme} --issue -d ${d} --nginx`, { stdio: "inherit" });
     const paths = acmeSslPaths(d);
-    renderNginxConfig({ domains: [d], sslCert: paths.cert, sslKey: paths.key });
+    renderAllNginx({ domains: [d], sslCert: paths.cert, sslKey: paths.key });
 }
 export function renewSsl(method) {
     if (method === "certbot") {

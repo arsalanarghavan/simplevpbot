@@ -4,6 +4,7 @@ import { migrateLegacyConfigIfNeeded } from "./store.js"
 import { webhookRouter } from "./routes/webhook.js"
 import { botProxyRouter } from "./routes/bot-proxy.js"
 import { internalRouter } from "./routes/internal.js"
+import { adminRouter } from "./routes/admin.js"
 
 migrateLegacyConfigIfNeeded()
 
@@ -18,6 +19,7 @@ app.get("/health", (_req, res) => {
 app.use(webhookRouter)
 app.use(botProxyRouter)
 app.use(internalRouter)
+app.use(adminRouter)
 
 app.listen(env.port, () => {
   console.log(`[relay] listening on :${env.port}`)

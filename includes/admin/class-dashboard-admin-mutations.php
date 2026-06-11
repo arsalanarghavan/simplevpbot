@@ -715,6 +715,36 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return self::op_telegram_relay_domains_sync();
 			case 'telegram_relay_set_webhook_reseller':
 				return self::op_telegram_relay_set_webhook_reseller( $params );
+			case 'telegram_relay_admin_dashboard':
+				return self::op_telegram_relay_admin_proxy( 'GET', '/internal/admin/dashboard' );
+			case 'telegram_relay_admin_doctor':
+				return self::op_telegram_relay_admin_proxy( 'GET', '/internal/admin/doctor' );
+			case 'telegram_relay_admin_logs':
+				return self::op_telegram_relay_admin_proxy( 'GET', '/internal/admin/logs', $params );
+			case 'telegram_relay_admin_ssl_status':
+				return self::op_telegram_relay_admin_proxy( 'GET', '/internal/admin/ssl/status' );
+			case 'telegram_relay_admin_domain_add':
+				return self::op_telegram_relay_admin_proxy( 'POST', '/internal/admin/domains/add', $params );
+			case 'telegram_relay_admin_domain_remove':
+				return self::op_telegram_relay_admin_proxy( 'POST', '/internal/admin/domains/remove', $params );
+			case 'telegram_relay_admin_nginx_render':
+				return self::op_telegram_relay_admin_proxy( 'POST', '/internal/admin/nginx/render', $params );
+			case 'telegram_relay_admin_nginx_test':
+				return self::op_telegram_relay_admin_proxy( 'POST', '/internal/admin/nginx/test', $params );
+			case 'telegram_relay_admin_nginx_reload':
+				return self::op_telegram_relay_admin_proxy( 'POST', '/internal/admin/nginx/reload', $params );
+			case 'telegram_relay_admin_ssl_issue':
+				return self::op_telegram_relay_admin_proxy( 'POST', '/internal/admin/ssl/issue', $params, 15 );
+			case 'telegram_relay_admin_ssl_renew':
+				return self::op_telegram_relay_admin_proxy( 'POST', '/internal/admin/ssl/renew', $params, 15 );
+			case 'telegram_relay_admin_service_restart':
+				return self::op_telegram_relay_admin_proxy( 'POST', '/internal/admin/service/restart', $params );
+			case 'telegram_relay_admin_update':
+				return self::op_telegram_relay_admin_proxy( 'POST', '/internal/admin/update', $params, 15 );
+			case 'telegram_relay_admin_job':
+				return self::op_telegram_relay_admin_proxy( 'GET', '/internal/admin/jobs/' . sanitize_text_field( (string) ( $params['job_id'] ?? '' ) ), $params );
+			case 'telegram_relay_auto_sync':
+				return self::op_telegram_relay_auto_sync();
 			case 'logs_clear':
 				return self::op_logs_clear( $params );
 			case 'plan':
@@ -1105,6 +1135,54 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			return $sync;
 		}
 		return SimpleVPBot_Telegram_Relay::domains_sync_via_relay();
+	}
+
+	/**
+	 * @param array<string, mixed> $p Params.
+	 * @return array{ok:bool, message?:string, data?:array<string,mixed>}
+	 */
+	/**
+	 * Proxy to relay admin API.
+	 *
+	 * @param string               $method HTTP method.
+	 * @param string               $path   Relay path.
+	 * @param array<string, mixed> $p      Body/query params.
+	 * @param int                  $timeout Timeout.
+	 * @return array{ok:bool, message?:string, data?:array<string,mixed>}
+	 */
+	private static function op_telegram_relay_admin_proxy( $method, $path, array $p = array(), $timeout = 45 ) {
+		if ( ! class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		if ( ! SimpleVPBot_Telegram_Relay::is_enabled() ) {
+			return array( 'ok' => false, 'message' => 'relay_disabled' );
+		}
+		if ( 'GET' === strtoupper( (string) $method ) && isset( $p['lines'] ) ) {
+			$path .= ( strpos( $path, '?' ) !== false ? '&' : '?' ) . 'lines=' . (int) $p['lines'];
+		}
+		$res = 'GET' === strtoupper( (string) $method )
+			? SimpleVPBot_Telegram_Relay::admin_get( $path, $timeout )
+			: SimpleVPBot_Telegram_Relay::admin_post( $path, $p, $timeout );
+		return array(
+			'ok'      => ! empty( $res['ok'] ),
+			'message' => (string) ( $res['message'] ?? '' ),
+			'data'    => isset( $res['data'] ) && is_array( $res['data'] ) ? $res['data'] : array(),
+		);
+	}
+
+	/**
+	 * @return array{ok:bool, message?:string, data?:array<string,mixed>}
+	 */
+	private static function op_telegram_relay_auto_sync() {
+		if ( ! class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$res = SimpleVPBot_Telegram_Relay::auto_sync_after_save();
+		return array(
+			'ok'      => ! empty( $res['ok'] ),
+			'message' => (string) ( $res['message'] ?? '' ),
+			'data'    => isset( $res['steps'] ) ? array( 'steps' => $res['steps'] ) : array(),
+		);
 	}
 
 	/**

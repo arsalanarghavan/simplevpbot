@@ -272,7 +272,7 @@ export function DashboardBotsAdmin({
   const baleUser = String(s.bale_bot_username ?? "")
   const relayOn =
     (bool(s.telegram_relay_enabled) || bool(s.telegram_relay_force)) &&
-    String(s.telegram_relay_base_url || s.telegram_relay_public_url || "").trim() !== ""
+    String(s.telegram_relay_admin_url || s.telegram_relay_base_url || s.telegram_relay_public_url || "").trim() !== ""
 
   const platformOn = (plat: BotPlatformId) => mainPlatformEnabled(s, plat)
   const resellerPlatformOn = (row: BotRow, plat: BotPlatformId) =>

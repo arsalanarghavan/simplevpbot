@@ -32,8 +32,11 @@ class TelegramRelayTest extends TestCase {
 		foreach (
 			array(
 				'telegram_relay_enabled',
+				'telegram_relay_admin_url',
+				'telegram_relay_vps_ip',
 				'telegram_relay_base_url',
 				'telegram_relay_public_url',
+				'telegram_relay_admin_ssl_verify',
 				'telegram_relay_shared_secret',
 				'telegram_relay_wp_forward_url',
 				'telegram_relay_tenant_id',
@@ -48,6 +51,9 @@ class TelegramRelayTest extends TestCase {
 		$this->assertStringContainsString( 'set_webhook_via_relay', $relay );
 		$this->assertStringContainsString( 'collect_domains', $relay );
 		$this->assertStringContainsString( 'status_via_relay', $relay );
+		$this->assertStringContainsString( 'admin_url', $relay );
+		$this->assertStringContainsString( 'admin_get', $relay );
+		$this->assertStringContainsString( 'auto_sync_after_save', $relay );
 		$this->assertStringContainsString( 'public_url_for_reseller', $relay );
 		$this->assertStringContainsString( 'SimpleVPBot_Telegram_Relay::bot_api_base_url', $http );
 		$this->assertStringContainsString( 'SimpleVPBot_Telegram_Relay::init()', $plugin );
@@ -74,6 +80,8 @@ class TelegramRelayTest extends TestCase {
 				'telegram_relay_status',
 				'telegram_relay_domains_sync',
 				'telegram_relay_set_webhook_reseller',
+				'telegram_relay_admin_dashboard',
+				'telegram_relay_auto_sync',
 			) as $op
 		) {
 			$this->assertStringContainsString( "case '{$op}':", $mut );
@@ -85,6 +93,7 @@ class TelegramRelayTest extends TestCase {
 	 */
 	public function test_relay_dashboard_ui(): void {
 		$root = dirname( __DIR__ ) . '/dashboard-ui/src';
+		$this->assertFileExists( $root . '/components/site-settings/relay-control-center.tsx' );
 		$this->assertFileExists( $root . '/components/site-settings/site-settings-relay-tab.tsx' );
 		$admin = (string) file_get_contents( $root . '/components/dashboard-site-settings-admin.tsx' );
 		$this->assertStringContainsString( 'SiteSettingsRelayTab', $admin );

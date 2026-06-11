@@ -580,10 +580,16 @@ class SimpleVPBot_Admin_Actions {
 			case 'relay':
 				$all['telegram_relay_enabled'] = ! empty( $post['telegram_relay_enabled'] );
 				$all['telegram_relay_force'] = ! empty( $post['telegram_relay_force'] );
-				$all['telegram_relay_base_url'] = esc_url_raw( trim( (string) ( $post['telegram_relay_base_url'] ?? '' ) ) );
+				$all['telegram_relay_vps_ip'] = sanitize_text_field( trim( (string) ( $post['telegram_relay_vps_ip'] ?? '' ) ) );
+				$all['telegram_relay_admin_url'] = esc_url_raw( trim( (string) ( $post['telegram_relay_admin_url'] ?? '' ) ) );
+				if ( '' === $all['telegram_relay_admin_url'] && '' !== $all['telegram_relay_vps_ip'] ) {
+					$all['telegram_relay_admin_url'] = esc_url_raw( 'https://' . preg_replace( '#^https?://#i', '', $all['telegram_relay_vps_ip'] ) );
+				}
+				$all['telegram_relay_base_url'] = $all['telegram_relay_admin_url'];
 				$all['telegram_relay_public_url'] = esc_url_raw( trim( (string) ( $post['telegram_relay_public_url'] ?? '' ) ) );
 				$all['telegram_relay_wp_forward_url'] = esc_url_raw( trim( (string) ( $post['telegram_relay_wp_forward_url'] ?? '' ) ) );
 				$all['telegram_relay_allowed_ips'] = sanitize_text_field( (string) ( $post['telegram_relay_allowed_ips'] ?? '' ) );
+				$all['telegram_relay_admin_ssl_verify'] = ! empty( $post['telegram_relay_admin_ssl_verify'] );
 				if ( array_key_exists( 'telegram_relay_shared_secret', $post ) ) {
 					$rsec = trim( (string) $post['telegram_relay_shared_secret'] );
 					if ( '' !== $rsec ) {
