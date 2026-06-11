@@ -40,16 +40,41 @@ npm ci && npm run build
 npm start
 ```
 
-## CLI (`svp-relay`)
+## Control panel (terminal)
+
+After install, run the interactive menu (default when no arguments):
 
 ```bash
-npx svp-relay status
-npx svp-relay tenants list
-npx svp-relay domain add tg.example.com --tenant <tenant-uuid>
-npx svp-relay nginx render
-npx svp-relay ssl issue tg.example.com --method certbot
-npx svp-relay ssl issue tg.example.com --method acme --email you@example.com
-npx svp-relay doctor
+sudo svp-relay
+```
+
+| Menu | Purpose |
+|------|---------|
+| Dashboard | Uptime, queue depth, tenants, domains, systemd, nginx |
+| Service | start / stop / restart / status |
+| Tenants | List and inspect synced WP tenants |
+| Domains | Add / remove relay hostnames |
+| SSL | Issue or renew certificates (certbot or acme.sh) |
+| Nginx | Render config, test, reload |
+| WordPress setup | Checklist + optional master secret reveal |
+| Logs | journalctl tail or follow |
+| Doctor | Environment and dependency checks |
+| Install / update | Re-run `install.sh` |
+
+Service control, SSL, and nginx reload usually need **root** (`sudo svp-relay`). Bot tokens and webhook registration stay in the WordPress dashboard.
+
+Explicit panel entry: `svp-relay panel`
+
+## CLI subcommands (scripting)
+
+```bash
+svp-relay status
+svp-relay tenants list
+svp-relay domain add tg.example.com --tenant <tenant-uuid>
+svp-relay nginx render
+svp-relay ssl issue tg.example.com --method certbot
+svp-relay ssl issue tg.example.com --method acme --email you@example.com
+svp-relay doctor
 ```
 
 ## Multi-tenant

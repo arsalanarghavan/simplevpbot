@@ -104,7 +104,12 @@ if [[ "$NO_NGINX" -eq 0 ]] && command -v nginx >/dev/null 2>&1; then
   fi
 fi
 
-echo "[7/7] Done."
+echo "[7/7] CLI on PATH..."
+ln -sf "$INSTALL_DIR/dist/cli/svp-relay.js" /usr/local/bin/svp-relay
+chmod +x /usr/local/bin/svp-relay 2>/dev/null || true
+
+echo "Done."
 echo "Install dir: $INSTALL_DIR"
+echo "Control panel: svp-relay"
 echo "Health: curl -s http://127.0.0.1:8787/health"
 [[ -n "$WP_URL" ]] && echo "Configure WordPress at: $WP_URL → Site settings → Telegram relay"
