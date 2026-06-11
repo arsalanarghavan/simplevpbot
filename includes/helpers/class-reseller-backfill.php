@@ -47,7 +47,22 @@ class SimpleVPBot_Reseller_Backfill {
 			}
 		}
 		$uid = $tx && is_object( $tx ) ? (int) ( $tx->user_id ?? 0 ) : 0;
-		if ( $uid < 1 || ! class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
+		if ( $uid < 1 ) {
+			return 0;
+		}
+		if ( class_exists( 'SimpleVPBot_Model_User' ) ) {
+			$user_row = SimpleVPBot_Model_User::find( $uid );
+			if ( $user_row && ! empty( $user_row->signup_reseller_svp_id ) ) {
+				$sr = (int) $user_row->signup_reseller_svp_id;
+				if ( $sr > 0 ) {
+					$reseller_row = SimpleVPBot_Model_User::find( $sr );
+					if ( $reseller_row && SimpleVPBot_Model_User::is_reseller_row( $reseller_row ) ) {
+						return $sr;
+					}
+				}
+			}
+		}
+		if ( ! class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
 			return 0;
 		}
 		return (int) SimpleVPBot_Reseller_Branding::nearest_reseller_id_for_user( $uid );
@@ -318,6 +333,16 @@ class SimpleVPBot_Reseller_Backfill {
 				continue;
 			}
 			$prev = (int) ( $u->invited_by ?? 0 );
+			if ( class_exists( 'SimpleVPBot_Reseller_Closure' ) && SimpleVPBot_Reseller_Closure::invited_by_would_cycle( $uid, $rid ) ) {
+				$out[] = array(
+					'user_id'             => $uid,
+					'label'               => SimpleVPBot_Model_User::label( $u ),
+					'previous_invited_by' => $prev,
+					'new_invited_by'      => $rid,
+					'error'               => 'referrer_cycle',
+				);
+				continue;
+			}
 			$out[] = array(
 				'user_id'             => $uid,
 				'label'               => SimpleVPBot_Model_User::label( $u ),

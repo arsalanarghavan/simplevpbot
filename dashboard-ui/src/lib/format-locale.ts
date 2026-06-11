@@ -63,6 +63,40 @@ function formatGregorianZone(d: Date, timeZone?: string): string {
   }
 }
 
+/** Map MySQL datetime (WP site wall clock) to a UTC instant. */
+function parseMysqlDatetimeInSiteZone(s: string, timeZone: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(s.trim())
+  if (!m) return null
+  const y = Number(m[1])
+  const mo = Number(m[2])
+  const da = Number(m[3])
+  const hh = m[4] != null ? Number(m[4]) : 0
+  const mm = m[5] != null ? Number(m[5]) : 0
+  const ss = m[6] != null ? Number(m[6]) : 0
+  let guess = Date.UTC(y, mo - 1, da, hh, mm, ss)
+  for (let i = 0; i < 5; i++) {
+    const p = gregorianPartsInZone(new Date(guess), timeZone)
+    if (p.y === y && p.m === mo && p.day === da && p.h === hh && p.mi === mm) {
+      break
+    }
+    let dayDelta = 0
+    if (p.y < y || (p.y === y && p.m < mo) || (p.y === y && p.m === mo && p.day < da)) {
+      dayDelta = 1
+    } else if (p.y > y || (p.y === y && p.m > mo) || (p.y === y && p.m === mo && p.day > da)) {
+      dayDelta = -1
+    }
+    const targetMin = hh * 60 + mm
+    const actualMin = p.h * 60 + p.mi
+    const minDelta = targetMin - actualMin + dayDelta * 24 * 60
+    if (minDelta === 0 && dayDelta === 0) {
+      break
+    }
+    guess += minDelta * 60 * 1000
+  }
+  const d = new Date(guess)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 function parseToDate(input: string | number | Date): Date | null {
   if (input instanceof Date) {
     return Number.isNaN(input.getTime()) ? null : input
@@ -73,9 +107,14 @@ function parseToDate(input: string | number | Date): Date | null {
   }
   const s = String(input).trim()
   if (!s) return null
-  // "YYYY-MM-DD" or "YYYY-MM-DD HH:mm:ss" (MySQL-style)
+  const tz = getSiteTimeZone()
+  // "YYYY-MM-DD" or "YYYY-MM-DD HH:mm:ss" (MySQL-style, WP site local wall clock)
   const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(s)
   if (m) {
+    if (tz) {
+      const zoned = parseMysqlDatetimeInSiteZone(s, tz)
+      if (zoned) return zoned
+    }
     const y = Number(m[1])
     const mo = Number(m[2])
     const da = Number(m[3])
@@ -162,7 +201,9 @@ export function parseLocalizedNumber(value: string | number | null | undefined):
 
 export function formatBytes(value: number | null | undefined, isFa: boolean): string {
   if (value == null || !Number.isFinite(value) || value < 0) return "—"
-  const units = ["B", "KB", "MB", "GB", "TB"]
+  const units = isFa
+    ? ["بایت", "کیلوبایت", "مگابایت", "گیگابایت", "ترابایت"]
+    : ["B", "KB", "MB", "GB", "TB"]
   let v = value
   let u = 0
   while (v >= 1024 && u < units.length - 1) {
@@ -171,6 +212,55 @@ export function formatBytes(value: number | null | undefined, isFa: boolean): st
   }
   const rounded = u === 0 ? Math.round(v) : Math.round(v * 10) / 10
   return `${formatNumber(rounded, isFa)} ${units[u]}`
+}
+
+/** Service card quota line — logical order under dir=rtl (FA) or ltr (EN). */
+export function formatServiceQuotaLine(
+  quotaGb: number,
+  usedGb: number,
+  isFa: boolean,
+  labels: { usedShort: string; gbSuffix: string }
+): string {
+  if (!isFa) {
+    const q = `${formatNumber(quotaGb, false)} GB`
+    if (usedGb <= 0) return q
+    return `${q} (${labels.usedShort} ${formatNumber(usedGb, false)} GB)`
+  }
+  const q = `${formatNumber(quotaGb, true)} ${labels.gbSuffix}`
+  if (usedGb <= 0) return q
+  const usedPart =
+    usedGb < 1
+      ? formatBytes(usedGb * 1024 * 1024 * 1024, true)
+      : `${formatNumber(usedGb, true)} ${labels.gbSuffix}`
+  return `${q} — ${labels.usedShort} ${usedPart}`
+}
+
+/** Service card expiry — FA: «۱۲ تیر ۱۴۰۵ — ۱۳:۰۰» without forcing ltr on Persian text. */
+export function formatServiceExpiryLine(
+  input: string | number | Date | null | undefined,
+  isFa: boolean
+): string {
+  if (input == null || input === "") return "—"
+  const d = parseToDate(input)
+  if (!d) return "—"
+  const tz = getSiteTimeZone()
+  if (!isFa) return formatGregorianZone(d, tz)
+  try {
+    const datePart = new Intl.DateTimeFormat("fa-IR", {
+      calendar: "persian",
+      dateStyle: "long",
+      ...(tz ? { timeZone: tz } : {}),
+    }).format(d)
+    const timePart = new Intl.DateTimeFormat("fa-IR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      ...(tz ? { timeZone: tz } : {}),
+    }).format(d)
+    return `${formatDigits(datePart, true)} — ${formatDigits(timePart, true)}`
+  } catch {
+    return formatDateTime(input, true)
+  }
 }
 
 /**

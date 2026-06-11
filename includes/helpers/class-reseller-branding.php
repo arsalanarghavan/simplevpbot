@@ -15,30 +15,47 @@ if ( ! defined( 'ABSPATH' ) ) {
 class SimpleVPBot_Reseller_Branding {
 
 	/**
+	 * @var array<int, int>
+	 */
+	private static $nearest_reseller_cache = array();
+
+	/**
 	 * Walk invited_by chain upward; return first user with role reseller, or 0.
 	 *
 	 * @param int $svp_user_id svp_users.id (service owner / portal user).
 	 * @return int
 	 */
 	public static function nearest_reseller_id_for_user( $svp_user_id ) {
-		$id = (int) $svp_user_id;
+		$start = (int) $svp_user_id;
+		if ( $start < 1 ) {
+			return 0;
+		}
+		if ( array_key_exists( $start, self::$nearest_reseller_cache ) ) {
+			return (int) self::$nearest_reseller_cache[ $start ];
+		}
+		$id = $start;
 		for ( $i = 0; $i < 64; $i++ ) {
 			if ( $id < 1 ) {
+				self::$nearest_reseller_cache[ $start ] = 0;
 				return 0;
 			}
 			$u = SimpleVPBot_Model_User::find( $id );
 			if ( ! $u ) {
+				self::$nearest_reseller_cache[ $start ] = 0;
 				return 0;
 			}
 			if ( SimpleVPBot_Model_User::is_reseller_row( $u ) ) {
+				self::$nearest_reseller_cache[ $start ] = (int) $u->id;
 				return (int) $u->id;
 			}
 			$inv = (int) ( $u->invited_by ?? 0 );
 			if ( $inv < 1 ) {
+				self::$nearest_reseller_cache[ $start ] = 0;
 				return 0;
 			}
 			$id = $inv;
 		}
+		self::$nearest_reseller_cache[ $start ] = 0;
 		return 0;
 	}
 
@@ -241,6 +258,12 @@ class SimpleVPBot_Reseller_Branding {
 	 * @return array<int, string>
 	 */
 	public static function rewrite_subscription_uris_for_user( array $uris, $svp_user_id, $service_remark = '', $svc = null ) {
+		$uid       = (int) $svp_user_id;
+		$base_frag = self::fragment_for_service( $uid, (string) $service_remark );
+		$brand     = self::brand_fragment_for_user( $uid );
+		if ( '' === $base_frag && '' === $brand ) {
+			return $uris;
+		}
 		$row = $svc;
 		if ( ! $row && '' !== trim( (string) $service_remark ) ) {
 			$row = (object) array( 'remark' => (string) $service_remark );
@@ -251,9 +274,14 @@ class SimpleVPBot_Reseller_Branding {
 			$out    = array();
 			$i      = 0;
 			foreach ( $uris as $u ) {
-				$frag = isset( $labels[ $i ] ) ? (string) $labels[ $i ] : '';
-				if ( '' !== trim( $frag ) && class_exists( 'SimpleVPBot_Config_Link' ) ) {
-					$out[] = SimpleVPBot_Config_Link::replace_uri_fragment( (string) $u, $frag );
+				$frag = isset( $labels[ $i ] ) ? trim( (string) $labels[ $i ] ) : '';
+				if ( '' !== $frag && class_exists( 'SimpleVPBot_Config_Link' ) ) {
+					$current = trim( (string) SimpleVPBot_Config_Link::uri_fragment_label( (string) $u ) );
+					if ( '' === $current || $frag !== $current ) {
+						$out[] = SimpleVPBot_Config_Link::replace_uri_fragment( (string) $u, $frag );
+					} else {
+						$out[] = (string) $u;
+					}
 				} else {
 					$out[] = (string) $u;
 				}

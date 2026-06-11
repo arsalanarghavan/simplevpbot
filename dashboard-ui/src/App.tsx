@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Maximize, Minimize, Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
-import { AccentMenu } from "@/components/accent-menu"
 import { AppSidebar } from "@/components/app-sidebar"
+import { DashboardHeaderToolbar } from "@/components/dashboard-header-toolbar"
 import { DashboardSearch } from "@/components/sidebar-search"
 import { DashboardAdminView } from "@/components/dashboard-admin-view"
 import type { ReceiptsListFilters } from "@/components/dashboard-receipts-admin"
-import { BaleLogo } from "@/components/icons/bale-logo"
-import { TelegramLogo } from "@/components/icons/telegram-logo"
+import type { UsersListFilters } from "@/components/dashboard-users-admin"
 import { ImpersonationBanner } from "@/components/impersonation-banner"
-import { Button } from "@/components/ui/button"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -27,6 +24,7 @@ import {
 import { DashboardLogin } from "@/components/dashboard-login"
 import { ACCENT_BRANDING_VAR_KEYS, normalizeAccent } from "@/lib/accent"
 import { botPlatformUrl } from "@/lib/bot-links"
+import { overviewPlatformEnabled } from "@/lib/enabled-platforms"
 import { buildAdminStateQuery } from "@/lib/dash-pagination"
 import { buildDashboardTabUrl, mapTabForReseller, parseActiveDashTab, parseDashFromPath } from "@/lib/dash-tab"
 import { resolveLegacyPlansTab } from "@/lib/plans-subview"
@@ -35,9 +33,12 @@ import { formatNumber } from "@/lib/format-locale"
 import {
   ADMIN_NAV_SECTIONS,
   filterAdminNavForReseller,
+  injectL2tpNavTab,
   type AdminNavSection,
 } from "@/config/admin-nav"
 import { saveUiPreferences, type UiTheme } from "@/lib/dash-ui-preferences"
+import type { DashLang } from "@/lib/dash-locale"
+import { DashLocaleProvider } from "@/lib/dash-locale-context"
 import { cn } from "@/lib/utils"
 
 type DashData = {
@@ -58,12 +59,15 @@ const RESELLER_ALLOWED_BY_PERMISSION: Record<string, string | null> = {
   cards: "plans.manage",
   referral: "users.manage",
   referral_reports: "users.manage",
+  reseller_reports: "users.manage",
+  marketing_lifecycle: "marketing.lifecycle",
   discounts: "plans.manage",
   reseller_bots: "services.manage",
   bot_ui: "services.manage",
   broadcast: "broadcast.send",
   receipts: "receipts.review",
   reseller_charge: "plans.manage",
+  reseller_settings: null,
   reseller_workspace: null,
 }
 
@@ -143,6 +147,45 @@ function App() {
       if ("dateTo" in patch) apply("receipts_date_to", patch.dateTo ?? "")
       if ("amountMin" in patch) apply("receipts_amount_min", patch.amountMin ?? "")
       if ("amountMax" in patch) apply("receipts_amount_max", patch.amountMax ?? "")
+      return next
+    })
+  }, [])
+
+  const usersListFilters = useMemo(
+    (): UsersListFilters => ({
+      status: listQuery.users_status ?? "all",
+      role: listQuery.users_role ?? "all",
+      platform: listQuery.users_platform ?? "all",
+      segment: listQuery.users_segment ?? "all",
+      sort: listQuery.users_sort ?? "created_desc",
+      dateFrom: listQuery.users_date_from ?? "",
+      dateTo: listQuery.users_date_to ?? "",
+      minSvc: listQuery.users_min_svc ?? "",
+      maxSvc: listQuery.users_max_svc ?? "",
+    }),
+    [listQuery]
+  )
+
+  const onUsersListFiltersChange = useCallback((patch: Partial<UsersListFilters>) => {
+    setListQuery((prev) => {
+      const next: Record<string, string> = { ...prev, users_page: "1", pendingUsers_page: "1" }
+      const apply = (key: string, val: string, omitWhen: string[] = [""]) => {
+        const v = val.trim()
+        if (omitWhen.includes(v)) {
+          delete next[key]
+        } else {
+          next[key] = v
+        }
+      }
+      if ("status" in patch) apply("users_status", patch.status ?? "all", ["", "all"])
+      if ("role" in patch) apply("users_role", patch.role ?? "all", ["", "all"])
+      if ("platform" in patch) apply("users_platform", patch.platform ?? "all", ["", "all"])
+      if ("segment" in patch) apply("users_segment", patch.segment ?? "all", ["", "all"])
+      if ("sort" in patch) apply("users_sort", patch.sort ?? "created_desc", ["", "created_desc"])
+      if ("dateFrom" in patch) apply("users_date_from", patch.dateFrom ?? "")
+      if ("dateTo" in patch) apply("users_date_to", patch.dateTo ?? "")
+      if ("minSvc" in patch) apply("users_min_svc", patch.minSvc ?? "")
+      if ("maxSvc" in patch) apply("users_max_svc", patch.maxSvc ?? "")
       return next
     })
   }, [])
@@ -567,6 +610,20 @@ function App() {
     () => (isOperator ? [] : [{ key: "home", label: t("layout.breadcrumbHome") }]),
     [isOperator, t],
   )
+  const l2tpEnabled = useMemo(() => {
+    const feat = (data?.settings as Record<string, unknown> | undefined)?.features
+    return !!(
+      feat &&
+      typeof feat === "object" &&
+      (feat as Record<string, unknown>).l2tp === true
+    )
+  }, [data?.settings])
+
+  const adminNavSections = useMemo(
+    () => injectL2tpNavTab(ADMIN_NAV_SECTIONS, l2tpEnabled),
+    [l2tpEnabled]
+  )
+
   const operatorNavSections: AdminNavSection[] | undefined = useMemo(() => {
     if (!isReseller) return undefined
     return filterAdminNavForReseller(ADMIN_NAV_SECTIONS, allowedResellerTabs)
@@ -605,16 +662,39 @@ function App() {
   const impersonating = Boolean(boot.impersonating)
   const impersonationTargetLabel = String(boot.impersonationTargetLabel ?? "")
   const langLabel = isFa ? t("layout.langSwitchToEn") : t("layout.langSwitchToFa")
+  const langShortLabel = isFa ? "EN" : "FA"
   const effectiveActiveTab = isAdmin || isReseller ? activeTab : "home"
 
   const botLinks = useMemo(() => {
-    const overview = data?.overview as { bot?: { telegram_bot_username?: string; bale_bot_username?: string } } | undefined
-    const bot = overview?.bot
+    const overview = data?.overview as { bot?: Record<string, unknown> } | undefined
+    const bot = overview?.bot ?? {}
     return {
-      telegram: botPlatformUrl("telegram", String(bot?.telegram_bot_username ?? "")),
-      bale: botPlatformUrl("bale", String(bot?.bale_bot_username ?? "")),
+      telegram: overviewPlatformEnabled(bot, "telegram")
+        ? botPlatformUrl("telegram", String(bot.telegram_bot_username ?? ""))
+        : null,
+      bale: overviewPlatformEnabled(bot, "bale")
+        ? botPlatformUrl("bale", String(bot.bale_bot_username ?? ""))
+        : null,
     }
   }, [data])
+
+  const headerToolbarProps = {
+    botLinks,
+    langLabel,
+    langShortLabel,
+    onToggleLang: toggleLang,
+    onToggleFullscreen: toggleFullscreen,
+    isFullscreen,
+    theme,
+    onToggleTheme: () => setTheme(theme === "dark" ? "light" : "dark"),
+    uiAccent: boot.uiAccent,
+    restUrl: String(boot.restUrl ?? ""),
+    nonce: String(boot.nonce ?? ""),
+  }
+
+  const mobileHeaderToolbar = (
+    <DashboardHeaderToolbar variant="sidebar" {...headerToolbarProps} />
+  )
 
   const sidebarVariant: "admin" | "reseller" | "user" =
     activePersona === "user" ? "user" : activePersona === "reseller" ? "reseller" : "admin"
@@ -630,25 +710,42 @@ function App() {
       dashboardBaseUrl={dashboardBaseUrl}
       siteName={String(boot.siteName ?? "")}
       siteIconUrl={boot.siteIconUrl}
-      adminSections={operatorNavSections}
+      adminSections={isReseller ? operatorNavSections : adminNavSections}
       activePersona={activePersona}
       availablePersonas={availablePersonas}
       personaRestUrl={String(boot.restUrl ?? "")}
       personaNonce={String(boot.nonce ?? "")}
       personaSwitchBlocked={impersonating}
+      mobileHeaderToolbar={mobileHeaderToolbar}
     />
   )
 
   const insetEl = (
     <SidebarInset className="flex min-h-0 flex-1 flex-col">
       <header
-        dir={isFa ? "rtl" : "ltr"}
+        data-slot="dashboard-header"
         className="flex h-16 w-full shrink-0 items-center gap-2 border-b px-4"
       >
-        <div className="flex min-w-0 shrink-0 items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2 md:hidden">
+          <SidebarTrigger className={cn("-ms-1 shrink-0", isFa && "rotate-180")} />
+          {isOperator ? (
+            <DashboardSearch
+              placement="header"
+              className="min-w-0 flex-1 max-w-none"
+              onSelectTab={selectTab}
+              onOpenUserDetail={openUserDetail}
+              restUrl={String(boot.restUrl ?? "")}
+              nonce={String(boot.nonce ?? "")}
+              sections={isReseller ? operatorNavSections : adminNavSections}
+            />
+          ) : (
+            <div className="flex-1" />
+          )}
+        </div>
+        <div className="hidden min-w-0 shrink-0 items-center gap-2 md:flex">
           <SidebarTrigger className={cn("-ms-1 shrink-0", isFa && "rotate-180")} />
           <Separator orientation="vertical" className="me-2 h-4 shrink-0" />
-          <Breadcrumb className="min-w-0 max-w-[14rem] sm:max-w-xs" dir={isFa ? "rtl" : undefined}>
+          <Breadcrumb className="min-w-0 max-w-[14rem] sm:max-w-xs">
             <BreadcrumbList>
               <BreadcrumbItem>{t("dashboard")}</BreadcrumbItem>
               <BreadcrumbSeparator />
@@ -661,73 +758,26 @@ function App() {
           </Breadcrumb>
         </div>
         {isOperator ? (
-          <div className="flex min-w-0 flex-1 justify-center px-2">
+          <div className="hidden min-w-0 flex-1 justify-center px-2 md:flex">
             <DashboardSearch
               placement="header"
               onSelectTab={selectTab}
               onOpenUserDetail={openUserDetail}
               restUrl={String(boot.restUrl ?? "")}
               nonce={String(boot.nonce ?? "")}
-              rtl={isFa}
-              sections={operatorNavSections}
+              sections={isReseller ? operatorNavSections : adminNavSections}
             />
           </div>
         ) : (
-          <div className="flex-1" />
+          <div className="hidden flex-1 md:block" />
         )}
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            aria-label={t("layout.fullscreen")}
-            onClick={() => void toggleFullscreen()}
-          >
-            {isFullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
-          </Button>
-          {botLinks.telegram ? (
-            <Button variant="outline" size="icon" asChild>
-              <a
-                href={botLinks.telegram}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={t("layout.openTelegramBot")}
-              >
-                <TelegramLogo className="size-4 text-muted-foreground" />
-              </a>
-            </Button>
-          ) : null}
-          {botLinks.bale ? (
-            <Button variant="outline" size="icon" asChild>
-              <a
-                href={botLinks.bale}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={t("layout.openBaleBot")}
-              >
-                <BaleLogo />
-              </a>
-            </Button>
-          ) : null}
-          <Button variant="outline" onClick={() => toggleLang()}>
-            {langLabel}
-          </Button>
-          <AccentMenu
-            initialAccent={boot.uiAccent}
-            restUrl={String(boot.restUrl ?? "")}
-            nonce={String(boot.nonce ?? "")}
-          />
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          >
-            {theme === "dark" ? <Sun /> : <Moon />}
-          </Button>
-        </div>
+        <DashboardHeaderToolbar
+          variant="header"
+          className="hidden md:flex"
+          {...headerToolbarProps}
+        />
       </header>
       <div
-        dir={isFa ? "rtl" : "ltr"}
         className="dashboard-main-scroll flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-auto p-4 md:p-6"
       >
         {!data ? (
@@ -739,7 +789,6 @@ function App() {
             userDetailId={userDetailId}
             isReseller={isReseller}
             allowedNavTabs={isReseller ? allowedResellerTabs : null}
-            isFa={isFa}
             dashboardBaseUrl={dashboardBaseUrl}
             onSelectTab={selectTab}
             onOpenUserDetail={openUserDetail}
@@ -764,7 +813,7 @@ function App() {
             usersSearchQuery={listQuery.users_q ?? ""}
             onUsersSearchQueryChange={(q) => {
               setListQuery((prev: Record<string, string>) => {
-                const next: Record<string, string> = { ...prev, users_page: "1" }
+                const next: Record<string, string> = { ...prev, users_page: "1", pendingUsers_page: "1" }
                 if (q.trim() === "") {
                   delete next.users_q
                 } else {
@@ -773,18 +822,132 @@ function App() {
                 return next
               })
             }}
-            resellersSearchQuery={listQuery.users_q ?? ""}
+            usersListFilters={usersListFilters}
+            onUsersListFiltersChange={onUsersListFiltersChange}
+            resellersSearchQuery={listQuery.resellers_q ?? ""}
             resellersStatusFilter={listQuery.resellers_status ?? "all"}
             onResellersFiltersChange={(patch) => {
               setListQuery((prev: Record<string, string>) => {
                 const next: Record<string, string> = { ...prev, resellers_page: "1" }
                 if (patch.q !== undefined) {
-                  if (patch.q.trim() === "") delete next.users_q
-                  else next.users_q = patch.q.trim()
+                  if (patch.q.trim() === "") delete next.resellers_q
+                  else next.resellers_q = patch.q.trim()
                 }
                 if (patch.status !== undefined) {
                   if (patch.status === "all") delete next.resellers_status
                   else next.resellers_status = patch.status
+                }
+                return next
+              })
+            }}
+            resellerReportsSearchQuery={listQuery.reseller_reports_q ?? ""}
+            resellerReportsWindowDays={
+              [7, 30, 90].includes(Number(listQuery.reseller_reports_days))
+                ? Number(listQuery.reseller_reports_days)
+                : 30
+            }
+            resellerReportsSort={listQuery.reseller_reports_sort ?? "sales"}
+            onResellerReportsFiltersChange={(patch) => {
+              setListQuery((prev: Record<string, string>) => {
+                const next: Record<string, string> = { ...prev, resellerReports_page: "1" }
+                if (patch.q !== undefined) {
+                  if (patch.q.trim() === "") delete next.reseller_reports_q
+                  else next.reseller_reports_q = patch.q.trim()
+                }
+                if (patch.days !== undefined && [7, 30, 90].includes(patch.days)) {
+                  next.reseller_reports_days = String(patch.days)
+                }
+                if (patch.sort !== undefined) {
+                  next.reseller_reports_sort = patch.sort
+                }
+                return next
+              })
+            }}
+            overviewMetricsWindowDays={
+              [7, 30, 90].includes(Number(listQuery.overviewMetricsDays))
+                ? Number(listQuery.overviewMetricsDays)
+                : 30
+            }
+            onOverviewMetricsWindowChange={(days) => {
+              setListQuery((prev: Record<string, string>) => ({
+                ...prev,
+                overviewMetricsDays: String(days),
+              }))
+            }}
+            statsDay={
+              [0, 1, 2, 3, 4, 5, 6, 7].includes(Number(listQuery.statsDay))
+                ? Number(listQuery.statsDay)
+                : 0
+            }
+            onStatsDayChange={(day) => {
+              setListQuery((prev: Record<string, string>) => ({
+                ...prev,
+                statsDay: String(day),
+              }))
+            }}
+            marketingLifecycleWindowDays={
+              [7, 30, 90].includes(Number(listQuery.marketing_lifecycle_days))
+                ? Number(listQuery.marketing_lifecycle_days)
+                : 30
+            }
+            onMarketingLifecycleWindowDaysChange={(days) => {
+              setListQuery((prev: Record<string, string>) => ({
+                ...prev,
+                marketing_lifecycle_days: String(days),
+                marketingOffers_page: "1",
+              }))
+            }}
+            marketingOffersStatus={listQuery.marketingOffers_status ?? ""}
+            onMarketingOffersStatusChange={(status) => {
+              setListQuery((prev: Record<string, string>) => ({
+                ...prev,
+                marketingOffers_status: status,
+                marketingOffers_page: "1",
+              }))
+            }}
+            onViewMarketingSegmentUsers={(segment) => {
+              setUserDetailId(null)
+              setActiveTab("users")
+              setListQuery((prev: Record<string, string>) => ({
+                ...prev,
+                users_segment: segment,
+                users_page: "1",
+              }))
+              const base = dashboardBaseUrl.replace(/\/?$/, "")
+              window.history.pushState({ tab: "users" }, "", `${base}/users/?users_segment=${encodeURIComponent(segment)}`)
+            }}
+            customerChargesType={listQuery.customerChargesType ?? "all"}
+            customerChargesDateFrom={listQuery.customerChargesDateFrom ?? ""}
+            customerChargesDateTo={listQuery.customerChargesDateTo ?? ""}
+            onCustomerChargesTypeChange={(type) => {
+              setListQuery((prev: Record<string, string>) => {
+                const next: Record<string, string> = { ...prev, customerChargesPage: "1" }
+                if (type === "all" || type === "") {
+                  delete next.customerChargesType
+                } else {
+                  next.customerChargesType = type
+                }
+                return next
+              })
+            }}
+            onCustomerChargesDateFromChange={(value) => {
+              setListQuery((prev: Record<string, string>) => {
+                const next: Record<string, string> = { ...prev, customerChargesPage: "1" }
+                if (value) {
+                  next.customerChargesDateFrom = value
+                } else {
+                  delete next.customerChargesDateFrom
+                }
+                return next
+              })
+            }}
+            onCustomerChargesDateToChange={(value) => {
+              setListQuery((prev: Record<string, string>) => {
+                const next: Record<string, string> = { ...prev, customerChargesPage: "1" }
+                if (value) {
+                  next.customerChargesDateTo = value
+                } else {
+                  delete next.customerChargesDateTo
                 }
                 return next
               })
@@ -805,31 +968,38 @@ function App() {
     </SidebarInset>
   )
 
+  const dashLang: DashLang = lang === "en" ? "en" : "fa"
+
   if (boot.isLoggedIn === false) {
-    return <DashboardLogin isFa={boot.lang === "fa"} />
+    return (
+      <DashLocaleProvider lang={boot.lang === "en" ? "en" : "fa"}>
+        <DashboardLogin />
+      </DashLocaleProvider>
+    )
   }
 
   return (
-    <SidebarProvider
-      dir={isFa ? "rtl" : "ltr"}
-      className="flex-col"
-      defaultOpen={sidebarDefaultOpen}
-      onOpenChange={onSidebarOpenChange}
-    >
-      {impersonating && impersonationTargetLabel ? (
-        <ImpersonationBanner
-          targetLabel={impersonationTargetLabel}
-          isFa={isFa}
-          restBase={String(boot.restUrl ?? "")}
-          nonce={String(boot.nonce ?? "")}
-          dashboardBaseUrl={dashboardBaseUrl}
-        />
-      ) : null}
-      <div className="flex min-h-0 w-full flex-1">
-        {sidebarEl}
-        {insetEl}
-      </div>
-    </SidebarProvider>
+    <DashLocaleProvider lang={dashLang}>
+      <SidebarProvider
+        dir={isFa ? "rtl" : "ltr"}
+        className="flex-col"
+        defaultOpen={sidebarDefaultOpen}
+        onOpenChange={onSidebarOpenChange}
+      >
+        {impersonating && impersonationTargetLabel ? (
+          <ImpersonationBanner
+            targetLabel={impersonationTargetLabel}
+            restBase={String(boot.restUrl ?? "")}
+            nonce={String(boot.nonce ?? "")}
+            dashboardBaseUrl={dashboardBaseUrl}
+          />
+        ) : null}
+        <div className="flex min-h-0 w-full flex-1">
+          {sidebarEl}
+          {insetEl}
+        </div>
+      </SidebarProvider>
+    </DashLocaleProvider>
   )
 }
 

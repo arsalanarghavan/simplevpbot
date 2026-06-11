@@ -186,6 +186,82 @@ class SimpleVPBot_Model_Text {
 	}
 
 	/**
+	 * Catalog + DB merge for dashboard Texts (all keys from seed catalog, DB overrides).
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function all_grouped_for_dashboard() {
+		if ( ! class_exists( 'SimpleVPBot_Activator' ) ) {
+			return self::all_grouped_by_key();
+		}
+
+		$catalog = SimpleVPBot_Activator::default_text_values_map();
+		if ( empty( $catalog ) ) {
+			return self::all_grouped_by_key();
+		}
+
+		$categories = array();
+		foreach ( SimpleVPBot_Activator::default_text_rows() as $row ) {
+			$kn = (string) ( $row['key_name'] ?? '' );
+			if ( '' === $kn ) {
+				continue;
+			}
+			if ( ! isset( $categories[ $kn ] ) ) {
+				$categories[ $kn ] = (string) ( $row['category'] ?? 'general' );
+			}
+		}
+
+		/** @var array<string, array<string, mixed>> $db_by_key */
+		$db_by_key = array();
+		foreach ( self::all_grouped_by_key() as $row ) {
+			$kn = (string) ( $row['key_name'] ?? '' );
+			if ( '' !== $kn ) {
+				$db_by_key[ $kn ] = $row;
+			}
+		}
+
+		$out = array();
+		foreach ( $catalog as $kn => $vals ) {
+			$db       = $db_by_key[ $kn ] ?? null;
+			$db_id    = $db ? (int) ( $db['id'] ?? 0 ) : 0;
+			$value_fa = $db && '' !== (string) ( $db['value_fa'] ?? '' ) ? (string) $db['value_fa'] : (string) ( $vals['fa'] ?? '' );
+			$value_en = $db && '' !== (string) ( $db['value_en'] ?? '' ) ? (string) $db['value_en'] : (string) ( $vals['en'] ?? '' );
+			$out[]    = array(
+				'id'           => $db_id,
+				'key_name'     => $kn,
+				'category'     => $db ? (string) ( $db['category'] ?? ( $categories[ $kn ] ?? 'general' ) ) : ( $categories[ $kn ] ?? 'general' ),
+				'value_fa'     => $value_fa,
+				'value_en'     => $value_en,
+				'updated_at'   => $db ? (string) ( $db['updated_at'] ?? '' ) : '',
+				'catalog_only' => $db_id < 1,
+			);
+			unset( $db_by_key[ $kn ] );
+		}
+
+		foreach ( $db_by_key as $kn => $db ) {
+			$out[] = array(
+				'id'           => (int) ( $db['id'] ?? 0 ),
+				'key_name'     => $kn,
+				'category'     => (string) ( $db['category'] ?? 'general' ),
+				'value_fa'     => (string) ( $db['value_fa'] ?? '' ),
+				'value_en'     => (string) ( $db['value_en'] ?? '' ),
+				'updated_at'   => (string) ( $db['updated_at'] ?? '' ),
+				'catalog_only' => false,
+			);
+		}
+
+		usort(
+			$out,
+			static function ( $a, $b ) {
+				$c = strcmp( (string) ( $a['category'] ?? '' ), (string) ( $b['category'] ?? '' ) );
+				return 0 !== $c ? $c : strcmp( (string) ( $a['key_name'] ?? '' ), (string) ( $b['key_name'] ?? '' ) );
+			}
+		);
+
+		return $out;
+	}
+
+	/**
 	 * All by category.
 	 *
 	 * @param string $category Category.

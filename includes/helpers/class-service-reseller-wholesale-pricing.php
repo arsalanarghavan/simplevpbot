@@ -15,6 +15,49 @@ if ( ! defined( 'ABSPATH' ) ) {
 class SimpleVPBot_Service_Reseller_Wholesale_Pricing {
 
 	/**
+	 * Request-scoped prefetch for plan floor batch (tiers + accruals).
+	 *
+	 * @var array{actor:int,tiers:array<int,array<int,object>>,accruals:array<int,array{gb:float,toman:float}>}|null
+	 */
+	private static $floor_batch = null;
+
+	/**
+	 * Prefetch tier + accrual data for wholesale floor calculations in a request.
+	 *
+	 * @param int   $reseller_svp_user_id Reseller id.
+	 * @param int[] $line_ids             Wholesale line ids.
+	 */
+	public static function begin_floor_batch( $reseller_svp_user_id, array $line_ids ) {
+		$actor = (int) $reseller_svp_user_id;
+		$ids   = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', $line_ids ),
+					static function ( $v ) {
+						return (int) $v > 0;
+					}
+				)
+			)
+		);
+		if ( $actor < 1 || empty( $ids ) || ! class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Tier' ) || ! class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Accrual' ) ) {
+			self::$floor_batch = null;
+			return;
+		}
+		self::$floor_batch = array(
+			'actor'    => $actor,
+			'tiers'    => SimpleVPBot_Model_Reseller_Wholesale_Tier::by_line_ids( $ids ),
+			'accruals' => SimpleVPBot_Model_Reseller_Wholesale_Accrual::totals_for_lines( $actor, $ids ),
+		);
+	}
+
+	/**
+	 * Clear floor batch prefetch.
+	 */
+	public static function end_floor_batch() {
+		self::$floor_batch = null;
+	}
+
+	/**
 	 * Whether tier thresholds are met at given cumulative totals.
 	 *
 	 * @param object $tier      Tier row.
@@ -63,8 +106,19 @@ class SimpleVPBot_Service_Reseller_Wholesale_Pricing {
 	 * @return float
 	 */
 	public static function effective_unit_price( $reseller_svp_user_id, $line_id ) {
-		$tot = SimpleVPBot_Model_Reseller_Wholesale_Accrual::totals( (int) $reseller_svp_user_id, (int) $line_id );
-		$tiers = SimpleVPBot_Model_Reseller_Wholesale_Tier::by_line( (int) $line_id );
+		$actor = (int) $reseller_svp_user_id;
+		$lid   = (int) $line_id;
+		if ( self::$floor_batch && (int) ( self::$floor_batch['actor'] ?? 0 ) === $actor && $lid > 0 ) {
+			$tot   = isset( self::$floor_batch['accruals'][ $lid ] ) ? self::$floor_batch['accruals'][ $lid ] : array( 'gb' => 0.0, 'toman' => 0.0 );
+			$tiers = isset( self::$floor_batch['tiers'][ $lid ] ) ? (array) self::$floor_batch['tiers'][ $lid ] : array();
+			if ( empty( $tiers ) ) {
+				return 0.0;
+			}
+			$tier = self::pick_effective_tier( $tiers, (float) $tot['gb'], (float) $tot['toman'] );
+			return $tier ? (float) ( $tier->price_per_gb ?? 0 ) : 0.0;
+		}
+		$tot = SimpleVPBot_Model_Reseller_Wholesale_Accrual::totals( $actor, $lid );
+		$tiers = SimpleVPBot_Model_Reseller_Wholesale_Tier::by_line( $lid );
 		if ( empty( $tiers ) ) {
 			return 0.0;
 		}
@@ -148,8 +202,15 @@ class SimpleVPBot_Service_Reseller_Wholesale_Pricing {
 	public static function ladder_snapshot( $reseller_svp_user_id, $line_id ) {
 		$r = (int) $reseller_svp_user_id;
 		$l = (int) $line_id;
-		$tot = SimpleVPBot_Model_Reseller_Wholesale_Accrual::totals( $r, $l );
-		$tiers = SimpleVPBot_Model_Reseller_Wholesale_Tier::by_line( $l );
+		if ( self::$floor_batch && (int) self::$floor_batch['actor'] === $r ) {
+			$tot   = isset( self::$floor_batch['accruals'][ $l ] ) && is_array( self::$floor_batch['accruals'][ $l ] )
+				? self::$floor_batch['accruals'][ $l ]
+				: array( 'gb' => 0.0, 'toman' => 0.0 );
+			$tiers = (array) ( self::$floor_batch['tiers'][ $l ] ?? array() );
+		} else {
+			$tot   = SimpleVPBot_Model_Reseller_Wholesale_Accrual::totals( $r, $l );
+			$tiers = SimpleVPBot_Model_Reseller_Wholesale_Tier::by_line( $l );
+		}
 		$tg = (float) $tot['gb'];
 		$tt = (float) $tot['toman'];
 		$current = self::pick_effective_tier( $tiers, $tg, $tt );
@@ -205,19 +266,42 @@ class SimpleVPBot_Service_Reseller_Wholesale_Pricing {
 		if ( ! $tx || ! is_object( $tx ) ) {
 			return;
 		}
-		if ( 'purchase' !== (string) ( $tx->type ?? '' ) || 'approved' !== (string) ( $tx->status ?? '' ) ) {
+		$type = (string) ( $tx->type ?? '' );
+		if ( ! in_array( $type, array( 'purchase', 'renew' ), true ) || 'approved' !== (string) ( $tx->status ?? '' ) ) {
 			return;
 		}
 		$meta = json_decode( (string) ( $tx->meta_json ?? '{}' ), true );
 		if ( ! is_array( $meta ) ) {
 			$meta = array();
 		}
+		if ( ! empty( $meta['admin_gift'] ) ) {
+			return;
+		}
 		$tx_id = (int) $tx->id;
 		$plan_id = 0;
 		$delta_gb = 0;
 		$service_id = isset( $tx->service_id ) ? (int) $tx->service_id : 0;
 
-		if ( ! empty( $meta['intent'] ) && 'add_volume' === (string) $meta['intent'] ) {
+		if ( 'renew' === $type ) {
+			if ( empty( $meta['intent'] ) || 'renew_same' !== (string) $meta['intent'] ) {
+				return;
+			}
+			$sid = isset( $meta['service_id'] ) ? (int) $meta['service_id'] : $service_id;
+			if ( $sid < 1 ) {
+				return;
+			}
+			$svc = SimpleVPBot_Model_Service::find_any( $sid );
+			if ( ! $svc ) {
+				return;
+			}
+			$service_id = $sid;
+			$plan_id    = (int) ( $svc->plan_id ?? 0 );
+			$plan       = $plan_id > 0 ? SimpleVPBot_Model_Plan::find( $plan_id ) : null;
+			if ( ! $plan || SimpleVPBot_Model_Plan::is_per_gb( $plan ) ) {
+				return;
+			}
+			$delta_gb = max( 0, (int) ( $plan->traffic_gb ?? 0 ) );
+		} elseif ( ! empty( $meta['intent'] ) && 'add_volume' === (string) $meta['intent'] ) {
 			$sid = isset( $meta['service_id'] ) ? (int) $meta['service_id'] : $service_id;
 			if ( $sid < 1 ) {
 				return;

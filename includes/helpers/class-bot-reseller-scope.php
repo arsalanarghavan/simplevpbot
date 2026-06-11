@@ -14,6 +14,54 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class SimpleVPBot_Bot_Reseller_Scope {
 
+	/** @var int Acting admin svp_users.id on main bot (dual-role reseller). */
+	private static $acting_admin_svp_user_id = 0;
+
+	/**
+	 * Set acting admin for scope/permission on main bot (cleared each request).
+	 *
+	 * @param int $svp_user_id Admin user row id.
+	 */
+	public static function set_acting_admin_user( $svp_user_id ) {
+		self::$acting_admin_svp_user_id = max( 0, (int) $svp_user_id );
+	}
+
+	/**
+	 * Reseller id for bot admin scope (reseller bot context or dual-role on main bot).
+	 *
+	 * @return int 0 = site-wide scope.
+	 */
+	public static function resolve_scope_reseller_id() {
+		$rid = self::active_reseller_id();
+		if ( $rid > 0 ) {
+			return $rid;
+		}
+		if ( self::$acting_admin_svp_user_id > 0 && class_exists( 'SimpleVPBot_Reseller_Permission_Gate' ) ) {
+			return SimpleVPBot_Reseller_Permission_Gate::permission_actor_id( self::$acting_admin_svp_user_id );
+		}
+		return 0;
+	}
+
+	/**
+	 * Whether bot admin hub should apply reseller scope (reseller bot or dual-role on main bot).
+	 *
+	 * @return bool
+	 */
+	public static function is_scoped_bot_admin_context() {
+		return self::resolve_scope_reseller_id() > 0;
+	}
+
+	/**
+	 * Alias for plan/bootstrap naming.
+	 *
+	 * @param array<string, mixed> $ctx Handler context.
+	 */
+	public static function bootstrap_acting_admin_from_ctx( array $ctx ) {
+		if ( class_exists( 'SimpleVPBot_Bot_Admin_Guard' ) ) {
+			SimpleVPBot_Bot_Admin_Guard::bootstrap_acting_admin_from_ctx( $ctx );
+		}
+	}
+
 	/**
 	 * Active reseller svp_users.id from webhook context (0 = main bot).
 	 *
@@ -48,7 +96,10 @@ class SimpleVPBot_Bot_Reseller_Scope {
 	 * @return string
 	 */
 	public static function reseller_global_settings_denied_message() {
-		return '⛔ تنظیمات سراسری سایت فقط از ربات اصلی یا داشبورد مدیریت قابل تغییر است. برای ربات نماینده از داشبورد «ربات نماینده» استفاده کنید.';
+		if ( class_exists( 'SimpleVPBot_Texts' ) ) {
+			return (string) SimpleVPBot_Texts::get( 'msg.reseller.global_settings_denied' );
+		}
+		return '⛔ Site-wide settings can only be changed from the main bot or admin dashboard.';
 	}
 
 	/**
@@ -89,7 +140,7 @@ class SimpleVPBot_Bot_Reseller_Scope {
 		}
 		return in_array(
 			(string) $code,
-			array( 'gen', 'adv', 'bot', 'bak', 'not', 'pan', 'pay', 'log' ),
+			array( 'gen', 'adv', 'bot', 'bak', 'not', 'pan', 'pay', 'log', 'l2p', 'txt', 'brd' ),
 			true
 		);
 	}
@@ -139,7 +190,38 @@ class SimpleVPBot_Bot_Reseller_Scope {
 		if ( $rid < 1 ) {
 			return array();
 		}
-		return array( 0, $rid );
+		return array( $rid );
+	}
+
+	/**
+	 * Panel ids a reseller may sell on (panel prices + wholesale line assignments).
+	 *
+	 * @param int $reseller_svp_user_id Reseller svp_users.id.
+	 * @return array<int, int>
+	 */
+	public static function allowed_panel_ids_for( $reseller_svp_user_id ) {
+		$rid = (int) $reseller_svp_user_id;
+		if ( $rid < 1 ) {
+			return array();
+		}
+		$out = array();
+		if ( class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
+			foreach ( SimpleVPBot_Model_Reseller_Panel_Price::list_for_reseller( $rid ) as $row ) {
+				$pid = (int) ( $row->panel_id ?? 0 );
+				if ( $pid > 0 && SimpleVPBot_Model_Reseller_Panel_Price::row_allows_panel_use( $row ) ) {
+					$out[] = $pid;
+				}
+			}
+		}
+		if ( class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' ) ) {
+			foreach ( SimpleVPBot_Model_Reseller_Wholesale_Line::lines_for_reseller( $rid ) as $wl ) {
+				$pid = (int) ( $wl->panel_id ?? 0 );
+				if ( $pid > 0 ) {
+					$out[] = $pid;
+				}
+			}
+		}
+		return array_values( array_unique( $out ) );
 	}
 
 	/**
@@ -152,24 +234,7 @@ class SimpleVPBot_Bot_Reseller_Scope {
 		if ( $rid < 1 ) {
 			return array();
 		}
-		$out = array();
-		if ( class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
-			foreach ( SimpleVPBot_Model_Reseller_Panel_Price::list_for_reseller( $rid ) as $row ) {
-				$pid = (int) ( $row->panel_id ?? 0 );
-				if ( $pid > 0 && SimpleVPBot_Model_Reseller_Panel_Price::has_panel_access( $rid, $pid ) ) {
-					$out[] = $pid;
-				}
-			}
-		}
-		if ( class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' ) ) {
-			foreach ( SimpleVPBot_Model_Reseller_Wholesale_Line::lines_for_reseller( $rid ) as $wl ) {
-				$pid = (int) ( $wl->panel_id ?? 0 );
-				if ( $pid > 0 && SimpleVPBot_Model_Reseller_Wholesale_Line::reseller_can_use_panel( $rid, $pid ) ) {
-					$out[] = $pid;
-				}
-			}
-		}
-		return array_values( array_unique( $out ) );
+		return self::allowed_panel_ids_for( $rid );
 	}
 
 	/**
@@ -181,11 +246,258 @@ class SimpleVPBot_Bot_Reseller_Scope {
 		if ( $pid < 1 ) {
 			return false;
 		}
-		$allowed = self::allowed_panel_ids();
-		if ( empty( $allowed ) ) {
+		$rid = self::resolve_scope_reseller_id();
+		if ( $rid < 1 ) {
 			return true;
 		}
+		$allowed = self::allowed_panel_ids_for( $rid );
+		if ( empty( $allowed ) ) {
+			return false;
+		}
 		return in_array( $pid, $allowed, true );
+	}
+
+	/**
+	 * Reseller downline scope ids; always includes the reseller actor (never empty when actor valid).
+	 *
+	 * @param int        $reseller_svp_user_id Reseller svp_users.id.
+	 * @param array|null $raw_scope_ids        Pre-fetched scope ids or null to load from model.
+	 * @return array<int, int>
+	 */
+	public static function effective_downline_user_ids( $reseller_svp_user_id, $raw_scope_ids = null ) {
+		$rid = (int) $reseller_svp_user_id;
+		if ( $rid < 1 ) {
+			return array();
+		}
+		$ids = is_array( $raw_scope_ids )
+			? array_values(
+				array_filter(
+					array_map( 'intval', $raw_scope_ids ),
+					static function ( $v ) {
+						return (int) $v > 0;
+					}
+				)
+			)
+			: array();
+		if ( empty( $ids ) && class_exists( 'SimpleVPBot_Model_User' ) ) {
+			$ids = SimpleVPBot_Model_User::reseller_scope_user_ids( $rid );
+			$ids = array_values(
+				array_filter(
+					array_map( 'intval', (array) $ids ),
+					static function ( $v ) {
+						return (int) $v > 0;
+					}
+				)
+			);
+		}
+		if ( empty( $ids ) ) {
+			return array( $rid );
+		}
+		if ( ! in_array( $rid, $ids, true ) ) {
+			$ids[] = $rid;
+		}
+		return array_values( array_unique( $ids ) );
+	}
+
+	/**
+	 * User ids visible for moderation lists (downline + signup_reseller attribution).
+	 *
+	 * @param int        $reseller_svp_user_id Reseller svp_users.id.
+	 * @param array|null $raw_scope_ids        Pre-fetched downline ids or null.
+	 * @return array<int, int>
+	 */
+	public static function effective_moderatable_user_ids( $reseller_svp_user_id, $raw_scope_ids = null ) {
+		$rid  = (int) $reseller_svp_user_id;
+		$base = self::effective_downline_user_ids( $rid, $raw_scope_ids );
+		if ( $rid < 1 || ! class_exists( 'SimpleVPBot_Model_User' ) ) {
+			return $base;
+		}
+		global $wpdb;
+		$t     = SimpleVPBot_Model_User::table();
+		$extra = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT id FROM {$t} WHERE signup_reseller_svp_id = %d AND id <> %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$rid,
+				$rid
+			)
+		);
+		if ( empty( $extra ) ) {
+			return $base;
+		}
+		$merged = array_merge( $base, array_map( 'intval', (array) $extra ) );
+		return array_values( array_unique( array_filter( $merged, static function ( $v ) {
+			return (int) $v > 0;
+		} ) ) );
+	}
+
+	/**
+	 * Whether a reseller actor may moderate a target user (closure + direct invite + signup bot).
+	 *
+	 * @param int $reseller_svp_user_id Reseller svp_users.id.
+	 * @param int $target_user_id       Target svp_users.id.
+	 * @return bool
+	 */
+	public static function reseller_may_moderate_user_for( $reseller_svp_user_id, $target_user_id ) {
+		$rid = (int) $reseller_svp_user_id;
+		$uid = (int) $target_user_id;
+		if ( $uid < 1 || $rid < 1 || ! class_exists( 'SimpleVPBot_Model_User' ) ) {
+			return false;
+		}
+		if ( SimpleVPBot_Model_User::reseller_can_access_user( $rid, $uid ) ) {
+			return true;
+		}
+		$row = SimpleVPBot_Model_User::find( $uid );
+		if ( ! $row ) {
+			return false;
+		}
+		if ( (int) ( $row->invited_by ?? 0 ) === $rid ) {
+			return true;
+		}
+		if ( (int) ( $row->signup_reseller_svp_id ?? 0 ) === $rid ) {
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Whether bot admin hub may act on a user in the current reseller bot context.
+	 *
+	 * @param int $target_user_id svp_users.id.
+	 * @return bool
+	 */
+	public static function bot_admin_may_access_user( $target_user_id ) {
+		return self::bot_admin_may_moderate_user( $target_user_id );
+	}
+
+	/**
+	 * User ids visible in bot admin hub lists (null = no filter / main bot).
+	 *
+	 * @return array<int, int>|null
+	 */
+	public static function bot_admin_scope_user_ids() {
+		$rid = self::resolve_scope_reseller_id();
+		if ( $rid < 1 ) {
+			return null;
+		}
+		return self::effective_moderatable_user_ids( $rid );
+	}
+
+	/**
+	 * Whether bot admin may act on a service (owner in downline).
+	 *
+	 * @param int $service_id svp_services.id.
+	 * @return bool
+	 */
+	public static function bot_admin_may_access_service( $service_id ) {
+		$rid = self::resolve_scope_reseller_id();
+		if ( $rid < 1 ) {
+			return true;
+		}
+		$sid = (int) $service_id;
+		if ( $sid < 1 || ! class_exists( 'SimpleVPBot_Model_Service' ) ) {
+			return false;
+		}
+		$svc = SimpleVPBot_Model_Service::find( $sid );
+		if ( ! $svc ) {
+			return false;
+		}
+		return self::bot_admin_may_moderate_user( (int) ( $svc->user_id ?? 0 ) );
+	}
+
+	/**
+	 * Whether bot admin may act on a receipt (payer in downline).
+	 *
+	 * @param int $receipt_id Receipt id.
+	 * @return bool
+	 */
+	public static function bot_admin_may_access_receipt( $receipt_id ) {
+		$rid = self::resolve_scope_reseller_id();
+		if ( $rid < 1 ) {
+			return true;
+		}
+		$rid_rcp = (int) $receipt_id;
+		if ( $rid_rcp < 1 || ! class_exists( 'SimpleVPBot_Model_Receipt' ) ) {
+			return false;
+		}
+		$rec = SimpleVPBot_Model_Receipt::find( $rid_rcp );
+		if ( ! $rec ) {
+			return false;
+		}
+		return self::bot_admin_may_moderate_user( (int) ( $rec->user_id ?? 0 ) );
+	}
+
+	/**
+	 * User moderation scope: downline, direct invite, or signup via this reseller bot.
+	 *
+	 * @param int $target_user_id svp_users.id.
+	 * @return bool
+	 */
+	public static function bot_admin_may_moderate_user( $target_user_id ) {
+		$uid = (int) $target_user_id;
+		if ( $uid < 1 ) {
+			return false;
+		}
+		$rid = self::resolve_scope_reseller_id();
+		if ( $rid < 1 ) {
+			return true;
+		}
+		return self::reseller_may_moderate_user_for( $rid, $uid );
+	}
+
+	/**
+	 * Site-wide bulk ops (all services) are forbidden on reseller bots.
+	 *
+	 * @return bool
+	 */
+	public static function bot_admin_site_bulk_blocked() {
+		return self::resolve_scope_reseller_id() > 0;
+	}
+
+	/**
+	 * Filter user search rows to bot admin scope.
+	 *
+	 * @param array<int, object> $users Rows from search.
+	 * @return array<int, object>
+	 */
+	public static function filter_users_for_bot_admin_scope( array $users ) {
+		$scope = self::bot_admin_scope_user_ids();
+		if ( ! is_array( $scope ) ) {
+			return $users;
+		}
+		$allowed = array_flip( array_map( 'intval', $scope ) );
+		return array_values(
+			array_filter(
+				$users,
+				static function ( $u ) use ( $allowed ) {
+					return $u && is_object( $u ) && isset( $allowed[ (int) ( $u->id ?? 0 ) ] );
+				}
+			)
+		);
+	}
+
+	/**
+	 * Panel ids visible in bot admin inbound tools (null = all).
+	 *
+	 * @return array<int, int>|null
+	 */
+	public static function bot_admin_allowed_panel_ids() {
+		$rid = self::resolve_scope_reseller_id();
+		if ( $rid < 1 ) {
+			return null;
+		}
+		return self::allowed_panel_ids_for( $rid );
+	}
+
+	/**
+	 * Deny message when site-wide bulk is blocked.
+	 *
+	 * @return string
+	 */
+	public static function bot_admin_site_bulk_denied_message() {
+		if ( class_exists( 'SimpleVPBot_Texts' ) ) {
+			return (string) SimpleVPBot_Texts::get( 'msg.reseller.site_bulk_denied' );
+		}
+		return '⛔ Site-wide bulk operations are not available on this bot.';
 	}
 
 	/**
@@ -237,6 +549,10 @@ class SimpleVPBot_Bot_Reseller_Scope {
 		if ( ! $plan || ! is_object( $plan ) ) {
 			return false;
 		}
+		$rid = self::resolve_scope_reseller_id();
+		if ( $rid > 0 ) {
+			return self::plan_visible_for_reseller( $plan, $rid );
+		}
 		$owners = self::catalog_owner_ids();
 		if ( ! empty( $owners ) ) {
 			$oid = (int) ( $plan->owner_svp_user_id ?? 0 );
@@ -249,6 +565,32 @@ class SimpleVPBot_Bot_Reseller_Scope {
 			return false;
 		}
 		return true;
+	}
+
+	/**
+	 * Whether a plan may be sold by a specific reseller (owner + panel access).
+	 *
+	 * @param object|null $plan         Plan row.
+	 * @param int         $reseller_id  Reseller svp_users.id.
+	 * @return bool
+	 */
+	public static function plan_visible_for_reseller( $plan, $reseller_id ) {
+		if ( ! $plan || ! is_object( $plan ) ) {
+			return false;
+		}
+		$rid = (int) $reseller_id;
+		if ( $rid < 1 ) {
+			return false;
+		}
+		if ( (int) ( $plan->owner_svp_user_id ?? 0 ) !== $rid ) {
+			return false;
+		}
+		$panel_id = (int) ( $plan->panel_id ?? 0 );
+		if ( $panel_id < 1 ) {
+			return true;
+		}
+		$allowed = self::allowed_panel_ids_for( $rid );
+		return ! empty( $allowed ) && in_array( $panel_id, $allowed, true );
 	}
 
 	/**
@@ -265,6 +607,20 @@ class SimpleVPBot_Bot_Reseller_Scope {
 		$meta['billing_reseller_svp_id']          = $rid;
 		$meta['invoice_card_owner_scope_svp_id'] = $rid;
 		return $meta;
+	}
+
+	/**
+	 * Invoice/card billing scope for bot admin service create/renew/volume on reseller bot.
+	 *
+	 * @return int svp_users.id or 0 on main bot.
+	 */
+	public static function bot_admin_invoice_card_scope_reseller_id() {
+		$rid = self::resolve_scope_reseller_id();
+		if ( $rid < 1 || ! class_exists( 'SimpleVPBot_Model_User' ) ) {
+			return 0;
+		}
+		$row = SimpleVPBot_Model_User::find( $rid );
+		return ( $row && SimpleVPBot_Model_User::is_reseller_row( $row ) ) ? $rid : 0;
 	}
 
 	/**

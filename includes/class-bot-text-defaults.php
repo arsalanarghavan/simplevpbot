@@ -95,6 +95,7 @@ class SimpleVPBot_Bot_Text_Defaults {
 		self::pair( $r, 'btn.admin.receipts', 'buttons', '🧾 تایید رسیدها', '🧾 Receipts' );
 		self::pair( $r, 'btn.admin.backup', 'buttons', '💾 پشتیبان‌گیری', '💾 Backup' );
 		self::pair( $r, 'btn.admin.full_hub', 'buttons', '🧩 پنل کامل', '🧩 Full panel' );
+		self::pair( $r, 'btn.admin.panel_full', 'buttons', '🧩 پنل کامل', '🧩 Full panel' );
 		self::pair( $r, 'btn.admin.back_menu', 'buttons', '⬅️ منوی مدیریت', '⬅️ Admin menu' );
 		self::pair( $r, 'btn.admin.send_my_portal', 'buttons', '🌐 ارسال لینک پنل وب من', '🌐 Send my web portal link' );
 		self::pair( $r, 'btn.admin.send_admin_portal', 'buttons', '🖥 ارسال لینک پنل ادمین وب', '🖥 Send admin web portal link' );
@@ -244,8 +245,8 @@ class SimpleVPBot_Bot_Text_Defaults {
 			$r,
 			'msg.cron_ip_distinct_warn',
 			'messages',
-			"⚠️ سرویس «{remark}»\n🧒 یعنی چی؟ تعداد آدرس/IP متفاوتی که پنل برای این اشتراک ثبت کرده بالا رفته است.\n📌 الان حدود {n_ip} IP متمایز ثبت شده است.\n📌 سقف اسلات این اشتراک {lim} است (آستانهٔ هشدار حداقل {need} IP).\n✋ اگر لازم دارید از منوی همان سرویس «افزایش کاربر» را بزنید.",
-			"⚠️ Service «{remark}»\n🧒 What does this mean? The panel recorded more distinct IPs for this subscription.\n📌 About {n_ip} distinct IPs seen.\n📌 This plan allows {lim} slots (warning threshold at least {need} IPs).\n✋ If needed, use “Add users” from that service menu."
+			"⚠️ سرویس «{remark}»\n\n{name} عزیز؛\n\nتعداد آدرس/IP متفاوت ثبت‌شده برای این اشتراک از حد معمول بالاتر رفته است.\n\n📌 حدود {n_ip} IP متمایز ثبت شده\n📌 سقف اسلات: {lim} (آستانه هشدار: حداقل {need} IP)\n\n✋ در صورت نیاز از منوی همان سرویس «افزایش کاربر» را انتخاب کنید.",
+			"⚠️ Service «{remark}»\n\nDear {name},\n\nDistinct IPs recorded for this subscription are higher than usual.\n\n📌 About {n_ip} distinct IPs seen\n📌 Slot limit: {lim} (warning threshold: at least {need} IPs)\n\n✋ If needed, use Add users from that service menu."
 		);
 		self::pair(
 			$r,

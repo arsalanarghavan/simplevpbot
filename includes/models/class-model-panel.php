@@ -38,6 +38,39 @@ class SimpleVPBot_Model_Panel {
 	}
 
 	/**
+	 * Batch fetch panels keyed by id.
+	 *
+	 * @param array<int> $ids Panel ids.
+	 * @return array<int, object>
+	 */
+	public static function find_by_ids( array $ids ) {
+		$ids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', $ids ),
+					static function ( $v ) {
+						return $v > 0;
+					}
+				)
+			)
+		);
+		if ( empty( $ids ) ) {
+			return array();
+		}
+		global $wpdb;
+		$ph = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM " . self::table() . " WHERE id IN ({$ph})", $ids ) );
+		$out  = array();
+		foreach ( (array) $rows as $row ) {
+			if ( is_object( $row ) && isset( $row->id ) ) {
+				$out[ (int) $row->id ] = $row;
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * Active panels ordered.
 	 *
 	 * @return array<int, object>
@@ -82,6 +115,39 @@ class SimpleVPBot_Model_Panel {
 	public static function delete( $id ) {
 		global $wpdb;
 		$wpdb->delete( self::table(), array( 'id' => (int) $id ) );
+	}
+
+	/**
+	 * Stored API flavor for a panel row.
+	 *
+	 * @param object|null $panel Panel row.
+	 * @return string unknown | legacy_inbound | v3_clients
+	 */
+	public static function api_flavor( $panel ) {
+		if ( ! is_object( $panel ) ) {
+			return 'unknown';
+		}
+		$f = trim( (string) ( $panel->panel_api_flavor ?? '' ) );
+		return '' !== $f ? $f : 'unknown';
+	}
+
+	/**
+	 * Persist detected API flavor.
+	 *
+	 * @param int    $id     Panel id.
+	 * @param string $flavor Flavor key.
+	 */
+	public static function set_api_flavor( $id, $flavor ) {
+		$id = (int) $id;
+		if ( $id < 1 ) {
+			return;
+		}
+		$allowed = array( 'unknown', 'legacy_inbound', 'v3_clients' );
+		$f       = trim( (string) $flavor );
+		if ( ! in_array( $f, $allowed, true ) ) {
+			$f = 'unknown';
+		}
+		self::update( $id, array( 'panel_api_flavor' => $f ) );
 	}
 
 	/**

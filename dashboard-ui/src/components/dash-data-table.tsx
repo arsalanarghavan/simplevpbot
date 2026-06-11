@@ -2,19 +2,16 @@
 
 import type { ReactNode } from "react"
 
-import { dashDir } from "@/lib/dash-locale"
+import { dashTableCellClass, dashTableHeadClass } from "@/lib/dash-locale"
 import { cn } from "@/lib/utils"
-
-const cellClass = "p-2 text-start align-top"
-
 export function DashTableShell({
-  isFa,
   minWidth,
   colWidths,
   children,
   className,
 }: {
-  isFa: boolean
+  /** @deprecated isFa unused — table inherits dir from main scroll */
+  isFa?: boolean
   /** e.g. "42rem" */
   minWidth?: string
   /** Percent widths in column order, e.g. ["7%", "20%", ...] */
@@ -25,7 +22,6 @@ export function DashTableShell({
   return (
     <div className={cn("w-full max-w-full overflow-x-auto rounded-md border border-border", className)}>
       <table
-        dir={dashDir(isFa)}
         className={cn(
           "w-full table-fixed border-collapse text-sm text-start",
           "[&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border"
@@ -46,11 +42,22 @@ export function DashTableShell({
 export function DashTh({
   children,
   className,
+  numeric,
+  title,
 }: {
   children?: ReactNode
   className?: string
+  numeric?: boolean
+  title?: string
 }) {
-  return <th className={cn(cellClass, "font-medium", className)}>{children}</th>
+  return (
+    <th
+      className={cn("p-2 font-medium", dashTableHeadClass(), dashTableCellClass({ numeric }), className)}
+      title={title}
+    >
+      {children}
+    </th>
+  )
 }
 
 export function DashTd({
@@ -58,14 +65,21 @@ export function DashTd({
   className,
   dir,
   colSpan,
+  numeric,
 }: {
   children?: ReactNode
   className?: string
+  /** Use for URL/token cells; default follows table dir */
   dir?: "ltr" | "rtl"
   colSpan?: number
+  numeric?: boolean
 }) {
   return (
-    <td dir={dir} colSpan={colSpan} className={cn(cellClass, className)}>
+    <td
+      dir={dir}
+      colSpan={colSpan}
+      className={cn("p-2", dashTableCellClass({ numeric }), className)}
+    >
       {children}
     </td>
   )

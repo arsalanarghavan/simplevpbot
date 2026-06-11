@@ -114,9 +114,6 @@ class SimpleVPBot_Bot_Runtime {
 	public static function send_message_for_reseller( $platform, $chat_id, $text, $reseller_svp_user_id = 0, array $extra = array() ) {
 		$c = self::client_for_reseller( $platform, (int) $reseller_svp_user_id );
 		if ( ! $c ) {
-			if ( (int) $reseller_svp_user_id > 0 ) {
-				return self::send_message( $platform, $chat_id, $text, $extra );
-			}
 			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
 				SimpleVPBot_Logger::error(
 					'send_message_for_reseller: no bot API client',
@@ -132,6 +129,7 @@ class SimpleVPBot_Bot_Runtime {
 		if ( 'bale' === $platform ) {
 			$text = self::scrub_bale_text( (string) $text );
 		}
+		$extra  = self::prepare_api_extra( $platform, $extra );
 		$params = array_merge(
 			array(
 				'chat_id' => $chat_id,
@@ -142,7 +140,7 @@ class SimpleVPBot_Bot_Runtime {
 		return $c->send_message( $params );
 	}
 
-	public static function send_message( $platform, $chat_id, $text, array $extra = array() ) {
+	public static function send_message( $platform, $chat_id, $text, array $extra = array(), $timeout_seconds = 60 ) {
 		$c = self::client( $platform );
 		if ( ! $c ) {
 			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
@@ -161,6 +159,7 @@ class SimpleVPBot_Bot_Runtime {
 		if ( 'bale' === $platform ) {
 			$text = self::scrub_bale_text( (string) $text );
 		}
+		$extra  = self::prepare_api_extra( $platform, $extra );
 		$params = array_merge(
 			array(
 				'chat_id' => $chat_id,
@@ -168,8 +167,22 @@ class SimpleVPBot_Bot_Runtime {
 			),
 			$extra
 		);
-		$res = $c->send_message( $params );
+		$res = $c->send_message( $params, max( 3, min( 120, (int) $timeout_seconds ) ) );
 		return $res;
+	}
+
+	/**
+	 * Interactive buy-flow message (shorter HTTP timeout).
+	 *
+	 * @param string               $platform Platform.
+	 * @param int                  $chat_id  Chat id.
+	 * @param string               $text     Text.
+	 * @param array<string, mixed> $extra    Extra params.
+	 * @return array<string, mixed>|null
+	 */
+	public static function send_message_interactive( $platform, $chat_id, $text, array $extra = array() ) {
+		$to = class_exists( 'SimpleVPBot_Settings' ) ? SimpleVPBot_Settings::bot_interactive_timeout_sec() : 8;
+		return self::send_message( $platform, $chat_id, $text, $extra, $to );
 	}
 
 	/**
@@ -200,6 +213,63 @@ class SimpleVPBot_Bot_Runtime {
 		$t = str_ireplace( 'وی‌پی‌ان', 'VPS', $t );
 		$t = str_ireplace( ' وي پي ان ', ' VPS ', $t );
 		return $t;
+	}
+
+	/**
+	 * Bale API: strip Telegram-only KeyboardButton / InlineKeyboardButton fields.
+	 *
+	 * @param array<string, mixed> $markup ReplyKeyboardMarkup or InlineKeyboardMarkup.
+	 * @return array<string, mixed>
+	 */
+	public static function scrub_bale_reply_markup( array $markup ) {
+		$strip_btn = static function ( $btn ) {
+			if ( ! is_array( $btn ) ) {
+				return $btn;
+			}
+			unset( $btn['style'], $btn['icon_custom_emoji_id'] );
+			return $btn;
+		};
+		foreach ( array( 'keyboard', 'inline_keyboard' ) as $key ) {
+			if ( ! isset( $markup[ $key ] ) || ! is_array( $markup[ $key ] ) ) {
+				continue;
+			}
+			$rows = array();
+			foreach ( $markup[ $key ] as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+				$new_row = array();
+				foreach ( $row as $btn ) {
+					if ( is_string( $btn ) ) {
+						$new_row[] = $btn;
+					} else {
+						$new_row[] = $strip_btn( $btn );
+					}
+				}
+				if ( array() !== $new_row ) {
+					$rows[] = $new_row;
+				}
+			}
+			$markup[ $key ] = $rows;
+		}
+		return $markup;
+	}
+
+	/**
+	 * Apply platform-specific sanitization to optional API params (reply_markup).
+	 *
+	 * @param string               $platform telegram|bale.
+	 * @param array<string, mixed> $extra    Extra params.
+	 * @return array<string, mixed>
+	 */
+	private static function prepare_api_extra( $platform, array $extra ) {
+		if ( 'bale' !== $platform ) {
+			return $extra;
+		}
+		if ( isset( $extra['reply_markup'] ) && is_array( $extra['reply_markup'] ) ) {
+			$extra['reply_markup'] = self::scrub_bale_reply_markup( $extra['reply_markup'] );
+		}
+		return $extra;
 	}
 
 	/**
@@ -264,6 +334,7 @@ class SimpleVPBot_Bot_Runtime {
 		if ( 'bale' === $platform ) {
 			$text = self::scrub_bale_text( (string) $text );
 		}
+		$extra  = self::prepare_api_extra( $platform, $extra );
 		$params = array_merge(
 			array(
 				'chat_id'    => $chat_id,
@@ -288,6 +359,9 @@ class SimpleVPBot_Bot_Runtime {
 		$c = self::client( $platform );
 		if ( ! $c ) {
 			return null;
+		}
+		if ( 'bale' === $platform ) {
+			$markup = self::scrub_bale_reply_markup( $markup );
 		}
 		return $c->edit_message_reply_markup(
 			array(
@@ -326,7 +400,8 @@ class SimpleVPBot_Bot_Runtime {
 			return null;
 		}
 		$caption = self::prepare_photo_caption( $platform, (string) $caption );
-		$params = array(
+		$extra   = self::prepare_api_extra( $platform, $extra );
+		$params  = array(
 			'chat_id' => $chat_id,
 			'photo'   => $path,
 			'caption' => $caption,
@@ -339,6 +414,38 @@ class SimpleVPBot_Bot_Runtime {
 			}
 		}
 		return $c->call_multipart( 'sendPhoto', $params );
+	}
+
+	/**
+	 * Send document from local file path.
+	 *
+	 * @param string               $platform Platform.
+	 * @param int                  $chat_id  Chat id.
+	 * @param string               $path     File path.
+	 * @param string               $caption  Caption.
+	 * @param array<string, mixed> $extra    Extra params (reply_markup etc.).
+	 * @return array<string, mixed>|null
+	 */
+	public static function send_document_file( $platform, $chat_id, $path, $caption = '', array $extra = array() ) {
+		$c = self::client( $platform );
+		if ( ! $c ) {
+			return null;
+		}
+		$caption = self::prepare_photo_caption( $platform, (string) $caption );
+		$extra   = self::prepare_api_extra( $platform, $extra );
+		$params  = array(
+			'chat_id'  => $chat_id,
+			'document' => $path,
+			'caption'  => $caption,
+		);
+		foreach ( $extra as $k => $v ) {
+			if ( is_array( $v ) ) {
+				$params[ $k ] = wp_json_encode( $v );
+			} else {
+				$params[ $k ] = (string) $v;
+			}
+		}
+		return $c->send_document_file( $params );
 	}
 
 	/**
@@ -357,7 +464,8 @@ class SimpleVPBot_Bot_Runtime {
 			return null;
 		}
 		$caption = self::prepare_photo_caption( $platform, (string) $caption );
-		$params = array_merge(
+		$extra   = self::prepare_api_extra( $platform, $extra );
+		$params  = array_merge(
 			array(
 				'chat_id' => $chat_id,
 				'photo'   => (string) $file_id,

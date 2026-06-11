@@ -639,7 +639,44 @@ class SimpleVPBot_Service_Naming {
 	}
 
 	/**
-	 * Labels from raw subscription URI fragments (#...), with inbound prefix.
+	 * Display label for one subscription config line (External Proxy remark in #fragment).
+	 *
+	 * @param string               $uri                 Config line.
+	 * @param int                  $panel_id            Panel id.
+	 * @param int                  $fallback_inbound_id Service default inbound.
+	 * @param array<string, mixed> $context             inbound_catalog, svc.
+	 * @param int                  $index               1-based line index.
+	 * @param bool                 $multi               Multiple configs in subscription.
+	 * @return string
+	 */
+	public static function config_line_remark_for_uri( $uri, $panel_id, $fallback_inbound_id = 0, array $context = array(), $index = 1, $multi = false ) {
+		$remark = '';
+		if ( class_exists( 'SimpleVPBot_Config_Link' ) ) {
+			$remark = trim( (string) SimpleVPBot_Config_Link::uri_fragment_label( (string) $uri ) );
+		}
+		if ( '' === $remark ) {
+			$iid = class_exists( 'SimpleVPBot_Config_Inbound_Match' )
+				? SimpleVPBot_Config_Inbound_Match::inbound_id_for_uri( (string) $uri, (int) $panel_id, (int) $fallback_inbound_id, $context )
+				: (int) $fallback_inbound_id;
+			if ( $iid > 0 && class_exists( 'SimpleVPBot_Inbound_Display_Name' ) ) {
+				$remark = trim( (string) SimpleVPBot_Inbound_Display_Name::panel_inbound_remark( (int) $panel_id, (int) $iid ) );
+			}
+		}
+		if ( '' === $remark ) {
+			$remark = $multi ? ( 'کانفیگ ' . max( 1, (int) $index ) ) : 'کانفیگ';
+		}
+		return $remark;
+	}
+
+	/**
+	 * @deprecated Use config_line_remark_for_uri().
+	 */
+	public static function inbound_remark_for_uri( $uri, $panel_id, $fallback_inbound_id = 0, array $context = array(), $index = 1, $multi = false ) {
+		return self::config_line_remark_for_uri( $uri, $panel_id, $fallback_inbound_id, $context, $index, $multi );
+	}
+
+	/**
+	 * Labels from raw subscription URI fragments (#...), using External Proxy remark.
 	 *
 	 * @param array<int, string>   $uris_raw    Lines from panel subscription.
 	 * @param int                  $svp_user_id Service owner (for reseller/site override).
@@ -647,6 +684,7 @@ class SimpleVPBot_Service_Naming {
 	 * @return array<int, string>
 	 */
 	public static function config_labels_from_uris( array $uris_raw, $svp_user_id = 0, array $context = array() ) {
+		unset( $svp_user_id );
 		$uris = array_values( array_filter( array_map( 'strval', $uris_raw ) ) );
 		if ( empty( $uris ) ) {
 			return array();
@@ -666,11 +704,6 @@ class SimpleVPBot_Service_Naming {
 			$inbound_id = is_array( $svc ) ? (int) ( $svc['inbound_id'] ?? 0 ) : (int) ( $svc->inbound_id ?? 0 );
 		}
 
-		$override = '';
-		if ( $svp_user_id > 0 && class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
-			$override = trim( (string) SimpleVPBot_Reseller_Branding::config_label_override_for_user( (int) $svp_user_id ) );
-		}
-
 		$multi  = count( $uris ) > 1;
 		$labels = array();
 		$idx    = 1;
@@ -679,28 +712,7 @@ class SimpleVPBot_Service_Naming {
 			if ( '' === (string) $u ) {
 				continue;
 			}
-			$line_override = $override;
-			if ( '' !== $line_override && $multi ) {
-				$line_override = $override . '-' . $idx;
-			}
-
-			$iid = class_exists( 'SimpleVPBot_Config_Inbound_Match' )
-				? SimpleVPBot_Config_Inbound_Match::inbound_id_for_uri( (string) $u, $panel_id, $inbound_id, $context )
-				: $inbound_id;
-
-			$suffix = self::base_suffix_for_line( $idx, (int) $svp_user_id, $svc, (string) $u, $line_override );
-
-			$inbound_display = '';
-			if (
-				$iid > 0
-				&& class_exists( 'SimpleVPBot_Settings' )
-				&& SimpleVPBot_Settings::config_label_prepend_inbound()
-				&& class_exists( 'SimpleVPBot_Inbound_Display_Name' )
-			) {
-				$inbound_display = SimpleVPBot_Inbound_Display_Name::for_config_label( $panel_id, $iid, (int) $svp_user_id );
-			}
-
-			$labels[] = self::format_with_inbound( $inbound_display, $suffix );
+			$labels[] = self::config_line_remark_for_uri( (string) $u, $panel_id, $inbound_id, $context, $idx, $multi );
 			$idx++;
 		}
 

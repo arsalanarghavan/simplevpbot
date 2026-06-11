@@ -5,6 +5,7 @@ import { format } from "date-fns"
 import { CalendarIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
+import { useDashDatePicker } from "@/components/dashboard-date-picker/use-dash-date-picker"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Input } from "@/components/ui/input"
@@ -17,7 +18,9 @@ import {
   msToApiDatetime,
   msToTimeValue,
 } from "@/lib/datetime-api"
-import { cn } from "@/lib/utils"
+
+const triggerClass =
+  "w-full justify-start text-start font-normal data-[empty=true]:text-muted-foreground"
 
 export function GregorianDateTimePicker({
   value,
@@ -32,6 +35,7 @@ export function GregorianDateTimePicker({
 }) {
   const { t } = useTranslation()
   const tl = (k: string) => t(`discountsAdmin.${k}`)
+  const { dir, rootClass } = useDashDatePicker(className)
   const ms = apiDatetimeToMs(value)
   const [open, setOpen] = useState(false)
   const selected = useMemo(() => (ms > 0 ? new Date(ms) : undefined), [ms])
@@ -46,7 +50,7 @@ export function GregorianDateTimePicker({
   }
 
   return (
-    <div className={cn("space-y-2", className)}>
+    <div className={rootClass} dir={dir}>
       {label ? <Label>{label}</Label> : null}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
@@ -54,15 +58,13 @@ export function GregorianDateTimePicker({
             type="button"
             variant="outline"
             data-empty={!selected}
-            className={cn(
-              "w-full justify-start text-left font-normal data-[empty=true]:text-muted-foreground",
-            )}
+            className={triggerClass}
           >
             <CalendarIcon className="size-4 shrink-0 opacity-70" />
             <span className="truncate">{display}</span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="start">
+        <PopoverContent className="z-[120] w-auto p-0" align="start" dir={dir}>
           <Calendar
             mode="single"
             selected={selected}

@@ -4,20 +4,15 @@ import { useState } from "react"
 import { Plus, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
-import { dashDir } from "@/lib/dash-locale"
+
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import { formatPlainLatinInt } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
+import { DashDialogContent, DashDialogFooter, DashDialogHeader } from "@/components/dash-dialog-content"
+import { Dialog, DialogTitle } from "@/components/ui/dialog"
 
 type Platform = "telegram" | "bale"
 
@@ -26,7 +21,6 @@ export function AdminIdChips({
   label,
   ids,
   resellerId = 0,
-  isFa,
   busy,
   tp,
   onChanged,
@@ -36,7 +30,6 @@ export function AdminIdChips({
   label: string
   ids: number[]
   resellerId?: number
-  isFa: boolean
   busy: boolean
   tp: (k: string) => string
   onChanged: () => void
@@ -108,10 +101,10 @@ export function AdminIdChips({
       </div>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className={cn("sm:max-w-sm", isFa && "text-right")} dir={dashDir(isFa)}>
-          <DialogHeader>
+        <DashDialogContent className={cn("sm:max-w-sm")}>
+          <DashDialogHeader>
             <DialogTitle>{tp("adminIdAddTitle")}</DialogTitle>
-          </DialogHeader>
+          </DashDialogHeader>
           <div className="space-y-2">
             <Label htmlFor={`admin-id-${platform}-${resellerId}`}>{label}</Label>
             <Input
@@ -126,7 +119,7 @@ export function AdminIdChips({
               disabled={disabled}
             />
           </div>
-          <DialogFooter className={cn("gap-2")}>
+          <DashDialogFooter className={cn("gap-2")}>
             <Button type="button" variant="outline" onClick={() => setAddOpen(false)} disabled={disabled}>
               {tp("adminIdCancel")}
             </Button>
@@ -143,8 +136,8 @@ export function AdminIdChips({
             >
               {tp("adminIdAdd")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
     </div>
   )

@@ -4,6 +4,7 @@ import { useId } from "react"
 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useDashLocale } from "@/lib/dash-locale-context"
 import { cn } from "@/lib/utils"
 
 function normalizeHex(raw: string): string {
@@ -24,15 +25,14 @@ export function ColorHexField({
   value,
   onChange,
   fallback = "#2563eb",
-  rtl: _rtl = false,
 }: {
   id?: string
   label: string
   value: string
   onChange: (hex: string) => void
   fallback?: string
-  rtl?: boolean
 }) {
+  const { ltrCell } = useDashLocale()
   const autoId = useId()
   const id = idProp ?? autoId
   const pickerValue = hexForColorInput(value, fallback)
@@ -54,7 +54,7 @@ export function ColorHexField({
           onChange={(e) => onChange(e.target.value)}
           placeholder={fallback}
           dir="ltr"
-          className="font-mono text-left"
+          className={ltrCell("font-mono")}
         />
       </div>
     </div>

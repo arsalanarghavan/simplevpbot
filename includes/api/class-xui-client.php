@@ -17,6 +17,17 @@ class SimpleVPBot_Xui_Client {
 	const COOKIE_TRANSIENT_LEGACY = 'simplevpbot_xui_cookie';
 	const CSRF_TRANSIENT_LEGACY   = 'simplevpbot_xui_csrf';
 
+	const FLAVOR_UNKNOWN = 'unknown';
+	const FLAVOR_LEGACY  = 'legacy_inbound';
+	const FLAVOR_V3      = 'v3_clients';
+
+	/**
+	 * Per-panel cached API flavor for this request.
+	 *
+	 * @var array<string, string>
+	 */
+	private static $cached_api_flavor = array();
+
 	/**
 	 * Bound panel id for this request: 0 = legacy options (panel_url in settings); >=1 = row in svp_panels.
 	 *
@@ -37,6 +48,13 @@ class SimpleVPBot_Xui_Client {
 	 * @var string
 	 */
 	private static $last_auth_flow = '';
+
+	/**
+	 * HTTP timeout for panel API requests (seconds); lowered during backup getDb.
+	 *
+	 * @var int
+	 */
+	private static $request_timeout_sec = 90;
 
 	/**
 	 * Last CSRF/login HTTP attempt metadata (for admin diag / alerts).
@@ -62,6 +80,7 @@ class SimpleVPBot_Xui_Client {
 		$prev                 = self::$bound_panel_id;
 		$next                 = max( 0, (int) $panel_id );
 		if ( $prev !== $next ) {
+			unset( self::$cached_api_flavor[ 'p' . $prev ], self::$cached_api_flavor[ 'p' . $next ] );
 			self::$resolved_auth_base = '';
 			self::$last_auth_flow     = '';
 			self::$last_auth_diag     = array(
@@ -115,6 +134,18 @@ class SimpleVPBot_Xui_Client {
 			return self::CSRF_TRANSIENT_LEGACY;
 		}
 		return 'simplevpbot_xui_csrf_p' . self::$bound_panel_id;
+	}
+
+	/**
+	 * Transient: panel has no /csrf-token (3x-ui v2.x) — skip CSRF probe on later logins.
+	 *
+	 * @return string
+	 */
+	private static function no_csrf_transient_name() {
+		if ( self::$bound_panel_id < 1 ) {
+			return 'simplevpbot_xui_no_csrf';
+		}
+		return 'simplevpbot_xui_no_csrf_p' . self::$bound_panel_id;
 	}
 
 	/**
@@ -362,6 +393,18 @@ class SimpleVPBot_Xui_Client {
 	public static function has_api_token() {
 		$c = self::panel_credentials();
 		return '' !== trim( (string) ( $c['panel_api_token'] ?? '' ) );
+	}
+
+	/**
+	 * Whether username + password are configured for cookie session login.
+	 *
+	 * @return bool
+	 */
+	public static function has_cookie_credentials() {
+		$c = self::panel_credentials();
+		return '' !== trim( (string) ( $c['panel_username'] ?? '' ) )
+			&& '' !== trim( (string) ( $c['panel_password'] ?? '' ) )
+			&& '' !== self::panel_root();
 	}
 
 	/**
@@ -713,6 +756,10 @@ class SimpleVPBot_Xui_Client {
 	 * @return array{token:string,cookie:string}|false
 	 */
 	private static function ensure_csrf_token() {
+		if ( get_transient( self::no_csrf_transient_name() ) ) {
+			return false;
+		}
+
 		$token  = get_transient( self::csrf_transient_name() );
 		$cookie = self::cookie_header();
 		if ( is_string( $token ) && '' !== $token && '' !== $cookie ) {
@@ -758,6 +805,14 @@ class SimpleVPBot_Xui_Client {
 
 			if ( is_wp_error( $res ) ) {
 				continue;
+			}
+
+			// 3x-ui v2.x has no /csrf-token — use legacy POST /login immediately on later attempts.
+			if ( 404 === $last_code ) {
+				set_transient( self::no_csrf_transient_name(), 1, 12 * HOUR_IN_SECONDS );
+				self::$last_auth_diag['csrf_url']       = $url;
+				self::$last_auth_diag['csrf_http_code'] = $last_code;
+				return false;
 			}
 
 			$raw  = (string) wp_remote_retrieve_body( $res );
@@ -849,7 +904,8 @@ class SimpleVPBot_Xui_Client {
 	 * @return bool
 	 */
 	public static function login() {
-		if ( self::has_api_token() ) {
+		// v2.x getDb requires cookie session; token-only panels use Bearer for inbounds, not getDb.
+		if ( self::has_api_token() && ! self::has_cookie_credentials() ) {
 			self::$last_auth_flow                 = 'bearer';
 			self::$last_auth_diag['auth_flow']    = 'bearer';
 			self::$last_auth_diag['csrf_skipped'] = true;
@@ -872,7 +928,12 @@ class SimpleVPBot_Xui_Client {
 			return false;
 		}
 
-		$csrf = self::ensure_csrf_token();
+		$csrf = false;
+		if ( ! get_transient( self::no_csrf_transient_name() ) ) {
+			$csrf = self::ensure_csrf_token();
+		} else {
+			self::$last_auth_diag['csrf_skipped'] = true;
+		}
 		if ( is_array( $csrf ) && self::login_modern_cookie( $csrf, $c ) ) {
 			self::$last_auth_flow                 = 'modern_cookie';
 			self::$last_auth_diag['auth_flow']    = 'modern_cookie';
@@ -1061,7 +1122,7 @@ class SimpleVPBot_Xui_Client {
 		$path = ltrim( (string) $path, '/' );
 		$url  = self::resolve_url( $path, $scope );
 		$args = array(
-			'timeout' => 90,
+			'timeout' => max( 5, (int) self::$request_timeout_sec ),
 			'headers' => array( 'Accept' => $binary ? 'application/octet-stream,*/*' : 'application/json' ),
 		);
 		$creds = self::panel_credentials();
@@ -1128,6 +1189,567 @@ class SimpleVPBot_Xui_Client {
 			return array( 'ok' => 200 === $code, 'code' => $code, 'body' => $raw, 'json' => null, 'url' => $url );
 		}
 		return array( 'ok' => $code >= 200 && $code < 300, 'code' => $code, 'body' => $raw, 'json' => is_array( $json ) ? $json : null, 'url' => $url );
+	}
+
+	/**
+	 * Whether bound panel uses MHSanaei v3 clients/* API.
+	 *
+	 * @return bool
+	 */
+	public static function is_v3_clients_api() {
+		return self::FLAVOR_V3 === self::get_api_flavor();
+	}
+
+	/**
+	 * Whether bound panel uses legacy inbounds/* client API.
+	 *
+	 * @return bool
+	 */
+	public static function is_legacy_inbound_api() {
+		return self::FLAVOR_LEGACY === self::get_api_flavor();
+	}
+
+	/**
+	 * Cached or stored API flavor for bound panel; probes panel when unknown.
+	 *
+	 * @param bool $refresh Force re-detect and persist.
+	 * @return string
+	 */
+	public static function get_api_flavor( $refresh = false ) {
+		$pid = (int) self::$bound_panel_id;
+		$key = 'p' . $pid;
+		if ( ! $refresh && isset( self::$cached_api_flavor[ $key ] ) ) {
+			return (string) self::$cached_api_flavor[ $key ];
+		}
+		$stored = self::FLAVOR_UNKNOWN;
+		if ( $pid >= 1 && class_exists( 'SimpleVPBot_Model_Panel' ) ) {
+			$row = SimpleVPBot_Model_Panel::find( $pid );
+			if ( $row ) {
+				$stored = SimpleVPBot_Model_Panel::api_flavor( $row );
+			}
+		} else {
+			$stored = trim( (string) get_option( 'simplevpbot_legacy_panel_api_flavor', self::FLAVOR_UNKNOWN ) );
+			if ( '' === $stored ) {
+				$stored = self::FLAVOR_UNKNOWN;
+			}
+		}
+		if ( ! $refresh && self::FLAVOR_UNKNOWN !== $stored ) {
+			self::$cached_api_flavor[ $key ] = $stored;
+			return $stored;
+		}
+		$detected = self::detect_api_flavor( true );
+		self::$cached_api_flavor[ $key ] = $detected;
+		return $detected;
+	}
+
+	/**
+	 * Probe panel after login: GET clients/list → v3; else legacy when inbounds work.
+	 *
+	 * @param bool $persist Save flavor on panel row or legacy option.
+	 * @return string
+	 */
+	public static function detect_api_flavor( $persist = true ) {
+		$r_v3 = self::request( 'clients/list/paged?page=1&pageSize=1', 'GET' );
+		if ( self::api_http_ok( $r_v3 ) ) {
+			$flavor = self::FLAVOR_V3;
+		} else {
+			$code = (int) ( $r_v3['code'] ?? 0 );
+			if ( 404 === $code ) {
+				$flavor = self::FLAVOR_LEGACY;
+			} else {
+				$r_inb = self::request( 'inbounds/list', 'GET' );
+				$flavor = self::api_http_ok( $r_inb ) ? self::FLAVOR_LEGACY : self::FLAVOR_UNKNOWN;
+			}
+		}
+		if ( $persist ) {
+			self::set_api_flavor_for_bound_panel( $flavor );
+		}
+		$key = 'p' . (int) self::$bound_panel_id;
+		self::$cached_api_flavor[ $key ] = $flavor;
+		return $flavor;
+	}
+
+	/**
+	 * Persist flavor for currently bound panel.
+	 *
+	 * @param string $flavor Flavor key.
+	 */
+	public static function set_api_flavor_for_bound_panel( $flavor ) {
+		$pid = (int) self::$bound_panel_id;
+		$f   = trim( (string) $flavor );
+		if ( $pid >= 1 && class_exists( 'SimpleVPBot_Model_Panel' ) ) {
+			SimpleVPBot_Model_Panel::set_api_flavor( $pid, $f );
+		} elseif ( $pid < 1 ) {
+			update_option( 'simplevpbot_legacy_panel_api_flavor', $f, false );
+		}
+		$key = 'p' . $pid;
+		self::$cached_api_flavor[ $key ] = $f;
+	}
+
+	/**
+	 * Route request path by detected API flavor.
+	 *
+	 * @param string               $legacy_path Legacy API path.
+	 * @param string               $v3_path     v3 clients API path.
+	 * @param string               $method      HTTP method.
+	 * @param array<string, mixed> $body        Body.
+	 * @return array{ok:bool,code:int,json:array|null,body:string,url?:string}
+	 */
+	public static function request_routed( $legacy_path, $v3_path, $method = 'GET', array $body = array() ) {
+		$path = self::is_v3_clients_api() ? (string) $v3_path : (string) $legacy_path;
+		return self::request( $path, $method, $body );
+	}
+
+	/**
+	 * Map legacy client row to v3 client body (remark → comment).
+	 *
+	 * @param array<string, mixed> $client Client row.
+	 * @return array<string, mixed>
+	 */
+	public static function normalize_client_for_v3( array $client ) {
+		$out = $client;
+		if ( ! isset( $out['comment'] ) && isset( $out['remark'] ) && '' !== trim( (string) $out['remark'] ) ) {
+			$out['comment'] = (string) $out['remark'];
+		}
+		unset( $out['remark'], $out['up'], $out['down'], $out['total'], $out['lastOnline'] );
+		if ( isset( $out['id'] ) && ! isset( $out['uuid'] ) && self::is_likely_client_uuid( (string) $out['id'] ) ) {
+			$out['uuid'] = (string) $out['id'];
+		}
+		return $out;
+	}
+
+	/**
+	 * Extract first client from legacy addClient payload.
+	 *
+	 * @param array<string, mixed> $payload Legacy addClient body.
+	 * @return array<string, mixed>
+	 */
+	private static function extract_client_from_legacy_add_payload( array $payload ) {
+		$settings = $payload['settings'] ?? '';
+		if ( is_string( $settings ) ) {
+			$dec = json_decode( $settings, true );
+		} else {
+			$dec = is_array( $settings ) ? $settings : array();
+		}
+		$clients = is_array( $dec ) && isset( $dec['clients'] ) && is_array( $dec['clients'] ) ? $dec['clients'] : array();
+		return is_array( $clients[0] ?? null ) ? $clients[0] : array();
+	}
+
+	/**
+	 * Normalize v3 traffic JSON to legacy `{ obj: { up, down, total } }` shape.
+	 *
+	 * @param array<string, mixed>|null $json Panel JSON.
+	 * @return array<string, mixed>|null
+	 */
+	private static function normalize_traffic_response_v3( $json ) {
+		if ( ! is_array( $json ) ) {
+			return null;
+		}
+		if ( isset( $json['obj'] ) && is_array( $json['obj'] ) ) {
+			return $json;
+		}
+		$obj = isset( $json['obj'] ) ? $json['obj'] : $json;
+		if ( ! is_array( $obj ) ) {
+			return $json;
+		}
+		return array_merge(
+			$json,
+			array(
+				'obj' => $obj,
+			)
+		);
+	}
+
+	/**
+	 * v3: create client on one or more inbounds.
+	 *
+	 * @param array<string, mixed> $client      Client fields.
+	 * @param array<int>           $inbound_ids Inbound ids.
+	 * @return array|null JSON response.
+	 */
+	public static function client_create_v3( array $client, array $inbound_ids ) {
+		$ids = array_values( array_filter( array_map( 'intval', $inbound_ids ), static function ( $v ) {
+			return $v > 0;
+		} ) );
+		$r   = self::request(
+			'clients/add',
+			'POST',
+			array(
+				'client'     => self::normalize_client_for_v3( $client ),
+				'inboundIds' => $ids,
+			)
+		);
+		return $r['json'];
+	}
+
+	/**
+	 * v3: update client by email.
+	 *
+	 * @param string               $email       Client email (API key).
+	 * @param array<string, mixed> $client      Fields to update.
+	 * @param array<int>           $inbound_ids Optional inbound scope.
+	 * @return array|null JSON response.
+	 */
+	public static function client_update_v3( $email, array $client, array $inbound_ids = array() ) {
+		$path = 'clients/update/' . rawurlencode( trim( (string) $email ) );
+		$ids  = array_values( array_filter( array_map( 'intval', $inbound_ids ), static function ( $v ) {
+			return $v > 0;
+		} ) );
+		if ( ! empty( $ids ) ) {
+			$path .= '?inboundIds=' . implode( ',', $ids );
+		}
+		$r = self::request( $path, 'POST', self::normalize_client_for_v3( $client ) );
+		return $r['json'];
+	}
+
+	/**
+	 * v3: delete client by email.
+	 *
+	 * @param string $email       Client email.
+	 * @param bool   $keep_traffic Keep traffic stats.
+	 * @return array|null JSON response.
+	 */
+	public static function client_delete_v3( $email, $keep_traffic = false ) {
+		$path = 'clients/del/' . rawurlencode( trim( (string) $email ) );
+		if ( $keep_traffic ) {
+			$path .= '?keepTraffic=1';
+		}
+		$r = self::request( $path, 'POST', array() );
+		return $r['json'];
+	}
+
+	/**
+	 * v3: get client by email.
+	 *
+	 * @param string $email Client email.
+	 * @return array<string, mixed>|null Client row or null.
+	 */
+	public static function client_get_v3( $email ) {
+		$em = trim( (string) $email );
+		if ( '' === $em ) {
+			return null;
+		}
+		$r = self::request( 'clients/get/' . rawurlencode( $em ), 'GET' );
+		if ( ! self::api_http_ok( $r ) ) {
+			return null;
+		}
+		$j = is_array( $r['json'] ?? null ) ? $r['json'] : null;
+		if ( ! $j ) {
+			return null;
+		}
+		if ( isset( $j['obj']['client'] ) && is_array( $j['obj']['client'] ) ) {
+			return $j['obj']['client'];
+		}
+		if ( isset( $j['client'] ) && is_array( $j['client'] ) ) {
+			return $j['client'];
+		}
+		if ( isset( $j['obj'] ) && is_array( $j['obj'] ) && isset( $j['obj']['email'] ) ) {
+			return $j['obj'];
+		}
+		return null;
+	}
+
+	/**
+	 * v3: client traffic by email.
+	 *
+	 * @param string $email Client email.
+	 * @return array|null JSON (legacy-shaped obj).
+	 */
+	public static function client_traffic_v3( $email ) {
+		$r = self::request( 'clients/traffic/' . rawurlencode( trim( (string) $email ) ), 'GET' );
+		return self::normalize_traffic_response_v3( $r['json'] ?? null );
+	}
+
+	/**
+	 * v3: client IPs.
+	 *
+	 * @param string $email Client email.
+	 * @return array|null JSON response.
+	 */
+	public static function client_ips_v3( $email ) {
+		$r = self::request( 'clients/ips/' . rawurlencode( trim( (string) $email ) ), 'POST', array() );
+		return $r['json'];
+	}
+
+	/**
+	 * v3: clear client IPs.
+	 *
+	 * @param string $email Client email.
+	 * @return array|null JSON response.
+	 */
+	public static function client_clear_ips_v3( $email ) {
+		$r = self::request( 'clients/clearIps/' . rawurlencode( trim( (string) $email ) ), 'POST', array() );
+		return $r['json'];
+	}
+
+	/**
+	 * v3: reset client traffic.
+	 *
+	 * @param string $email Client email.
+	 * @return array|null JSON response.
+	 */
+	public static function client_reset_traffic_v3( $email ) {
+		$r = self::request( 'clients/resetTraffic/' . rawurlencode( trim( (string) $email ) ), 'POST', array() );
+		return $r['json'];
+	}
+
+	/**
+	 * v3: online clients.
+	 *
+	 * @return array|null JSON response.
+	 */
+	public static function clients_onlines_v3() {
+		$r = self::request( 'clients/onlines', 'POST', array() );
+		return $r['json'];
+	}
+
+	/**
+	 * Parse onlines API JSON to a flat list of client email/tag strings (legacy + v3).
+	 *
+	 * @param mixed $json Decoded panel response from onlines().
+	 * @return array<int, string>
+	 */
+	public static function parse_onlines_response( $json ) {
+		if ( ! is_array( $json ) ) {
+			return array();
+		}
+		$arr = null;
+		if ( isset( $json['obj'] ) && is_array( $json['obj'] ) ) {
+			$arr = $json['obj'];
+		} elseif ( isset( $json['obj'] ) && is_string( $json['obj'] ) && '' !== trim( $json['obj'] ) ) {
+			$decoded = json_decode( $json['obj'], true );
+			$arr     = is_array( $decoded ) ? $decoded : null;
+		} elseif ( isset( $json['data'] ) && is_array( $json['data'] ) ) {
+			$arr = $json['data'];
+		} elseif ( array_values( $json ) === $json ) {
+			$arr = $json;
+		}
+		if ( ! is_array( $arr ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( $arr as $v ) {
+			if ( is_string( $v ) && '' !== trim( $v ) ) {
+				$out[] = trim( $v );
+			} elseif ( is_array( $v ) ) {
+				if ( ! empty( $v['email'] ) ) {
+					$out[] = trim( (string) $v['email'] );
+				} elseif ( ! empty( $v['Email'] ) ) {
+					$out[] = trim( (string) $v['Email'] );
+				}
+			}
+		}
+		return array_values(
+			array_unique(
+				array_filter(
+					$out,
+					static function ( $em ) {
+						return '' !== $em;
+					}
+				)
+			)
+		);
+	}
+
+	/**
+	 * Count online clients in onlines() API response.
+	 *
+	 * @param mixed $json Decoded JSON or array.
+	 * @return int
+	 */
+	public static function count_onlines_response( $json ) {
+		return count( self::parse_onlines_response( $json ) );
+	}
+
+	/**
+	 * Fetch online clients with explicit success/error (for monitoring).
+	 *
+	 * @return array{ok:bool, json:?array, error:string}
+	 */
+	public static function fetch_onlines() {
+		if ( self::is_v3_clients_api() ) {
+			$r = self::request( 'clients/onlines', 'POST', array() );
+			if ( self::api_http_ok( $r ) ) {
+				$json = is_array( $r['json'] ?? null ) ? $r['json'] : null;
+				return array(
+					'ok'    => true,
+					'json'  => $json,
+					'error' => '',
+				);
+			}
+			return array(
+				'ok'    => false,
+				'json'  => null,
+				'error' => 'clients_onlines_failed',
+			);
+		}
+		$r = self::request( 'inbounds/onlines', 'POST', array() );
+		if ( self::api_http_ok( $r ) ) {
+			$json = is_array( $r['json'] ?? null ) ? $r['json'] : null;
+			return array(
+				'ok'    => true,
+				'json'  => $json,
+				'error' => '',
+			);
+		}
+		$code = (int) ( $r['code'] ?? 0 );
+		if ( 404 === $code ) {
+			$r_v3 = self::request( 'clients/onlines', 'POST', array() );
+			if ( self::api_http_ok( $r_v3 ) ) {
+				self::detect_api_flavor( true );
+				$json = is_array( $r_v3['json'] ?? null ) ? $r_v3['json'] : null;
+				return array(
+					'ok'    => true,
+					'json'  => $json,
+					'error' => '',
+				);
+			}
+		}
+		return array(
+			'ok'    => false,
+			'json'  => null,
+			'error' => 404 === $code ? 'inbounds_onlines_not_found' : 'onlines_failed',
+		);
+	}
+
+	/**
+	 * v3: bulk adjust expiry/traffic for multiple clients.
+	 *
+	 * @param array<int, string> $emails   Client emails.
+	 * @param int                $add_days Days to add (0 = skip).
+	 * @param int                $add_bytes Bytes to add (0 = skip).
+	 * @return array|null JSON response.
+	 */
+	public static function clients_bulk_adjust_v3( array $emails, $add_days = 0, $add_bytes = 0 ) {
+		$list = array_values(
+			array_filter(
+				array_map(
+					static function ( $e ) {
+						return trim( (string) $e );
+					},
+					$emails
+				),
+				static function ( $e ) {
+					return '' !== $e;
+				}
+			)
+		);
+		if ( empty( $list ) ) {
+			return null;
+		}
+		$body = array( 'emails' => $list );
+		if ( (int) $add_days > 0 ) {
+			$body['addDays'] = (int) $add_days;
+		}
+		if ( (int) $add_bytes > 0 ) {
+			$body['addBytes'] = (int) $add_bytes;
+		}
+		$r = self::request( 'clients/bulkAdjust', 'POST', $body );
+		return $r['json'];
+	}
+
+	/**
+	 * v3: subscription links by subId.
+	 *
+	 * @param string $sub_id Subscription id.
+	 * @return array<int, string> Link lines.
+	 */
+	public static function client_sub_links_v3( $sub_id ) {
+		$sid = trim( (string) $sub_id );
+		if ( '' === $sid ) {
+			return array();
+		}
+		$r = self::request( 'clients/subLinks/' . rawurlencode( $sid ), 'GET' );
+		if ( ! self::api_http_ok( $r ) ) {
+			return array();
+		}
+		$j = is_array( $r['json'] ?? null ) ? $r['json'] : null;
+		if ( ! $j ) {
+			return array();
+		}
+		$obj = isset( $j['obj'] ) ? $j['obj'] : $j;
+		if ( is_string( $obj ) && '' !== $obj ) {
+			return array_filter( array_map( 'trim', preg_split( '/\r\n|\r|\n/', $obj ) ) );
+		}
+		if ( is_array( $obj ) ) {
+			$lines = array();
+			foreach ( $obj as $line ) {
+				if ( is_string( $line ) && '' !== trim( $line ) ) {
+					$lines[] = trim( $line );
+				}
+			}
+			return $lines;
+		}
+		return array();
+	}
+
+	/**
+	 * v3: config links by email.
+	 *
+	 * @param string $email Client email.
+	 * @return array<int, string> Link lines.
+	 */
+	public static function client_links_v3( $email ) {
+		$em = trim( (string) $email );
+		if ( '' === $em ) {
+			return array();
+		}
+		$r = self::request( 'clients/links/' . rawurlencode( $em ), 'GET' );
+		if ( ! self::api_http_ok( $r ) ) {
+			return array();
+		}
+		$j = is_array( $r['json'] ?? null ) ? $r['json'] : null;
+		if ( ! $j ) {
+			return array();
+		}
+		$obj = isset( $j['obj'] ) ? $j['obj'] : $j;
+		if ( is_string( $obj ) && '' !== $obj ) {
+			return array_filter( array_map( 'trim', preg_split( '/\r\n|\r|\n/', $obj ) ) );
+		}
+		if ( is_array( $obj ) ) {
+			$lines = array();
+			foreach ( $obj as $line ) {
+				if ( is_string( $line ) && '' !== trim( $line ) ) {
+					$lines[] = trim( $line );
+				}
+			}
+			return $lines;
+		}
+		return array();
+	}
+
+	/**
+	 * v3: paged client list.
+	 *
+	 * @param int $page     Page (1-based).
+	 * @param int $page_size Page size.
+	 * @return array{clients:array<int,array<string,mixed>>,total:int}|null
+	 */
+	public static function clients_list_paged_v3( $page = 1, $page_size = 500 ) {
+		$p  = max( 1, (int) $page );
+		$ps = max( 1, min( 1000, (int) $page_size ) );
+		$r  = self::request( 'clients/list/paged?page=' . $p . '&pageSize=' . $ps, 'GET' );
+		if ( ! self::api_http_ok( $r ) ) {
+			return null;
+		}
+		$j = is_array( $r['json'] ?? null ) ? $r['json'] : null;
+		if ( ! $j ) {
+			return null;
+		}
+		$obj     = isset( $j['obj'] ) && is_array( $j['obj'] ) ? $j['obj'] : $j;
+		$clients = array();
+		if ( isset( $obj['clients'] ) && is_array( $obj['clients'] ) ) {
+			$clients = $obj['clients'];
+		} elseif ( isset( $obj['list'] ) && is_array( $obj['list'] ) ) {
+			$clients = $obj['list'];
+		} elseif ( is_array( $obj ) && isset( $obj[0] ) ) {
+			$clients = $obj;
+		}
+		$total = isset( $obj['total'] ) ? (int) $obj['total'] : count( $clients );
+		return array(
+			'clients' => is_array( $clients ) ? $clients : array(),
+			'total'   => $total,
+		);
 	}
 
 	/**
@@ -1201,6 +1823,24 @@ class SimpleVPBot_Xui_Client {
 	 * @return array{ok:bool,code:int,json:array|null,body:string}
 	 */
 	public static function add_client_request( array $payload ) {
+		if ( self::is_v3_clients_api() ) {
+			$client = self::extract_client_from_legacy_add_payload( $payload );
+			$iid    = (int) ( $payload['id'] ?? 0 );
+			$r      = self::request(
+				'clients/add',
+				'POST',
+				array(
+					'client'     => self::normalize_client_for_v3( $client ),
+					'inboundIds' => $iid > 0 ? array( $iid ) : array(),
+				)
+			);
+			return array(
+				'ok'   => ! empty( $r['ok'] ) && self::response_is_success( $r['json'] ?? null ),
+				'code' => (int) ( $r['code'] ?? 0 ),
+				'json' => is_array( $r['json'] ?? null ) ? $r['json'] : null,
+				'body' => (string) ( $r['body'] ?? '' ),
+			);
+		}
 		$r = self::request( 'inbounds/addClient', 'POST', $payload );
 		return array(
 			'ok'   => ! empty( $r['ok'] ),
@@ -1304,9 +1944,30 @@ class SimpleVPBot_Xui_Client {
 	 */
 	public static function update_inbound_client_sequential( $inbound_id, array $full_settings_dec, array $single_client, array $path_id_candidates ) {
 		$iid          = (int) $inbound_id;
-		$ids          = array();
 		$target_email = isset( $single_client['email'] ) ? trim( (string) $single_client['email'] ) : '';
 		$single_work  = $single_client;
+		if ( self::is_v3_clients_api() ) {
+			if ( '' !== $target_email ) {
+				$single_work['email'] = $target_email;
+			}
+			if ( '' !== $target_email && ! empty( $full_settings_dec['clients'] ) && is_array( $full_settings_dec['clients'] ) ) {
+				foreach ( $full_settings_dec['clients'] as $cl ) {
+					if ( ! is_array( $cl ) || ! isset( $cl['email'] ) || (string) $cl['email'] !== $target_email ) {
+						continue;
+					}
+					$single_work          = array_merge( $cl, $single_work );
+					$single_work['email'] = $target_email;
+					break;
+				}
+			}
+			$panel_cl = self::client_get_v3( $target_email );
+			if ( is_array( $panel_cl ) ) {
+				$single_work          = array_merge( $panel_cl, $single_work );
+				$single_work['email'] = $target_email;
+			}
+			return self::client_update_v3( $target_email, $single_work, $iid > 0 ? array( $iid ) : array() );
+		}
+		$ids = array();
 		if ( '' !== $target_email ) {
 			$single_work['email'] = $target_email;
 		}
@@ -1402,6 +2063,13 @@ class SimpleVPBot_Xui_Client {
 	 * @return array|null
 	 */
 	public static function del_client( $inbound_id, $client_id, $email_fallback = '' ) {
+		if ( self::is_v3_clients_api() ) {
+			$em = trim( (string) $email_fallback );
+			if ( '' === $em ) {
+				$em = trim( (string) $client_id );
+			}
+			return self::client_delete_v3( $em );
+		}
 		$r = self::request( 'inbounds/' . (int) $inbound_id . '/delClient/' . rawurlencode( (string) $client_id ), 'POST', array() );
 		if ( self::response_is_success( $r['json'] ?? null ) ) {
 			return $r['json'];
@@ -1421,8 +2089,117 @@ class SimpleVPBot_Xui_Client {
 	 * @return array|null
 	 */
 	public static function get_client_traffics( $email ) {
+		if ( self::is_v3_clients_api() ) {
+			return self::client_traffic_v3( $email );
+		}
 		$r = self::request( 'inbounds/getClientTraffics/' . rawurlencode( $email ), 'GET' );
 		return $r['json'];
+	}
+
+	/**
+	 * Parse client_ips API JSON to a flat list of IP strings (legacy + v3 timestamp objects).
+	 *
+	 * @param mixed $json Decoded panel response from client_ips().
+	 * @param int   $max  Max IPs to return.
+	 * @return array<int, string>
+	 */
+	public static function parse_client_ips_response( $json, $max = 30 ) {
+		$lim = max( 1, min( 100, (int) $max ) );
+		if ( ! is_array( $json ) ) {
+			return array();
+		}
+		$obj = array_key_exists( 'obj', $json ) ? $json['obj'] : $json;
+		$ips = array();
+		if ( is_string( $obj ) && '' !== $obj && 'No IP Record' !== $obj ) {
+			$decoded = json_decode( $obj, true );
+			$ips     = is_array( $decoded ) ? $decoded : preg_split( '/[\s,]+/', $obj );
+		} elseif ( is_array( $obj ) ) {
+			foreach ( $obj as $item ) {
+				if ( is_string( $item ) && '' !== trim( $item ) ) {
+					$ips[] = trim( $item );
+				} elseif ( is_array( $item ) ) {
+					if ( ! empty( $item['ip'] ) ) {
+						$ips[] = trim( (string) $item['ip'] );
+					} elseif ( ! empty( $item['Ip'] ) ) {
+						$ips[] = trim( (string) $item['Ip'] );
+					}
+				}
+			}
+			if ( empty( $ips ) ) {
+				$ips = $obj;
+			}
+		}
+		return array_slice(
+			array_values(
+				array_unique(
+					array_filter(
+						array_map( 'trim', array_map( 'strval', (array) $ips ) ),
+						static function ( $ip ) {
+							return '' !== $ip && 'No IP Record' !== $ip;
+						}
+					)
+				)
+			),
+			0,
+			$lim
+		);
+	}
+
+	/**
+	 * Client rows for one inbound (v3: clients/list paged; legacy: inbound settings JSON).
+	 *
+	 * @param int $inbound_id Inbound id.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function clients_for_inbound_id( $inbound_id ) {
+		$iid = (int) $inbound_id;
+		if ( $iid < 1 ) {
+			return array();
+		}
+		if ( self::is_v3_clients_api() ) {
+			$out  = array();
+			$page = 1;
+			while ( $page <= 20 ) {
+				$batch = self::clients_list_paged_v3( $page, 500 );
+				if ( ! is_array( $batch ) || empty( $batch['clients'] ) ) {
+					break;
+				}
+				foreach ( $batch['clients'] as $c ) {
+					if ( ! is_array( $c ) || empty( $c['email'] ) ) {
+						continue;
+					}
+					$inbound_ids = $c['inboundIds'] ?? $c['inbound_ids'] ?? array();
+					if ( ! is_array( $inbound_ids ) ) {
+						$inbound_ids = array();
+					}
+					$match = false;
+					foreach ( $inbound_ids as $ciid ) {
+						if ( (int) $ciid === $iid ) {
+							$match = true;
+							break;
+						}
+					}
+					if ( $match ) {
+						$out[] = $c;
+					}
+				}
+				if ( count( $batch['clients'] ) < 500 ) {
+					break;
+				}
+				++$page;
+			}
+			return $out;
+		}
+		$inbound = self::inbound_get( $iid );
+		if ( ! is_array( $inbound ) ) {
+			return array();
+		}
+		$settings = isset( $inbound['settings'] ) ? $inbound['settings'] : '';
+		$dec      = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
+		if ( ! is_array( $dec ) || empty( $dec['clients'] ) || ! is_array( $dec['clients'] ) ) {
+			return array();
+		}
+		return $dec['clients'];
 	}
 
 	/**
@@ -1432,6 +2209,9 @@ class SimpleVPBot_Xui_Client {
 	 * @return array|null
 	 */
 	public static function client_ips( $email ) {
+		if ( self::is_v3_clients_api() ) {
+			return self::client_ips_v3( $email );
+		}
 		$r = self::request( 'inbounds/clientIps/' . rawurlencode( $email ), 'POST', array() );
 		return $r['json'];
 	}
@@ -1443,6 +2223,9 @@ class SimpleVPBot_Xui_Client {
 	 * @return array|null
 	 */
 	public static function clear_client_ips( $email ) {
+		if ( self::is_v3_clients_api() ) {
+			return self::client_clear_ips_v3( $email );
+		}
 		$r = self::request( 'inbounds/clearClientIps/' . rawurlencode( $email ), 'POST', array() );
 		return $r['json'];
 	}
@@ -1455,6 +2238,9 @@ class SimpleVPBot_Xui_Client {
 	 * @return array|null
 	 */
 	public static function reset_client_traffic( $inbound_id, $email ) {
+		if ( self::is_v3_clients_api() ) {
+			return self::client_reset_traffic_v3( $email );
+		}
 		$r = self::request( 'inbounds/' . (int) $inbound_id . '/resetClientTraffic/' . rawurlencode( $email ), 'POST', array() );
 		return $r['json'];
 	}
@@ -1465,8 +2251,8 @@ class SimpleVPBot_Xui_Client {
 	 * @return array|null
 	 */
 	public static function onlines() {
-		$r = self::request( 'inbounds/onlines', 'POST', array() );
-		return $r['json'];
+		$fetch = self::fetch_onlines();
+		return ! empty( $fetch['ok'] ) ? $fetch['json'] : null;
 	}
 
 	/**
@@ -1481,6 +2267,9 @@ class SimpleVPBot_Xui_Client {
 
 	/** Last getDb failure step for backup diagnostics. */
 	private static $last_get_db_step = '';
+
+	/** Last getDb HTTP status (0 if unknown). */
+	private static $last_get_db_http = 0;
 
 	/**
 	 * Whether bytes look like a SQLite 3 database file.
@@ -1506,25 +2295,61 @@ class SimpleVPBot_Xui_Client {
 	}
 
 	/**
+	 * Last getDb HTTP status code from the panel (0 if none).
+	 *
+	 * @return int
+	 */
+	public static function last_get_db_http() {
+		return (int) self::$last_get_db_http;
+	}
+
+	/**
+	 * Log getDb failure with response sample for debugging.
+	 *
+	 * @param array{ok?:bool, code?:int, body?:string, url?:string} $r       Request result.
+	 * @param string                                                $reason Step key.
+	 */
+	private static function log_get_db_failure( $r, $reason ) {
+		if ( ! class_exists( 'SimpleVPBot_Logger' ) ) {
+			return;
+		}
+		$raw = is_string( $r['body'] ?? null ) ? (string) $r['body'] : '';
+		SimpleVPBot_Logger::error(
+			'x-ui getDb failed',
+			array(
+				'step'     => (string) $reason,
+				'code'     => (int) ( $r['code'] ?? 0 ),
+				'url'      => (string) ( $r['url'] ?? '' ),
+				'panel_id' => (int) self::$bound_panel_id,
+				'sample'   => mb_substr( $raw, 0, 128 ),
+			)
+		);
+	}
+
+	/**
 	 * Parse getDb HTTP response into validated SQLite bytes or false.
 	 *
-	 * @param array{ok?:bool, code?:int, body?:string} $r Request result.
+	 * @param array{ok?:bool, code?:int, body?:string, url?:string} $r Request result.
 	 * @return string|false
 	 */
 	private static function parse_db_binary_response( $r ) {
 		$code = (int) ( $r['code'] ?? 0 );
+		self::$last_get_db_http = $code;
 		$raw  = is_string( $r['body'] ?? null ) ? (string) $r['body'] : '';
 		if ( empty( $r['ok'] ) || '' === $raw ) {
 			self::$last_get_db_step = 401 === $code || 403 === $code ? 'auth' : 'http_' . $code;
+			self::log_get_db_failure( $r, self::$last_get_db_step );
 			return false;
 		}
 		$trim = ltrim( $raw );
 		if ( '' !== $trim && ( '{' === $trim[0] || '[' === $trim[0] ) ) {
 			self::$last_get_db_step = 'invalid_response';
+			self::log_get_db_failure( $r, 'invalid_response' );
 			return false;
 		}
 		if ( ! self::is_sqlite_bytes( $raw ) ) {
 			self::$last_get_db_step = 'invalid_response';
+			self::log_get_db_failure( $r, 'invalid_response' );
 			return false;
 		}
 		self::$last_get_db_step = '';
@@ -1532,35 +2357,143 @@ class SimpleVPBot_Xui_Client {
 	}
 
 	/**
-	 * Download DB file bytes — GET {api_root}server/getDb (session cookie required).
+	 * Whether Bearer should be attempted for getDb (token-only panels).
+	 *
+	 * @return bool
+	 */
+	private static function should_try_bearer_for_getdb() {
+		return self::has_api_token()
+			&& ! self::has_cookie_credentials()
+			&& '' === self::cookie_header();
+	}
+
+	/**
+	 * Download DB bytes — optional Bearer first, then cookie GET (3x-ui v2.9.4+ is GET-only).
+	 *
+	 * @param bool $try_bearer_first Attempt Bearer when token is set.
+	 * @return string|false
+	 */
+	private static function get_db_binary_inner( $try_bearer_first ) {
+		if ( $try_bearer_first && self::has_api_token() ) {
+			$r  = self::request( 'server/getDb', 'GET', array(), true, 2, 'api', false );
+			$db = self::parse_db_binary_response( $r );
+			if ( false !== $db ) {
+				return $db;
+			}
+		}
+		$r = self::request( 'server/getDb', 'GET', array(), true, 2, 'api', true );
+		return self::parse_db_binary_response( $r );
+	}
+
+	/**
+	 * Download DB file bytes for normal/diagnostic use (skips Bearer when cookie creds exist).
 	 *
 	 * @return string|false
 	 */
 	public static function get_db_binary() {
-		$r = self::request( 'server/getDb', 'GET', array(), true, 2, 'api', true );
-		$db = self::parse_db_binary_response( $r );
-		if ( false !== $db ) {
-			return $db;
+		return self::get_db_binary_inner( self::has_api_token() && ! self::has_cookie_credentials() );
+	}
+
+	/**
+	 * Faster getDb path for scheduled/manual backup (shorter timeout, no wasted Bearer attempts).
+	 *
+	 * @return string|false
+	 */
+	public static function get_db_binary_for_backup() {
+		$prev                     = self::$request_timeout_sec;
+		self::$request_timeout_sec = 30;
+		try {
+			return self::get_db_binary_inner( self::should_try_bearer_for_getdb() );
+		} finally {
+			self::$request_timeout_sec = $prev;
 		}
-		$r2 = self::request( 'server/getDb', 'POST', array(), true, 1, 'api', true );
-		return self::parse_db_binary_response( $r2 );
+	}
+
+	/**
+	 * Probe getDb for panel test / diagnostics.
+	 *
+	 * @return array{ok:bool, step:string, url:string, http:int, bytes:int}
+	 */
+	public static function probe_get_db() {
+		$url = self::diag_url( 'server/getDb', 'api' );
+		if ( self::has_api_token() ) {
+			$db = self::get_db_binary_inner( true );
+			if ( false !== $db && '' !== $db ) {
+				return array(
+					'ok'    => true,
+					'step'  => '',
+					'url'   => $url,
+					'http'  => 200,
+					'bytes' => strlen( $db ),
+				);
+			}
+		}
+		$db  = self::get_db_binary_with_retries( 2, false );
+		if ( false !== $db && '' !== $db ) {
+			return array(
+				'ok'    => true,
+				'step'  => '',
+				'url'   => $url,
+				'http'  => 200,
+				'bytes' => strlen( $db ),
+			);
+		}
+		$step = self::last_get_db_step();
+		if ( '' === $step ) {
+			$step = 'download';
+		}
+		if ( self::has_cookie_credentials() ) {
+			self::clear_session();
+			if ( self::login_with_cookie_session( 4, 300000 ) ) {
+				$db = self::get_db_binary_with_retries( 2 );
+				if ( false !== $db && '' !== $db ) {
+					return array(
+						'ok'    => true,
+						'step'  => '',
+						'url'   => $url,
+						'http'  => 200,
+						'bytes' => strlen( $db ),
+					);
+				}
+				$step = self::last_get_db_step();
+				if ( '' === $step ) {
+					$step = 'download';
+				}
+			} else {
+				$step = 'login';
+			}
+		} elseif ( ! self::has_api_token() ) {
+			$step = 'missing_cookie_creds';
+		}
+		$http = self::last_get_db_http();
+		if ( 404 === $http && 'http_404' !== $step ) {
+			$step = 'http_404';
+		}
+		return array(
+			'ok'    => false,
+			'step'  => (string) $step,
+			'url'   => $url,
+			'http'  => $http,
+			'bytes' => 0,
+		);
 	}
 
 	/**
 	 * Download panel DB with retries (transient getDb failures).
 	 *
-	 * @param int $attempts Attempt count (minimum 1).
+	 * @param int  $attempts   Attempt count (minimum 1).
+	 * @param bool $for_backup Use backup-fast getDb path when true.
 	 * @return string|false
 	 */
-	public static function get_db_binary_with_retries( $attempts = 3 ) {
+	public static function get_db_binary_with_retries( $attempts = 3, $for_backup = false ) {
 		$max = max( 1, (int) $attempts );
 		for ( $i = 0; $i < $max; $i++ ) {
-			$db = self::get_db_binary();
+			$db = $for_backup ? self::get_db_binary_for_backup() : self::get_db_binary();
 			if ( false !== $db && '' !== $db ) {
 				return $db;
 			}
 			if ( $i + 1 < $max ) {
-				usleep( 400000 + $i * 300000 );
+				usleep( $for_backup ? 250000 + $i * 150000 : 400000 + $i * 300000 );
 			}
 		}
 		return false;
@@ -1791,6 +2724,14 @@ class SimpleVPBot_Xui_Client {
 	 * @return array<string, mixed>|null
 	 */
 	public static function inbound_client_by_email( $inbound, $email ) {
+		$want = trim( (string) $email );
+		if ( '' === $want ) {
+			return null;
+		}
+		if ( self::is_v3_clients_api() ) {
+			$cl = self::client_get_v3( $want );
+			return is_array( $cl ) ? $cl : null;
+		}
 		if ( ! is_array( $inbound ) ) {
 			return null;
 		}
@@ -1799,7 +2740,6 @@ class SimpleVPBot_Xui_Client {
 		if ( ! is_array( $dec ) || empty( $dec['clients'] ) || ! is_array( $dec['clients'] ) ) {
 			return null;
 		}
-		$want = (string) $email;
 		foreach ( $dec['clients'] as $c ) {
 			if ( is_array( $c ) && isset( $c['email'] ) && (string) $c['email'] === $want ) {
 				return $c;

@@ -43,6 +43,9 @@ class SimpleVPBot_Telegram_Http {
 	 * @return string
 	 */
 	public static function bot_api_base_url( $token ) {
+		if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) && SimpleVPBot_Telegram_Relay::is_enabled() ) {
+			return SimpleVPBot_Telegram_Relay::bot_api_base_url( $token );
+		}
 		$custom = trim( (string) SimpleVPBot_Settings::get( 'telegram_api_base_url', '' ) );
 		$tok    = rawurlencode( (string) $token );
 		if ( '' !== $custom ) {

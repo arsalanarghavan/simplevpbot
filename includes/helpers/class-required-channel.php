@@ -205,49 +205,150 @@ class SimpleVPBot_Required_Channel {
 	}
 
 	/**
-	 * Check channel membership via Bot API.
+	 * Transient key for membership cache.
 	 *
 	 * @param string $platform Platform.
-	 * @param int    $user_id  Telegram/Bale user id.
+	 * @param int    $chat_id  Channel chat id.
+	 * @param int    $user_id  User id.
+	 * @return string
+	 */
+	public static function membership_cache_key( $platform, $chat_id, $user_id ) {
+		return 'svp_chjoin_' . self::normalize_platform( $platform ) . '_' . (int) $chat_id . '_' . (int) $user_id;
+	}
+
+	/**
+	 * Positive membership cache TTL (seconds).
+	 *
+	 * @return int
+	 */
+	public static function positive_cache_ttl() {
+		return max( 30, (int) SimpleVPBot_Settings::get( 'force_join_cache_ttl_sec', 180 ) );
+	}
+
+	/**
+	 * Negative membership cache TTL (seconds).
+	 *
+	 * @return int
+	 */
+	public static function negative_cache_ttl() {
+		return max( 10, (int) SimpleVPBot_Settings::get( 'force_join_negative_cache_ttl_sec', 45 ) );
+	}
+
+	/**
+	 * Fetch membership via Bot API with retry and cache.
+	 *
+	 * @param string               $platform Platform.
+	 * @param int                  $user_id  Telegram/Bale user id.
+	 * @param array<string, mixed> $opts     force_refresh (bool), retries (int).
+	 * @return array{passes:bool, api_error:bool, from_cache?:bool, status:string}
+	 */
+	public static function fetch_member_status( $platform, $user_id, array $opts = array() ) {
+		$plat          = self::normalize_platform( $platform );
+		$force_refresh = ! empty( $opts['force_refresh'] );
+		$retries       = max( 1, min( 4, (int) ( $opts['retries'] ?? 2 ) ) );
+		$cfg           = self::config( $plat );
+		$cid           = (int) ( $cfg['chat_id'] ?? 0 );
+		$uid           = (int) $user_id;
+		if ( $cid === 0 || $uid < 1 ) {
+			return array(
+				'passes'    => true,
+				'api_error' => false,
+				'status'    => 'skipped',
+			);
+		}
+		$cache_key = self::membership_cache_key( $plat, $cid, $uid );
+		if ( ! $force_refresh ) {
+			$cached = get_transient( $cache_key );
+			if ( '1' === $cached ) {
+				return array(
+					'passes'     => true,
+					'api_error'  => false,
+					'from_cache' => true,
+					'status'     => 'cached_member',
+				);
+			}
+			if ( '0' === $cached ) {
+				return array(
+					'passes'     => false,
+					'api_error'  => false,
+					'from_cache' => true,
+					'status'     => 'cached_not_member',
+				);
+			}
+		}
+		$client = class_exists( 'SimpleVPBot_Bot_Runtime' ) ? SimpleVPBot_Bot_Runtime::client( $plat ) : null;
+		if ( ! $client ) {
+			return array(
+				'passes'    => true,
+				'api_error' => false,
+				'status'    => 'no_client',
+			);
+		}
+		$last_desc = '';
+		for ( $i = 0; $i < $retries; $i++ ) {
+			if ( $i > 0 ) {
+				usleep( 80000 + $i * 40000 );
+			}
+			$res = $client->get_chat_member(
+				array(
+					'chat_id' => $cid,
+					'user_id' => $uid,
+				)
+			);
+			if ( ! empty( $res['ok'] ) ) {
+				$member  = isset( $res['result'] ) && is_array( $res['result'] ) ? $res['result'] : array();
+				$passes  = self::member_status_ok( $member );
+				$ttl     = $passes ? self::positive_cache_ttl() : self::negative_cache_ttl();
+				$status  = isset( $member['status'] ) ? (string) $member['status'] : '';
+				set_transient( $cache_key, $passes ? '1' : '0', $ttl );
+				return array(
+					'passes'    => $passes,
+					'api_error' => false,
+					'status'    => $status,
+				);
+			}
+			$last_desc = isset( $res['description'] ) ? (string) $res['description'] : '';
+		}
+		if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+			SimpleVPBot_Logger::warning(
+				'getChatMember failed after retries (fail-open)',
+				array(
+					'platform'    => $plat,
+					'chat_id'     => $cid,
+					'user_id'     => $uid,
+					'description' => $last_desc,
+					'retries'     => $retries,
+				)
+			);
+		}
+		return array(
+			'passes'    => true,
+			'api_error' => true,
+			'status'    => 'api_error',
+		);
+	}
+
+	/**
+	 * Check channel membership via Bot API.
+	 *
+	 * @param string $platform      Platform.
+	 * @param int    $user_id       Telegram/Bale user id.
+	 * @param bool   $force_refresh Bypass cache (e.g. chjoin:verify).
 	 * @return bool
 	 */
-	public static function user_passes( $platform, $user_id ) {
+	public static function user_passes( $platform, $user_id, $force_refresh = false ) {
 		$plat = self::normalize_platform( $platform );
 		if ( ! self::is_enabled( $plat ) ) {
 			return true;
 		}
-		$cfg = self::config( $plat );
-		$cid = (int) ( $cfg['chat_id'] ?? 0 );
-		$uid = (int) $user_id;
-		if ( $cid === 0 || $uid < 1 ) {
-			return true;
-		}
-		$client = class_exists( 'SimpleVPBot_Bot_Runtime' ) ? SimpleVPBot_Bot_Runtime::client( $plat ) : null;
-		if ( ! $client ) {
-			return true;
-		}
-		$res = $client->get_chat_member(
+		$result = self::fetch_member_status(
+			$plat,
+			$user_id,
 			array(
-				'chat_id' => $cid,
-				'user_id' => $uid,
+				'force_refresh' => (bool) $force_refresh,
 			)
 		);
-		if ( empty( $res['ok'] ) ) {
-			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
-				SimpleVPBot_Logger::warning(
-					'getChatMember failed',
-					array(
-						'platform'    => $plat,
-						'chat_id'     => $cid,
-						'user_id'     => $uid,
-						'description' => isset( $res['description'] ) ? (string) $res['description'] : '',
-					)
-				);
-			}
-			return false;
-		}
-		$member = isset( $res['result'] ) && is_array( $res['result'] ) ? $res['result'] : array();
-		return self::member_status_ok( $member );
+		return ! empty( $result['passes'] );
 	}
 
 	/**

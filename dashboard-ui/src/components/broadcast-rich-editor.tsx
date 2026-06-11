@@ -1,9 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useRef, type KeyboardEvent } from "react"
+import { useCallback, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { useDashLocale } from "@/lib/dash-locale-context"
 import { cn } from "@/lib/utils"
 
 function selectionHtml(): string {
@@ -32,54 +33,47 @@ function normalizeEditorHtml(html: string): string {
   let t = html
   t = t.replace(/<span[^>]*style="[^"]*"[^>]*>(.*?)<\/span>/gis, "$1")
   t = t.replace(/<font[^>]*>(.*?)<\/font>/gis, "$1")
-  t = t.replace(/<br\s*\/?>/gi, "\n")
   return t
 }
 
 export function BroadcastRichEditor({
   value,
   onChange,
-  isFa,
   disabled,
   placeholder,
 }: {
   value: string
   onChange: (html: string) => void
-  isFa: boolean
   disabled?: boolean
   placeholder?: string
 }) {
   const { t } = useTranslation()
+  const { isFa, dir } = useDashLocale()
   const tip = (key: string) => t(`broadcastAdmin.${key}`)
   const ref = useRef<HTMLDivElement>(null)
+  const lastEmitted = useRef(value)
 
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    if (value === "" && el.innerHTML !== "") {
+    if (value === lastEmitted.current) return
+    lastEmitted.current = value
+    if (value === "") {
       el.innerHTML = ""
       return
     }
-    if (value && el.innerHTML !== value) {
+    if (el.innerHTML !== value) {
       el.innerHTML = value
     }
   }, [value])
 
   const emit = useCallback(() => {
     const el = ref.current
-    if (el) onChange(normalizeEditorHtml(el.innerHTML))
+    if (!el) return
+    const next = normalizeEditorHtml(el.innerHTML)
+    lastEmitted.current = next
+    onChange(next)
   }, [onChange])
-
-  const onKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLDivElement>) => {
-      if (e.key !== "Enter" || e.shiftKey) return
-      e.preventDefault()
-      ref.current?.focus()
-      document.execCommand("insertLineBreak")
-      emit()
-    },
-    [emit],
-  )
 
   const runBold = useCallback(() => {
     ref.current?.focus()
@@ -164,7 +158,7 @@ export function BroadcastRichEditor({
   )
 
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-2">
       <div
         className={cn(
           "flex flex-wrap gap-1 rounded-md border border-input bg-muted/30 p-1",
@@ -183,21 +177,20 @@ export function BroadcastRichEditor({
       <div
         ref={ref}
         className={cn(
-          "min-h-[8rem] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
-          isFa && "text-right",
+          "min-h-[8rem] w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-start text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          isFa && "whitespace-pre-wrap",
         )}
         contentEditable={!disabled}
-        dir="auto"
+        dir={dir}
         suppressContentEditableWarning
         data-placeholder={placeholder || ""}
         onInput={emit}
         onBlur={emit}
-        onKeyDown={onKeyDown}
       />
       <style>{`
         [contenteditable][data-placeholder]:empty:before {
           content: attr(data-placeholder);
-          color: hsl(var(--muted-foreground));
+          color: var(--muted-foreground);
           pointer-events: none;
         }
       `}</style>

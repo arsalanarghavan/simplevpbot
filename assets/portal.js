@@ -1,6 +1,123 @@
 (function () {
 	"use strict";
 
+	var PORTAL_I18N = {
+		fa: {
+			transferTitle: "انتقال سرویس",
+			transferHint: "انتقال مالکیت سرویس به کاربر دیگر (شناسه عددی یا نام کاربری).",
+			transferServiceId: "شناسه سرویس",
+			transferTarget: "کاربر مقصد",
+			transferSubmit: "انتقال",
+			receiptsTitle: "رسیدها",
+			receiptsHint: "۱۰ رسید در هر صفحه (جدیدترین اول).",
+			receiptsRefresh: "بارگذاری / تازه‌سازی",
+			receiptsPrev: "صفحه قبل",
+			receiptsNext: "صفحه بعد",
+			receiptsColId: "شناسه",
+			receiptsColUser: "کاربر",
+			receiptsColAmount: "مبلغ",
+			receiptsColStatus: "وضعیت",
+			receiptsColDate: "تاریخ",
+			discountTitle: "کدهای تخفیف",
+			discountHint: "فهرست، ایجاد/ویرایش و حذف کدهای تخفیف در محدودهٔ حساب شما.",
+			discountLoadList: "بارگذاری لیست",
+			discountIdEdit: "شناسه (۰ = جدید)",
+			discountCode: "کد",
+			discountType: "نوع",
+			discountValue: "مقدار",
+			discountMaxUses: "حداکثر استفاده (خالی = نامحدود)",
+			discountValidFrom: "معتبر از (YYYY-MM-DD HH:MM، اختیاری)",
+			discountValidUntil: "معتبر تا (YYYY-MM-DD HH:MM، اختیاری)",
+			discountMinOrder: "حداقل سفارش (تومان، اختیاری)",
+			discountMaxOrder: "حداکثر مبلغ سفارش (تومان، اختیاری)",
+			discountMaxDiscount: "سقف تخفیف (تومان، اختیاری)",
+			discountPlanIds: "شناسه پلن‌های مجاز (با کاما، خالی = همه)",
+			discountRestrictedUser: "محدود به کاربر (شناسه، اختیاری)",
+			discountAllowSection: "مجاز برای:",
+			discountAllowNew: "خرید جدید",
+			discountAllowRenew: "تمدید",
+			discountAllowVol: "افزایش حجم",
+			discountAllowUsers: "افزایش کاربر",
+			discountActive: "فعال",
+			discountSave: "ذخیره کد",
+			discountIdDelete: "شناسه برای حذف",
+			discountDelete: "حذف با شناسه",
+		},
+		en: {
+			transferTitle: "Service transfer",
+			transferHint: "Transfer service ownership to another user (numeric id or username).",
+			transferServiceId: "Service ID",
+			transferTarget: "Target user",
+			transferSubmit: "Transfer",
+			receiptsTitle: "Receipts",
+			receiptsHint: "10 receipts per page (newest first).",
+			receiptsRefresh: "Load / refresh",
+			receiptsPrev: "Previous page",
+			receiptsNext: "Next page",
+			receiptsColId: "ID",
+			receiptsColUser: "User",
+			receiptsColAmount: "Amount",
+			receiptsColStatus: "Status",
+			receiptsColDate: "Date",
+			discountTitle: "Discount codes",
+			discountHint: "List, create/edit, and delete discount codes within your account scope.",
+			discountLoadList: "Load list",
+			discountIdEdit: "ID (0 = new)",
+			discountCode: "Code",
+			discountType: "Type",
+			discountValue: "Value",
+			discountMaxUses: "Max uses (empty = unlimited)",
+			discountValidFrom: "Valid from (YYYY-MM-DD HH:MM, optional)",
+			discountValidUntil: "Valid until (YYYY-MM-DD HH:MM, optional)",
+			discountMinOrder: "Min order (toman, optional)",
+			discountMaxOrder: "Max order amount (toman, optional)",
+			discountMaxDiscount: "Max discount cap (toman, optional)",
+			discountPlanIds: "Allowed plan IDs (comma-separated, empty = all)",
+			discountRestrictedUser: "Restricted to user (ID, optional)",
+			discountAllowSection: "Allowed for:",
+			discountAllowNew: "New purchase",
+			discountAllowRenew: "Renewal",
+			discountAllowVol: "Add volume",
+			discountAllowUsers: "Add user slots",
+			discountActive: "Active",
+			discountSave: "Save code",
+			discountIdDelete: "ID to delete",
+			discountDelete: "Delete by ID",
+		},
+	};
+
+	function portalLang() {
+		var lang = (document.documentElement.getAttribute("lang") || "fa").slice(0, 2);
+		return lang === "en" ? "en" : "fa";
+	}
+
+	function portalT(key) {
+		var bucket = PORTAL_I18N[portalLang()] || PORTAL_I18N.fa;
+		return bucket[key] || PORTAL_I18N.fa[key] || key;
+	}
+
+	function applyPortalI18n(root) {
+		$$(("[data-svp-i18n]"), root || document).forEach(function (el) {
+			var key = el.getAttribute("data-svp-i18n");
+			if (!key) {
+				return;
+			}
+			var text = portalT(key);
+			if (el.tagName === "LABEL") {
+				var kids = el.childNodes;
+				for (var i = 0; i < kids.length; i++) {
+					if (kids[i].nodeType === 3) {
+						kids[i].textContent = text;
+						return;
+					}
+				}
+				el.insertBefore(document.createTextNode(text), el.firstChild);
+				return;
+			}
+			el.textContent = text;
+		});
+	}
+
 	var toastTimer = null;
 
 	function $$(sel, root) {
@@ -199,6 +316,12 @@
 	if (!root) {
 		return;
 	}
+	var isReseller = root.getAttribute("data-is-reseller") === "1";
+	if (isReseller) {
+		root.querySelectorAll("[data-svp-portal-site-only]").forEach(function (el) {
+			el.hidden = true;
+		});
+	}
 	var ajax = root.getAttribute("data-ajax") || "";
 	var nonce = root.getAttribute("data-nonce") || "";
 	function qp(name) {
@@ -293,6 +416,51 @@
 						String(d != null ? d : "0")
 			);
 		}
+	}
+	function rcptFetch() {
+		var rcptRoot = document.getElementById("svp-rcpt-root");
+		if (!rcptRoot) {
+			return;
+		}
+		var off = parseInt(rcptRoot.getAttribute("data-offset") || "0", 10);
+		if (isNaN(off) || off < 0) {
+			off = 0;
+		}
+		post("receipts_page", "offset=" + encodeURIComponent(String(off))).then(
+			function (j) {
+				if (!j.success || !j.data) {
+					return;
+				}
+				var d = j.data;
+				var tbody = document.getElementById("svp-rcpt-tbody");
+				var prev = document.querySelector("[data-svp-rcpt-prev]");
+				var next = document.querySelector("[data-svp-rcpt-next]");
+				if (prev) {
+					prev.disabled = !d.has_prev;
+				}
+				if (next) {
+					next.disabled = !d.has_next;
+				}
+				if (tbody) {
+					tbody.textContent = "";
+					(d.items || []).forEach(function (it) {
+						var tr = document.createElement("tr");
+						[
+							String(it.id != null ? it.id : ""),
+							String(it.user_label || it.user_id || ""),
+							String(it.amount != null ? it.amount : ""),
+							String(it.status || ""),
+							String(it.created_at || ""),
+						].forEach(function (txt) {
+							var td = document.createElement("td");
+							td.textContent = txt;
+							tr.appendChild(td);
+						});
+						tbody.appendChild(tr);
+					});
+				}
+			}
+		);
 	}
 	function memFetch() {
 		var memRoot = document.getElementById("svp-mem-root");
@@ -397,6 +565,34 @@
 		"click",
 		function (e) {
 			var memRoot = document.getElementById("svp-mem-root");
+			var rcptRoot = document.getElementById("svp-rcpt-root");
+			if (rcptRoot && rcptRoot.contains(e.target)) {
+				if (e.target.closest("[data-svp-rcpt-refresh]")) {
+					e.preventDefault();
+					rcptFetch();
+					return;
+				}
+				if (e.target.closest("[data-svp-rcpt-prev]")) {
+					e.preventDefault();
+					var limR = 10;
+					var oR =
+						parseInt(rcptRoot.getAttribute("data-offset") || "0", 10) -
+						limR;
+					rcptRoot.setAttribute("data-offset", String(oR < 0 ? 0 : oR));
+					rcptFetch();
+					return;
+				}
+				if (e.target.closest("[data-svp-rcpt-next]")) {
+					e.preventDefault();
+					var limR2 = 10;
+					var oR2 =
+						parseInt(rcptRoot.getAttribute("data-offset") || "0", 10) +
+						limR2;
+					rcptRoot.setAttribute("data-offset", String(oR2));
+					rcptFetch();
+					return;
+				}
+			}
 			if (memRoot && memRoot.contains(e.target)) {
 				var tabBtn = e.target.closest("[data-svp-mem-tab]");
 				if (tabBtn) {
@@ -610,6 +806,20 @@
 				});
 				return;
 			}
+			if (op === "service_transfer") {
+				var xs = document.getElementById("svp-xfer-sid");
+				var xt = document.getElementById("svp-xfer-tgt");
+				post(
+					"service_transfer",
+					"service_id=" +
+						encodeURIComponent(xs ? xs.value : "") +
+						"&target=" +
+						encodeURIComponent(xt ? xt.value : "")
+				).then(function (j) {
+					show("svp-adm-xfer", j.success ? j.data : j);
+				});
+				return;
+			}
 			if (op === "bulk_days") {
 				var ack = document.getElementById("svp-bulk-ack");
 				if (!ack || !ack.checked) {
@@ -731,6 +941,65 @@
 				});
 				return;
 			}
+			if (op === "discount_save") {
+				var did = document.getElementById("svp-disc-id");
+				var dcode = document.getElementById("svp-disc-code");
+				var dtype = document.getElementById("svp-disc-type");
+				var dval = document.getElementById("svp-disc-value");
+				var dmax = document.getElementById("svp-disc-max");
+				var dfrom = document.getElementById("svp-disc-from");
+				var duntil = document.getElementById("svp-disc-until");
+				var dmin = document.getElementById("svp-disc-min");
+				var dmaxord = document.getElementById("svp-disc-max-order");
+				var dmaxdisc = document.getElementById("svp-disc-max-disc");
+				var dplans = document.getElementById("svp-disc-plans");
+				var duser = document.getElementById("svp-disc-user");
+				var dnew = document.getElementById("svp-disc-allow-new");
+				var drenew = document.getElementById("svp-disc-allow-renew");
+				var dvol = document.getElementById("svp-disc-allow-vol");
+				var dusers = document.getElementById("svp-disc-allow-users");
+				var dact = document.getElementById("svp-disc-active");
+				post(
+					"discount_save",
+					"discount_id=" +
+						encodeURIComponent(did ? did.value : "0") +
+						"&discount_code=" +
+						encodeURIComponent(dcode ? dcode.value : "") +
+						"&discount_type=" +
+						encodeURIComponent(dtype ? dtype.value : "percent") +
+						"&discount_value=" +
+						encodeURIComponent(dval ? dval.value : "") +
+						"&discount_max_uses=" +
+						encodeURIComponent(dmax ? dmax.value : "") +
+						"&discount_valid_from=" +
+						encodeURIComponent(dfrom ? dfrom.value : "") +
+						"&discount_valid_until=" +
+						encodeURIComponent(duntil ? duntil.value : "") +
+						"&discount_min_order=" +
+						encodeURIComponent(dmin ? dmin.value : "") +
+						"&discount_max_order=" +
+						encodeURIComponent(dmaxord ? dmaxord.value : "") +
+						"&discount_max_discount=" +
+						encodeURIComponent(dmaxdisc ? dmaxdisc.value : "") +
+						"&discount_plan_ids=" +
+						encodeURIComponent(dplans ? dplans.value : "") +
+						"&discount_restricted_user_id=" +
+						encodeURIComponent(duser ? duser.value : "0") +
+						"&discount_allow_new=" +
+						encodeURIComponent(dnew && dnew.checked ? "1" : "") +
+						"&discount_allow_renew=" +
+						encodeURIComponent(drenew && drenew.checked ? "1" : "") +
+						"&discount_allow_vol=" +
+						encodeURIComponent(dvol && dvol.checked ? "1" : "") +
+						"&discount_allow_users=" +
+						encodeURIComponent(dusers && dusers.checked ? "1" : "") +
+						"&discount_active=" +
+						encodeURIComponent(dact && dact.checked ? "1" : "")
+				).then(function (j) {
+					show("svp-adm-disc", j.success ? j.data : j);
+				});
+				return;
+			}
 			if (op === "discount_delete") {
 				var did = document.getElementById("svp-disc-del-id");
 				post(
@@ -744,4 +1013,6 @@
 		},
 		false
 	);
+
+	applyPortalI18n(document);
 })();

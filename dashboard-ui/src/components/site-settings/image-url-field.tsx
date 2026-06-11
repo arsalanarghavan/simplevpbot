@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { postDashboardMediaUpload } from "@/lib/dash-admin-upload"
+import { useDashLocale } from "@/lib/dash-locale-context"
 import { cn } from "@/lib/utils"
 
 export function ImageUrlField({
@@ -15,7 +16,6 @@ export function ImageUrlField({
   value,
   onChange,
   placeholder = "https://",
-  rtl: _rtl = false,
   onUploadError,
 }: {
   id?: string
@@ -23,9 +23,9 @@ export function ImageUrlField({
   value: string
   onChange: (url: string) => void
   placeholder?: string
-  rtl?: boolean
   onUploadError?: (message: string) => void
 }) {
+  const { ltrCell } = useDashLocale()
   const { t } = useTranslation()
   const tp = (k: string) => t(`siteSettings.whitelabel.${k}`)
   const autoId = useId()
@@ -73,7 +73,7 @@ export function ImageUrlField({
             onChange={(e) => onChange(e.target.value)}
             placeholder={placeholder}
             dir="ltr"
-            className="font-mono text-left"
+            className={ltrCell("font-mono")}
           />
           <div className={cn("flex gap-2")}>
             <input

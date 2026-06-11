@@ -58,7 +58,7 @@ function CommandDialog({
       <DialogContent
         dir={rtl ? "rtl" : undefined}
         className={cn(
-          "overflow-hidden p-0",
+          "max-h-[min(90dvh,calc(100vh-2rem))] overflow-hidden p-0",
           rtl &&
             "[&_[cmdk-group-heading]]:w-full [&_[cmdk-group-heading]]:text-start [&_[cmdk-item]]:w-full [&_[cmdk-item]]:flex-row-reverse [&_[cmdk-item]]:justify-start [&_[cmdk-item]]:text-start [&_[cmdk-item]_span]:text-start [&_[cmdk-empty]]:w-full [&_[cmdk-empty]]:text-start [&_[data-slot=command-input-wrapper]]:flex-row-reverse [&_[cmdk-input]]:text-start [&_[cmdk-input]]:placeholder:text-start",
           className

@@ -17,6 +17,45 @@ class SimpleVPBot_Audit_Log {
 	const PAYLOAD_MAX_BYTES = 8192;
 
 	/**
+	 * Normalize event type for storage (dots become underscores).
+	 *
+	 * @param string $event Raw event key.
+	 * @return string
+	 */
+	private static function sanitize_event_type( $event ) {
+		$event = strtolower( trim( (string) $event ) );
+		$event = str_replace( '.', '_', $event );
+		$event = sanitize_key( $event );
+		if ( strlen( $event ) > 64 ) {
+			$event = substr( $event, 0, 64 );
+		}
+		return $event;
+	}
+
+	/**
+	 * Match legacy sanitize_key (dots stripped) and modern underscore form in filters.
+	 *
+	 * @param string $event Filter input.
+	 * @return array<int, string>
+	 */
+	private static function event_type_filter_values( $event ) {
+		$event = trim( (string) $event );
+		if ( '' === $event ) {
+			return array();
+		}
+		$legacy = sanitize_key( $event );
+		$modern = self::sanitize_event_type( $event );
+		$vals   = array();
+		if ( '' !== $legacy ) {
+			$vals[] = $legacy;
+		}
+		if ( '' !== $modern && $modern !== $legacy ) {
+			$vals[] = $modern;
+		}
+		return array_values( array_unique( $vals ) );
+	}
+
+	/**
 	 * @return string
 	 */
 	public static function table() {
@@ -36,9 +75,9 @@ class SimpleVPBot_Audit_Log {
 		if ( ! in_array( $domain, array( 'admin', 'billing', 'bot', 'security', 'reseller' ), true ) ) {
 			$domain = 'admin';
 		}
-		$event = sanitize_key( (string) ( $args['event_type'] ?? 'event' ) );
-		if ( strlen( $event ) > 64 ) {
-			$event = substr( $event, 0, 64 );
+		$event = self::sanitize_event_type( (string) ( $args['event_type'] ?? 'event' ) );
+		if ( '' === $event ) {
+			$event = 'event';
 		}
 		$actor_kind = sanitize_key( (string) ( $args['actor_kind'] ?? 'system' ) );
 		if ( ! in_array( $actor_kind, array( 'wp_admin', 'reseller', 'system', 'bot_user' ), true ) ) {
@@ -99,10 +138,18 @@ class SimpleVPBot_Audit_Log {
 			$w[]    = 'domain = %s';
 			$vals[] = $domain;
 		}
-		$event = isset( $filters['event_type'] ) ? sanitize_key( (string) $filters['event_type'] ) : '';
-		if ( '' !== $event ) {
-			$w[]    = 'event_type = %s';
-			$vals[] = $event;
+		$events = isset( $filters['event_type'] ) ? self::event_type_filter_values( (string) $filters['event_type'] ) : array();
+		if ( ! empty( $events ) ) {
+			if ( 1 === count( $events ) ) {
+				$w[]    = 'event_type = %s';
+				$vals[] = $events[0];
+			} else {
+				$placeholders = implode( ', ', array_fill( 0, count( $events ), '%s' ) );
+				$w[]          = "event_type IN ({$placeholders})";
+				foreach ( $events as $ev_row ) {
+					$vals[] = $ev_row;
+				}
+			}
 		}
 		$q = isset( $filters['q'] ) ? trim( (string) $filters['q'] ) : '';
 		if ( '' !== $q ) {

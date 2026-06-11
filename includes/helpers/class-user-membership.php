@@ -58,7 +58,7 @@ class SimpleVPBot_User_Membership {
 			);
 		}
 		$user2 = SimpleVPBot_Model_User::find( $uid ) ?: $user;
-		self::notify_user( $user2, SimpleVPBot_Texts::get( 'msg.approval_approved', '✅ ثبت‌نام شما تایید شد!' ), true );
+		self::notify_user( $user2, SimpleVPBot_Texts::get( 'msg.approval_approved' ), true );
 		return array( 'ok' => true, 'reason' => 'approved' );
 	}
 
@@ -99,7 +99,7 @@ class SimpleVPBot_User_Membership {
 			);
 		}
 		$user2 = SimpleVPBot_Model_User::find( $uid ) ?: $user;
-		self::notify_user( $user2, SimpleVPBot_Texts::get( 'msg.approval_rejected', '⛔ رد شدید.' ), false );
+		self::notify_user( $user2, SimpleVPBot_Texts::get( 'msg.approval_rejected' ), false );
 		return array( 'ok' => true, 'reason' => 'rejected' );
 	}
 
@@ -166,7 +166,10 @@ class SimpleVPBot_User_Membership {
 						'message_id' => (int) $r['result']['message_id'],
 					);
 				}
-				usleep( 350000 );
+				$us = SimpleVPBot_Settings::bot_admin_notify_usleep();
+				if ( $us > 0 ) {
+					usleep( $us );
+				}
 			}
 		}
 		if ( $bl_tok ) {
@@ -186,14 +189,17 @@ class SimpleVPBot_User_Membership {
 						'message_id' => (int) $r['result']['message_id'],
 					);
 				}
-				usleep( 350000 );
+				$us = SimpleVPBot_Settings::bot_admin_notify_usleep();
+				if ( $us > 0 ) {
+					usleep( $us );
+				}
 			}
 		}
 		SimpleVPBot_Model_Pending::update(
 			$pid,
 			array( 'admin_messages_json' => wp_json_encode( $msgs ) )
 		);
-		self::notify_user( $user, '⏳ درخواست شما دوباره در صف بررسی ادمین قرار گرفت.', false );
+		self::notify_user( $user, SimpleVPBot_Texts::get( 'msg.membership.requeued' ), false );
 		return array( 'ok' => true, 'reason' => 'requeued' );
 	}
 

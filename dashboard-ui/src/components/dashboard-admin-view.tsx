@@ -11,9 +11,11 @@ import { DashboardSiteSettingsAdmin } from "@/components/dashboard-site-settings
 import { DashboardMonitoring } from "@/components/dashboard-monitoring"
 import { DashboardOverview, type OverviewPayload } from "@/components/dashboard-overview"
 import { DashboardConfigsAdmin } from "@/components/dashboard-configs-admin"
+import { DashboardL2tpAdmin } from "@/components/dashboard-l2tp-admin"
 import { DashboardPanelsAdmin } from "@/components/dashboard-panels-admin"
 import { DashboardPlanCatsAdmin } from "@/components/dashboard-plan-cats-admin"
 import { DashboardPlansAdmin, type ResellerPanelAccessDiagnostics } from "@/components/dashboard-plans-admin"
+import { readPlansViewFromUrl } from "@/lib/plans-subview"
 import {
   DashboardReceiptsAdmin,
   type ReceiptsListFilters,
@@ -21,10 +23,29 @@ import {
 import { DashboardResellerChargeAdmin } from "@/components/dashboard-reseller-charge-admin"
 import { DashboardResellerSettings } from "@/components/dashboard-reseller-settings"
 import { DashboardReferralAdmin } from "@/components/dashboard-referral-admin"
-import { DashboardResellerReportsPlaceholder } from "@/components/dashboard-reseller-reports-placeholder"
+import { effectiveEnabledPlatforms, mainEnabledPlatforms } from "@/lib/enabled-platforms"
+import type { BotPlatformId } from "@/config/bot-platforms"
+import { DashboardUnitEconomicsAdmin } from "@/components/dashboard-unit-economics-admin"
+import {
+  DashboardResellerReportsAdmin,
+  type ResellerReportDaily,
+  type ResellerReportRow,
+  type ResellerReportsStats,
+} from "@/components/dashboard-reseller-reports-admin"
+import {
+  DashboardMarketingLifecycleAdmin,
+  type MarketingFunnelDay,
+  type MarketingLifecycleStats,
+  type MarketingOfferRow,
+  type MarketingRuleRow,
+  type MarketingRuleStatRow,
+} from "@/components/dashboard-marketing-lifecycle-admin"
 import { DashboardResellersAdmin } from "@/components/dashboard-resellers-admin"
 import { DashboardTextsAdmin } from "@/components/dashboard-texts-admin"
-import { DashboardUsersAdmin } from "@/components/dashboard-users-admin"
+import {
+  DashboardUsersAdmin,
+  type UsersListFilters,
+} from "@/components/dashboard-users-admin"
 import { DashboardUsersBulkAdmin } from "@/components/dashboard-users-bulk-admin"
 import { DashboardUserDetailAdmin } from "@/components/dashboard-user-detail-admin"
 import {
@@ -34,7 +55,6 @@ import {
   type PaginationMeta,
 } from "@/lib/dash-pagination"
 import { DashboardResellerPanelsAdmin } from "@/components/dashboard-reseller-panels-admin"
-
 type NavTab = { key: string; label: string }
 
 type DashData = {
@@ -53,6 +73,24 @@ function asRecordArray(x: unknown): Record<string, unknown>[] {
   return Array.isArray(x) ? (x as Record<string, unknown>[]) : []
 }
 
+function parseUnitEconomicsGlobal(unitEconomics: unknown): {
+  total_sold_volume_gb?: number
+  selling_price_per_gb?: number
+  volume_mode?: string
+  volume_window_days?: number
+} {
+  if (!unitEconomics || typeof unitEconomics !== "object") return {}
+  const inputs = (unitEconomics as Record<string, unknown>).inputs
+  if (!inputs || typeof inputs !== "object") return {}
+  const i = inputs as Record<string, unknown>
+  return {
+    total_sold_volume_gb: Number(i.effective_volume_gb ?? i.total_sold_volume_gb) || 0,
+    selling_price_per_gb: Number(i.selling_price_per_gb) || 0,
+    volume_mode: String(i.volume_mode ?? "auto_sales"),
+    volume_window_days: Math.max(1, Number(i.volume_window_days) || 30),
+  }
+}
+
 function dashActorSvpUserId(data: DashData): number {
   const u = data.user as Record<string, unknown> | undefined
   const x = Number(u?.svp_user_id)
@@ -67,7 +105,6 @@ type Props = {
   isReseller?: boolean
   /** When set, overview/quick links only offer these tabs (already server-filtered). */
   allowedNavTabs?: Set<string> | null
-  isFa: boolean
   dashboardBaseUrl: string
   onSelectTab: (tabKey: string) => void
   onOpenUserDetail: (svpUserId: number) => void
@@ -76,6 +113,8 @@ type Props = {
   setListQuery: Dispatch<SetStateAction<Record<string, string>>>
   usersSearchQuery: string
   onUsersSearchQueryChange: (q: string) => void
+  usersListFilters: UsersListFilters
+  onUsersListFiltersChange: (patch: Partial<UsersListFilters>) => void
   resellersSearchQuery: string
   resellersStatusFilter: string
   onResellersFiltersChange: (patch: { q?: string; status?: string }) => void
@@ -85,6 +124,29 @@ type Props = {
   onRefreshLivePanelMetrics?: () => void
   onAdminMutateSuccess?: () => void
   onImpersonateReseller?: (svpUserId: number) => void
+  resellerReportsSearchQuery?: string
+  resellerReportsWindowDays?: number
+  resellerReportsSort?: string
+  onResellerReportsFiltersChange?: (patch: {
+    q?: string
+    days?: number
+    sort?: string
+  }) => void
+  overviewMetricsWindowDays?: number
+  onOverviewMetricsWindowChange?: (days: number) => void
+  statsDay?: number
+  onStatsDayChange?: (day: number) => void
+  marketingLifecycleWindowDays?: number
+  onMarketingLifecycleWindowDaysChange?: (days: number) => void
+  marketingOffersStatus?: string
+  onMarketingOffersStatusChange?: (status: string) => void
+  onViewMarketingSegmentUsers?: (segment: string) => void
+  customerChargesType?: string
+  customerChargesDateFrom?: string
+  customerChargesDateTo?: string
+  onCustomerChargesTypeChange?: (type: string) => void
+  onCustomerChargesDateFromChange?: (value: string) => void
+  onCustomerChargesDateToChange?: (value: string) => void
 }
 
 export function DashboardAdminView({
@@ -93,7 +155,6 @@ export function DashboardAdminView({
   userDetailId,
   isReseller = false,
   allowedNavTabs = null,
-  isFa,
   dashboardBaseUrl,
   onSelectTab,
   onOpenUserDetail,
@@ -102,6 +163,8 @@ export function DashboardAdminView({
   setListQuery,
   usersSearchQuery,
   onUsersSearchQueryChange,
+  usersListFilters,
+  onUsersListFiltersChange,
   resellersSearchQuery,
   resellersStatusFilter,
   onResellersFiltersChange,
@@ -111,6 +174,25 @@ export function DashboardAdminView({
   onRefreshLivePanelMetrics,
   onAdminMutateSuccess,
   onImpersonateReseller,
+  resellerReportsSearchQuery = "",
+  resellerReportsWindowDays = 30,
+  resellerReportsSort = "sales",
+  onResellerReportsFiltersChange,
+  overviewMetricsWindowDays = 30,
+  onOverviewMetricsWindowChange,
+  statsDay = 0,
+  onStatsDayChange,
+  marketingLifecycleWindowDays = 30,
+  onMarketingLifecycleWindowDaysChange,
+  marketingOffersStatus = "",
+  onMarketingOffersStatusChange,
+  onViewMarketingSegmentUsers,
+  customerChargesType = "all",
+  customerChargesDateFrom = "",
+  customerChargesDateTo = "",
+  onCustomerChargesTypeChange,
+  onCustomerChargesDateFromChange,
+  onCustomerChargesDateToChange,
 }: Props) {
   const { t } = useTranslation()
   const navAllowed = allowedNavTabs
@@ -128,6 +210,12 @@ export function DashboardAdminView({
   )
 
   const settings = data.settings as Record<string, unknown> | undefined
+  const enabledPlatforms: BotPlatformId[] = isReseller
+    ? effectiveEnabledPlatforms(
+        settings,
+        (Array.isArray(data.botsList) ? (data.botsList[0] as Record<string, unknown>) : undefined)
+      )
+    : mainEnabledPlatforms(settings)
   const l2tpEnabled = useMemo(() => {
     const f = settings?.features
     return !!(f && typeof f === "object" && (f as Record<string, unknown>).l2tp === true)
@@ -150,6 +238,9 @@ export function DashboardAdminView({
   const discountUsageSummary = (data.discountUsageSummary as Record<string, unknown> | undefined) ?? null
   const broadcasts = asRecordArray(data.broadcasts)
   const resellers = asRecordArray(data.resellers)
+  const wholesaleLinesCatalog = asRecordArray((data as Record<string, unknown>).wholesaleLinesCatalog)
+  const wholesaleLinesReseller = asRecordArray((data as Record<string, unknown>).wholesaleLines)
+  const actorPermissions = (data.actorPermissions as Record<string, boolean> | undefined) ?? {}
   const notFound = (
     <p className="text-sm text-muted-foreground">{t("layout.adminUnknownSection")}</p>
   )
@@ -157,12 +248,18 @@ export function DashboardAdminView({
   if (activeTab === "dashboard") {
     const uBal = data.user as { balance?: unknown } | undefined
     const actorBal = typeof uBal?.balance === "number" ? uBal.balance : undefined
+    const overviewMetrics = (data as Record<string, unknown>).resellerOverviewMetrics as
+      | Record<string, unknown>
+      | null
+      | undefined
+    const metricsWindow = [7, 30, 90].includes(overviewMetricsWindowDays)
+      ? overviewMetricsWindowDays
+      : 30
     return (
       <DashboardOverview
         overview={data.overview as OverviewPayload | undefined}
         panels={panels}
         panelsPagination={pickPagination(data, "panels")}
-        isFa={isFa}
         dashboardBaseUrl={dashboardBaseUrl}
         allowedNavTabs={navAllowed}
         onSelectTab={onSelectTab}
@@ -172,6 +269,11 @@ export function DashboardAdminView({
         compactHealthOnly={false}
         prependResellerFinance={isReseller}
         actorBalance={actorBal}
+        resellerOverviewMetrics={isReseller ? overviewMetrics : null}
+        overviewMetricsWindowDays={metricsWindow}
+        onOverviewMetricsWindowChange={onOverviewMetricsWindowChange}
+        statsDay={statsDay}
+        onStatsDayChange={onStatsDayChange}
         recentUsers={users.slice(0, 8)}
         recentReceipts={receipts.slice(0, 8)}
         pendingUsersPreview={pending.slice(0, 8)}
@@ -184,6 +286,7 @@ export function DashboardAdminView({
           onSelectTab("receipts")
           if (status) onReceiptsListFiltersChange({ status })
         }}
+        onEconomicsRefresh={onAdminMutateSuccess}
       />
     )
   }
@@ -195,10 +298,10 @@ export function DashboardAdminView({
         panels={panels}
         panelsPagination={pickPagination(data, "panels")}
         monitorHosts={asRecordArray(data.monitorHosts)}
-        isFa={isFa}
         onRefreshPanelHealth={onRefreshPanelHealth}
         onRefreshLivePanelMetrics={onRefreshLivePanelMetrics}
         compactHealthOnly={false}
+        isReseller={isReseller}
       />
     )
   }
@@ -222,7 +325,7 @@ export function DashboardAdminView({
         panels={panels}
         resellers={resellers}
         resellerPermissionsMap={permMap}
-        isFa={isFa}
+        dashboardBaseUrl={dashboardBaseUrl}
         onMutateSuccess={onAdminMutateSuccess}
       />
     )
@@ -234,7 +337,6 @@ export function DashboardAdminView({
         settings={settings}
         botsList={[]}
         botsPagination={null}
-        isFa={isFa}
         variant="site"
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("botsList", p)}
@@ -249,7 +351,6 @@ export function DashboardAdminView({
         settings={settings}
         botsList={asRecordArray(data.botsList)}
         botsPagination={pickPagination(data, "botsList")}
-        isFa={isFa}
         variant={isReseller ? "reseller_self" : "reseller_admin"}
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("botsList", p)}
@@ -265,30 +366,33 @@ export function DashboardAdminView({
         botsList={asRecordArray(data.botsList)}
         panels={panels}
         actorSvpUserId={dashActorSvpUserId(data)}
-        isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
       />
     )
   }
 
-  if (activeTab === "reseller_xui_panels") {
+  if (activeTab === "reseller_xui_panels" && !isReseller) {
     return (
       <DashboardResellerPanelsAdmin
         panels={panels}
         resellerPanelPricesMap={
           (data.resellerPanelPricesMap as Record<string, Array<Record<string, unknown>> | undefined>) ?? {}
         }
-        isFa={isFa}
-      />
+        />
     )
   }
 
   if (activeTab === "xui_panels") {
+    const globalEc = parseUnitEconomicsGlobal(data.unitEconomics)
     return (
       <DashboardPanelsAdmin
         panels={panels}
         pagination={pickPagination(data, "panels")}
-        isFa={isFa}
+        panelEconomicsMap={
+          (data.panelEconomicsMap as Record<string, import("@/components/dashboard-panel-economics-sheet").PanelEconomicsEntry>) ??
+          undefined
+        }
+        globalEconomicsConfig={globalEc}
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("panels", p)}
         onPerPageChange={(n) => setPer("panels", n)}
@@ -301,7 +405,6 @@ export function DashboardAdminView({
       <DashboardConfigsAdmin
         panels={panels}
         plans={plans}
-        isFa={isFa}
         configsActive={activeTab === "configs"}
         onMutateSuccess={onAdminMutateSuccess}
       />
@@ -314,7 +417,6 @@ export function DashboardAdminView({
         planCategories={planCategories}
         panels={panels}
         pagination={pickPagination(data, "planCategories")}
-        isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("planCategories", p)}
         onPerPageChange={(n) => setPer("planCategories", n)}
@@ -330,6 +432,9 @@ export function DashboardAdminView({
         planCategories={planCategories}
         l2tpServers={l2tp}
         resellerChoices={resellers}
+        wholesaleLinesCatalog={wholesaleLinesCatalog}
+        wholesaleLines={wholesaleLinesReseller}
+        initialPlansView={readPlansViewFromUrl()}
         resellerPlanFloors={asRecordArray((data as Record<string, unknown>).resellerPlanFloors)}
         resellerMode={isReseller}
         actorSvpUserId={isReseller ? dashActorSvpUserId(data) : 0}
@@ -341,7 +446,6 @@ export function DashboardAdminView({
         pagination={pickPagination(data, "plans")}
         settings={settings}
         showCatalogDefaultsSave={!isReseller}
-        isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("plans", p)}
         onPerPageChange={(n) => setPer("plans", n)}
@@ -350,13 +454,18 @@ export function DashboardAdminView({
   }
 
   if (activeTab === "cards") {
+    const pm = (data as Record<string, unknown>).paymentMethods as
+      | import("@/components/dashboard-cards-admin").PaymentMethodsPayload
+      | null
+      | undefined
     return (
       <DashboardCardsAdmin
         cards={cards}
         pagination={pickPagination(data, "cards")}
         settings={settings}
+        paymentMethods={pm ?? null}
+        isReseller={isReseller}
         canEditDisplayMode={!isReseller}
-        isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("cards", p)}
         onPerPageChange={(n) => setPer("cards", n)}
@@ -370,36 +479,45 @@ export function DashboardAdminView({
     const charges = Array.isArray((data as Record<string, unknown>).resellerCustomerCharges)
       ? ((data as Record<string, unknown>).resellerCustomerCharges as Record<string, unknown>[])
       : []
+    const chargesPagination = parsePaginationMeta(
+      (data as Record<string, unknown>).resellerCustomerChargesPagination
+    )
     return (
       <DashboardResellerChargeAdmin
-        receipts={receipts}
         actorBalance={actorBal}
         customerCharges={charges}
-        isFa={isFa}
+        customerChargesPagination={chargesPagination}
+        chargeTypeFilter={customerChargesType}
+        chargeDateFrom={customerChargesDateFrom}
+        chargeDateTo={customerChargesDateTo}
+        onChargeTypeFilterChange={onCustomerChargesTypeChange}
+        onChargeDateFromChange={onCustomerChargesDateFromChange}
+        onChargeDateToChange={onCustomerChargesDateToChange}
+        onCustomerChargesPageChange={(p) =>
+          setListQuery((q) => ({ ...q, customerChargesPage: String(Math.max(1, p)) }))
+        }
+        onCustomerChargesPerPageChange={(n) =>
+          setListQuery((q) => ({
+            ...q,
+            customerChargesPerPage: String(Math.max(1, n)),
+            customerChargesPage: "1",
+          }))
+        }
         onMutateSuccess={onAdminMutateSuccess}
       />
     )
   }
 
   if (activeTab === "receipts") {
-    const uBal = data.user as { balance?: unknown } | undefined
-    const actorBal = typeof uBal?.balance === "number" ? uBal.balance : undefined
-    const charges = Array.isArray((data as Record<string, unknown>).resellerCustomerCharges)
-      ? ((data as Record<string, unknown>).resellerCustomerCharges as Record<string, unknown>[])
-      : []
-    const perms = (data.actorPermissions as Record<string, boolean> | undefined) ?? {}
-    const canReviewReceipts = !isReseller || perms["receipts.review"] === true
+    const canReviewReceipts = !isReseller || actorPermissions["receipts.review"] === true
     return (
       <DashboardReceiptsAdmin
         receipts={receipts}
         receiptAggregates={data.receiptAggregates}
         settings={settings}
         pagination={pickPagination(data, "receipts")}
-        isFa={isFa}
         isReseller={isReseller}
         canReviewReceipts={canReviewReceipts}
-        actorBalance={actorBal}
-        customerCharges={charges}
         listFilters={receiptsListFilters}
         onListFiltersChange={onReceiptsListFiltersChange}
         dashboardBaseUrl={dashboardBaseUrl}
@@ -416,10 +534,11 @@ export function DashboardAdminView({
         broadcasts={broadcasts}
         broadcastQueueAggregates={data.broadcastQueueAggregates}
         pagination={pickPagination(data, "broadcasts")}
-        isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("broadcasts", p)}
         onPerPageChange={(n) => setPer("broadcasts", n)}
+        enabledPlatforms={enabledPlatforms}
+        isReseller={isReseller}
       />
     )
   }
@@ -437,7 +556,6 @@ export function DashboardAdminView({
       <DashboardTextsAdmin
         texts={texts}
         textDefaults={textDefaults}
-        isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
       />
     )
@@ -454,24 +572,26 @@ export function DashboardAdminView({
             : undefined
         }
         layoutReadOnly={isReseller}
-        isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
       />
     )
   }
 
   if (activeTab === "users" && userDetailId != null && userDetailId > 0) {
+    const canReviewReceipts = !isReseller || actorPermissions["receipts.review"] === true
     return (
       <DashboardUserDetailAdmin
         userId={userDetailId}
         plans={plans}
         planCategories={planCategories}
         settings={settings}
-        isFa={isFa}
         isReseller={isReseller}
+        actorPermissions={actorPermissions}
+        canReviewReceipts={canReviewReceipts}
         onBack={onCloseUserDetail}
         onMutateSuccess={onAdminMutateSuccess}
         onOpenUserDetail={onOpenUserDetail}
+        enabledPlatforms={enabledPlatforms}
       />
     )
   }
@@ -480,7 +600,6 @@ export function DashboardAdminView({
     return (
       <DashboardUsersBulkAdmin
         panels={panels}
-        isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
         canRunBulkWorker={!isReseller}
       />
@@ -494,7 +613,6 @@ export function DashboardAdminView({
         pending={pending}
         usersPagination={pickPagination(data, "usersList")}
         pendingPagination={pickPagination(data, "pendingUsers")}
-        isFa={isFa}
         isReseller={isReseller}
         actorPermissions={
           (data.actorPermissions as Record<string, boolean> | undefined) ?? undefined
@@ -507,6 +625,9 @@ export function DashboardAdminView({
         onOpenUserDetail={onOpenUserDetail}
         usersSearchQuery={usersSearchQuery}
         onUsersSearchQueryChange={onUsersSearchQueryChange}
+        listFilters={usersListFilters}
+        onListFiltersChange={onUsersListFiltersChange}
+        enabledPlatforms={enabledPlatforms}
       />
     )
   }
@@ -521,10 +642,19 @@ export function DashboardAdminView({
         resellersStatusFilter={resellersStatusFilter}
         onResellersFiltersChange={onResellersFiltersChange}
         resellerPanelPricesMap={(data.resellerPanelPricesMap as Record<string, Array<{ panel_id?: number; price_per_gb?: number | string; panel_access?: boolean | number }>>) || {}}
+        wholesaleCatalogByPanel={(data.wholesaleCatalogByPanel as Record<string, { price_per_gb?: number; wholesale_line_label?: string }>) || {}}
+        wholesaleLinesCatalog={wholesaleLinesCatalog}
+        resellerWholesaleLineIdsMap={
+          (data.resellerWholesaleLineIdsMap as Record<string, number[]> | undefined) ?? {}
+        }
+        resellerBotMap={(data.resellerBotMap as Record<string, { enabled?: boolean; brand?: string }>) || {}}
         pagination={pickPagination(data, "resellers")}
         canManageResellerControls={!isReseller}
-        canManagePanelPrices={true}
-        isFa={isFa}
+        canCreateSubReseller={isReseller && actorPermissions["users.manage"] === true}
+        canViewResellerControls={!isReseller}
+        canManagePanelPrices={!isReseller || Boolean(actorPermissions?.["users.manage"])}
+        actorIsReseller={isReseller}
+        actorUserId={dashActorSvpUserId(data)}
         onPageChange={(p) => setPage("resellers", p)}
         onPerPageChange={(n) => setPer("resellers", n)}
         onOpenUserDetail={onOpenUserDetail}
@@ -538,28 +668,49 @@ export function DashboardAdminView({
   if (activeTab === "reseller_workspace") {
     const ctxId = Number((data as Record<string, unknown>).resellerContextId ?? 0)
     if (ctxId > 0) {
+      const canReviewReceipts = !isReseller || actorPermissions["receipts.review"] === true
       return (
         <DashboardUserDetailAdmin
           userId={ctxId}
           plans={plans}
           planCategories={planCategories}
           settings={settings}
-          isFa={isFa}
           isReseller={isReseller}
+          actorPermissions={actorPermissions}
+          canReviewReceipts={canReviewReceipts}
           onBack={() => onSelectTab("resellers")}
           onMutateSuccess={onAdminMutateSuccess}
           onOpenUserDetail={onOpenUserDetail}
+          enabledPlatforms={enabledPlatforms}
         />
       )
     }
   }
 
   if (activeTab === "audit") {
-    return <DashboardAuditAdmin isFa={isFa} />
+    return <DashboardAuditAdmin
+        />
   }
 
   if (activeTab === "backup") {
-    return <DashboardBackupAdmin settings={settings} isFa={isFa} onMutateSuccess={onAdminMutateSuccess} />
+    return <DashboardBackupAdmin settings={settings}
+        onMutateSuccess={onAdminMutateSuccess} />
+  }
+
+  if (activeTab === "unit_economics") {
+    return (
+      <DashboardUnitEconomicsAdmin
+        unitEconomics={data.unitEconomics}
+        panelEconomicsMap={
+          (data.panelEconomicsMap as Record<string, import("@/components/dashboard-panel-economics-sheet").PanelEconomicsEntry>) ??
+          undefined
+        }
+        panels={panels}
+        dashboardBaseUrl={dashboardBaseUrl}
+        onSelectTab={onSelectTab}
+        onMutateSuccess={onAdminMutateSuccess}
+      />
+    )
   }
 
   if (activeTab === "referral") {
@@ -571,7 +722,6 @@ export function DashboardAdminView({
         referralEvents={[]}
         eventsPagination={null}
         readOnlySettings={isReseller}
-        isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
       />
     )
@@ -585,15 +735,73 @@ export function DashboardAdminView({
         referralStats={data.referralStats}
         referralEvents={asRecordArray(data.referralEvents)}
         eventsPagination={pickPagination(data, "referralEvents")}
-        isFa={isFa}
         onEventsPageChange={(p) => setPage("referralEvents", p)}
         onEventsPerPageChange={(n) => setPer("referralEvents", n)}
+        onOpenUserDetail={onOpenUserDetail}
+      />
+    )
+  }
+
+  if (activeTab === "marketing_lifecycle") {
+    const mktStats = data.marketingLifecycleStats as MarketingLifecycleStats | null | undefined
+    const mktRules = (Array.isArray(data.marketingRules) ? data.marketingRules : []) as MarketingRuleRow[]
+    const mktRuleStats = (Array.isArray(data.marketingRuleStats) ? data.marketingRuleStats : []) as MarketingRuleStatRow[]
+    const mktOffers = (Array.isArray(data.marketingOffers) ? data.marketingOffers : []) as MarketingOfferRow[]
+    const mktFunnel = (Array.isArray(data.marketingLifecycleFunnel)
+      ? data.marketingLifecycleFunnel
+      : []) as MarketingFunnelDay[]
+    return (
+      <DashboardMarketingLifecycleAdmin
+        stats={mktStats ?? null}
+        funnel={mktFunnel}
+        rules={mktRules}
+        ruleStats={mktRuleStats}
+        offers={mktOffers}
+        pagination={pickPagination(data, "marketingOffers")}
+        dashboardBaseUrl={dashboardBaseUrl}
+        windowDays={marketingLifecycleWindowDays}
+        offerStatusFilter={marketingOffersStatus}
+        onWindowDaysChange={(d) => onMarketingLifecycleWindowDaysChange?.(d)}
+        onOfferStatusChange={(s) => onMarketingOffersStatusChange?.(s)}
+        onPageChange={(p) => setPage("marketingOffers", p)}
+        onPerPageChange={(n) => setPer("marketingOffers", n)}
+        onMutateSuccess={onAdminMutateSuccess}
+        onOpenUserDetail={onOpenUserDetail}
+        onViewSegmentUsers={onViewMarketingSegmentUsers}
+        isReseller={isReseller}
+        readOnlySettings={isReseller}
       />
     )
   }
 
   if (activeTab === "reseller_reports") {
-    return <DashboardResellerReportsPlaceholder isFa={isFa} />
+    const repStats = data.resellerReportsStats as ResellerReportsStats | null | undefined
+    const repRows = (Array.isArray(data.resellerReportsRows)
+      ? data.resellerReportsRows
+      : []) as ResellerReportRow[]
+    const repDaily = (Array.isArray(data.resellerReportsDaily)
+      ? data.resellerReportsDaily
+      : []) as ResellerReportDaily[]
+    return (
+      <DashboardResellerReportsAdmin
+        stats={repStats ?? null}
+        rows={repRows}
+        daily={repDaily}
+        pagination={pickPagination(data, "resellerReports")}
+        dashboardBaseUrl={dashboardBaseUrl}
+        searchQuery={resellerReportsSearchQuery}
+        windowDays={resellerReportsWindowDays}
+        sortKey={resellerReportsSort}
+        readOnlyAdminActions={isReseller}
+        onSearchChange={(q) => onResellerReportsFiltersChange?.({ q })}
+        onWindowDaysChange={(days) => onResellerReportsFiltersChange?.({ days })}
+        onSortChange={(sort) => onResellerReportsFiltersChange?.({ sort })}
+        onPageChange={(p) => setPage("resellerReports", p)}
+        onPerPageChange={(n) => setPer("resellerReports", n)}
+        onOpenUserDetail={onOpenUserDetail}
+        onImpersonateReseller={!isReseller ? onImpersonateReseller : undefined}
+      />
+    )
   }
 
   if (activeTab === "discounts") {
@@ -604,10 +812,23 @@ export function DashboardAdminView({
         plans={plans}
         usersList={users}
         pagination={pickPagination(data, "discountCodes")}
-        isFa={isFa}
         onMutateSuccess={onAdminMutateSuccess}
         onPageChange={(p) => setPage("discountCodes", p)}
         onPerPageChange={(n) => setPer("discountCodes", n)}
+        readOnlySettings={isReseller}
+        portalAdminUrl={typeof data.portalAdminUrl === "string" ? data.portalAdminUrl : ""}
+      />
+    )
+  }
+
+  if (activeTab === "l2tp_servers" && l2tpEnabled) {
+    return (
+      <DashboardL2tpAdmin
+        servers={l2tp}
+        pagination={pickPagination(data, "l2tpServers")}
+        onMutateSuccess={onAdminMutateSuccess}
+        onPageChange={(p) => setPage("l2tpServers", p)}
+        onPerPageChange={(n) => setPer("l2tpServers", n)}
       />
     )
   }

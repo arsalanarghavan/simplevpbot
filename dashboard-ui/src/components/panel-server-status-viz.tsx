@@ -6,6 +6,7 @@ import { PolarAngleAxis, RadialBar, RadialBarChart, ResponsiveContainer } from "
 
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import { useChartPrimaryColor } from "@/lib/chart-accent"
 import {
   formatBytes,
   formatNumber,
@@ -18,11 +19,11 @@ import {
   parsePanelLiveStatus,
 } from "@/lib/panel-live-status-metrics"
 import { cn } from "@/lib/utils"
+import { useDashLocale } from "@/lib/dash-locale-context"
 
 type Props = {
   status: Record<string, number | string> | null | undefined
-  isFa: boolean
-  /** i18n key for section title (default: server status from panel). */
+/** i18n key for section title (default: server status from panel). */
   titleKey?: string
   /** Hide the title line (e.g. nested under a card that already has a heading). */
   hideTitle?: boolean
@@ -33,13 +34,13 @@ function ResourceRow({
   label,
   used,
   total,
-  isFa,
 }: {
   label: string
   used: number | null
   total: number | null
-  isFa: boolean
 }) {
+  const { isFa } = useDashLocale()
+
   const pct = clampPct(used, total)
   const line =
     used != null && total != null && total > 0
@@ -60,12 +61,13 @@ function ResourceRow({
 
 export function PanelServerStatusViz({
   status,
-  isFa,
   titleKey = "monitoringPage.statusSummary",
   hideTitle = false,
   className,
 }: Props) {
+  const { isFa } = useDashLocale()
   const { t } = useTranslation()
+  const chartPrimary = useChartPrimaryColor()
   const parsed = useMemo(() => parsePanelLiveStatus(status), [status])
 
   const show =
@@ -75,7 +77,7 @@ export function PanelServerStatusViz({
   const cpuRaw = parsed.cpuPercentRaw
   const cpuGauge = parsed.cpuPercent ?? 0
   const cpuAnomaly = cpuRaw != null && (cpuRaw > 100 || cpuRaw < 0)
-  const gaugeChartData = [{ name: "cpu", value: cpuGauge, fill: "hsl(var(--primary))" }]
+  const gaugeChartData = [{ name: "cpu", value: cpuGauge, fill: chartPrimary }]
 
   const kpiItems: { label: string; value: string }[] = []
   if (parsed.uptimeSeconds != null) {
@@ -156,21 +158,18 @@ export function PanelServerStatusViz({
             label={t("monitoringPage.metricMem")}
             used={parsed.memUsed}
             total={parsed.memTotal}
-            isFa={isFa}
-          />
+        />
           <ResourceRow
             label={t("monitoringPage.metricDisk")}
             used={parsed.diskUsed}
             total={parsed.diskTotal}
-            isFa={isFa}
-          />
+        />
           {parsed.swapTotal != null && parsed.swapTotal > 0 ? (
             <ResourceRow
               label={t("monitoringPage.metricSwap")}
               used={parsed.swapUsed}
               total={parsed.swapTotal}
-              isFa={isFa}
-            />
+        />
           ) : null}
 
           {kpiItems.length > 0 ? (
@@ -183,7 +182,7 @@ export function PanelServerStatusViz({
               {kpiItems.map((row) => (
                 <div
                   key={row.label}
-                  className={cn("rounded-md border border-border/50 bg-card/30 px-2 py-1.5", isFa && "text-right")}
+                  className={cn("rounded-md border border-border/50 bg-card/30 px-2 py-1.5")}
                 >
                   <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{row.label}</p>
                   <p className="mt-0.5 text-sm tabular-nums">{row.value}</p>

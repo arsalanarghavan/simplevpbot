@@ -46,7 +46,7 @@ class SimpleVPBot_Service_Admin_Catalog {
 			'clients_count'      => max( 0, (int) ( $post['clients_count'] ?? 1 ) ),
 			'inbound_id'         => (int) ( $post['inbound_id'] ?? 0 ),
 			'panel_id'           => max( 1, (int) ( $post['plan_panel_id'] ?? 1 ) ),
-			'wholesale_line_id'  => null,
+			'wholesale_line_id'  => isset( $post['wholesale_line_id'] ) && (int) $post['wholesale_line_id'] > 0 ? (int) $post['wholesale_line_id'] : null,
 			'owner_svp_user_id'  => $owner,
 			'sort_order'         => (int) ( $post['sort_order'] ?? 0 ),
 			'service_type'       => $stype,
@@ -73,11 +73,41 @@ class SimpleVPBot_Service_Admin_Catalog {
 		if ( $actor < 1 || $pid < 1 ) {
 			return false;
 		}
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			return SimpleVPBot_Bot_Reseller_Scope::reseller_can_sell_on_panel_for( $actor, $pid );
+		}
 		if ( class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' )
 			&& SimpleVPBot_Model_Reseller_Panel_Price::has_panel_access( $actor, $pid ) ) {
 			return true;
 		}
 		return false;
+	}
+
+	/**
+	 * Whether a reseller actor may delete/toggle a category (no foreign-owned plans on slug).
+	 *
+	 * @param int    $actor    svp_users id; 0 = site admin.
+	 * @param string $slug     Category slug.
+	 * @param int    $panel_id Panel id.
+	 * @return bool True when blocked (deny mutation).
+	 */
+	private static function reseller_plan_category_blocked_by_foreign_plans( $actor, $slug, $panel_id ) {
+		$actor = (int) $actor;
+		if ( $actor < 1 || '' === (string) $slug ) {
+			return false;
+		}
+		global $wpdb;
+		$t = SimpleVPBot_Model_Plan::table();
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$cnt = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$t} WHERE category = %s AND panel_id = %d AND owner_svp_user_id <> %d",
+				(string) $slug,
+				(int) $panel_id,
+				$actor
+			)
+		);
+		return $cnt > 0;
 	}
 
 	/**
@@ -99,6 +129,16 @@ class SimpleVPBot_Service_Admin_Catalog {
 		$preset_l2tp = $pp_chk && isset( $pp_chk->default_service_type ) && 'l2tp' === (string) $pp_chk->default_service_type;
 		if ( $preset_l2tp ) {
 			return true;
+		}
+		if ( class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' )
+			&& SimpleVPBot_Model_Reseller_Wholesale_Line::reseller_panel_default_is_l2tp( $actor, $pid ) ) {
+			return true;
+		}
+		if ( class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
+			$catalog = SimpleVPBot_Model_Reseller_Panel_Price::resolve_catalog_defaults( $actor, $pid );
+			if ( 'l2tp' === (string) ( $catalog['default_service_type'] ?? '' ) ) {
+				return true;
+			}
 		}
 		return false;
 	}
@@ -250,6 +290,20 @@ class SimpleVPBot_Service_Admin_Catalog {
 		$panel_id = (int) ( $row_data['panel_id'] ?? 1 );
 		$pp_row   = SimpleVPBot_Model_Reseller_Panel_Price::get_panel_row( $actor, $panel_id );
 		if ( ! SimpleVPBot_Model_Reseller_Panel_Price::row_allows_panel_use( $pp_row ) ) {
+			$catalog = SimpleVPBot_Model_Reseller_Panel_Price::resolve_catalog_defaults( $actor, $panel_id );
+			$dstype  = sanitize_key( (string) ( $catalog['default_service_type'] ?? 'xray' ) );
+			if ( ! in_array( $dstype, array( 'xray', 'l2tp' ), true ) ) {
+				$dstype = 'xray';
+			}
+			$row_data['service_type'] = $dstype;
+			if ( 'l2tp' === $dstype ) {
+				$row_data['inbound_id']     = 0;
+				$l2                         = max( 0, (int) ( $catalog['default_l2tp_server_id'] ?? 0 ) );
+				$row_data['l2tp_server_id'] = $l2 > 0 ? $l2 : null;
+			} else {
+				$row_data['inbound_id']     = max( 0, (int) ( $catalog['default_inbound_id'] ?? 0 ) );
+				$row_data['l2tp_server_id'] = null;
+			}
 			return $row_data;
 		}
 		$dstype = isset( $pp_row->default_service_type ) ? sanitize_key( (string) $pp_row->default_service_type ) : 'xray';
@@ -292,6 +346,58 @@ class SimpleVPBot_Service_Admin_Catalog {
 				return array( 'row' => $row_data, 'block' => true, 'code' => 'forbidden' );
 			}
 		}
+
+		$panel_id      = (int) ( $row_data['panel_id'] ?? 1 );
+		$wholesale_lid = isset( $row_data['wholesale_line_id'] ) ? (int) $row_data['wholesale_line_id'] : 0;
+		if ( $wholesale_lid < 1 && class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
+			$catalog     = SimpleVPBot_Model_Reseller_Panel_Price::resolve_catalog_defaults( $actor, $panel_id );
+			$catalog_lid = (int) ( $catalog['wholesale_line_id'] ?? 0 );
+			if ( $catalog_lid > 0 ) {
+				$row_data['wholesale_line_id'] = $catalog_lid;
+				$wholesale_lid                 = $catalog_lid;
+			} elseif ( class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' ) ) {
+				$line_ids = array();
+				foreach ( SimpleVPBot_Model_Reseller_Wholesale_Line::lines_for_reseller( $actor ) as $line ) {
+					if ( (int) ( $line->panel_id ?? 0 ) === $panel_id ) {
+						$line_ids[] = (int) ( $line->id ?? 0 );
+					}
+				}
+				$line_ids = array_values( array_unique( array_filter( $line_ids ) ) );
+				if ( 1 === count( $line_ids ) ) {
+					$row_data['wholesale_line_id'] = $line_ids[0];
+					$wholesale_lid                 = $line_ids[0];
+				}
+			}
+		}
+
+		if ( $wholesale_lid < 1 && class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' ) ) {
+			$assigned_on_panel = array();
+			foreach ( SimpleVPBot_Model_Reseller_Wholesale_Line::lines_for_reseller( $actor ) as $line ) {
+				if ( (int) ( $line->panel_id ?? 0 ) === $panel_id ) {
+					$assigned_on_panel[] = (int) ( $line->id ?? 0 );
+				}
+			}
+			$assigned_on_panel = array_values( array_unique( array_filter( $assigned_on_panel ) ) );
+			if ( ! empty( $assigned_on_panel ) ) {
+				return array( 'row' => $row_data, 'block' => true, 'code' => 'wholesale_line_required' );
+			}
+		}
+
+		$using_line = false;
+		if ( $wholesale_lid > 0 && class_exists( 'SimpleVPBot_Service_Reseller_Wholesale_Pricing' ) ) {
+			$lr = SimpleVPBot_Service_Reseller_Wholesale_Pricing::apply_line_to_plan_row( $actor, $row_data );
+			if ( empty( $lr['ok'] ) ) {
+				return array(
+					'row'   => $row_data,
+					'block' => true,
+					'code'  => (string) ( $lr['code'] ?? 'wholesale_line_invalid' ),
+				);
+			}
+			$using_line = true;
+		} else {
+			$row_data['wholesale_line_id'] = null;
+		}
+
 		$panel_id = (int) ( $row_data['panel_id'] ?? 1 );
 
 		if ( ! self::reseller_may_use_panel_catalog( $actor, $panel_id ) ) {
@@ -299,20 +405,12 @@ class SimpleVPBot_Service_Admin_Catalog {
 		}
 
 		$effective_unit_floor = 0.0;
-		if ( class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
-			$effective_unit_floor = (float) SimpleVPBot_Model_Reseller_Panel_Price::get_unit_price( $actor, $panel_id );
-			if ( $actor > 0 && class_exists( 'SimpleVPBot_Model_User' ) && class_exists( 'SimpleVPBot_Model_Reseller_Parent_Panel_Floor' ) ) {
-				$u_parent = SimpleVPBot_Model_User::find( $actor );
-				$p_inv    = $u_parent ? (int) ( $u_parent->invited_by ?? 0 ) : 0;
-				if ( $p_inv > 0 ) {
-					$effective_unit_floor = max(
-						$effective_unit_floor,
-						(float) SimpleVPBot_Model_Reseller_Parent_Panel_Floor::get_min_price( $p_inv, $actor, $panel_id )
-					);
-				}
-			}
+		if ( $using_line && $wholesale_lid > 0 && class_exists( 'SimpleVPBot_Service_Reseller_Wholesale_Pricing' ) ) {
+			$effective_unit_floor = (float) SimpleVPBot_Service_Reseller_Wholesale_Pricing::wholesale_floor_unit( $actor, $wholesale_lid, $panel_id );
+		} elseif ( class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
+			$effective_unit_floor = (float) SimpleVPBot_Model_Reseller_Panel_Price::effective_wholesale_floor( $actor, $panel_id );
 		}
-		$ptype                = (string) ( $row_data['pricing_type'] ?? 'fixed' );
+		$ptype = (string) ( $row_data['pricing_type'] ?? 'fixed' );
 		if ( $effective_unit_floor > 0 ) {
 			if ( 'per_gb' === $ptype ) {
 				$ppg = (float) ( $row_data['price_per_gb'] ?? 0 );
@@ -326,6 +424,11 @@ class SimpleVPBot_Service_Admin_Catalog {
 					return array( 'row' => $row_data, 'block' => true, 'code' => 'below_reseller_floor' );
 				}
 			}
+		}
+
+		if ( $using_line ) {
+			$row_data['owner_svp_user_id'] = $actor;
+			return array( 'row' => $row_data );
 		}
 
 		if ( ! class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
@@ -373,6 +476,9 @@ class SimpleVPBot_Service_Admin_Catalog {
 				if ( ! self::reseller_may_use_panel_catalog( $actor, $pid_chk ) ) {
 					return array( 'ok' => false, 'code' => 'panel_not_allowed' );
 				}
+				if ( self::reseller_plan_category_blocked_by_foreign_plans( $actor, (string) ( $row->slug ?? '' ), $pid_chk ) ) {
+					return array( 'ok' => false, 'code' => 'category_foreign_plans' );
+				}
 			}
 			if ( $row && SimpleVPBot_Model_Plan_Category::count_plans_with_slug( (string) $row->slug, (int) ( $row->panel_id ?? 1 ) ) > 0 ) {
 				return array( 'ok' => false, 'code' => 'inuse' );
@@ -387,6 +493,9 @@ class SimpleVPBot_Service_Admin_Catalog {
 				$pid_chk = max( 1, (int) ( $row->panel_id ?? 1 ) );
 				if ( ! self::reseller_may_use_panel_catalog( $actor, $pid_chk ) ) {
 					return array( 'ok' => false, 'code' => 'panel_not_allowed' );
+				}
+				if ( self::reseller_plan_category_blocked_by_foreign_plans( $actor, (string) ( $row->slug ?? '' ), $pid_chk ) ) {
+					return array( 'ok' => false, 'code' => 'category_foreign_plans' );
 				}
 			}
 			if ( $row ) {
@@ -429,6 +538,9 @@ class SimpleVPBot_Service_Admin_Catalog {
 				$pid_chk = $ex_row ? max( 1, (int) ( $ex_row->panel_id ?? 1 ) ) : 1;
 				if ( ! self::reseller_may_use_panel_catalog( $actor, $pid_chk ) ) {
 					return array( 'ok' => false, 'code' => 'panel_not_allowed' );
+				}
+				if ( $ex_row && self::reseller_plan_category_blocked_by_foreign_plans( $actor, (string) ( $ex_row->slug ?? '' ), $pid_chk ) ) {
+					return array( 'ok' => false, 'code' => 'category_foreign_plans' );
 				}
 			}
 			if ( '' === $label ) {

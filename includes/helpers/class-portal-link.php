@@ -31,9 +31,19 @@ class SimpleVPBot_Portal_Link {
 	}
 
 	/**
-	 * Default token TTL (7 days).
+	 * Legacy alias; customer portal links use {@see SimpleVPBot_Portal_Link::CUSTOMER_TTL}.
 	 */
 	const DEFAULT_TTL = 604800;
+
+	/**
+	 * Customer portal / unified subscription link TTL (365 days).
+	 */
+	const CUSTOMER_TTL = 31536000;
+
+	/**
+	 * Shorter TTL (24 hours) for bot-admin portal links (write-capable ops).
+	 */
+	const ADMIN_TTL = 86400;
 
 	/**
 	 * Build signed URL for a bot user to open subscription portal.
@@ -43,7 +53,7 @@ class SimpleVPBot_Portal_Link {
 	 */
 	public static function build_url( $user_id ) {
 		$uid = (int) $user_id;
-		$exp   = time() + self::DEFAULT_TTL;
+		$exp   = time() + self::CUSTOMER_TTL;
 		$sig   = hash_hmac( 'sha256', $uid . '|' . $exp, self::key() );
 		$base  = self::base_url();
 		$args  = array(
@@ -65,7 +75,7 @@ class SimpleVPBot_Portal_Link {
 	public static function build_service_url( $user_id, $service_id ) {
 		$uid = (int) $user_id;
 		$sid = (int) $service_id;
-		$exp = time() + self::DEFAULT_TTL;
+		$exp = time() + self::CUSTOMER_TTL;
 		$sig = hash_hmac( 'sha256', $uid . '|' . $sid . '|' . $exp, self::key() );
 		$base = self::base_url();
 		$args = array(
@@ -76,6 +86,29 @@ class SimpleVPBot_Portal_Link {
 			'svp_s'  => $sig,
 		);
 		return add_query_arg( $args, $base );
+	}
+
+	/**
+	 * Whether user may open signed admin portal (site admin id or reseller operator).
+	 *
+	 * @param object|null $user User row.
+	 * @return bool
+	 */
+	public static function is_svp_user_portal_eligible( $user ) {
+		if ( ! $user || empty( $user->id ) ) {
+			return false;
+		}
+		if ( class_exists( 'SimpleVPBot_Router' ) && SimpleVPBot_Router::is_svp_user_bot_admin( $user ) ) {
+			return true;
+		}
+		if ( class_exists( 'SimpleVPBot_Model_User' ) && SimpleVPBot_Model_User::is_reseller_row( $user ) ) {
+			return true;
+		}
+		if ( class_exists( 'SimpleVPBot_Reseller_Permission_Gate' )
+			&& SimpleVPBot_Reseller_Permission_Gate::permission_actor_id( (int) $user->id ) > 0 ) {
+			return true;
+		}
+		return false;
 	}
 
 	/**
@@ -90,10 +123,10 @@ class SimpleVPBot_Portal_Link {
 			return '';
 		}
 		$user = SimpleVPBot_Model_User::find( $uid );
-		if ( ! $user || ! SimpleVPBot_Router::is_svp_user_bot_admin( $user ) ) {
+		if ( ! $user || ! self::is_svp_user_portal_eligible( $user ) ) {
 			return '';
 		}
-		$exp = time() + self::DEFAULT_TTL;
+		$exp = time() + self::ADMIN_TTL;
 		$sig = hash_hmac( 'sha256', 'admin|' . $uid . '|' . $exp, self::key() . '|svp_admin_v1' );
 		$base = self::base_url();
 		$args = array(
@@ -125,7 +158,7 @@ class SimpleVPBot_Portal_Link {
 			return null;
 		}
 		$user = SimpleVPBot_Model_User::find( $u );
-		if ( ! $user || ! SimpleVPBot_Router::is_svp_user_bot_admin( $user ) ) {
+		if ( ! $user || ! self::is_svp_user_portal_eligible( $user ) ) {
 			return null;
 		}
 		return $user;

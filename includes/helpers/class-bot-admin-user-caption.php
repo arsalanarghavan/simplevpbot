@@ -149,6 +149,16 @@ class SimpleVPBot_Bot_Admin_User_Caption {
 	}
 
 	/**
+	 * Human-readable selected-service label for a transaction (receipt captions, dashboard).
+	 *
+	 * @param object|null $tx Transaction row.
+	 * @return string
+	 */
+	public static function transaction_selected_service_label( $tx ) {
+		return self::selected_service_line( $tx );
+	}
+
+	/**
 	 * Human-readable line for purchase meta (plan / service / intent).
 	 *
 	 * @param object|null $tx Transaction row.
@@ -161,6 +171,11 @@ class SimpleVPBot_Bot_Admin_User_Caption {
 		$meta = json_decode( (string) $tx->meta_json, true );
 		if ( ! is_array( $meta ) ) {
 			return '';
+		}
+		if ( 'topup' === (string) ( $tx->type ?? '' )
+			|| ! empty( $meta['wallet_topup'] )
+			|| ! empty( $meta['dashboard_reseller_topup'] ) ) {
+			return SimpleVPBot_Texts::get( 'msg.wallet.topup_bale_title', 'شارژ کیف پول' );
 		}
 		$intent = isset( $meta['intent'] ) ? (string) $meta['intent'] : '';
 		if ( 'renew_same' === $intent ) {
@@ -300,6 +315,50 @@ class SimpleVPBot_Bot_Admin_User_Caption {
 		$parts[] = SimpleVPBot_Texts::format( SimpleVPBot_Texts::get( 'msg.admin.caption.service_line' ), array( 'service' => $svc ) );
 		$parts[] = SimpleVPBot_Texts::format( SimpleVPBot_Texts::get( 'msg.admin.caption.receipt_id_line' ), array( 'id' => $rid_fa ) );
 		return implode( "\n", array_values( array_filter( $parts, static function ( $x ) { return '' !== (string) $x; } ) ) );
+	}
+
+	/**
+	 * Receipt admin caption sized for sendPhoto (platform scrub + 1024 limit).
+	 *
+	 * @param object $user       svp_users row.
+	 * @param object $tx         svp_transactions row.
+	 * @param int    $receipt_id Receipt id.
+	 * @param string $platform   telegram|bale.
+	 * @return string
+	 */
+	public static function receipt_new_caption_for_platform( $user, $tx, $receipt_id, $platform = 'telegram' ) {
+		return self::fit_receipt_caption_for_photo( (string) $platform, self::receipt_new_caption( $user, $tx, $receipt_id ) );
+	}
+
+	/**
+	 * Compact and cap receipt caption for a single photo message.
+	 *
+	 * @param string $platform telegram|bale.
+	 * @param string $caption  Raw caption.
+	 * @return string
+	 */
+	public static function fit_receipt_caption_for_photo( $platform, $caption ) {
+		$caption = (string) $caption;
+		$caption = str_replace( self::LINE_SEP, '➖➖➖➖', $caption );
+		$caption = preg_replace( "/\n{3,}/", "\n\n", $caption ) ?? $caption;
+		if ( class_exists( 'SimpleVPBot_Bot_Runtime' ) ) {
+			$caption = SimpleVPBot_Bot_Runtime::prepare_photo_caption( (string) $platform, $caption );
+		}
+		return trim( $caption );
+	}
+
+	/**
+	 * Lighter caption variant for API retry when full caption is rejected.
+	 *
+	 * @param string $platform telegram|bale.
+	 * @param string $caption  Raw caption.
+	 * @return string
+	 */
+	public static function sanitize_receipt_caption_retry( $platform, $caption ) {
+		$caption = wp_strip_all_tags( (string) $caption );
+		$caption = preg_replace( "/[ \t]+/", ' ', $caption ) ?? $caption;
+		$caption = preg_replace( "/\n{2,}/", "\n", $caption ) ?? $caption;
+		return self::fit_receipt_caption_for_photo( (string) $platform, trim( $caption ) );
 	}
 
 	/**

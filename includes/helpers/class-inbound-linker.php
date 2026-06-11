@@ -387,28 +387,32 @@ class SimpleVPBot_Inbound_Linker {
 		if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
 			return array( 'ok' => false, 'message' => 'panel_login' );
 		}
-		$inbound = SimpleVPBot_Xui_Client::inbound_get( $inbound_id );
-		if ( ! $inbound ) {
-			return array( 'ok' => false, 'message' => 'no_inbound' );
-		}
-		$settings = isset( $inbound['settings'] ) ? $inbound['settings'] : '';
-		$dec      = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
-		if ( ! is_array( $dec ) || empty( $dec['clients'] ) || ! is_array( $dec['clients'] ) ) {
-			return array( 'ok' => false, 'message' => 'no_clients' );
-		}
 		$client = null;
-		foreach ( $dec['clients'] as $c ) {
-			if ( is_array( $c ) && isset( $c['email'] ) && (string) $c['email'] === $email ) {
-				$client = $c;
-				break;
+		if ( SimpleVPBot_Xui_Client::is_v3_clients_api() ) {
+			$client = SimpleVPBot_Xui_Client::client_get_v3( $email );
+		} else {
+			$inbound = SimpleVPBot_Xui_Client::inbound_get( $inbound_id );
+			if ( ! $inbound ) {
+				return array( 'ok' => false, 'message' => 'no_inbound' );
+			}
+			$settings = isset( $inbound['settings'] ) ? $inbound['settings'] : '';
+			$dec      = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
+			if ( ! is_array( $dec ) || empty( $dec['clients'] ) || ! is_array( $dec['clients'] ) ) {
+				return array( 'ok' => false, 'message' => 'no_clients' );
+			}
+			foreach ( $dec['clients'] as $c ) {
+				if ( is_array( $c ) && isset( $c['email'] ) && (string) $c['email'] === $email ) {
+					$client = $c;
+					break;
+				}
 			}
 		}
-		if ( ! $client ) {
+		if ( ! is_array( $client ) ) {
 			return array( 'ok' => false, 'message' => 'client_not_found' );
 		}
 		$uuid  = isset( $client['id'] ) ? (string) $client['id'] : '';
 		$sub   = isset( $client['subId'] ) ? (string) $client['subId'] : '';
-		$rem   = isset( $client['remark'] ) ? (string) $client['remark'] : $email;
+		$rem = isset( $client['remark'] ) ? (string) $client['remark'] : ( isset( $client['comment'] ) ? (string) $client['comment'] : $email );
 		$total_bytes = self::resolve_quota_bytes( $client['totalGB'] ?? 0, $email );
 		$exp_ms = isset( $client['expiryTime'] ) ? (int) $client['expiryTime'] : 0;
 		$expires  = null;
@@ -471,13 +475,8 @@ class SimpleVPBot_Inbound_Linker {
 		if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
 			return array( 'ok' => false, 'message' => 'panel_login' );
 		}
-		$inbound = SimpleVPBot_Xui_Client::inbound_get( $iid );
-		if ( ! $inbound ) {
-			return array( 'ok' => false, 'message' => 'no_inbound' );
-		}
-		$settings = isset( $inbound['settings'] ) ? $inbound['settings'] : '';
-		$dec      = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
-		if ( ! is_array( $dec ) || empty( $dec['clients'] ) || ! is_array( $dec['clients'] ) ) {
+		$clients = SimpleVPBot_Xui_Client::clients_for_inbound_id( $iid );
+		if ( empty( $clients ) ) {
 			return array( 'ok' => true, 'linked' => 0, 'skipped' => 0, 'ambiguous' => 0, 'errors' => 0, 'details' => array() );
 		}
 
@@ -490,7 +489,7 @@ class SimpleVPBot_Inbound_Linker {
 			'details'   => array(),
 		);
 
-		foreach ( $dec['clients'] as $c ) {
+		foreach ( $clients as $c ) {
 			if ( ! is_array( $c ) || empty( $c['email'] ) ) {
 				continue;
 			}

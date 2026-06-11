@@ -15,6 +15,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 class SimpleVPBot_Model_Reseller_Wholesale_Accrual {
 
 	/**
+	 * Request-level memo for totals() (REST bootstrap may query same line repeatedly).
+	 *
+	 * @var array<string, array{gb:float,toman:float}>
+	 */
+	private static $totals_memo = array();
+
+	/**
 	 * Table name.
 	 *
 	 * @return string
@@ -38,6 +45,10 @@ class SimpleVPBot_Model_Reseller_Wholesale_Accrual {
 		if ( $r < 1 || $l < 1 ) {
 			return array( 'gb' => 0.0, 'toman' => 0.0 );
 		}
+		$memo_key = $r . ':' . $l;
+		if ( isset( self::$totals_memo[ $memo_key ] ) ) {
+			return self::$totals_memo[ $memo_key ];
+		}
 		$row = $wpdb->get_row(
 			$wpdb->prepare(
 				'SELECT COALESCE(SUM(delta_gb),0) AS gb, COALESCE(SUM(delta_wholesale_toman),0) AS toman FROM ' . self::table() . ' WHERE reseller_svp_user_id = %d AND line_id = %d',
@@ -46,10 +57,82 @@ class SimpleVPBot_Model_Reseller_Wholesale_Accrual {
 			),
 			ARRAY_A
 		); // phpcs:ignore
-		return array(
+		$result = array(
 			'gb'    => isset( $row['gb'] ) ? (float) $row['gb'] : 0.0,
 			'toman' => isset( $row['toman'] ) ? (float) $row['toman'] : 0.0,
 		);
+		self::$totals_memo[ $memo_key ] = $result;
+		return $result;
+	}
+
+	/**
+	 * Batch cumulative totals for one reseller across multiple wholesale lines.
+	 *
+	 * @param int   $reseller_svp_user_id Reseller id.
+	 * @param int[] $line_ids             Line ids.
+	 * @return array<int, array{gb:float,toman:float}>
+	 */
+	public static function totals_for_lines( $reseller_svp_user_id, array $line_ids ) {
+		global $wpdb;
+		$r = (int) $reseller_svp_user_id;
+		$out = array();
+		$need = array();
+		foreach ( $line_ids as $lid_raw ) {
+			$lid = (int) $lid_raw;
+			if ( $lid < 1 ) {
+				continue;
+			}
+			$memo_key = $r . ':' . $lid;
+			if ( isset( self::$totals_memo[ $memo_key ] ) ) {
+				$out[ $lid ] = self::$totals_memo[ $memo_key ];
+			} else {
+				$need[] = $lid;
+			}
+		}
+		$need = array_values( array_unique( $need ) );
+		if ( $r < 1 || empty( $need ) ) {
+			return $out;
+		}
+		$in = implode( ',', array_map( 'absint', $need ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT line_id,
+					COALESCE(SUM(delta_gb),0) AS gb,
+					COALESCE(SUM(delta_wholesale_toman),0) AS toman
+				FROM " . self::table() . "
+				WHERE reseller_svp_user_id = %d AND line_id IN ({$in})
+				GROUP BY line_id",
+				$r
+			),
+			ARRAY_A
+		);
+		$found = array();
+		foreach ( (array) $rows as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$lid = (int) ( $row['line_id'] ?? 0 );
+			if ( $lid < 1 ) {
+				continue;
+			}
+			$found[ $lid ] = true;
+			$result = array(
+				'gb'    => isset( $row['gb'] ) ? (float) $row['gb'] : 0.0,
+				'toman' => isset( $row['toman'] ) ? (float) $row['toman'] : 0.0,
+			);
+			self::$totals_memo[ $r . ':' . $lid ] = $result;
+			$out[ $lid ] = $result;
+		}
+		foreach ( $need as $lid ) {
+			if ( ! empty( $found[ $lid ] ) ) {
+				continue;
+			}
+			$result = array( 'gb' => 0.0, 'toman' => 0.0 );
+			self::$totals_memo[ $r . ':' . $lid ] = $result;
+			$out[ $lid ] = $result;
+		}
+		return $out;
 	}
 
 	/**
@@ -89,6 +172,12 @@ class SimpleVPBot_Model_Reseller_Wholesale_Accrual {
 			$fmt[]             = '%d';
 		}
 		$wpdb->insert( self::table(), $row, $fmt );
-		return (int) $wpdb->insert_id > 0;
+		$r = (int) $wpdb->insert_id;
+		$memo_rid = (int) ( $data['reseller_svp_user_id'] ?? 0 );
+		$memo_lid = (int) ( $data['line_id'] ?? 0 );
+		if ( $r > 0 && $memo_rid > 0 && $memo_lid > 0 ) {
+			unset( self::$totals_memo[ $memo_rid . ':' . $memo_lid ] );
+		}
+		return $r > 0;
 	}
 }

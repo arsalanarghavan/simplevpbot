@@ -146,6 +146,31 @@ class SimpleVPBot_Handler_Start {
 			return;
 		}
 
+		// /start exits admin panel → user menu (official toggle with /panel).
+		if ( SimpleVPBot_Router::is_platform_admin( $platform, $from_id ) ) {
+			SimpleVPBot_Model_User::update( (int) $user->id, array( 'admin_mode' => 0 ) );
+			if ( class_exists( 'SimpleVPBot_State' ) ) {
+				SimpleVPBot_State::clear( (int) $user->id );
+			}
+			$user = SimpleVPBot_Model_User::find( (int) $user->id );
+			if ( ! $user ) {
+				return;
+			}
+		}
+
+		if ( class_exists( 'SimpleVPBot_Marketing_Automation' ) ) {
+			$offer_code = SimpleVPBot_Marketing_Automation::parse_offer_code_from_start( $start_text );
+			if ( '' !== $offer_code ) {
+				$ctx_offer = array_merge(
+					$ctx,
+					array(
+						'user' => $user,
+					)
+				);
+				SimpleVPBot_Marketing_Automation::handle_start_offer( $ctx_offer, $offer_code );
+			}
+		}
+
 		if ( 'approved' === $user->status ) {
 			if ( class_exists( 'SimpleVPBot_Service_Reconcile' ) ) {
 				SimpleVPBot_Service_Reconcile::reconcile_for_user( (int) $user->id );
@@ -224,7 +249,10 @@ class SimpleVPBot_Handler_Start {
 						'message_id' => (int) $r['result']['message_id'],
 					);
 				}
-				usleep( 350000 );
+				$us = SimpleVPBot_Settings::bot_admin_notify_usleep();
+				if ( $us > 0 ) {
+					usleep( $us );
+				}
 			}
 		} else {
 			$tg_ids = (array) SimpleVPBot_Settings::get( 'admin_telegram_ids', array() );
@@ -249,7 +277,10 @@ class SimpleVPBot_Handler_Start {
 							'message_id' => (int) $r['result']['message_id'],
 						);
 					}
-					usleep( 350000 );
+					$us = SimpleVPBot_Settings::bot_admin_notify_usleep();
+					if ( $us > 0 ) {
+						usleep( $us );
+					}
 				}
 			}
 			if ( $bl_tok ) {
@@ -269,7 +300,10 @@ class SimpleVPBot_Handler_Start {
 							'message_id' => (int) $r['result']['message_id'],
 						);
 					}
-					usleep( 350000 );
+					$us = SimpleVPBot_Settings::bot_admin_notify_usleep();
+					if ( $us > 0 ) {
+						usleep( $us );
+					}
 				}
 			}
 		}

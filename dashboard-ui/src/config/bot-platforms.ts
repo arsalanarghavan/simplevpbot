@@ -5,6 +5,7 @@ export type BotPlatformConfig = {
   id: BotPlatformId
   titleKey: string
   summaryUsernameKey: string
+  enableSettingKey: "telegram_enabled" | "bale_enabled"
   fieldKeys: readonly (keyof BotPlatformForm)[]
 }
 
@@ -21,12 +22,14 @@ export const BOT_PLATFORMS: readonly BotPlatformConfig[] = [
     id: "telegram",
     titleKey: "botsAdmin.platformTelegram",
     summaryUsernameKey: "botsAdmin.tgUser",
+    enableSettingKey: "telegram_enabled",
     fieldKeys: ["telegram_token", "telegram_secret_header"],
   },
   {
     id: "bale",
     titleKey: "botsAdmin.platformBale",
     summaryUsernameKey: "botsAdmin.baleUser",
+    enableSettingKey: "bale_enabled",
     fieldKeys: ["bale_token", "bale_wallet_provider_token"],
   },
 ] as const

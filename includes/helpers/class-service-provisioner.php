@@ -363,6 +363,13 @@ class SimpleVPBot_Service_Provisioner {
 					SimpleVPBot_Xui_Client::login_with_retries( 4, 260000 );
 				}
 			}
+			if ( SimpleVPBot_Xui_Client::is_v3_clients_api() ) {
+				$cl = SimpleVPBot_Xui_Client::client_get_v3( $want );
+				if ( is_array( $cl ) ) {
+					return $cl;
+				}
+				continue;
+			}
 			$inbound = SimpleVPBot_Xui_Client::inbound_get( $iid );
 			$cl      = $inbound ? SimpleVPBot_Xui_Client::inbound_client_by_email( $inbound, $want ) : null;
 			if ( is_array( $cl ) ) {
@@ -387,6 +394,25 @@ class SimpleVPBot_Service_Provisioner {
 		$cl  = self::wait_for_client_in_inbound( $iid, $email, 5 );
 		if ( ! is_array( $cl ) ) {
 			return array( 'ok' => false, 'reason' => 'panel_quota_patch_failed', 'detail' => 'client not found after addClient' );
+		}
+		if ( SimpleVPBot_Xui_Client::is_v3_clients_api() ) {
+			$patch = array(
+				'totalGB' => SimpleVPBot_Inbound_Linker::panel_client_totalgb_json_value( (int) $total_traffic_bytes ),
+				'comment' => (string) $panel_label,
+				'enable'  => true,
+			);
+			$res   = SimpleVPBot_Xui_Client::client_update_v3( (string) $email, $patch, array( $iid ) );
+			if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+				$pm = is_array( $res ) ? trim( (string) ( $res['msg'] ?? '' ) ) : '';
+				return array(
+					'ok'     => false,
+					'reason' => 'panel_quota_patch_failed',
+					'panel'  => $res,
+					'detail' => $pm,
+				);
+			}
+			$out_uuid = (string) ( $cl['id'] ?? $cl['uuid'] ?? $uuid );
+			return array( 'ok' => true, 'uuid' => $out_uuid );
 		}
 		$inbound = SimpleVPBot_Xui_Client::inbound_get( $iid );
 		if ( ! $inbound ) {

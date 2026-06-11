@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
 import {
   Card,
   CardContent,
@@ -18,9 +19,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
-import { formatDateTime, formatNumber } from "@/lib/format-locale"
+import { formatNumber, formatServiceExpiryLine } from "@/lib/format-locale"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { cn } from "@/lib/utils"
+import { mainEnabledPlatforms } from "@/lib/enabled-platforms"
+import { useDashLocale } from "@/lib/dash-locale-context"
 
 type DashRecord = Record<string, unknown>
 
@@ -44,10 +47,10 @@ export function DashboardReferralAdmin({
   referralEvents,
   eventsPagination,
   readOnlySettings = false,
-  isFa,
   onMutateSuccess,
   onEventsPageChange,
   onEventsPerPageChange,
+  onOpenUserDetail,
 }: {
   mode?: "settings" | "reports"
   settings: DashRecord | undefined
@@ -56,13 +59,19 @@ export function DashboardReferralAdmin({
   eventsPagination: PaginationMeta | null
   /** Hide global referral program settings (resellers see scoped stats only). */
   readOnlySettings?: boolean
-  isFa: boolean
-  onMutateSuccess?: () => void
+onMutateSuccess?: () => void
   onEventsPageChange?: (page: number) => void
   onEventsPerPageChange?: (n: number) => void
+  onOpenUserDetail?: (svpUserId: number) => void
 }) {
+  const { isFa, ltrCell } = useDashLocale()
+
   const { t } = useTranslation()
   const tp = (k: string) => t(`referralAdmin.${k}`)
+  const platformLabel = (p: string) =>
+    t(`referralAdmin.platform_${p}`, { defaultValue: p || "—" })
+  const outcomeLabel = (o: string) =>
+    t(`referralAdmin.outcome_${o}`, { defaultValue: o || "—" })
   const isReports = mode === "reports"
   const s = settings ?? {}
   const stats =
@@ -121,70 +130,85 @@ export function DashboardReferralAdmin({
 
   const hasEvents = referralEvents.length > 0 || (eventsPagination && eventsPagination.total > 0)
   const showSettings = !isReports && !readOnlySettings
+  const showTgBot = mainEnabledPlatforms(s).includes("telegram")
+  const showBaleBot = mainEnabledPlatforms(s).includes("bale")
+
+  const userLink = (id: number, label: string) => {
+    if (id > 0 && onOpenUserDetail) {
+      return (
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className={cn("h-auto p-0 font-mono text-xs", ltrCell(""))}
+          dir="ltr"
+          onClick={() => onOpenUserDetail(id)}
+        >
+          {label}
+        </Button>
+      )
+    }
+    return (
+      <span dir="ltr" className={ltrCell("font-mono text-xs")}>
+        {label}
+      </span>
+    )
+  }
 
   return (
-    <div className={dashPageRootClass(isFa, "mx-auto w-full max-w-7xl")} dir={dashDir(isFa)}>
+    <DashPage className={"w-full space-y-6"}>
       <DashboardPageHeader
         title={isReports ? tp("reportsTitle") : tp("title")}
         description={isReports ? tp("reportsSubtitle") : tp("subtitle")}
       />
 
-      {isReports ? (
-        <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
-          <div className="min-w-0 space-y-4">
-            {statsLoading ? (
-              <div className="grid gap-4 sm:grid-cols-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <Card key={i}>
-                    <CardHeader className="pb-2">
-                      <Skeleton className="h-4 w-32" />
-                      <Skeleton className="mt-2 h-8 w-20" />
-                    </CardHeader>
-                  </Card>
-                ))}
-              </div>
-            ) : stats ? (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <StatCard label={tp("statEvents30")} value={formatNumber(num(summary.eventsLast30), isFa)} />
-                <StatCard label={tp("statInvitedUsers")} value={formatNumber(num(summary.invitedUsersWithReferrer), isFa)} />
-                <StatCard label={tp("statCommissionPaid")} value={formatNumber(num(summary.totalCommissionPaid), isFa)} />
-                <StatCard
-                  label={tp("statReferralOnPurchases")}
-                  value={formatNumber(num(summary.totalReferralAmountOnPurchases), isFa)}
-                />
-              </div>
-            ) : null}
+      {!isReports && readOnlySettings ? (
+        <p className="text-sm text-muted-foreground">{tp("settingsReadOnlyHint")}</p>
+      ) : null}
 
-            {statsLoading ? (
-              <Card>
-                <CardHeader>
-                  <Skeleton className="h-5 w-40" />
-                  <Skeleton className="mt-2 h-4 w-64" />
-                </CardHeader>
-                <CardContent>
+      {isReports ? (
+        <div className="space-y-6">
+          {statsLoading ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Card key={i}>
+                  <CardHeader className="pb-2">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="mt-2 h-8 w-20" />
+                  </CardHeader>
+                </Card>
+              ))}
+            </div>
+          ) : stats ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard label={tp("statEvents30")} value={formatNumber(num(summary.eventsLast30), isFa)} />
+              <StatCard label={tp("statInvitedUsers")} value={formatNumber(num(summary.invitedUsersWithReferrer), isFa)} />
+              <StatCard label={tp("statCommissionPaid")} value={formatNumber(num(summary.totalCommissionPaid), isFa)} />
+              <StatCard
+                label={tp("statReferralOnPurchases")}
+                value={formatNumber(num(summary.totalReferralAmountOnPurchases), isFa)}
+              />
+            </div>
+          ) : null}
+
+          <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
+            <Card className="min-w-0">
+              <CardHeader>
+                <CardTitle className="text-base">{tp("topReferrers")}</CardTitle>
+                <CardDescription>{tp("topReferrersDesc")}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {statsLoading ? (
                   <Skeleton className="h-32 w-full" />
-                </CardContent>
-              </Card>
-            ) : stats && top.length > 0 ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{tp("topReferrers")}</CardTitle>
-                  <CardDescription>{tp("topReferrersDesc")}</CardDescription>
-                </CardHeader>
-                <CardContent className="overflow-x-auto">
-                  <table
-                    className={cn(
-                      "w-full min-w-[28rem] border-collapse text-sm [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
-                      "text-start"
-                    )}
-                  >
+                ) : stats && top.length > 0 ? (
+                  <DashTableShell minWidth="32rem" colWidths={["8%", "32%", "20%", "20%", "20%"]}>
                     <thead>
-                      <tr>
-                        <th className="p-2">#</th>
-                        <th className="p-2">{tp("colReferrer")}</th>
-                        <th className="p-2">{tp("colDirectInvites")}</th>
-                        <th className="p-2">{tp("colCommissionCount")}</th>
-                        <th className="p-2">{tp("colCommissionSum")}</th>
+                      <tr className="bg-muted/40">
+                        <DashTh>#</DashTh>
+                        <DashTh>{tp("colReferrer")}</DashTh>
+                        <DashTh>{tp("colDirectInvites")}</DashTh>
+                        <DashTh>{tp("colCommissionCount")}</DashTh>
+                        <DashTh>{tp("colCommissionSum")}</DashTh>
                       </tr>
                     </thead>
                     <tbody>
@@ -196,76 +220,81 @@ export function DashboardReferralAdmin({
                             : `${String(row.firstName || "").trim() || "—"} (#${formatNumber(id, isFa)})`
                         return (
                           <tr key={id || i}>
-                            <td className="p-2 text-muted-foreground">{i + 1}</td>
-                            <td className="p-2 font-mono text-xs">{label}</td>
-                            <td className="p-2">{formatNumber(num(row.directInvites), isFa)}</td>
-                            <td className="p-2">{formatNumber(num(row.commissionCount), isFa)}</td>
-                            <td className="p-2">{formatNumber(num(row.commissionTotal), isFa)}</td>
+                            <DashTd className="text-muted-foreground">{i + 1}</DashTd>
+                            <DashTd dir="ltr" className={ltrCell("font-mono text-xs")}>
+                              {userLink(id, label)}
+                            </DashTd>
+                            <DashTd>{formatNumber(num(row.directInvites), isFa)}</DashTd>
+                            <DashTd>{formatNumber(num(row.commissionCount), isFa)}</DashTd>
+                            <DashTd>{formatNumber(num(row.commissionTotal), isFa)}</DashTd>
                           </tr>
                         )
                       })}
                     </tbody>
-                  </table>
-                </CardContent>
-              </Card>
-            ) : null}
-          </div>
+                  </DashTableShell>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{tp("topReferrersEmpty")}</p>
+                )}
+              </CardContent>
+            </Card>
 
-          <Card className="min-w-0">
-            <CardHeader>
-              <CardTitle className="text-base">{tp("recentEvents")}</CardTitle>
-              <CardDescription>{tp("recentEventsDesc")}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {statsLoading ? (
-                <Skeleton className="h-48 w-full" />
-              ) : hasEvents ? (
-                <>
-                  <div className="overflow-x-auto">
-                    <table
-                      className={cn(
-                        "w-full min-w-[36rem] border-collapse text-xs [&_td]:border-b [&_td]:border-border [&_th]:border-b [&_th]:border-border",
-                        "text-start"
-                      )}
+            <Card className="min-w-0 w-full">
+              <CardHeader>
+                <CardTitle className="text-base">{tp("recentEvents")}</CardTitle>
+                <CardDescription>{tp("recentEventsDesc")}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {statsLoading ? (
+                  <Skeleton className="h-48 w-full" />
+                ) : hasEvents ? (
+                  <>
+                    <DashTableShell
+                      minWidth="48rem"
+                      colWidths={["18%", "12%", "12%", "14%", "14%", "30%"]}
                     >
                       <thead>
-                        <tr>
-                          <th className="p-2">{tp("colTime")}</th>
-                          <th className="p-2">{tp("colInviter")}</th>
-                          <th className="p-2">{tp("colPlatform")}</th>
-                          <th className="p-2">{tp("colOutcome")}</th>
-                          <th className="p-2">{tp("colVisitor")}</th>
-                          <th className="p-2">{tp("colPayload")}</th>
+                        <tr className="bg-muted/40">
+                          <DashTh>{tp("colTime")}</DashTh>
+                          <DashTh>{tp("colInviter")}</DashTh>
+                          <DashTh>{tp("colPlatform")}</DashTh>
+                          <DashTh>{tp("colOutcome")}</DashTh>
+                          <DashTh>{tp("colVisitor")}</DashTh>
+                          <DashTh>{tp("colPayload")}</DashTh>
                         </tr>
                       </thead>
                       <tbody>
                         {referralEvents.map((ev) => (
                           <tr key={String(ev.id ?? "")}>
-                            <td className="p-2 whitespace-nowrap">
-                              {ev.created_at ? formatDateTime(String(ev.created_at), isFa) : "—"}
-                            </td>
-                            <td className="p-2 font-mono">{formatNumber(num(ev.inviter_svp_user_id), isFa)}</td>
-                            <td className="p-2">{String(ev.platform ?? "")}</td>
-                            <td className="p-2">{String(ev.outcome ?? "")}</td>
-                            <td className="p-2 font-mono">{formatNumber(num(ev.resulting_svp_user_id), isFa)}</td>
-                            <td className="max-w-[10rem] truncate p-2 font-mono">{String(ev.start_payload ?? "")}</td>
+                            <DashTd className="whitespace-nowrap text-xs">
+                              {ev.created_at ? formatServiceExpiryLine(String(ev.created_at), isFa) : "—"}
+                            </DashTd>
+                            <DashTd dir="ltr" className={ltrCell("font-mono text-xs")}>
+                              {userLink(num(ev.inviter_svp_user_id), formatNumber(num(ev.inviter_svp_user_id), isFa))}
+                            </DashTd>
+                            <DashTd className="text-xs">{platformLabel(String(ev.platform ?? ""))}</DashTd>
+                            <DashTd className="text-xs">{outcomeLabel(String(ev.outcome ?? ""))}</DashTd>
+                            <DashTd dir="ltr" className={ltrCell("font-mono text-xs")}>
+                              {userLink(num(ev.resulting_svp_user_id), formatNumber(num(ev.resulting_svp_user_id), isFa))}
+                            </DashTd>
+                            <DashTd dir="ltr" className={ltrCell("max-w-[12rem] truncate font-mono text-xs")}>
+                              {String(ev.start_payload ?? "")}
+                            </DashTd>
                           </tr>
                         ))}
                       </tbody>
-                    </table>
-                  </div>
-                  <DataPagination
-                    meta={eventsPagination}
-                    isFa={isFa}
-                    onPageChange={(p) => onEventsPageChange?.(p)}
-                    onPerPageChange={(n) => onEventsPerPageChange?.(n)}
-                  />
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">{tp("recentEventsDesc")}</p>
-              )}
-            </CardContent>
-          </Card>
+                    </DashTableShell>
+                    <DataPagination
+                      meta={eventsPagination}
+                      onPageChange={(p) => onEventsPageChange?.(p)}
+                      onPerPageChange={(n) => onEventsPerPageChange?.(n)}
+                    />
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{tp("recentEventsEmpty")}</p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
       ) : null}
 
@@ -276,7 +305,7 @@ export function DashboardReferralAdmin({
             <CardDescription>{tp("cardDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
+            <label className={cn("flex items-center gap-2 text-sm")}>
               <input
                 type="checkbox"
                 className="size-4 rounded border-input"
@@ -323,6 +352,7 @@ export function DashboardReferralAdmin({
                   onChange={(e) => setForm((f) => ({ ...f, referral_example_invite_count: e.target.value }))}
                 />
               </div>
+              {showTgBot ? (
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="r_tg">{tp("telegramBotUsername")}</Label>
                 <Input
@@ -331,6 +361,8 @@ export function DashboardReferralAdmin({
                   onChange={(e) => setForm((f) => ({ ...f, telegram_bot_username: e.target.value }))}
                 />
               </div>
+              ) : null}
+              {showBaleBot ? (
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="r_bl">{tp("baleBotUsername")}</Label>
                 <Input
@@ -339,8 +371,9 @@ export function DashboardReferralAdmin({
                   onChange={(e) => setForm((f) => ({ ...f, bale_bot_username: e.target.value }))}
                 />
               </div>
+              ) : null}
             </div>
-            <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
+            <label className={cn("flex items-center gap-2 text-sm")}>
               <input
                 type="checkbox"
                 className="size-4 rounded border-input"
@@ -363,7 +396,7 @@ export function DashboardReferralAdmin({
           </CardContent>
         </Card>
       ) : null}
-    </div>
+    </DashPage>
   )
 }
 

@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { ADMIN_NAV_SECTIONS, flattenNavForSearch, type AdminNavSection } from "@/config/admin-nav"
 import { formatPlainLatinInt } from "@/lib/format-locale"
+import { useDashLocale } from "@/lib/dash-locale-context"
 import { menuBtnCollapsedIcon } from "@/lib/sidebar-menu-classes"
 import { cn } from "@/lib/utils"
 
@@ -49,23 +50,24 @@ function userDisplayName(u: DashRecord): string {
 
 export type DashboardSearchProps = {
   placement?: "sidebar" | "header"
+  className?: string
   onSelectTab: (tabKey: string) => void
   onOpenUserDetail?: (id: number) => void
   restUrl?: string
   nonce?: string
-  rtl?: boolean
   sections?: AdminNavSection[]
 }
 
 export function DashboardSearch({
   placement = "sidebar",
+  className,
   onSelectTab,
   onOpenUserDetail,
   restUrl,
   nonce,
-  rtl = false,
   sections = ADMIN_NAV_SECTIONS,
 }: DashboardSearchProps) {
+  const { isFa, dir } = useDashLocale()
   const [open, setOpen] = useState(false)
   const [paletteQuery, setPaletteQuery] = useState("")
   const [userHits, setUserHits] = useState<DashRecord[]>([])
@@ -156,8 +158,11 @@ export function DashboardSearch({
         <Button
           type="button"
           variant="outline"
-          className="flex h-9 w-full max-w-md items-center justify-start gap-2 text-start text-muted-foreground"
-          dir={rtl ? "rtl" : "ltr"}
+          className={cn(
+            "flex h-9 w-full max-w-none items-center justify-start gap-2 text-start text-muted-foreground md:max-w-md",
+            className
+          )}
+          dir={dir}
           onClick={() => setOpen(true)}
         >
           <Search className="size-4 shrink-0 opacity-70" />
@@ -172,10 +177,9 @@ export function DashboardSearch({
               tooltip={triggerLabel}
               className={cn(
                 menuBtnCollapsedIcon,
-                "h-9 text-muted-foreground hover:text-sidebar-accent-foreground",
-                rtl && "!text-start [&>span]:!text-start"
+                "h-9 text-muted-foreground hover:text-sidebar-accent-foreground"
               )}
-              dir={rtl ? "rtl" : "ltr"}
+              dir={dir}
               onClick={() => setOpen(true)}
             >
               <Search className="opacity-70" />
@@ -191,15 +195,15 @@ export function DashboardSearch({
         onOpenChange={setOpen}
         title={t("sidebar.search.title")}
         description={t("sidebar.search.placeholder")}
-        rtl={rtl}
+        rtl={isFa}
       >
         <CommandInput
-          rtl={rtl}
+          rtl={isFa}
           placeholder={t("sidebar.search.placeholder")}
         />
         <CommandSearchBridge onSearch={setPaletteQuery} />
         <CommandList>
-          <CommandEmpty className={cn(rtl && "w-full text-start")}>
+          <CommandEmpty className="w-full text-start">
             {t("sidebar.search.empty")}
           </CommandEmpty>
           {canUserSearch && paletteQuery.trim().length >= 1 ? (
@@ -207,8 +211,7 @@ export function DashboardSearch({
               {userLoading ? (
                 <div
                   className={cn(
-                    "w-full px-3 py-2 text-xs text-muted-foreground",
-                    rtl && "text-start"
+                    "w-full px-3 py-2 text-xs text-muted-foreground"
                   )}
                 >
                   {t("sidebar.search.usersLoading")}
@@ -216,8 +219,7 @@ export function DashboardSearch({
               ) : userHits.length === 0 ? (
                 <div
                   className={cn(
-                    "w-full px-3 py-2 text-xs text-muted-foreground",
-                    rtl && "text-start"
+                    "w-full px-3 py-2 text-xs text-muted-foreground"
                   )}
                 >
                   {t("sidebar.search.usersEmpty")}
@@ -234,14 +236,14 @@ export function DashboardSearch({
                     <CommandItem
                       key={id}
                       value={filterValue}
-                      className={cn(rtl && "w-full flex-row-reverse")}
+                      className={cn()}
                       onSelect={() => {
                         if (id > 0) onOpenUserDetail?.(id)
                         setOpen(false)
                       }}
                     >
                       <UserRound className="size-4 opacity-70" />
-                      <span className={cn("min-w-0 flex-1 truncate", rtl && "text-start")}>
+                      <span className={cn("min-w-0 flex-1 truncate")}>
                         {name}
                       </span>
                       <span
@@ -266,8 +268,8 @@ export function DashboardSearch({
                     key={`${sec.id}-${r.tabKey}-${r.parentLabelKey ?? "x"}-${idx}`}
                     value={`${itemLabel(r.tabKey)} ${r.parentLabelKey ? t(r.parentLabelKey) : ""} ${t(sec.hintKey)}`}
                     className={cn(
-                      rtl && "w-full flex-col items-end gap-0.5",
-                      !rtl && r.parentLabelKey && "flex-col items-start gap-0.5"
+                      "w-full",
+                      r.parentLabelKey && "flex-col items-start gap-0.5"
                     )}
                     onSelect={() => {
                       onSelectTab(r.tabKey)

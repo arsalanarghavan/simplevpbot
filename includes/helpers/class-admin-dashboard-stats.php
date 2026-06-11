@@ -346,26 +346,49 @@ class SimpleVPBot_Admin_Dashboard_Stats {
 	 * @return string
 	 */
 	public static function format_text( $day_offset = 0 ) {
-		$data = self::build_payload( $day_offset );
-		$u    = $data['users'];
-		$d    = (string) $data['stat_date'];
-		$lbl  = 0 === (int) $data['day_offset'] ? 'امروز (' . $d . ')' : ( 'روز ' . (int) $data['day_offset'] . ' قبل — ' . $d );
-		$t    = "📊 آمار\n➖➖➖➖➖➖➖➖\n";
-		$t   .= '📅 ' . $lbl . "\n\n";
-		$t   .= '✅ تأییدشده: ' . (int) $u['users_approved'] . "\n";
-		$t   .= '⏳ در انتظار: ' . (int) $u['users_pending'] . "\n";
-		$t   .= '❌ رد شده: ' . (int) $u['users_rejected'] . "\n";
-		$t   .= '🚫 مسدود: ' . (int) $u['users_blocked'] . "\n";
-		$t   .= '👥 کل ربات: ' . (int) $u['users_total'] . "\n";
-		$t   .= '📱 با تلگرام: ' . (int) $u['users_with_telegram'] . "\n";
-		$t   .= '💬 با بله: ' . (int) $u['users_with_bale'] . "\n";
-		$t   .= '🆕 ثبت امروز: ' . (int) $u['users_today'] . "\n\n";
-		$t   .= '📡 سرویس‌ها (کل): ' . (int) $u['services_total'];
+		return self::format_payload_text( self::build_payload( $day_offset ) );
+	}
+
+	/**
+	 * Persian-friendly stats text scoped to reseller downline + panels.
+	 *
+	 * @param int[] $scope_user_ids Downline user ids.
+	 * @param int[] $panel_ids      Allowed panel ids.
+	 * @param int   $day_offset     0..7.
+	 * @return string
+	 */
+	public static function format_reseller_text( $scope_user_ids, $panel_ids, $day_offset = 0 ) {
+		return self::format_payload_text(
+			self::build_reseller_payload( $scope_user_ids, $panel_ids, $day_offset )
+		);
+	}
+
+	/**
+	 * Format stats payload as bot message text.
+	 *
+	 * @param array<string, mixed> $data From build_payload / build_reseller_payload.
+	 * @return string
+	 */
+	public static function format_payload_text( array $data ) {
+		$u   = $data['users'];
+		$d   = (string) $data['stat_date'];
+		$lbl = 0 === (int) $data['day_offset'] ? 'امروز (' . $d . ')' : ( 'روز ' . (int) $data['day_offset'] . ' قبل — ' . $d );
+		$t   = "📊 آمار\n➖➖➖➖➖➖➖➖\n";
+		$t  .= '📅 ' . $lbl . "\n\n";
+		$t  .= '✅ تأییدشده: ' . (int) $u['users_approved'] . "\n";
+		$t  .= '⏳ در انتظار: ' . (int) $u['users_pending'] . "\n";
+		$t  .= '❌ رد شده: ' . (int) $u['users_rejected'] . "\n";
+		$t  .= '🚫 مسدود: ' . (int) $u['users_blocked'] . "\n";
+		$t  .= '👥 کل ربات: ' . (int) $u['users_total'] . "\n";
+		$t  .= '📱 با تلگرام: ' . (int) $u['users_with_telegram'] . "\n";
+		$t  .= '💬 با بله: ' . (int) $u['users_with_bale'] . "\n";
+		$t  .= '🆕 ثبت امروز: ' . (int) $u['users_today'] . "\n\n";
+		$t  .= '📡 سرویس‌ها (کل): ' . (int) $u['services_total'];
 		if ( class_exists( 'SimpleVPBot_Feature_L2tp' ) && SimpleVPBot_Feature_L2tp::enabled() ) {
 			$t .= ' · L2TP: ' . (int) $u['services_l2tp'];
 		}
 		$t .= "\n\n";
-		$t   .= "➖ پنل‌ها (Xray فعال / منقضی / حداکثر آنلاین روز)\n";
+		$t  .= "➖ پنل‌ها (Xray فعال / منقضی / حداکثر آنلاین روز)\n";
 		foreach ( $data['panels'] as $pl ) {
 			$mx = (int) $pl['max_online_day'] > 0 ? (string) (int) $pl['max_online_day'] : '—';
 			$t .= '· ' . (string) $pl['label'] . ': ';
@@ -399,7 +422,7 @@ class SimpleVPBot_Admin_Dashboard_Stats {
 			$txt = is_callable( $glass ) ? call_user_func( $glass, $label, 12 ) : $label;
 			$row[] = array(
 				'text'          => $txt,
-				'callback_data' => 'adm:st:' . $i,
+				'callback_data' => 'pnl:st:' . $i,
 			);
 		}
 		$chunks = array_chunk( $row, 4 );

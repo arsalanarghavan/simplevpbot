@@ -369,6 +369,40 @@ class SimpleVPBot_Rest_Dashboard {
 		);
 		register_rest_route(
 			self::NS,
+			'/dashboard/admin/backup/status',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'route_admin_backup_status' ),
+				'permission_callback' => array( __CLASS__, 'perm_manage' ),
+			)
+		);
+		register_rest_route(
+			self::NS,
+			'/dashboard/admin/backup/reset-stuck',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'route_admin_backup_reset_stuck' ),
+				'permission_callback' => array( __CLASS__, 'perm_manage' ),
+			)
+		);
+		register_rest_route(
+			self::NS,
+			'/dashboard/admin/backup/download',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'route_admin_backup_download' ),
+				'permission_callback' => array( __CLASS__, 'perm_manage' ),
+				'args'                => array(
+					'filename' => array(
+						'required'          => true,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_file_name',
+					),
+				),
+			)
+		);
+		register_rest_route(
+			self::NS,
 			'/dashboard/admin/backup/restore',
 			array(
 				'methods'             => 'POST',
@@ -423,6 +457,37 @@ class SimpleVPBot_Rest_Dashboard {
 					'methods'             => 'POST',
 					'callback'            => array( __CLASS__, 'route_admin_panel_inbound_map_save' ),
 					'permission_callback' => array( __CLASS__, 'perm_manage' ),
+				),
+			)
+		);
+		register_rest_route(
+			self::NS,
+			'/dashboard/admin/purge-expired',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'route_admin_purge_expired' ),
+				'permission_callback' => array( __CLASS__, 'perm_manage' ),
+				'args'                => array(
+					'page'     => array(
+						'default'           => 1,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
+					'per_page' => array(
+						'default'           => 25,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
+					'status'   => array(
+						'default'           => 'all',
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_key',
+					),
+					'panel_id' => array(
+						'default'           => 0,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
 				),
 			)
 		);
@@ -742,6 +807,79 @@ class SimpleVPBot_Rest_Dashboard {
 		return current_user_can( 'manage_options' ) && ! is_array( self::get_impersonation_payload() );
 	}
 
+	/**
+	 * Validate admin workspace reseller context id (must be an approved reseller row).
+	 *
+	 * @param int $id svp_users.id from query/body.
+	 * @return int|null Valid id, or null when id is positive but not a reseller.
+	 */
+	private static function validate_reseller_context_id( $id ) {
+		$rid = (int) $id;
+		if ( $rid < 1 ) {
+			return 0;
+		}
+		$row = SimpleVPBot_Model_User::find( $rid );
+		if ( ! $row || ! SimpleVPBot_Model_User::is_reseller_row( $row ) ) {
+			return null;
+		}
+		return $rid;
+	}
+
+	/**
+	 * Whether dashboard actor may read a target bot user (reseller mode + impersonation scope).
+	 *
+	 * @param array<string, mixed> $ctx            dashboard_actor_context().
+	 * @param int                  $target_user_id Target svp_users.id.
+	 * @return bool
+	 */
+	public static function dashboard_actor_may_read_user( array $ctx, $target_user_id ) {
+		$uid = (int) $target_user_id;
+		if ( $uid < 1 ) {
+			return false;
+		}
+		if ( ! empty( $ctx['isReseller'] ) && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			return SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( (int) ( $ctx['actorUserId'] ?? 0 ), $uid );
+		}
+		$imp_tid = (int) ( $ctx['impersonationTargetId'] ?? 0 );
+		if ( $imp_tid > 0 && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			return SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( $imp_tid, $uid );
+		}
+		return true;
+	}
+
+	/**
+	 * SQL fragment limiting user list queries to moderatable ids (admin owner_ctx).
+	 *
+	 * @param array<int, int> $user_ids Moderatable svp_users.id list.
+	 * @param string          $alias    SQL table alias.
+	 * @return array{sql:string,values:array<int,int>}
+	 */
+	private static function users_moderatable_scope_clause( array $user_ids, $alias = 'u' ) {
+		$ids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', $user_ids ),
+					static function ( $v ) {
+						return (int) $v > 0;
+					}
+				)
+			)
+		);
+		if ( empty( $ids ) ) {
+			return array(
+				'sql'    => ' AND 1=0',
+				'values' => array(),
+			);
+		}
+		$a = preg_replace( '/[^a-zA-Z0-9_]/', '', (string) $alias );
+		$a = '' !== $a ? $a : 'u';
+		$ph  = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		return array(
+			'sql'    => " AND {$a}.id IN ({$ph})",
+			'values' => $ids,
+		);
+	}
+
 	const DASH_PERSONA_COOKIE = 'svp_dash_persona';
 
 	/** Signed cookie: target_svp_id|exp|hmac (admin viewing dashboard as a reseller). */
@@ -780,16 +918,20 @@ class SimpleVPBot_Rest_Dashboard {
 		}
 		$raw = sanitize_text_field( wp_unslash( (string) $_COOKIE[ self::DASH_IMP_COOKIE ] ) );
 		$parts = explode( '|', $raw );
-		if ( count( $parts ) !== 3 ) {
+		if ( count( $parts ) !== 4 ) {
 			return 0;
 		}
-		$id  = absint( $parts[0] );
-		$exp = absint( $parts[1] );
-		$sig = $parts[2];
-		if ( $id < 1 || $exp < time() || strlen( $sig ) !== 64 || ! ctype_xdigit( $sig ) ) {
+		$id        = absint( $parts[0] );
+		$exp       = absint( $parts[1] );
+		$admin_uid = absint( $parts[2] );
+		$sig       = $parts[3];
+		if ( $id < 1 || $exp < time() || $admin_uid < 1 || strlen( $sig ) !== 64 || ! ctype_xdigit( $sig ) ) {
 			return 0;
 		}
-		$data   = $id . '|' . $exp;
+		if ( ! is_user_logged_in() || get_current_user_id() !== $admin_uid ) {
+			return 0;
+		}
+		$data   = $id . '|' . $exp . '|' . $admin_uid;
 		$expect = hash_hmac( 'sha256', $data, wp_salt( 'auth' ) );
 		if ( ! hash_equals( $expect, $sig ) ) {
 			return 0;
@@ -877,7 +1019,11 @@ class SimpleVPBot_Rest_Dashboard {
 		$ttl = max( 60, $ttl );
 		$exp = time() + $ttl;
 		$id  = absint( $target_svp_user_id );
-		$data = $id . '|' . $exp;
+		$admin_uid = get_current_user_id();
+		if ( $admin_uid < 1 ) {
+			return;
+		}
+		$data = $id . '|' . $exp . '|' . $admin_uid;
 		$sig  = hash_hmac( 'sha256', $data, wp_salt( 'auth' ) );
 		$val  = $data . '|' . $sig;
 		$path   = defined( 'COOKIEPATH' ) && COOKIEPATH ? COOKIEPATH : '/';
@@ -1316,6 +1462,32 @@ class SimpleVPBot_Rest_Dashboard {
 	}
 
 	/**
+	 * Attach direct_users_count from batch map (avoids correlated subquery per row).
+	 *
+	 * @param array<int, object> $rows Reseller user rows.
+	 * @return array<int, object>
+	 */
+	private static function attach_reseller_direct_user_counts( array $rows ) {
+		if ( empty( $rows ) || ! class_exists( 'SimpleVPBot_Model_User' ) ) {
+			return $rows;
+		}
+		$ids = array();
+		foreach ( $rows as $row ) {
+			if ( is_object( $row ) && ! empty( $row->id ) ) {
+				$ids[] = (int) $row->id;
+			}
+		}
+		$map = SimpleVPBot_Model_User::direct_children_count_map_for_ids( $ids );
+		foreach ( $rows as $row ) {
+			if ( is_object( $row ) ) {
+				$rid                        = (int) ( $row->id ?? 0 );
+				$row->direct_users_count    = (int) ( $map[ $rid ] ?? 0 );
+			}
+		}
+		return $rows;
+	}
+
+	/**
 	 * @param mixed $row DB row.
 	 * @return array<string, mixed>|null
 	 */
@@ -1330,6 +1502,59 @@ class SimpleVPBot_Rest_Dashboard {
 		/** @var array<string, mixed>|null $out */
 		$out = json_decode( $j, true );
 		return is_array( $out ) ? $out : null;
+	}
+
+	/**
+	 * WordPress MySQL datetime string → Unix UTC timestamp.
+	 *
+	 * @param mixed $mysql Datetime column value.
+	 * @return int|null
+	 */
+	private static function mysql_datetime_to_utc_ts( $mysql ) {
+		$s = trim( (string) $mysql );
+		if ( '' === $s || ! function_exists( 'wp_timezone' ) ) {
+			return null;
+		}
+		try {
+			$dt = new DateTimeImmutable( $s, wp_timezone() );
+			return $dt->getTimestamp();
+		} catch ( Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
+			return null;
+		}
+	}
+
+	/**
+	 * Strip internal user fields for non-site-admin dashboard actors.
+	 *
+	 * @param array<string, mixed> $row User row array.
+	 * @return array<string, mixed>
+	 */
+	private static function sanitize_user_row_for_dashboard( array $row ) {
+		if ( self::dashboard_rest_is_unrestricted_site_admin() ) {
+			return $row;
+		}
+		unset(
+			$row['state_data'],
+			$row['admin_mode'],
+			$row['password_hash'],
+			$row['dashboard_password'],
+			$row['signup_reseller_svp_id']
+		);
+		return $row;
+	}
+
+	/**
+	 * Reseller downline scope ids; always includes the reseller actor (never empty when actor valid).
+	 *
+	 * @param int        $reseller_svp_user_id Reseller svp_users.id.
+	 * @param array|null $raw_scope_ids        Pre-fetched scope ids or null to load from model.
+	 * @return array<int, int>
+	 */
+	private static function effective_reseller_scope_user_ids( $reseller_svp_user_id, $raw_scope_ids = null ) {
+		if ( ! class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			return array();
+		}
+		return SimpleVPBot_Bot_Reseller_Scope::effective_downline_user_ids( $reseller_svp_user_id, $raw_scope_ids );
 	}
 
 	/**
@@ -1386,6 +1611,107 @@ class SimpleVPBot_Rest_Dashboard {
 				'receipts_amount_max' => sanitize_text_field( (string) wp_unslash( (string) $req->get_param( 'receipts_amount_max' ) ) ),
 			)
 		);
+	}
+
+	/**
+	 * User list filters/sort from dashboard GET params.
+	 *
+	 * @param WP_REST_Request $req REST request.
+	 * @param bool            $for_pending_list When true, omit status filter (pending query forces status=pending).
+	 * @return array{where_sql:string,where_values:array<int|float|string>,order_sql:string,needs_svc_join:bool}
+	 */
+	/**
+	 * Restrict users list to a marketing lifecycle segment (eligible ids).
+	 *
+	 * @param string               $segment_key Segment key.
+	 * @param array<string, mixed> $filter Base filter from admin_list_query_parts.
+	 * @param int                  $owner_svp_user_id 0 site, >0 reseller scope.
+	 * @return array<string, mixed>
+	 */
+	private static function users_list_filter_with_marketing_segment( $segment_key, array $filter, $owner_svp_user_id = 0 ) {
+		if ( '' === $segment_key || ! class_exists( 'SimpleVPBot_Marketing_Lifecycle_Analytics' ) ) {
+			return $filter;
+		}
+		$fake = SimpleVPBot_Marketing_Lifecycle_Analytics::resolve_rule_for_segment(
+			$segment_key,
+			(int) $owner_svp_user_id
+		);
+		$ids = SimpleVPBot_Marketing_Lifecycle_Analytics::eligible_user_ids_for_rule(
+			$fake,
+			(int) $owner_svp_user_id,
+			2000
+		);
+		if ( empty( $ids ) ) {
+			$filter['where_sql'] .= ' AND 1=0';
+			return $filter;
+		}
+		$in = implode( ',', array_map( 'absint', $ids ) );
+		$filter['where_sql'] .= " AND u.id IN ({$in})";
+		return $filter;
+	}
+
+	/**
+	 * @param array<int, object> $users_list Raw user rows.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function users_list_rows_for_dashboard( array $users_list ) {
+		$ids = array();
+		foreach ( $users_list as $u ) {
+			if ( is_object( $u ) && isset( $u->id ) ) {
+				$ids[] = (int) $u->id;
+			}
+		}
+		$flags = class_exists( 'SimpleVPBot_Model_Marketing_Offer' )
+			? SimpleVPBot_Model_Marketing_Offer::open_offer_flags_for_users( $ids )
+			: array();
+		$out = array();
+		foreach ( $users_list as $u ) {
+			$row = self::row_array( $u );
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$row = self::sanitize_user_row_for_dashboard( $row );
+			$uid = (int) ( $row['id'] ?? 0 );
+			if ( $uid > 0 && ! empty( $flags[ $uid ] ) ) {
+				$row['marketing_open_offer'] = true;
+			}
+			$out[] = $row;
+		}
+		return $out;
+	}
+
+	private static function users_admin_filter_from_request( WP_REST_Request $req, $for_pending_list = false ) {
+		if ( ! class_exists( 'SimpleVPBot_Model_User' ) ) {
+			return array(
+				'where_sql'      => '',
+				'where_values'   => array(),
+				'order_sql'      => 'u.created_at DESC, u.id DESC',
+				'needs_svc_join' => false,
+			);
+		}
+		return SimpleVPBot_Model_User::admin_list_query_parts(
+			array(
+				'users_status'    => sanitize_key( (string) wp_unslash( (string) $req->get_param( 'users_status' ) ) ),
+				'users_role'      => sanitize_key( (string) wp_unslash( (string) $req->get_param( 'users_role' ) ) ),
+				'users_platform'  => sanitize_key( (string) wp_unslash( (string) $req->get_param( 'users_platform' ) ) ),
+				'users_min_svc'   => sanitize_text_field( (string) wp_unslash( (string) $req->get_param( 'users_min_svc' ) ) ),
+				'users_max_svc'   => sanitize_text_field( (string) wp_unslash( (string) $req->get_param( 'users_max_svc' ) ) ),
+				'users_date_from' => sanitize_text_field( (string) wp_unslash( (string) $req->get_param( 'users_date_from' ) ) ),
+				'users_date_to'   => sanitize_text_field( (string) wp_unslash( (string) $req->get_param( 'users_date_to' ) ) ),
+				'users_sort'      => sanitize_key( (string) wp_unslash( (string) $req->get_param( 'users_sort' ) ) ),
+				'skip_status'     => $for_pending_list,
+			)
+		);
+	}
+
+	/**
+	 * Service-count subquery join for user list filters.
+	 *
+	 * @param string $s_tbl Services table name.
+	 * @return string
+	 */
+	private static function users_svc_join_sql( $s_tbl ) {
+		return " LEFT JOIN (SELECT user_id, COUNT(*) AS svc_count FROM {$s_tbl} WHERE deleted_at IS NULL GROUP BY user_id) s ON s.user_id = u.id ";
 	}
 
 	/**
@@ -1471,16 +1797,28 @@ class SimpleVPBot_Rest_Dashboard {
 			}
 		}
 		$txid = (int) ( $receipt->transaction_id ?? 0 );
+		$row['selected_service'] = '';
 		if ( $txid > 0 && class_exists( 'SimpleVPBot_Model_Transaction' ) ) {
 			$tx = SimpleVPBot_Model_Transaction::find( $txid );
 			if ( $tx ) {
 				$row['transaction_amount'] = (float) ( $tx->amount ?? 0 );
 				$row['transaction_status'] = (string) ( $tx->status ?? '' );
 				$row['transaction_type']   = (string) ( $tx->type ?? '' );
+				if ( class_exists( 'SimpleVPBot_Bot_Admin_User_Caption' ) ) {
+					$row['selected_service'] = SimpleVPBot_Bot_Admin_User_Caption::transaction_selected_service_label( $tx );
+				}
 			}
 		}
 		$row['imageUrl']        = self::receipt_image_url( $receipt );
 		$row['hasReceiptImage'] = '' !== (string) $row['imageUrl'];
+		$created_ts = self::mysql_datetime_to_utc_ts( $receipt->created_at ?? '' );
+		if ( null !== $created_ts ) {
+			$row['created_at_ts'] = $created_ts;
+		}
+		$decided_ts = self::mysql_datetime_to_utc_ts( $receipt->decided_at ?? '' );
+		if ( null !== $decided_ts ) {
+			$row['decided_at_ts'] = $decided_ts;
+		}
 		return $row;
 	}
 
@@ -1497,7 +1835,7 @@ class SimpleVPBot_Rest_Dashboard {
 	 * @param int                              $actor_uid      Reseller svp_users.id.
 	 * @return array<int, array<string, mixed>>
 	 */
-	private static function annotate_reseller_panels_for_dashboard( array $panels, $actor_uid ) {
+	private static function annotate_reseller_panels_for_dashboard( array $panels, $actor_uid, array $panel_price_by_panel = array() ) {
 		$actor_uid = (int) $actor_uid;
 		if ( $actor_uid < 1 ) {
 			return $panels;
@@ -1509,19 +1847,193 @@ class SimpleVPBot_Rest_Dashboard {
 			}
 			$pid  = (int) ( $row['id'] ?? 0 );
 			$pacc = 0;
-			if ( $pid > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
-				$rp = SimpleVPBot_Model_Reseller_Panel_Price::get_panel_row( $actor_uid, $pid );
+			$can_sell = false;
+			if ( $pid > 0 ) {
+				$rp = isset( $panel_price_by_panel[ $pid ] ) ? $panel_price_by_panel[ $pid ] : null;
 				if ( $rp ) {
-					$pacc = (int) ( $rp->panel_access ?? 0 );
+					$pacc = (int) ( is_object( $rp ) ? ( $rp->panel_access ?? 0 ) : ( $rp['panel_access'] ?? 0 ) );
+					$price = (float) ( is_object( $rp ) ? ( $rp->price_per_gb ?? 0 ) : ( $rp['price_per_gb'] ?? 0 ) );
+					$can_sell = $pacc > 0 || $price > 0;
 				}
 			}
 			$row['panel_access']  = $pacc;
-			$row['can_sell_plan'] = class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
-				? SimpleVPBot_Bot_Reseller_Scope::reseller_can_sell_on_panel_for( $actor_uid, $pid )
-				: ( $pacc > 0 );
+			if ( $can_sell ) {
+				$row['can_sell_plan'] = true;
+			} else {
+				$row['can_sell_plan'] = class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+					? SimpleVPBot_Bot_Reseller_Scope::reseller_can_sell_on_panel_for( $actor_uid, $pid )
+					: false;
+			}
 			$out[]                = $row;
 		}
 		return $out;
+	}
+
+	/**
+	 * Build dashboard panel payload from a panel model row.
+	 *
+	 * @param object $pobj Panel row.
+	 * @return array<string, mixed>|null
+	 */
+	private static function panel_object_to_dashboard_payload( $pobj ) {
+		if ( ! $pobj || ! is_object( $pobj ) ) {
+			return null;
+		}
+		$pid = (int) ( $pobj->id ?? 0 );
+		if ( $pid < 1 ) {
+			return null;
+		}
+		$_lbl = (string) ( $pobj->label ?? '' );
+		return self::format_panel_for_dashboard(
+			array(
+				'id'                        => $pid,
+				'label'                     => $_lbl,
+				'name'                      => $_lbl,
+				'panel_url'                 => (string) ( $pobj->panel_url ?? '' ),
+				'panel_username'            => (string) ( $pobj->panel_username ?? '' ),
+				'panel_password'            => (string) ( $pobj->panel_password ?? '' ),
+				'panel_api_base'            => (string) ( $pobj->panel_api_base ?? 'panel/api' ),
+				'panel_login_secret'        => (string) ( $pobj->panel_login_secret ?? '' ),
+				'panel_api_token'           => (string) ( $pobj->panel_api_token ?? '' ),
+				'subscription_public_base' => (string) ( $pobj->subscription_public_base ?? '' ),
+				'panel_api_flavor'          => class_exists( 'SimpleVPBot_Model_Panel' )
+					? SimpleVPBot_Model_Panel::api_flavor( $pobj )
+					: 'unknown',
+				'sort_order'                => (int) ( $pobj->sort_order ?? 0 ),
+				'active'                    => (int) ( $pobj->active ?? 1 ),
+			)
+		);
+	}
+
+	/**
+	 * Reseller customer charges with billing_reseller filter and pagination.
+	 *
+	 * @param int                  $actor_uid       Reseller id.
+	 * @param array<int>           $scope_user_ids  Downline ids.
+	 * @param WP_REST_Request|null $req             Request (pagination params).
+	 * @return array{rows:array<int,array<string,mixed>>,pagination:array<string,int>|null}
+	 */
+	private static function build_reseller_customer_charges( $actor_uid, array $scope_user_ids, $req = null ) {
+		global $wpdb;
+		$empty = array(
+			'rows'       => array(),
+			'pagination' => null,
+		);
+		$actor_uid = (int) $actor_uid;
+		if ( $actor_uid < 1 || empty( $scope_user_ids ) || ! class_exists( 'SimpleVPBot_Model_Transaction' ) || ! class_exists( 'SimpleVPBot_Model_User' ) ) {
+			return $empty;
+		}
+		$in_list = implode( ',', array_map( 'absint', $scope_user_ids ) );
+		if ( '' === $in_list ) {
+			return $empty;
+		}
+		$page = 1;
+		$per  = 50;
+		if ( $req instanceof WP_REST_Request ) {
+			$page = max( 1, (int) $req->get_param( 'customerChargesPage' ) );
+			$per  = max( 10, min( 120, (int) $req->get_param( 'customerChargesPerPage' ) ?: 50 ) );
+		}
+		$type_filter = '';
+		$date_from   = '';
+		$date_to     = '';
+		if ( $req instanceof WP_REST_Request ) {
+			$type_filter = sanitize_key( (string) $req->get_param( 'customerChargesType' ) );
+			$date_from   = sanitize_text_field( (string) wp_unslash( (string) $req->get_param( 'customerChargesDateFrom' ) ) );
+			$date_to     = sanitize_text_field( (string) wp_unslash( (string) $req->get_param( 'customerChargesDateTo' ) ) );
+		}
+		if ( ! in_array( $type_filter, array( 'purchase', 'renew', 'volume', 'topup' ), true ) ) {
+			$type_filter = '';
+		}
+		if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date_from ) ) {
+			$date_from = '';
+		}
+		if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date_to ) ) {
+			$date_to = '';
+		}
+		$offset = ( $page - 1 ) * $per;
+		$tx_t   = SimpleVPBot_Model_Transaction::table();
+		$billing_expr = SimpleVPBot_Model_Transaction::billing_reseller_id_sql_expr( 't' );
+		$type_sql = '' !== $type_filter ? ' AND t.type = %s' : '';
+		$date_sql = '';
+		$date_args = array();
+		if ( '' !== $date_from ) {
+			$date_sql   .= ' AND DATE(t.created_at) >= %s';
+			$date_args[] = $date_from;
+		}
+		if ( '' !== $date_to ) {
+			$date_sql   .= ' AND DATE(t.created_at) <= %s';
+			$date_args[] = $date_to;
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$count_sql = "SELECT COUNT(*) FROM {$tx_t} t
+			WHERE t.user_id IN ({$in_list}) AND t.status = 'approved'
+			AND {$billing_expr} = %d{$type_sql}{$date_sql}";
+		$count_args = array_merge( array( $actor_uid ), $date_args );
+		if ( '' !== $type_filter ) {
+			$count_args[] = $type_filter;
+		}
+		$total = (int) $wpdb->get_var( $wpdb->prepare( $count_sql, $count_args ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$list_sql = "SELECT t.* FROM {$tx_t} t
+			WHERE t.user_id IN ({$in_list}) AND t.status = 'approved'
+			AND {$billing_expr} = %d{$type_sql}{$date_sql}
+			ORDER BY t.id DESC LIMIT %d OFFSET %d";
+		$list_args = array_merge( $count_args, array( $per, $offset ) );
+		$tx_rows = $wpdb->get_results( $wpdb->prepare( $list_sql, $list_args ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$user_ids = array();
+		foreach ( (array) $tx_rows as $txrow ) {
+			if ( $txrow && is_object( $txrow ) ) {
+				$user_ids[] = (int) ( $txrow->user_id ?? 0 );
+			}
+		}
+		$labels = SimpleVPBot_Model_User::labels_by_ids( $user_ids );
+		$plan_ids = array();
+		foreach ( (array) $tx_rows as $txrow ) {
+			if ( ! $txrow || ! is_object( $txrow ) ) {
+				continue;
+			}
+			$meta = json_decode( (string) ( $txrow->meta_json ?? '{}' ), true );
+			if ( is_array( $meta ) && ! empty( $meta['plan_id'] ) ) {
+				$plan_ids[] = (int) $meta['plan_id'];
+			}
+		}
+		$plan_labels = array();
+		if ( ! empty( $plan_ids ) && class_exists( 'SimpleVPBot_Model_Plan' ) ) {
+			$plan_labels = SimpleVPBot_Model_Plan::labels_by_ids( array_unique( $plan_ids ) );
+		}
+		$rows   = array();
+		foreach ( (array) $tx_rows as $txrow ) {
+			if ( ! $txrow || ! is_object( $txrow ) ) {
+				continue;
+			}
+			$cid = (int) ( $txrow->user_id ?? 0 );
+			$ra  = self::row_array( $txrow );
+			if ( ! is_array( $ra ) ) {
+				continue;
+			}
+			$meta = json_decode( (string) ( $txrow->meta_json ?? '{}' ), true );
+			$meta = is_array( $meta ) ? $meta : array();
+			$charge_type = sanitize_key( (string) ( $txrow->type ?? $meta['kind'] ?? 'purchase' ) );
+			if ( ! in_array( $charge_type, array( 'purchase', 'renew', 'volume', 'topup' ), true ) ) {
+				$charge_type = 'purchase';
+			}
+			$pid = (int) ( $meta['plan_id'] ?? 0 );
+			$ra['customer_label']       = isset( $labels[ $cid ] ) ? (string) $labels[ $cid ] : ( '#' . $cid );
+			$ra['customer_svp_user_id'] = $cid;
+			$ra['charge_type']          = $charge_type;
+			$ra['charge_created_at']    = (string) ( $txrow->created_at ?? $ra['created_at'] ?? '' );
+			$ra['charge_plan_label']    = $pid > 0 && isset( $plan_labels[ $pid ] ) ? (string) $plan_labels[ $pid ] : '';
+			$ra['charge_service_id']    = (int) ( $txrow->service_id ?? $meta['service_id'] ?? 0 );
+			$rows[]                     = $ra;
+		}
+		return array(
+			'rows'       => $rows,
+			'pagination' => array(
+				'page'    => $page,
+				'perPage' => $per,
+				'total'   => $total,
+			),
+		);
 	}
 
 	private static function format_panel_for_dashboard( array $ra ) {
@@ -1764,9 +2276,14 @@ class SimpleVPBot_Rest_Dashboard {
 	 * @param int $actor_uid svp_users.id.
 	 * @return array<string, bool>
 	 */
-	private static function reseller_dashboard_allowed_tabs_map( $actor_uid ) {
+	private static function reseller_dashboard_allowed_tabs_map( $actor_uid, array $perms = null ) {
+		if ( class_exists( 'SimpleVPBot_Reseller_Permission_Gate' ) ) {
+			return SimpleVPBot_Reseller_Permission_Gate::reseller_allowed_tabs_map( (int) $actor_uid, $perms );
+		}
 		$actor_uid = (int) $actor_uid;
-		$perms     = $actor_uid > 0 ? SimpleVPBot_Model_User::reseller_permissions( $actor_uid ) : SimpleVPBot_Model_User::default_reseller_permissions();
+		if ( null === $perms ) {
+			$perms = $actor_uid > 0 ? SimpleVPBot_Model_User::reseller_permissions( $actor_uid ) : SimpleVPBot_Model_User::default_reseller_permissions();
+		}
 		$admin_only = array(
 			'site_settings',
 			'backup',
@@ -1777,6 +2294,7 @@ class SimpleVPBot_Rest_Dashboard {
 			'l2tp_servers',
 			'texts',
 			'bots',
+			'unit_economics',
 		);
 		$tab_perm = array(
 			'users'         => 'users.manage',
@@ -1793,7 +2311,9 @@ class SimpleVPBot_Rest_Dashboard {
 			'reseller_charge' => 'plans.manage',
 			'monitoring'      => 'services.manage',
 			'referral'          => 'users.manage',
-			'referral_reports'  => 'users.manage',
+			'referral_reports'      => 'users.manage',
+			'reseller_reports'      => 'users.manage',
+			'marketing_lifecycle'   => 'marketing.lifecycle',
 		);
 		$all_tabs = array(
 			'dashboard',
@@ -1809,6 +2329,8 @@ class SimpleVPBot_Rest_Dashboard {
 			'reseller_charge',
 			'referral',
 			'referral_reports',
+			'reseller_reports',
+			'marketing_lifecycle',
 			'discounts',
 			'reseller_bots',
 			'bot_ui',
@@ -1844,6 +2366,22 @@ class SimpleVPBot_Rest_Dashboard {
 	}
 
 	/**
+	 * Whether a reseller dashboard actor may request admin/state for this tab key.
+	 *
+	 * @param int    $actor_uid   Reseller svp_users.id.
+	 * @param string $active_tab  Sanitized tab key (empty allowed).
+	 * @return bool
+	 */
+	private static function reseller_may_request_admin_tab( $actor_uid, $active_tab ) {
+		$tab = sanitize_key( (string) $active_tab );
+		if ( '' === $tab ) {
+			return true;
+		}
+		$allowed = self::reseller_dashboard_allowed_tabs_map( (int) $actor_uid );
+		return isset( $allowed[ $tab ] ) && true === $allowed[ $tab ];
+	}
+
+	/**
 	 * @param WP_REST_Request $req Request.
 	 * @return WP_REST_Response|WP_Error
 	 */
@@ -1865,6 +2403,8 @@ class SimpleVPBot_Rest_Dashboard {
 		$p_rcpt   = self::dash_list_pagination( $req, 'receipts', 40 );
 		$p_bc     = self::dash_list_pagination( $req, 'broadcasts', 20 );
 		$p_ref_ev = self::dash_list_pagination( $req, 'referralEvents', 20 );
+		$p_rep    = self::dash_list_pagination( $req, 'resellerReports', 25 );
+		$p_mkt    = self::dash_list_pagination( $req, 'marketingOffers', 25 );
 		$p_bots   = self::dash_list_pagination( $req, 'bots', 25, 200 );
 
 		$t_panels = SimpleVPBot_Model_Panel::table();
@@ -1883,7 +2423,18 @@ class SimpleVPBot_Rest_Dashboard {
 		if ( strlen( $users_q ) > 128 ) {
 			$users_q = substr( $users_q, 0, 128 );
 		}
+		$resellers_q = trim( sanitize_text_field( (string) wp_unslash( (string) $req->get_param( 'resellers_q' ) ) ) );
+		if ( strlen( $resellers_q ) > 128 ) {
+			$resellers_q = substr( $resellers_q, 0, 128 );
+		}
 		$user_filter = SimpleVPBot_Model_User::admin_search_users_clause( $users_q );
+		$resellers_user_filter = SimpleVPBot_Model_User::admin_search_users_clause( $resellers_q );
+		$users_list_filter = self::users_admin_filter_from_request( $req );
+		$users_pend_filter = self::users_admin_filter_from_request( $req, true );
+		$users_segment_key = class_exists( 'SimpleVPBot_Model_Marketing_Rule' )
+			? SimpleVPBot_Model_Marketing_Rule::sanitize_segment( (string) wp_unslash( (string) $req->get_param( 'users_segment' ) ) )
+			: '';
+		$users_svc_join      = self::users_svc_join_sql( $s_tbl );
 		$resellers_status = sanitize_key( (string) wp_unslash( (string) $req->get_param( 'resellers_status' ) ) );
 		$reseller_status_sql   = '';
 		$reseller_status_vals  = array();
@@ -1894,14 +2445,51 @@ class SimpleVPBot_Rest_Dashboard {
 		$ctx           = self::dashboard_actor_context();
 		$is_reseller   = ! empty( $ctx['isReseller'] );
 		$actor_uid     = (int) ( $ctx['actorUserId'] ?? 0 );
+		if ( $is_reseller && $actor_uid > 0 && ! self::reseller_may_request_admin_tab( $actor_uid, $active_tab ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'forbidden_tab' ), 403 );
+		}
 		$reseller_mode = $is_reseller;
 		$owner_ctx     = (int) $req->get_param( 'resellerContextId' );
 		$scope_user_ids = array();
 		if ( $reseller_mode ) {
 			$owner_ctx      = $actor_uid;
-			$scope_user_ids = SimpleVPBot_Model_User::reseller_scope_user_ids( $actor_uid );
+			$scope_user_ids = self::effective_reseller_scope_user_ids( $actor_uid );
 		} elseif ( $owner_ctx > 0 ) {
-			$scope_user_ids = SimpleVPBot_Model_User::reseller_scope_user_ids( $owner_ctx );
+			$validated = self::validate_reseller_context_id( $owner_ctx );
+			if ( null === $validated ) {
+				return new WP_REST_Response( array( 'ok' => false, 'message' => 'invalid_reseller_context' ), 400 );
+			}
+			$owner_ctx      = $validated;
+			$scope_user_ids = self::effective_reseller_scope_user_ids( $owner_ctx );
+		}
+		$moderatable_user_ids = $scope_user_ids;
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			if ( $reseller_mode && $actor_uid > 0 ) {
+				$moderatable_user_ids = SimpleVPBot_Bot_Reseller_Scope::effective_moderatable_user_ids( $actor_uid, $scope_user_ids );
+			} elseif ( $owner_ctx > 0 ) {
+				$moderatable_user_ids = SimpleVPBot_Bot_Reseller_Scope::effective_moderatable_user_ids( $owner_ctx, $scope_user_ids );
+			}
+		}
+		$needs_reseller_plan_floors       = $reseller_mode && in_array( $active_tab, array( 'plans', 'reseller_panels' ), true );
+		$needs_reseller_customer_charges  = $reseller_mode && 'reseller_charge' === $active_tab;
+		$needs_reseller_wholesale_ladders = $needs_reseller_plan_floors;
+		$needs_reseller_panel_prices      = $reseller_mode && $actor_uid > 0 && (
+			$needs_reseller_plan_floors
+			|| in_array( $active_tab, array( 'dashboard', 'monitoring', 'xui_panels', 'reseller_panels' ), true )
+		);
+		$needs_resellers_list_data        = ! $reseller_mode && in_array( $active_tab, array( 'resellers', 'reseller_xui_panels' ), true );
+		$needs_resellers_tab_data         = $needs_resellers_list_data;
+		$needs_resellers_preview          = ! $reseller_mode && 'dashboard' === $active_tab;
+		$needs_child_reseller_maps        = $reseller_mode && 'resellers' === $active_tab && $actor_uid > 0;
+		$needs_panel_health               = in_array( $active_tab, array( 'dashboard', 'monitoring', 'xui_panels' ), true );
+		$owner_scoped_catalog = $owner_ctx > 0;
+		if ( '' !== $users_segment_key ) {
+			$seg_owner = $reseller_mode ? $actor_uid : $owner_ctx;
+			$users_list_filter = self::users_list_filter_with_marketing_segment(
+				$users_segment_key,
+				$users_list_filter,
+				$seg_owner
+			);
 		}
 
 		$rcpt_scope_sql   = '';
@@ -1909,9 +2497,9 @@ class SimpleVPBot_Rest_Dashboard {
 		if ( $reseller_mode && $actor_uid > 0 ) {
 			$rcpt_scope_ids = array_values(
 				array_unique(
-					array_merge(
-						array_map( 'intval', $scope_user_ids ),
-						array( $actor_uid )
+					array_map(
+						'intval',
+						(array) $moderatable_user_ids
 					)
 				)
 			);
@@ -1928,27 +2516,17 @@ class SimpleVPBot_Rest_Dashboard {
 			} else {
 				$rcpt_scope_sql = ' AND r.user_id IN (' . implode( ',', array_map( 'absint', $rcpt_scope_ids ) ) . ')';
 			}
-		} elseif ( $owner_ctx > 0 && ! empty( $scope_user_ids ) ) {
-			$rcpt_scope_sql = ' AND r.user_id IN (' . implode( ',', array_map( 'absint', $scope_user_ids ) ) . ')';
+		} elseif ( $owner_ctx > 0 && ! empty( $moderatable_user_ids ) ) {
+			$rcpt_scope_sql = ' AND r.user_id IN (' . implode( ',', array_map( 'absint', $moderatable_user_ids ) ) . ')';
 		} elseif ( $owner_ctx > 0 ) {
 			$rcpt_scope_empty = true;
 		}
 
-		$reseller_actor_needs_panels = $reseller_mode && $actor_uid > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' );
+		$reseller_actor_needs_panels = $reseller_mode && $actor_uid > 0;
 
 		$reseller_allowed_panel_ids = array();
-		if ( $reseller_actor_needs_panels ) {
-			$t_rp_panel_scope = SimpleVPBot_Model_Reseller_Panel_Price::table();
-			$reseller_allowed_panel_ids = array_map(
-				'intval',
-				(array) $wpdb->get_col(
-					$wpdb->prepare(
-						"SELECT p.id FROM {$t_panels} p INNER JOIN {$t_rp_panel_scope} r ON r.panel_id = p.id AND r.reseller_svp_user_id = %d AND ( r.panel_access = 1 OR r.price_per_gb > 0 ) ORDER BY p.sort_order ASC, p.id ASC", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-						$actor_uid
-					)
-				)
-			);
-			$reseller_allowed_panel_ids = array_values( array_unique( array_filter( $reseller_allowed_panel_ids ) ) );
+		if ( $reseller_actor_needs_panels && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			$reseller_allowed_panel_ids = SimpleVPBot_Bot_Reseller_Scope::allowed_panel_ids_for( $actor_uid );
 		}
 		if ( $reseller_mode ) {
 			$settings = SimpleVPBot_Settings::dashboard_slice_for_reseller_operator();
@@ -1967,7 +2545,7 @@ class SimpleVPBot_Rest_Dashboard {
 		$pending_users             = array();
 		$resellers                 = array();
 		if ( $reseller_mode ) {
-			$scope = SimpleVPBot_Model_User::reseller_scope_clause( $actor_uid, 'u' );
+			$scope = SimpleVPBot_Model_User::reseller_moderation_scope_clause( $actor_uid, 'u' );
 			if ( ! $scope ) {
 				// No downline users yet — still load catalog (panels, plan categories, etc.) for reseller tools.
 				$users_from_reseller_scope = true;
@@ -1986,22 +2564,57 @@ class SimpleVPBot_Rest_Dashboard {
 					$where_values = array_merge( $where_values, $user_filter['values'] );
 				}
 			}
+			if ( '' !== $users_list_filter['where_sql'] ) {
+				$where_sql .= $users_list_filter['where_sql'];
+				if ( ! empty( $users_list_filter['where_values'] ) ) {
+					$where_values = array_merge( $where_values, $users_list_filter['where_values'] );
+				}
+			}
+			$list_cnt_join = $users_list_filter['needs_svc_join'] ? $users_svc_join : '';
 			$tot_users_list = (int) $wpdb->get_var(
 				$wpdb->prepare(
-					"SELECT COUNT(*) FROM {$u_tbl} u {$where_sql}",
+					"SELECT COUNT(*) FROM {$u_tbl} u{$list_cnt_join}{$where_sql}",
 					$where_values
 				)
 			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$pend_where_sql    = ' WHERE 1=1' . $scope['sql'];
+			$pend_where_values = $scope['values'];
+			if ( $user_filter ) {
+				$pend_where_sql .= $user_filter['sql'];
+				if ( ! empty( $user_filter['values'] ) ) {
+					$pend_where_values = array_merge( $pend_where_values, $user_filter['values'] );
+				}
+			}
+			if ( '' !== $users_pend_filter['where_sql'] ) {
+				$pend_where_sql .= $users_pend_filter['where_sql'];
+				if ( ! empty( $users_pend_filter['where_values'] ) ) {
+					$pend_where_values = array_merge( $pend_where_values, $users_pend_filter['where_values'] );
+				}
+			}
+			$pend_cnt_join = $users_pend_filter['needs_svc_join'] ? $users_svc_join : '';
 			$tot_pend_list = (int) $wpdb->get_var(
 				$wpdb->prepare(
-					"SELECT COUNT(*) FROM {$u_tbl} u {$where_sql} AND u.status = %s",
-					array_merge( $where_values, array( 'pending' ) )
+					"SELECT COUNT(*) FROM {$u_tbl} u{$pend_cnt_join}{$pend_where_sql} AND u.status = %s",
+					array_merge( $pend_where_values, array( 'pending' ) )
 				)
 			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$resellers_direct_children_only = 'resellers' === $active_tab;
+			$resellers_where_sql            = $where_sql;
+			$resellers_where_values         = $where_values;
+			if ( $resellers_direct_children_only ) {
+				$resellers_where_sql    = ' WHERE u.invited_by = %d';
+				$resellers_where_values = array( $actor_uid );
+				if ( $user_filter ) {
+					$resellers_where_sql .= $user_filter['sql'];
+					if ( ! empty( $user_filter['values'] ) ) {
+						$resellers_where_values = array_merge( $resellers_where_values, $user_filter['values'] );
+					}
+				}
+			}
 			$tot_res_list = (int) $wpdb->get_var(
 				$wpdb->prepare(
-					"SELECT COUNT(*) FROM {$u_tbl} u {$where_sql} AND u.role = %s{$reseller_status_sql}",
-					array_merge( $where_values, array( 'reseller' ), $reseller_status_vals )
+					"SELECT COUNT(*) FROM {$u_tbl} u {$resellers_where_sql} AND u.role = %s{$reseller_status_sql}",
+					array_merge( $resellers_where_values, array( 'reseller' ), $reseller_status_vals )
 				)
 			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
@@ -2009,28 +2622,29 @@ class SimpleVPBot_Rest_Dashboard {
 				$wpdb->prepare(
 					"SELECT u.*, COALESCE(s.svc_count, 0) AS svc_count
 					FROM {$u_tbl} u
-					LEFT JOIN (SELECT user_id, COUNT(*) AS svc_count FROM {$s_tbl} WHERE deleted_at IS NULL GROUP BY user_id) s ON s.user_id = u.id
+					{$users_svc_join}
 					{$where_sql}
-					ORDER BY u.id DESC LIMIT %d OFFSET %d",
+					ORDER BY {$users_list_filter['order_sql']} LIMIT %d OFFSET %d",
 					array_merge( $where_values, array( $p_users['per_page'], $p_users['offset'] ) )
 				)
 			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			$pending_users = $wpdb->get_results(
 				$wpdb->prepare(
-					"SELECT u.* FROM {$u_tbl} u {$where_sql} AND u.status = %s ORDER BY u.id DESC LIMIT %d OFFSET %d",
-					array_merge( $where_values, array( 'pending', $p_pend['per_page'], $p_pend['offset'] ) )
+					"SELECT u.* FROM {$u_tbl} u{$pend_cnt_join}{$pend_where_sql} AND u.status = %s ORDER BY {$users_pend_filter['order_sql']} LIMIT %d OFFSET %d",
+					array_merge( $pend_where_values, array( 'pending', $p_pend['per_page'], $p_pend['offset'] ) )
 				)
 			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			$resellers = $wpdb->get_results(
 				$wpdb->prepare(
 					"SELECT u.*, COALESCE(s.svc_count, 0) AS svc_count
 					FROM {$u_tbl} u
-					LEFT JOIN (SELECT user_id, COUNT(*) AS svc_count FROM {$s_tbl} WHERE deleted_at IS NULL GROUP BY user_id) s ON s.user_id = u.id
-					{$where_sql} AND u.role = %s{$reseller_status_sql}
-					ORDER BY u.id DESC LIMIT %d OFFSET %d",
-					array_merge( $where_values, array( 'reseller' ), $reseller_status_vals, array( $p_res['per_page'], $p_res['offset'] ) )
+					{$users_svc_join}
+					{$resellers_where_sql} AND u.role = %s{$reseller_status_sql}
+					ORDER BY {$users_list_filter['order_sql']} LIMIT %d OFFSET %d",
+					array_merge( $resellers_where_values, array( 'reseller' ), $reseller_status_vals, array( $p_res['per_page'], $p_res['offset'] ) )
 				)
 			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$resellers = self::attach_reseller_direct_user_counts( (array) $resellers );
 
 			$users_from_reseller_scope = true;
 			$tot_resellers             = $tot_res_list;
@@ -2065,17 +2679,17 @@ class SimpleVPBot_Rest_Dashboard {
 			} else {
 				$tot_pc = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_pc}" ); // phpcs:ignore
 			}
-			if ( $owner_ctx > 0 ) {
-				$tot_cards = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$t_cards} WHERE owner_svp_user_id IN (%d,0)", $owner_ctx ) ); // phpcs:ignore
+			if ( $owner_scoped_catalog ) {
+				$tot_cards = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$t_cards} WHERE owner_svp_user_id = %d", $owner_ctx ) ); // phpcs:ignore
 			} else {
 				$tot_cards = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_cards}" ); // phpcs:ignore
 			}
 			if ( $reseller_mode || ! $l2tp_enabled ) {
 				$tot_l2tp       = 0;
-				$texts_prebuilt = $reseller_mode ? array() : ( class_exists( 'SimpleVPBot_Model_Text' ) ? SimpleVPBot_Model_Text::all_grouped_by_key() : array() );
+				$texts_prebuilt = $reseller_mode ? array() : ( class_exists( 'SimpleVPBot_Model_Text' ) ? SimpleVPBot_Model_Text::all_grouped_for_dashboard() : array() );
 			} else {
 				$tot_l2tp       = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_l2tp}" ); // phpcs:ignore
-				$texts_prebuilt = class_exists( 'SimpleVPBot_Model_Text' ) ? SimpleVPBot_Model_Text::all_grouped_by_key() : array();
+				$texts_prebuilt = class_exists( 'SimpleVPBot_Model_Text' ) ? SimpleVPBot_Model_Text::all_grouped_for_dashboard() : array();
 			}
 			$tot_texts      = count( $texts_prebuilt );
 			$p_texts        = array(
@@ -2083,8 +2697,8 @@ class SimpleVPBot_Rest_Dashboard {
 				'per_page' => max( 1, $tot_texts ),
 				'offset'   => 0,
 			);
-			if ( $owner_ctx > 0 ) {
-				$tot_disc = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$t_disc} WHERE owner_svp_user_id IN (%d,0)", $owner_ctx ) ); // phpcs:ignore
+			if ( $owner_scoped_catalog ) {
+				$tot_disc = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$t_disc} WHERE owner_svp_user_id = %d", $owner_ctx ) ); // phpcs:ignore
 			} else {
 				$tot_disc = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t_disc}" ); // phpcs:ignore
 			}
@@ -2093,10 +2707,8 @@ class SimpleVPBot_Rest_Dashboard {
 			} else {
 				$tot_rcpt = self::receipt_admin_count( $wpdb, $rcpt_t, $u_tbl, $rcpt_scope_sql, $rcpt_filter );
 			}
-			if ( $reseller_mode && $actor_uid > 0 ) {
-				$tot_bc = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$bc_t} WHERE owner_svp_user_id IN (%d,0)", $owner_ctx ) ); // phpcs:ignore
-			} elseif ( $owner_ctx > 0 ) {
-				$tot_bc = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$bc_t} WHERE owner_svp_user_id IN (%d,0)", $owner_ctx ) ); // phpcs:ignore
+			if ( $owner_scoped_catalog ) {
+				$tot_bc = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$bc_t} WHERE owner_svp_user_id = %d", $owner_ctx ) ); // phpcs:ignore
 			} else {
 				$tot_bc = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$bc_t}" ); // phpcs:ignore
 			}
@@ -2118,35 +2730,71 @@ class SimpleVPBot_Rest_Dashboard {
 			$tot_bc         = 0;
 		}
 		if ( ! $users_from_reseller_scope ) {
+			$owner_users_scope = ( $owner_ctx > 0 && ! empty( $moderatable_user_ids ) )
+				? self::users_moderatable_scope_clause( $moderatable_user_ids, 'u' )
+				: null;
 			$tot_users     = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$u_tbl}" ); // phpcs:ignore
 			$tot_pend      = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$u_tbl} WHERE status = %s", 'pending' ) ); // phpcs:ignore
 			$cnt_res_sql = "SELECT COUNT(*) FROM {$u_tbl} u WHERE u.role = 'reseller'{$reseller_status_sql}";
-			if ( $user_filter ) {
-				$cnt_res_sql .= $user_filter['sql'];
+			if ( $resellers_user_filter ) {
+				$cnt_res_sql .= $resellers_user_filter['sql'];
 			}
-			$cnt_res_vals = array_merge( $reseller_status_vals, $user_filter ? $user_filter['values'] : array() );
+			$cnt_res_vals = array_merge( $reseller_status_vals, $resellers_user_filter ? $resellers_user_filter['values'] : array() );
+			if ( $owner_users_scope ) {
+				$cnt_res_sql .= $owner_users_scope['sql'];
+				$cnt_res_vals = array_merge( $cnt_res_vals, $owner_users_scope['values'] );
+			}
 			if ( ! empty( $cnt_res_vals ) ) {
 				$tot_resellers = (int) $wpdb->get_var( $wpdb->prepare( $cnt_res_sql, $cnt_res_vals ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 			} else {
 				$tot_resellers = (int) $wpdb->get_var( $cnt_res_sql ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 			}
 
-			if ( $user_filter ) {
-				$cnt_users_sql = "SELECT COUNT(*) FROM {$u_tbl} u WHERE 1=1" . $user_filter['sql'];
-				if ( ! empty( $user_filter['values'] ) ) {
-					$tot_users_list = (int) $wpdb->get_var( $wpdb->prepare( $cnt_users_sql, $user_filter['values'] ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$has_users_list_filter = $user_filter || '' !== $users_list_filter['where_sql'];
+			$has_users_pend_filter = $user_filter || '' !== $users_pend_filter['where_sql'];
+			if ( $has_users_list_filter ) {
+				$list_cnt_join = $users_list_filter['needs_svc_join'] ? $users_svc_join : '';
+				$cnt_users_sql = "SELECT COUNT(*) FROM {$u_tbl} u{$list_cnt_join} WHERE 1=1";
+				$cnt_users_vals = array();
+				if ( $user_filter ) {
+					$cnt_users_sql .= $user_filter['sql'];
+					$cnt_users_vals = array_merge( $cnt_users_vals, $user_filter['values'] );
+				}
+				$cnt_users_sql .= $users_list_filter['where_sql'];
+				$cnt_users_vals = array_merge( $cnt_users_vals, $users_list_filter['where_values'] );
+				if ( $owner_users_scope ) {
+					$cnt_users_sql .= $owner_users_scope['sql'];
+					$cnt_users_vals = array_merge( $cnt_users_vals, $owner_users_scope['values'] );
+				}
+				if ( ! empty( $cnt_users_vals ) ) {
+					$tot_users_list = (int) $wpdb->get_var( $wpdb->prepare( $cnt_users_sql, $cnt_users_vals ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 				} else {
 					$tot_users_list = (int) $wpdb->get_var( $cnt_users_sql ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 				}
-				$cnt_pend_sql = "SELECT COUNT(*) FROM {$u_tbl} u WHERE u.status = 'pending'" . $user_filter['sql'];
-				if ( ! empty( $user_filter['values'] ) ) {
-					$tot_pend_list = (int) $wpdb->get_var( $wpdb->prepare( $cnt_pend_sql, $user_filter['values'] ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			} else {
+				$tot_users_list = $tot_users;
+			}
+			if ( $has_users_pend_filter ) {
+				$pend_cnt_join = $users_pend_filter['needs_svc_join'] ? $users_svc_join : '';
+				$cnt_pend_sql  = "SELECT COUNT(*) FROM {$u_tbl} u{$pend_cnt_join} WHERE u.status = 'pending'";
+				$cnt_pend_vals = array();
+				if ( $user_filter ) {
+					$cnt_pend_sql .= $user_filter['sql'];
+					$cnt_pend_vals = array_merge( $cnt_pend_vals, $user_filter['values'] );
+				}
+				$cnt_pend_sql .= $users_pend_filter['where_sql'];
+				$cnt_pend_vals = array_merge( $cnt_pend_vals, $users_pend_filter['where_values'] );
+				if ( $owner_users_scope ) {
+					$cnt_pend_sql .= $owner_users_scope['sql'];
+					$cnt_pend_vals = array_merge( $cnt_pend_vals, $owner_users_scope['values'] );
+				}
+				if ( ! empty( $cnt_pend_vals ) ) {
+					$tot_pend_list = (int) $wpdb->get_var( $wpdb->prepare( $cnt_pend_sql, $cnt_pend_vals ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 				} else {
 					$tot_pend_list = (int) $wpdb->get_var( $cnt_pend_sql ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 				}
 			} else {
-				$tot_users_list = $tot_users;
-				$tot_pend_list  = $tot_pend;
+				$tot_pend_list = $tot_pend;
 			}
 		}
 
@@ -2210,7 +2858,17 @@ class SimpleVPBot_Rest_Dashboard {
 			}
 		} else {
 			if ( $reseller_mode ) {
-				$panels_raw = array();
+				if ( $needs_child_reseller_maps && ! empty( $reseller_allowed_panel_ids ) ) {
+					$pp_ph      = implode( ',', array_fill( 0, count( $reseller_allowed_panel_ids ), '%d' ) );
+					$panels_raw = $wpdb->get_results(
+						$wpdb->prepare(
+							"SELECT * FROM {$t_panels} WHERE id IN ({$pp_ph}) ORDER BY sort_order ASC, id ASC", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
+							$reseller_allowed_panel_ids
+						)
+					);
+				} else {
+					$panels_raw = array();
+				}
 			} else {
 				$panels_raw = $wpdb->get_results(
 					$wpdb->prepare(
@@ -2259,10 +2917,10 @@ class SimpleVPBot_Rest_Dashboard {
 				)
 			);
 		}
-		if ( $owner_ctx > 0 ) {
+		if ( $owner_scoped_catalog ) {
 			$cards_raw = $wpdb->get_results(
 				$wpdb->prepare(
-					"SELECT * FROM {$t_cards} WHERE owner_svp_user_id IN (%d,0) ORDER BY priority DESC, id ASC LIMIT %d OFFSET %d",
+					"SELECT * FROM {$t_cards} WHERE owner_svp_user_id = %d ORDER BY priority DESC, id ASC LIMIT %d OFFSET %d",
 					$owner_ctx,
 					$p_cards['per_page'],
 					$p_cards['offset']
@@ -2288,10 +2946,10 @@ class SimpleVPBot_Rest_Dashboard {
 				)
 			);
 		}
-		if ( $owner_ctx > 0 ) {
+		if ( $owner_scoped_catalog ) {
 			$discounts_raw = $wpdb->get_results(
 				$wpdb->prepare(
-					"SELECT * FROM {$t_disc} WHERE owner_svp_user_id IN (%d,0) ORDER BY active DESC, id DESC LIMIT %d OFFSET %d",
+					"SELECT * FROM {$t_disc} WHERE owner_svp_user_id = %d ORDER BY active DESC, id DESC LIMIT %d OFFSET %d",
 					$owner_ctx,
 					$p_disc['per_page'],
 					$p_disc['offset']
@@ -2309,16 +2967,28 @@ class SimpleVPBot_Rest_Dashboard {
 		}
 
 		if ( ! $users_from_reseller_scope ) {
-			$pend_sql = "SELECT u.* FROM {$u_tbl} u WHERE u.status = 'pending'";
+			$owner_users_scope = ( $owner_ctx > 0 && ! empty( $moderatable_user_ids ) )
+				? self::users_moderatable_scope_clause( $moderatable_user_ids, 'u' )
+				: null;
+			$pend_cnt_join = $users_pend_filter['needs_svc_join'] ? $users_svc_join : '';
+			$pend_sql      = "SELECT u.* FROM {$u_tbl} u{$pend_cnt_join} WHERE u.status = 'pending'";
+			$pend_vals     = array();
 			if ( $user_filter ) {
 				$pend_sql .= $user_filter['sql'];
+				$pend_vals = array_merge( $pend_vals, $user_filter['values'] );
 			}
-			$pend_sql .= ' ORDER BY u.id DESC LIMIT %d OFFSET %d';
-			if ( $user_filter && ! empty( $user_filter['values'] ) ) {
+			$pend_sql .= $users_pend_filter['where_sql'];
+			$pend_vals = array_merge( $pend_vals, $users_pend_filter['where_values'] );
+			if ( $owner_users_scope ) {
+				$pend_sql .= $owner_users_scope['sql'];
+				$pend_vals = array_merge( $pend_vals, $owner_users_scope['values'] );
+			}
+			$pend_sql .= " ORDER BY {$users_pend_filter['order_sql']} LIMIT %d OFFSET %d";
+			if ( ! empty( $pend_vals ) ) {
 				$pending_users = $wpdb->get_results(
 					$wpdb->prepare(
 						$pend_sql,
-						array_merge( $user_filter['values'], array( $p_pend['per_page'], $p_pend['offset'] ) )
+						array_merge( $pend_vals, array( $p_pend['per_page'], $p_pend['offset'] ) )
 					)
 				);
 			} else {
@@ -2329,17 +2999,25 @@ class SimpleVPBot_Rest_Dashboard {
 
 			$users_sql = "SELECT u.*, COALESCE(s.svc_count, 0) AS svc_count
 				FROM {$u_tbl} u
-				LEFT JOIN (SELECT user_id, COUNT(*) AS svc_count FROM {$s_tbl} WHERE deleted_at IS NULL GROUP BY user_id) s ON s.user_id = u.id
+				{$users_svc_join}
 				WHERE 1=1";
+			$users_vals = array();
 			if ( $user_filter ) {
 				$users_sql .= $user_filter['sql'];
+				$users_vals = array_merge( $users_vals, $user_filter['values'] );
 			}
-			$users_sql .= ' ORDER BY u.id DESC LIMIT %d OFFSET %d';
-			if ( $user_filter && ! empty( $user_filter['values'] ) ) {
+			$users_sql .= $users_list_filter['where_sql'];
+			$users_vals = array_merge( $users_vals, $users_list_filter['where_values'] );
+			if ( $owner_users_scope ) {
+				$users_sql .= $owner_users_scope['sql'];
+				$users_vals = array_merge( $users_vals, $owner_users_scope['values'] );
+			}
+			$users_sql .= " ORDER BY {$users_list_filter['order_sql']} LIMIT %d OFFSET %d";
+			if ( ! empty( $users_vals ) ) {
 				$users_list = $wpdb->get_results(
 					$wpdb->prepare(
 						$users_sql,
-						array_merge( $user_filter['values'], array( $p_users['per_page'], $p_users['offset'] ) )
+						array_merge( $users_vals, array( $p_users['per_page'], $p_users['offset'] ) )
 					)
 				);
 			} else {
@@ -2347,18 +3025,27 @@ class SimpleVPBot_Rest_Dashboard {
 					$wpdb->prepare( $users_sql, $p_users['per_page'], $p_users['offset'] )
 				);
 			}
-			$res_sql = "SELECT u.*, COALESCE(s.svc_count, 0) AS svc_count
+			$resellers = array();
+			if ( $needs_resellers_tab_data || $needs_resellers_preview ) {
+				$res_limit  = $needs_resellers_preview ? 8 : $p_res['per_page'];
+				$res_offset = $needs_resellers_preview ? 0 : $p_res['offset'];
+				$res_sql = "SELECT u.*, COALESCE(s.svc_count, 0) AS svc_count
 				FROM {$u_tbl} u
-				LEFT JOIN (SELECT user_id, COUNT(*) AS svc_count FROM {$s_tbl} WHERE deleted_at IS NULL GROUP BY user_id) s ON s.user_id = u.id
+				{$users_svc_join}
 				WHERE u.role = 'reseller'{$reseller_status_sql}";
-			if ( $user_filter ) {
-				$res_sql .= $user_filter['sql'];
+				if ( $resellers_user_filter ) {
+					$res_sql .= $resellers_user_filter['sql'];
+				}
+				if ( $owner_users_scope ) {
+					$res_sql .= $owner_users_scope['sql'];
+				}
+				$res_sql .= ' ORDER BY u.id DESC LIMIT %d OFFSET %d';
+				$res_vals = array_merge( $reseller_status_vals, $resellers_user_filter ? $resellers_user_filter['values'] : array(), $owner_users_scope ? $owner_users_scope['values'] : array(), array( $res_limit, $res_offset ) );
+				$resellers = $wpdb->get_results(
+					$wpdb->prepare( $res_sql, $res_vals )
+				); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+				$resellers = self::attach_reseller_direct_user_counts( (array) $resellers );
 			}
-			$res_sql .= ' ORDER BY u.id DESC LIMIT %d OFFSET %d';
-			$res_vals = array_merge( $reseller_status_vals, $user_filter ? $user_filter['values'] : array(), array( $p_res['per_page'], $p_res['offset'] ) );
-			$resellers = $wpdb->get_results(
-				$wpdb->prepare( $res_sql, $res_vals )
-			); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		}
 
 		if ( $dash_users_tab_light ) {
@@ -2378,10 +3065,10 @@ class SimpleVPBot_Rest_Dashboard {
 			);
 		}
 		if ( ! $dash_users_tab_light ) {
-			if ( $owner_ctx > 0 ) {
+			if ( $owner_scoped_catalog ) {
 				$broadcasts = $wpdb->get_results(
 					$wpdb->prepare(
-						"SELECT * FROM {$bc_t} WHERE owner_svp_user_id IN (%d,0) ORDER BY id DESC LIMIT %d OFFSET %d",
+						"SELECT * FROM {$bc_t} WHERE owner_svp_user_id = %d ORDER BY id DESC LIMIT %d OFFSET %d",
 						$owner_ctx,
 						$p_bc['per_page'],
 						$p_bc['offset']
@@ -2399,17 +3086,51 @@ class SimpleVPBot_Rest_Dashboard {
 		}
 		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
-		$reseller_permissions_map          = array();
-		$reseller_panel_prices_map         = array();
-		$reseller_bot_map                  = array();
-		foreach ( (array) $resellers as $rr ) {
-			$rid = (int) ( is_object( $rr ) ? ( $rr->id ?? 0 ) : 0 );
-			if ( $rid < 1 ) {
-				continue;
+		$reseller_permissions_map            = array();
+		$reseller_panel_prices_map           = array();
+		$reseller_wholesale_line_ids_map     = array();
+		$reseller_bot_map                    = array();
+		if ( $needs_resellers_tab_data || $needs_child_reseller_maps || $needs_resellers_preview ) {
+			$reseller_row_ids = array();
+			foreach ( (array) $resellers as $rr ) {
+				$rid = (int) ( is_object( $rr ) ? ( $rr->id ?? 0 ) : 0 );
+				if ( $rid > 0 ) {
+					$reseller_row_ids[] = $rid;
+				}
 			}
-			$reseller_permissions_map[ (string) $rid ] = SimpleVPBot_Model_User::reseller_permissions( $rid );
-			if ( ! empty( $ctx['isReseller'] ) && class_exists( 'SimpleVPBot_Model_Reseller_Parent_Panel_Floor' ) ) {
-				$reseller_panel_prices_map[ (string) $rid ] = array_map(
+			if ( ! empty( $reseller_row_ids ) ) {
+				$reseller_permissions_map = SimpleVPBot_Model_User::reseller_permissions_map_for_ids( $reseller_row_ids );
+				if ( ( $needs_resellers_tab_data || $needs_resellers_preview ) && class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
+					$panel_rows_by_rid = SimpleVPBot_Model_Reseller_Panel_Price::rows_map_for_resellers( $reseller_row_ids );
+					foreach ( $panel_rows_by_rid as $rid_key => $prows ) {
+						$reseller_panel_prices_map[ (string) $rid_key ] = array_map(
+							array( __CLASS__, 'row_array' ),
+							(array) $prows
+						);
+					}
+				}
+				if ( class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+					$reseller_bot_map = SimpleVPBot_Model_Reseller_Bot_Profile::summary_map_for_resellers( $reseller_row_ids );
+				}
+				if ( class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Assignment' ) ) {
+					$reseller_wholesale_line_ids_map = SimpleVPBot_Model_Reseller_Wholesale_Assignment::line_ids_map_for_resellers( $reseller_row_ids );
+				}
+			}
+		}
+		if ( ! $needs_resellers_tab_data && ! empty( $ctx['isReseller'] ) && class_exists( 'SimpleVPBot_Model_Reseller_Parent_Panel_Floor' ) ) {
+			$child_ids = array();
+			foreach ( (array) $resellers as $rr ) {
+				$rid = (int) ( is_object( $rr ) ? ( $rr->id ?? 0 ) : 0 );
+				if ( $rid > 0 ) {
+					$child_ids[] = $rid;
+				}
+			}
+			$parent_id = (int) ( $ctx['actorUserId'] ?? 0 );
+			$floor_map = ! empty( $child_ids )
+				? SimpleVPBot_Model_Reseller_Parent_Panel_Floor::map_for_parent_children( $parent_id, $child_ids )
+				: array();
+			foreach ( $floor_map as $rid_key => $floor_rows ) {
+				$reseller_panel_prices_map[ (string) $rid_key ] = array_map(
 					static function ( $row ) {
 						$ra = self::row_array( $row );
 						if ( is_array( $ra ) ) {
@@ -2418,21 +3139,7 @@ class SimpleVPBot_Rest_Dashboard {
 						}
 						return $ra;
 					},
-					(array) SimpleVPBot_Model_Reseller_Parent_Panel_Floor::list_for_parent_child( (int) $ctx['actorUserId'], $rid )
-				);
-			} elseif ( class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
-				$reseller_panel_prices_map[ (string) $rid ] = array_map(
-					array( __CLASS__, 'row_array' ),
-					(array) SimpleVPBot_Model_Reseller_Panel_Price::list_for_reseller( $rid )
-				);
-			} else {
-				$reseller_panel_prices_map[ (string) $rid ] = array();
-			}
-			if ( class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
-				$bp = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $rid );
-				$reseller_bot_map[ (string) $rid ] = array(
-					'enabled' => $bp ? ! empty( $bp->enabled ) : false,
-					'brand'   => $bp ? (string) ( $bp->brand_name ?? '' ) : '',
+					(array) $floor_rows
 				);
 			}
 		}
@@ -2454,35 +3161,102 @@ class SimpleVPBot_Rest_Dashboard {
 			}
 		}
 
-		$reseller_plan_floors = array();
-		if ( $reseller_mode && class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) && $actor_uid > 0 ) {
-			$ru_parent = SimpleVPBot_Model_User::find( $actor_uid );
-			$parent_id = $ru_parent ? (int) ( $ru_parent->invited_by ?? 0 ) : 0;
-			foreach ( (array) SimpleVPBot_Model_Reseller_Panel_Price::list_for_reseller( $actor_uid ) as $rp ) {
-				if ( ! SimpleVPBot_Model_Reseller_Panel_Price::row_allows_panel_use( $rp ) ) {
-					continue;
+		$reseller_plan_floors       = array();
+		$reseller_panel_price_rows  = array();
+		$reseller_wholesale_lines   = array();
+		$reseller_panel_price_index = array();
+		$reseller_actor_user_row    = null;
+		if ( $reseller_mode && $actor_uid > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) && $needs_reseller_panel_prices ) {
+			$reseller_panel_price_rows  = (array) SimpleVPBot_Model_Reseller_Panel_Price::list_for_reseller( $actor_uid );
+			$reseller_panel_price_index = SimpleVPBot_Model_Reseller_Panel_Price::index_rows_by_panel( $reseller_panel_price_rows );
+			if ( class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' ) ) {
+				$reseller_wholesale_lines = (array) SimpleVPBot_Model_Reseller_Wholesale_Line::lines_for_reseller( $actor_uid );
+			}
+			if ( $needs_reseller_plan_floors ) {
+				if ( class_exists( 'SimpleVPBot_Model_User' ) ) {
+					$reseller_actor_user_row = SimpleVPBot_Model_User::find( $actor_uid );
 				}
-				$pid          = (int) $rp->panel_id;
-				$unit         = (float) ( $rp->price_per_gb ?? 0 );
-				$parent_floor = 0.0;
-				if ( $parent_id > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Parent_Panel_Floor' ) ) {
-					$parent_floor = SimpleVPBot_Model_Reseller_Parent_Panel_Floor::get_min_price( $parent_id, $actor_uid, $pid );
-				}
-				$eff          = max( $unit, (float) $parent_floor );
-				$dstype       = isset( $rp->default_service_type ) ? sanitize_key( (string) $rp->default_service_type ) : 'xray';
-				if ( ! in_array( $dstype, array( 'xray', 'l2tp' ), true ) ) {
-					$dstype = 'xray';
-				}
-				if ( ! $l2tp_enabled ) {
-					$dstype = 'xray';
-				}
-				$reseller_plan_floors[] = array(
-					'panel_id'                   => $pid,
-					'min_price_per_gb_effective' => $eff,
-					'default_service_type'       => $dstype,
-					'default_inbound_id'         => (int) ( $rp->default_inbound_id ?? 0 ),
-					'default_l2tp_server_id'     => $l2tp_enabled ? (int) ( $rp->default_l2tp_server_id ?? 0 ) : 0,
+				$floor_opts = array(
+					'actor_user_row' => $reseller_actor_user_row,
 				);
+				$floor_panels = array();
+				foreach ( $reseller_panel_price_rows as $rp ) {
+					if ( ! SimpleVPBot_Model_Reseller_Panel_Price::row_allows_panel_use( $rp ) ) {
+						continue;
+					}
+					$pid = (int) $rp->panel_id;
+					if ( $pid < 1 ) {
+						continue;
+					}
+					$floor_panels[ $pid ] = true;
+					$floor_opts['panel_row'] = $rp;
+					$eff                    = (float) SimpleVPBot_Model_Reseller_Panel_Price::effective_wholesale_floor( $actor_uid, $pid, $floor_opts );
+					$dstype                 = isset( $rp->default_service_type ) ? sanitize_key( (string) $rp->default_service_type ) : 'xray';
+					if ( ! in_array( $dstype, array( 'xray', 'l2tp' ), true ) ) {
+						$dstype = 'xray';
+					}
+					if ( ! $l2tp_enabled ) {
+						$dstype = 'xray';
+					}
+					$reseller_plan_floors[] = array(
+						'panel_id'                   => $pid,
+						'wholesale_line_id'          => 0,
+						'min_price_per_gb_effective' => $eff,
+						'default_service_type'       => $dstype,
+						'default_inbound_id'         => (int) ( $rp->default_inbound_id ?? 0 ),
+						'default_l2tp_server_id'     => $l2tp_enabled ? (int) ( $rp->default_l2tp_server_id ?? 0 ) : 0,
+					);
+				}
+				if ( class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' ) ) {
+					$wholesale_floor_line_ids  = array();
+					$wholesale_floor_panel_ids = array();
+					foreach ( $reseller_wholesale_lines as $_wl_pre ) {
+						$wholesale_floor_line_ids[]  = (int) ( $_wl_pre->id ?? 0 );
+						$wholesale_floor_panel_ids[] = (int) ( $_wl_pre->panel_id ?? 0 );
+					}
+					if ( class_exists( 'SimpleVPBot_Service_Reseller_Wholesale_Pricing' ) ) {
+						SimpleVPBot_Service_Reseller_Wholesale_Pricing::begin_floor_batch( $actor_uid, $wholesale_floor_line_ids );
+					}
+					$catalog_defaults_map = SimpleVPBot_Model_Reseller_Panel_Price::resolve_catalog_defaults_map(
+						$actor_uid,
+						$wholesale_floor_panel_ids
+					);
+					foreach ( $reseller_wholesale_lines as $wl ) {
+						$pid = (int) ( $wl->panel_id ?? 0 );
+						$lid = (int) ( $wl->id ?? 0 );
+						if ( $pid < 1 || $lid < 1 ) {
+							continue;
+						}
+						$catalog = isset( $catalog_defaults_map[ $pid ] ) && is_array( $catalog_defaults_map[ $pid ] )
+							? $catalog_defaults_map[ $pid ]
+							: SimpleVPBot_Model_Reseller_Panel_Price::resolve_catalog_defaults( $actor_uid, $pid );
+						$floor_opts['panel_row'] = isset( $reseller_panel_price_index[ $pid ] ) ? $reseller_panel_price_index[ $pid ] : null;
+						if ( class_exists( 'SimpleVPBot_Service_Reseller_Wholesale_Pricing' ) ) {
+							$eff = (float) SimpleVPBot_Service_Reseller_Wholesale_Pricing::wholesale_floor_unit( $actor_uid, $lid, $pid );
+						} else {
+							$eff = (float) SimpleVPBot_Model_Reseller_Panel_Price::effective_wholesale_floor( $actor_uid, $pid, $floor_opts );
+						}
+						$dstype = sanitize_key( (string) ( $catalog['default_service_type'] ?? 'xray' ) );
+						if ( ! in_array( $dstype, array( 'xray', 'l2tp' ), true ) ) {
+							$dstype = 'xray';
+						}
+						if ( ! $l2tp_enabled ) {
+							$dstype = 'xray';
+						}
+						$reseller_plan_floors[] = array(
+							'panel_id'                   => $pid,
+							'wholesale_line_id'          => $lid,
+							'min_price_per_gb_effective' => $eff,
+							'default_service_type'       => $dstype,
+							'default_inbound_id'         => (int) ( $catalog['default_inbound_id'] ?? 0 ),
+							'default_l2tp_server_id'     => $l2tp_enabled ? (int) ( $catalog['default_l2tp_server_id'] ?? 0 ) : 0,
+						);
+						$floor_panels[ $pid ] = true;
+					}
+					if ( class_exists( 'SimpleVPBot_Service_Reseller_Wholesale_Pricing' ) ) {
+						SimpleVPBot_Service_Reseller_Wholesale_Pricing::end_floor_batch();
+					}
+				}
 			}
 		}
 		foreach ( (array) $plans_raw as $r ) {
@@ -2530,6 +3304,7 @@ class SimpleVPBot_Rest_Dashboard {
 			}
 		}
 		$discount_agg_map = array();
+		$owner_id         = $reseller_mode ? $actor_uid : ( $owner_ctx > 0 ? $owner_ctx : 0 );
 		if ( class_exists( 'SimpleVPBot_Model_Discount_Redemption' ) ) {
 			$discount_usage_summary = SimpleVPBot_Model_Discount_Redemption::global_summary( $owner_id );
 			if ( ! empty( $discount_code_ids ) ) {
@@ -2555,6 +3330,45 @@ class SimpleVPBot_Rest_Dashboard {
 			$discounts[] = $ra;
 		}
 
+		$wholesale_lines_catalog            = array();
+		$reseller_wholesale_lines_payload = array();
+		if ( class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' ) && class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Tier' ) ) {
+			if ( ! $reseller_mode ) {
+				$all_line_rows = SimpleVPBot_Model_Reseller_Wholesale_Line::all_rows();
+				$line_ids      = array();
+				foreach ( (array) $all_line_rows as $_ln ) {
+					$line_ids[] = (int) ( is_object( $_ln ) ? ( $_ln->id ?? 0 ) : 0 );
+				}
+				$tier_map = SimpleVPBot_Model_Reseller_Wholesale_Tier::by_line_ids( $line_ids );
+				foreach ( (array) $all_line_rows as $_ln ) {
+					$la = self::row_array( $_ln );
+					if ( ! $la ) {
+						continue;
+					}
+					$la['tiers'] = array();
+					$lid         = (int) ( is_object( $_ln ) ? ( $_ln->id ?? 0 ) : 0 );
+					foreach ( (array) ( $tier_map[ $lid ] ?? array() ) as $_t ) {
+						$ta = self::row_array( $_t );
+						if ( $ta ) {
+							$la['tiers'][] = $ta;
+						}
+					}
+					$wholesale_lines_catalog[] = $la;
+				}
+			} elseif ( $actor_uid > 0 && $needs_reseller_wholesale_ladders && class_exists( 'SimpleVPBot_Service_Reseller_Wholesale_Pricing' ) ) {
+				$ladder_line_ids = array();
+				foreach ( $reseller_wholesale_lines as $_ln_pre ) {
+					$ladder_line_ids[] = (int) ( is_object( $_ln_pre ) ? ( $_ln_pre->id ?? 0 ) : 0 );
+				}
+				SimpleVPBot_Service_Reseller_Wholesale_Pricing::begin_floor_batch( $actor_uid, $ladder_line_ids );
+				foreach ( $reseller_wholesale_lines as $_ln ) {
+					$pub           = SimpleVPBot_Model_Reseller_Wholesale_Line::to_reseller_public_array( $_ln );
+					$pub['ladder'] = SimpleVPBot_Service_Reseller_Wholesale_Pricing::ladder_snapshot( $actor_uid, (int) $_ln->id );
+					$reseller_wholesale_lines_payload[] = $pub;
+				}
+			}
+		}
+
 		// Merge panels from reseller panel_prices when catalog rows grant access.
 		if ( $reseller_mode && $actor_uid > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) && class_exists( 'SimpleVPBot_Model_Panel' ) ) {
 			$have_panel_ids = array();
@@ -2563,7 +3377,8 @@ class SimpleVPBot_Rest_Dashboard {
 					$have_panel_ids[ (int) $_pub['id'] ] = true;
 				}
 			}
-			foreach ( (array) SimpleVPBot_Model_Reseller_Panel_Price::list_for_reseller( $actor_uid ) as $_rp ) {
+			$missing_panel_ids = array();
+			foreach ( $reseller_panel_price_rows as $_rp ) {
 				if ( ! SimpleVPBot_Model_Reseller_Panel_Price::row_allows_panel_use( $_rp ) ) {
 					continue;
 				}
@@ -2571,28 +3386,33 @@ class SimpleVPBot_Rest_Dashboard {
 				if ( $_pid < 1 || ! empty( $have_panel_ids[ $_pid ] ) ) {
 					continue;
 				}
-				$pobj = SimpleVPBot_Model_Panel::find( $_pid );
-				if ( ! $pobj ) {
+				$missing_panel_ids[] = $_pid;
+			}
+			if ( class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' ) ) {
+				foreach ( $reseller_wholesale_lines as $_wl ) {
+					$_pid = (int) ( $_wl->panel_id ?? 0 );
+					if ( $_pid < 1 || ! empty( $have_panel_ids[ $_pid ] ) ) {
+						continue;
+					}
+					$missing_panel_ids[] = $_pid;
+				}
+			}
+			$panel_map = SimpleVPBot_Model_Panel::find_by_ids( $missing_panel_ids );
+			foreach ( $reseller_panel_price_rows as $_rp ) {
+				if ( ! SimpleVPBot_Model_Reseller_Panel_Price::row_allows_panel_use( $_rp ) ) {
+					continue;
+				}
+				$_pid = (int) ( $_rp->panel_id ?? 0 );
+				if ( $_pid < 1 || ! empty( $have_panel_ids[ $_pid ] ) ) {
+					continue;
+				}
+				$pobj = isset( $panel_map[ $_pid ] ) ? $panel_map[ $_pid ] : null;
+				$pub  = self::panel_object_to_dashboard_payload( $pobj );
+				if ( ! $pub ) {
 					continue;
 				}
 				$have_panel_ids[ $_pid ] = true;
-				$_lbl                     = (string) ( $pobj->label ?? '' );
-				$panels[]                 = self::format_panel_for_dashboard(
-					array(
-						'id'                        => $_pid,
-						'label'                     => $_lbl,
-						'name'                      => $_lbl,
-						'panel_url'                 => (string) ( $pobj->panel_url ?? '' ),
-						'panel_username'            => (string) ( $pobj->panel_username ?? '' ),
-						'panel_password'            => (string) ( $pobj->panel_password ?? '' ),
-						'panel_api_base'            => (string) ( $pobj->panel_api_base ?? 'panel/api' ),
-						'panel_login_secret'        => (string) ( $pobj->panel_login_secret ?? '' ),
-						'panel_api_token'           => (string) ( $pobj->panel_api_token ?? '' ),
-						'subscription_public_base' => (string) ( $pobj->subscription_public_base ?? '' ),
-						'sort_order'                => (int) ( $pobj->sort_order ?? 0 ),
-						'active'                    => (int) ( $pobj->active ?? 1 ),
-					)
-				);
+				$panels[]                 = $pub;
 			}
 			usort(
 				$panels,
@@ -2607,10 +3427,38 @@ class SimpleVPBot_Rest_Dashboard {
 					return $ia <=> $ib;
 				}
 			);
+			if ( class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' ) ) {
+				foreach ( $reseller_wholesale_lines as $_wl ) {
+					$_pid = (int) ( $_wl->panel_id ?? 0 );
+					if ( $_pid < 1 || ! empty( $have_panel_ids[ $_pid ] ) ) {
+						continue;
+					}
+					$pobj = isset( $panel_map[ $_pid ] ) ? $panel_map[ $_pid ] : null;
+					$pub  = self::panel_object_to_dashboard_payload( $pobj );
+					if ( ! $pub ) {
+						continue;
+					}
+					$have_panel_ids[ $_pid ] = true;
+					$panels[]                 = $pub;
+				}
+				usort(
+					$panels,
+					static function ( $a, $b ) {
+						$sa = is_array( $a ) ? (int) ( $a['sort_order'] ?? 0 ) : 0;
+						$sb = is_array( $b ) ? (int) ( $b['sort_order'] ?? 0 ) : 0;
+						if ( $sa !== $sb ) {
+							return $sa <=> $sb;
+						}
+						$ia = is_array( $a ) ? (int) ( $a['id'] ?? 0 ) : 0;
+						$ib = is_array( $b ) ? (int) ( $b['id'] ?? 0 ) : 0;
+						return $ia <=> $ib;
+					}
+				);
+			}
 		}
 
 		if ( $reseller_mode && $actor_uid > 0 && ! empty( $panels ) ) {
-			$panels = self::annotate_reseller_panels_for_dashboard( $panels, $actor_uid );
+			$panels = self::annotate_reseller_panels_for_dashboard( $panels, $actor_uid, $reseller_panel_price_index );
 		}
 
 		$plan_user_counts = array();
@@ -2626,11 +3474,27 @@ class SimpleVPBot_Rest_Dashboard {
 		$plan_ids_on_page = array_values( array_unique( $plan_ids_on_page ) );
 		if ( ! empty( $plan_ids_on_page ) ) {
 			$in_list = implode( ',', array_map( 'absint', $plan_ids_on_page ) );
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$cnt_rows = $wpdb->get_results(
-				"SELECT plan_id, COUNT(DISTINCT user_id) AS user_count FROM {$s_tbl} WHERE deleted_at IS NULL AND plan_id IS NOT NULL AND plan_id > 0 AND plan_id IN ({$in_list}) GROUP BY plan_id",
-				ARRAY_A
-			);
+			if ( $reseller_mode ) {
+				$scope_in = implode( ',', array_map( 'absint', $moderatable_user_ids ) );
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$cnt_rows = $wpdb->get_results(
+					"SELECT plan_id, COUNT(DISTINCT user_id) AS user_count FROM {$s_tbl} WHERE deleted_at IS NULL AND plan_id IS NOT NULL AND plan_id > 0 AND plan_id IN ({$in_list}) AND user_id IN ({$scope_in}) GROUP BY plan_id",
+					ARRAY_A
+				);
+			} elseif ( $owner_ctx > 0 && ! empty( $moderatable_user_ids ) ) {
+				$scope_in = implode( ',', array_map( 'absint', $moderatable_user_ids ) );
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$cnt_rows = $wpdb->get_results(
+					"SELECT plan_id, COUNT(DISTINCT user_id) AS user_count FROM {$s_tbl} WHERE deleted_at IS NULL AND plan_id IS NOT NULL AND plan_id > 0 AND plan_id IN ({$in_list}) AND user_id IN ({$scope_in}) GROUP BY plan_id",
+					ARRAY_A
+				);
+			} else {
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$cnt_rows = $wpdb->get_results(
+					"SELECT plan_id, COUNT(DISTINCT user_id) AS user_count FROM {$s_tbl} WHERE deleted_at IS NULL AND plan_id IS NOT NULL AND plan_id > 0 AND plan_id IN ({$in_list}) GROUP BY plan_id",
+					ARRAY_A
+				);
+			}
 			if ( is_array( $cnt_rows ) ) {
 				foreach ( $cnt_rows as $cr ) {
 					if ( is_array( $cr ) && isset( $cr['plan_id'] ) ) {
@@ -2736,21 +3600,43 @@ class SimpleVPBot_Rest_Dashboard {
 			array( 'key' => 'referral', 'label' => __( 'ریفرال و لینک ربات', 'simplevpbot' ) ),
 			array( 'key' => 'referral_reports', 'label' => __( 'گزارشات رفرال', 'simplevpbot' ) ),
 			array( 'key' => 'reseller_reports', 'label' => __( 'گزارشات نمایندگان', 'simplevpbot' ) ),
+			array( 'key' => 'marketing_lifecycle', 'label' => __( 'بازگشت مشتری', 'simplevpbot' ) ),
 			array( 'key' => 'discounts', 'label' => __( 'کدهای تخفیف', 'simplevpbot' ) ),
 			array( 'key' => 'logs', 'label' => __( 'لاگ‌ها', 'simplevpbot' ) ),
 			)
 		);
+		$reseller_actor_perms = null;
+		if ( $reseller_mode && $actor_uid > 0 ) {
+			$reseller_actor_perms = SimpleVPBot_Model_User::reseller_permissions( $actor_uid );
+			$reseller_tab_map     = self::reseller_dashboard_allowed_tabs_map( $actor_uid, $reseller_actor_perms );
+			$nav_tabs             = array_values(
+				array_filter(
+					$nav_tabs,
+					static function ( $tab ) use ( $reseller_tab_map ) {
+						$key = is_array( $tab ) ? (string) ( $tab['key'] ?? '' ) : '';
+						return '' !== $key && ! empty( $reseller_tab_map[ $key ] );
+					}
+				)
+			);
+		}
 
 		$stats_payload = array();
 		if ( ! $dash_users_tab_light && class_exists( 'SimpleVPBot_Admin_Dashboard_Stats' ) ) {
+			$stats_day = max( 0, min( 7, (int) $req->get_param( 'statsDay' ) ) );
 			if ( $reseller_mode ) {
 				$stats_payload = SimpleVPBot_Admin_Dashboard_Stats::build_reseller_payload(
-					$scope_user_ids,
+					$moderatable_user_ids,
 					$reseller_allowed_panel_ids,
-					0
+					$stats_day
+				);
+			} elseif ( $owner_ctx > 0 && ! empty( $moderatable_user_ids ) ) {
+				$stats_payload = SimpleVPBot_Admin_Dashboard_Stats::build_reseller_payload(
+					$moderatable_user_ids,
+					array(),
+					$stats_day
 				);
 			} else {
-				$stats_payload = SimpleVPBot_Admin_Dashboard_Stats::build_payload( 0 );
+				$stats_payload = SimpleVPBot_Admin_Dashboard_Stats::build_payload( $stats_day );
 			}
 		}
 
@@ -2767,7 +3653,11 @@ class SimpleVPBot_Rest_Dashboard {
 			$since_ts    = strtotime( '-30 days', (int) current_time( 'timestamp' ) );
 			$since_mysql = wp_date( 'Y-m-d H:i:s', $since_ts );
 			$scope_sql   = '';
-			if ( $reseller_mode && ! empty( $scope_user_ids ) ) {
+			if ( $reseller_mode ) {
+				$scope_sql = implode( ',', array_map( 'absint', $moderatable_user_ids ) );
+			} elseif ( $owner_ctx > 0 && ! empty( $moderatable_user_ids ) ) {
+				$scope_sql = implode( ',', array_map( 'absint', $moderatable_user_ids ) );
+			} elseif ( ! empty( $scope_user_ids ) ) {
 				$scope_sql = implode( ',', array_map( 'absint', $scope_user_ids ) );
 			}
 
@@ -2795,6 +3685,13 @@ class SimpleVPBot_Rest_Dashboard {
 					LIMIT 20",
 					ARRAY_A
 				);
+			} elseif ( $reseller_mode ) {
+				$tot_referral_ev = 0;
+				$events_last_30  = 0;
+				$invited_users   = 0;
+				$commission_sum  = 0.0;
+				$ref_amt_sum     = 0.0;
+				$top_rows        = array();
 			} else {
 				$tot_referral_ev = SimpleVPBot_Model_Referral_Event::count_all();
 				$events_last_30  = SimpleVPBot_Model_Referral_Event::count_since( $since_mysql );
@@ -2863,10 +3760,74 @@ class SimpleVPBot_Rest_Dashboard {
 			);
 		}
 
+		$reseller_reports_stats = null;
+		$reseller_reports_rows  = array();
+		$reseller_reports_daily = array();
+		$tot_reseller_reports   = 0;
+		if ( 'reseller_reports' === $active_tab && class_exists( 'SimpleVPBot_Admin_Reseller_Reports' ) ) {
+			$scope_ancestor = $reseller_mode && $actor_uid > 0 ? $actor_uid : 0;
+			$rep_built = SimpleVPBot_Admin_Reseller_Reports::build(
+				$req,
+				$p_rep,
+				$scope_ancestor > 0 ? $scope_ancestor : null
+			);
+			$tot_reseller_reports   = (int) ( $rep_built['total'] ?? 0 );
+			$reseller_reports_rows  = isset( $rep_built['rows'] ) && is_array( $rep_built['rows'] ) ? $rep_built['rows'] : array();
+			$reseller_reports_daily = isset( $rep_built['daily'] ) && is_array( $rep_built['daily'] ) ? $rep_built['daily'] : array();
+			$reseller_reports_stats = array(
+				'window_days'   => (int) ( $rep_built['window_days'] ?? 30 ),
+				'since'         => (string) ( $rep_built['since'] ?? '' ),
+				'backfill_done' => ! empty( $rep_built['backfill_done'] ),
+				'daily_scoped'  => ! empty( $rep_built['daily_scoped'] ),
+				'summary'       => isset( $rep_built['summary'] ) && is_array( $rep_built['summary'] ) ? $rep_built['summary'] : array(),
+			);
+		}
+
+		$marketing_lifecycle_stats  = null;
+		$marketing_lifecycle_funnel = array();
+		$marketing_rules            = array();
+		$marketing_rule_stats       = array();
+		$marketing_offers           = array();
+		$tot_marketing_offers       = 0;
+		if ( 'marketing_lifecycle' === $active_tab && class_exists( 'SimpleVPBot_Marketing_Lifecycle_Analytics' ) ) {
+			$mkt_days   = SimpleVPBot_Marketing_Lifecycle_Analytics::normalize_window_days(
+				(int) $req->get_param( 'marketing_lifecycle_days' )
+			);
+			$mkt_owner  = $reseller_mode ? $actor_uid : ( $owner_ctx > 0 ? $owner_ctx : 0 );
+			$site_admin = ! $reseller_mode && current_user_can( 'manage_options' );
+			$built      = SimpleVPBot_Marketing_Lifecycle_Analytics::build_dashboard_payload(
+				$mkt_days,
+				$mkt_owner,
+				$site_admin
+			);
+			$marketing_lifecycle_stats  = array(
+				'window_days' => (int) ( $built['window_days'] ?? $mkt_days ),
+				'since'       => (string) ( $built['since'] ?? '' ),
+				'summary'     => isset( $built['summary'] ) && is_array( $built['summary'] ) ? $built['summary'] : array(),
+			);
+			$marketing_lifecycle_funnel = isset( $built['funnel'] ) && is_array( $built['funnel'] ) ? $built['funnel'] : array();
+			$marketing_rules            = isset( $built['rules'] ) && is_array( $built['rules'] ) ? $built['rules'] : array();
+			$marketing_rule_stats       = isset( $built['rule_stats'] ) && is_array( $built['rule_stats'] ) ? $built['rule_stats'] : array();
+			$mkt_offer_status           = sanitize_key( (string) wp_unslash( (string) $req->get_param( 'marketingOffers_status' ) ) );
+			if ( class_exists( 'SimpleVPBot_Model_Marketing_Offer' ) ) {
+				$off_built = SimpleVPBot_Model_Marketing_Offer::list_recent(
+					$mkt_owner,
+					$p_mkt['per_page'],
+					$p_mkt['offset'],
+					$site_admin,
+					$mkt_offer_status
+				);
+				$tot_marketing_offers = (int) ( $off_built['total'] ?? 0 );
+				foreach ( (array) ( $off_built['rows'] ?? array() ) as $orow ) {
+					$marketing_offers[] = SimpleVPBot_Model_Marketing_Offer::to_payload( $orow );
+				}
+			}
+		}
+
 		$force_health = $req->get_param( 'refreshPanelHealth' ) === '1';
 		$panel_health = array();
 		// Health covers all panels (not only the paged list slice used elsewhere).
-		if ( $dash_users_tab_light && ! $force_health ) {
+		if ( ( $dash_users_tab_light && ! $force_health ) || ! $needs_panel_health ) {
 			$panels_for_health = array();
 		} elseif ( $reseller_mode ) {
 			if ( empty( $reseller_allowed_panel_ids ) ) {
@@ -2942,7 +3903,7 @@ class SimpleVPBot_Rest_Dashboard {
 					$live_snapshots[] = SimpleVPBot_Dashboard_Panel_Live::snapshot_for_panel( $pid, $force_live_metrics );
 				}
 			}
-			if ( class_exists( 'SimpleVPBot_Model_Monitor_Host' ) ) {
+			if ( ! $reseller_mode && class_exists( 'SimpleVPBot_Model_Monitor_Host' ) ) {
 				foreach ( SimpleVPBot_Model_Monitor_Host::active_ordered() as $mh_row ) {
 					$hid = (int) $mh_row->id;
 					$snap = SimpleVPBot_Dashboard_Panel_Live::snapshot_external_host(
@@ -2962,13 +3923,58 @@ class SimpleVPBot_Rest_Dashboard {
 			}
 		}
 
+		$online_daily_series = array();
+		if ( ! $dash_users_tab_light && class_exists( 'SimpleVPBot_Model_Panel_Online_Daily' ) ) {
+			$online_panel_ids = $reseller_mode ? $reseller_allowed_panel_ids : array();
+			$online_daily_series = $reseller_mode
+				? SimpleVPBot_Model_Panel_Online_Daily::daily_totals_last_days_for_panels( 7, $online_panel_ids )
+				: SimpleVPBot_Model_Panel_Online_Daily::daily_totals_last_days( 7 );
+			$online_daily_series = SimpleVPBot_Model_Panel_Online_Daily::merge_live_snapshots_into_series(
+				$online_daily_series,
+				$live_snapshots
+			);
+			if ( empty( $live_snapshots ) ) {
+				$cache_panel_ids = $reseller_mode
+					? $online_panel_ids
+					: array_values(
+						array_filter(
+							array_map(
+								static function ( $hrow ) {
+									return is_array( $hrow ) && isset( $hrow['id'] ) ? (int) $hrow['id'] : 0;
+								},
+								(array) $panels_for_health
+							),
+							static function ( $v ) {
+								return $v > 0;
+							}
+						)
+					);
+				$online_daily_series = SimpleVPBot_Model_Panel_Online_Daily::merge_cached_live_into_series(
+					$online_daily_series,
+					$cache_panel_ids
+				);
+			}
+			$online_daily_series = SimpleVPBot_Model_Panel_Online_Daily::maybe_self_heal_today_series(
+				$online_daily_series,
+				7,
+				$reseller_mode ? $online_panel_ids : array()
+			);
+		}
+
 		$overview_bot_tg   = (string) ( $settings['telegram_bot_username'] ?? '' );
 		$overview_bot_bale = (string) ( $settings['bale_bot_username'] ?? '' );
+		$overview_tg_en    = class_exists( 'SimpleVPBot_Platforms' ) ? SimpleVPBot_Platforms::main_platform_flag( 'telegram', $settings ) : true;
+		$overview_bl_en    = class_exists( 'SimpleVPBot_Platforms' ) ? SimpleVPBot_Platforms::main_platform_flag( 'bale', $settings ) : true;
+		$reseller_prof     = null;
 		if ( $reseller_mode && $actor_uid > 0 && class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
 			$reseller_prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $actor_uid );
 			if ( $reseller_prof ) {
-				$overview_bot_tg   = (string) SimpleVPBot_Model_Reseller_Bot_Profile::bot_username_for_platform( $reseller_prof, 'telegram' );
+				$overview_bot_tg = (string) SimpleVPBot_Model_Reseller_Bot_Profile::bot_username_for_platform( $reseller_prof, 'telegram' );
 				$overview_bot_bale = (string) SimpleVPBot_Model_Reseller_Bot_Profile::bot_username_for_platform( $reseller_prof, 'bale' );
+				if ( class_exists( 'SimpleVPBot_Platforms' ) ) {
+					$overview_tg_en = SimpleVPBot_Platforms::is_enabled( 'telegram', $actor_uid );
+					$overview_bl_en = SimpleVPBot_Platforms::is_enabled( 'bale', $actor_uid );
+				}
 			}
 		}
 
@@ -2992,21 +3998,28 @@ class SimpleVPBot_Rest_Dashboard {
 			),
 			'bot'           => array(
 				'enabled'               => ! empty( $settings['enabled'] ),
+				'telegram_enabled'      => $overview_tg_en,
+				'bale_enabled'          => $overview_bl_en,
 				'telegram_bot_username' => $overview_bot_tg,
 				'bale_bot_username'     => $overview_bot_bale,
 			),
 			'host'          => $reseller_mode ? null : self::overview_host_metrics(),
-			'onlineDailySeries' => ( ! $dash_users_tab_light && class_exists( 'SimpleVPBot_Model_Panel_Online_Daily' ) )
-				? (
-					$reseller_mode
-						? SimpleVPBot_Model_Panel_Online_Daily::daily_totals_last_days_for_panels( 7, $reseller_allowed_panel_ids )
-						: SimpleVPBot_Model_Panel_Online_Daily::daily_totals_last_days( 7 )
-				)
-				: array(),
+			'onlineDailySeries' => $online_daily_series,
 			'panelHealth'   => $panel_health,
 			'livePanelSnapshots' => $live_snapshots,
 			'externalHostSnapshots' => $external_snaps,
 		);
+		if ( ! $reseller_mode && 'overview' === $active_tab && class_exists( 'SimpleVPBot_Unit_Economics_Overview' ) ) {
+			$overview['economics'] = SimpleVPBot_Unit_Economics_Overview::build();
+		}
+
+		$reseller_overview_metrics = null;
+		if ( $reseller_mode && $actor_uid > 0 && 'dashboard' === $active_tab && class_exists( 'SimpleVPBot_Admin_Reseller_Reports' ) ) {
+			$reseller_overview_metrics = SimpleVPBot_Admin_Reseller_Reports::build_actor_summary(
+				$actor_uid,
+				SimpleVPBot_Admin_Reseller_Reports::overview_metrics_days_from_request( $req )
+			);
+		}
 
 		$bots_list_payload = array();
 		$tot_bots_list     = 0;
@@ -3022,7 +4035,7 @@ class SimpleVPBot_Rest_Dashboard {
 						$wpdb->prepare(
 							"SELECT u.id AS reseller_svp_user_id, u.first_name AS reseller_first_name, u.last_name AS reseller_last_name,
 							u.username AS reseller_username, u.status AS reseller_status,
-							p.brand_name, p.logo_url, p.favicon_url, p.theme_primary, p.theme_accent, p.custom_domain,
+							p.brand_name, p.logo_url, p.favicon_url, p.theme_primary, p.theme_accent, p.custom_domain, p.telegram_relay_public_url,
 							p.config_label_override, p.config_label_prefix, p.enabled, p.telegram_token, p.bale_token, p.telegram_secret_token,
 							p.telegram_bot_username, p.bale_bot_username, p.text_overrides_json,
 							p.admin_telegram_ids, p.admin_bale_ids
@@ -3068,9 +4081,12 @@ class SimpleVPBot_Rest_Dashboard {
 					'theme_primary'             => (string) ( $brow->theme_primary ?? '' ),
 					'theme_accent'              => (string) ( $brow->theme_accent ?? '' ),
 					'custom_domain'             => (string) ( $brow->custom_domain ?? '' ),
+					'telegram_relay_public_url' => (string) ( $brow->telegram_relay_public_url ?? '' ),
 					'config_label_override'     => (string) ( $brow->config_label_override ?? '' ),
 					'config_label_prefix'       => (string) ( $brow->config_label_prefix ?? '' ),
 					'enabled'                   => ! empty( $brow->enabled ),
+					'telegram_enabled'          => class_exists( 'SimpleVPBot_Platforms' ) ? SimpleVPBot_Platforms::reseller_platform_flag( $brow, 'telegram' ) : true,
+					'bale_enabled'              => class_exists( 'SimpleVPBot_Platforms' ) ? SimpleVPBot_Platforms::reseller_platform_flag( $brow, 'bale' ) : true,
 					'has_telegram_token'        => '' !== $tg_tok,
 					'has_bale_token'            => '' !== $bl_tok,
 					'telegram_bot_username'     => class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' )
@@ -3106,20 +4122,64 @@ class SimpleVPBot_Rest_Dashboard {
 			'resellers'      => self::dash_pagination_meta( $p_res['page'], $p_res['per_page'], $tot_resellers ),
 			'receipts'       => self::dash_pagination_meta( $p_rcpt['page'], $p_rcpt['per_page'], $tot_rcpt ),
 			'broadcasts'     => self::dash_pagination_meta( $p_bc['page'], $p_bc['per_page'], $tot_bc ),
-			'referralEvents' => self::dash_pagination_meta( $p_ref_ev['page'], $p_ref_ev['per_page'], $tot_referral_ev ),
-			'botsList'       => self::dash_pagination_meta( $p_bots['page'], $p_bots['per_page'], $tot_bots_list ),
+			'referralEvents'   => self::dash_pagination_meta( $p_ref_ev['page'], $p_ref_ev['per_page'], $tot_referral_ev ),
+			'resellerReports'  => self::dash_pagination_meta( $p_rep['page'], $p_rep['per_page'], $tot_reseller_reports ),
+			'marketingOffers'  => self::dash_pagination_meta( $p_mkt['page'], $p_mkt['per_page'], $tot_marketing_offers ),
+			'botsList'         => self::dash_pagination_meta( $p_bots['page'], $p_bots['per_page'], $tot_bots_list ),
 		);
 
-		$ui_layout    = class_exists( 'SimpleVPBot_UI_Layout' ) ? SimpleVPBot_UI_Layout::export_merged_for_dashboard() : array( 'version' => 0, 'surfaces' => array() );
-		$ui_registry = class_exists( 'SimpleVPBot_UI_Action_Registry' ) ? SimpleVPBot_UI_Action_Registry::export_for_dashboard() : array( 'version' => 0, 'surfaces' => array() );
+		$ui_layout    = ( $reseller_mode || ! class_exists( 'SimpleVPBot_UI_Layout' ) )
+			? array( 'version' => 0, 'surfaces' => array() )
+			: SimpleVPBot_UI_Layout::export_merged_for_dashboard();
+		$ui_registry = ( $reseller_mode || ! class_exists( 'SimpleVPBot_UI_Action_Registry' ) )
+			? array( 'version' => 0, 'surfaces' => array() )
+			: SimpleVPBot_UI_Action_Registry::export_for_dashboard();
+
+		$unit_economics      = null;
+		$panel_economics_map = null;
+		if ( ! $reseller_mode && class_exists( 'SimpleVPBot_Unit_Economics_Calculator' ) ) {
+			if ( in_array( $active_tab, array( 'unit_economics', 'xui_panels' ), true ) ) {
+				$panel_economics_map = SimpleVPBot_Unit_Economics_Calculator::panel_economics_map_for_rest();
+			}
+			if ( 'unit_economics' === $active_tab ) {
+				$unit_economics = SimpleVPBot_Unit_Economics_Calculator::calculate_from_db();
+			} elseif ( 'xui_panels' === $active_tab && class_exists( 'SimpleVPBot_Model_Unit_Economics_Config' ) ) {
+				$global_in    = SimpleVPBot_Model_Unit_Economics_Config::global_inputs();
+				$config_clean = SimpleVPBot_Unit_Economics_Calculator::sanitize_global_config( $global_in );
+				$sales        = SimpleVPBot_Unit_Economics_Calculator::sales_volume_snapshot( $config_clean );
+				$site_volume  = SimpleVPBot_Unit_Economics_Calculator::resolve_volume_for_panel( 0, $config_clean, $sales );
+				$unit_economics = array(
+					'inputs' => array(
+						'total_sold_volume_gb'   => $site_volume,
+						'effective_volume_gb'    => $site_volume,
+						'selling_price_per_gb'   => $global_in['selling_price_per_gb'],
+						'volume_mode'            => $global_in['volume_mode'],
+						'volume_window_days'     => $global_in['volume_window_days'],
+						'sales_volume_gb_30d'    => $sales['total_gb'] ?? 0,
+					),
+					'salesVolume' => $sales,
+				);
+			}
+		}
 
 		$payload = array(
 			'settings'                 => $settings,
+			'paymentMethods'           => class_exists( 'SimpleVPBot_Payment_Methods' )
+				? SimpleVPBot_Payment_Methods::dashboard_payload( $reseller_mode ? $actor_uid : 0 )
+				: null,
 			'textDefaults'             => $text_defaults,
 			'uiLayout'                 => $ui_layout,
 			'uiRegistry'               => $ui_registry,
 			'referralStats'            => $referral_stats,
 			'referralEvents'           => $referral_events,
+			'resellerReportsStats'       => $reseller_reports_stats,
+			'resellerReportsRows'        => $reseller_reports_rows,
+			'resellerReportsDaily'       => $reseller_reports_daily,
+			'marketingLifecycleStats'    => $marketing_lifecycle_stats,
+			'marketingLifecycleFunnel'   => $marketing_lifecycle_funnel,
+			'marketingRules'             => $marketing_rules,
+			'marketingRuleStats'         => $marketing_rule_stats,
+			'marketingOffers'            => $marketing_offers,
 			'panels'                   => $panels,
 			'plans'                    => $plans,
 			'planCategories'           => $plan_cats,
@@ -3128,12 +4188,30 @@ class SimpleVPBot_Rest_Dashboard {
 			'texts'                    => $texts,
 			'discountCodes'            => $discounts,
 			'discountUsageSummary'     => $discount_usage_summary,
-			'pendingUsers'             => array_map( array( __CLASS__, 'row_array' ), (array) $pending_users ),
-			'usersList'                => array_map( array( __CLASS__, 'row_array' ), (array) $users_list ),
-			'resellers'                => array_map( array( __CLASS__, 'row_array' ), (array) $resellers ),
+			'pendingUsers'             => array_map(
+				static function ( $u ) {
+					$row = self::row_array( $u );
+					return is_array( $row ) ? self::sanitize_user_row_for_dashboard( $row ) : null;
+				},
+				(array) $pending_users
+			),
+			'usersList'                => self::users_list_rows_for_dashboard( (array) $users_list ),
+			'resellers'                => array_map(
+				static function ( $r ) {
+					$row = self::row_array( $r );
+					return is_array( $row ) ? self::sanitize_user_row_for_dashboard( $row ) : null;
+				},
+				(array) $resellers
+			),
 			'resellerPermissionsMap'   => $reseller_permissions_map,
 			'resellerPanelPricesMap'   => $reseller_panel_prices_map,
 			'resellerBotMap'           => $reseller_bot_map,
+			'wholesaleCatalogByPanel'  => self::dashboard_rest_is_unrestricted_site_admin() && class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' )
+				? SimpleVPBot_Model_Reseller_Panel_Price::site_wholesale_catalog_by_panel()
+				: array(),
+			'wholesaleLinesCatalog'    => $wholesale_lines_catalog,
+			'wholesaleLines'           => $reseller_wholesale_lines_payload,
+			'resellerWholesaleLineIdsMap' => $reseller_wholesale_line_ids_map,
 			'botsList'                 => $bots_list_payload,
 			'receipts'                 => array_values( array_filter( array_map( array( __CLASS__, 'format_receipt_for_dashboard' ), (array) $receipts ) ) ),
 			'receiptAggregates'        => $receipt_aggregates,
@@ -3143,44 +4221,32 @@ class SimpleVPBot_Rest_Dashboard {
 			'navTabs'                  => $nav_tabs,
 			'overview'                 => $overview,
 			'monitorHosts'             => $monitor_hosts_pub,
+			'unitEconomics'            => $unit_economics,
+			'panelEconomicsMap'        => $panel_economics_map,
 			'pagination'               => $pagination,
 			'resellerContextId'        => $owner_ctx > 0 ? $owner_ctx : 0,
+			'resellerOverviewMetrics'  => $reseller_overview_metrics,
 		);
 		if ( $reseller_mode ) {
-			$payload['resellerAllowedTabs']   = self::reseller_dashboard_allowed_tabs_map( $actor_uid );
-			$payload['actorPermissions']    = SimpleVPBot_Model_User::reseller_permissions( $actor_uid );
+			$payload['resellerAllowedTabs'] = self::reseller_dashboard_allowed_tabs_map(
+				$actor_uid,
+				is_array( $reseller_actor_perms ) ? $reseller_actor_perms : null
+			);
+			$payload['actorPermissions']    = is_array( $reseller_actor_perms )
+				? $reseller_actor_perms
+				: SimpleVPBot_Model_User::reseller_permissions( $actor_uid );
 			$payload['resellerPlanFloors'] = $reseller_plan_floors;
 			if ( $actor_uid > 0 && empty( $panels ) && class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
 				$payload['resellerPanelAccessDiagnostics'] = SimpleVPBot_Model_Reseller_Panel_Price::access_diagnostics( $actor_uid );
 			}
-			$reseller_customer_charges = array();
-			if ( $actor_uid > 0 && ! empty( $scope_user_ids ) && class_exists( 'SimpleVPBot_Model_Transaction' ) && class_exists( 'SimpleVPBot_Model_User' ) ) {
-				$tx_t    = SimpleVPBot_Model_Transaction::table();
-				$in_list = implode( ',', array_map( 'absint', $scope_user_ids ) );
-				if ( '' !== $in_list ) {
-					// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-					$tx_rows = $wpdb->get_results( "SELECT * FROM {$tx_t} WHERE user_id IN ({$in_list}) AND status = 'approved' ORDER BY id DESC LIMIT 120" );
-					foreach ( (array) $tx_rows as $txrow ) {
-						if ( ! $txrow || ! is_object( $txrow ) ) {
-							continue;
-						}
-						if ( ! class_exists( 'SimpleVPBot_Reseller_Backfill' )
-							|| ! SimpleVPBot_Reseller_Backfill::tx_belongs_to_reseller( $txrow, $actor_uid ) ) {
-							continue;
-						}
-						$cid = (int) $txrow->user_id;
-						$cust = SimpleVPBot_Model_User::find( $cid );
-						$lab  = $cust ? SimpleVPBot_Model_User::label( $cust ) : ( '#' . $cid );
-						$ra   = self::row_array( $txrow );
-						if ( is_array( $ra ) ) {
-							$ra['customer_label']       = $lab;
-							$ra['customer_svp_user_id'] = $cid;
-							$reseller_customer_charges[] = $ra;
-						}
-					}
-				}
+			if ( $actor_uid > 0 && class_exists( 'SimpleVPBot_Portal_Link' ) ) {
+				$payload['portalAdminUrl'] = (string) SimpleVPBot_Portal_Link::build_admin_url( $actor_uid );
 			}
-			$payload['resellerCustomerCharges'] = $reseller_customer_charges;
+			if ( $needs_reseller_customer_charges && $actor_uid > 0 ) {
+				$reseller_customer_charges = self::build_reseller_customer_charges( $actor_uid, $moderatable_user_ids, $req );
+				$payload['resellerCustomerCharges']           = $reseller_customer_charges['rows'];
+				$payload['resellerCustomerChargesPagination'] = $reseller_customer_charges['pagination'];
+			}
 		}
 		$sidebar_u = self::sidebar_user_payload( $actor_uid );
 		if ( null !== $sidebar_u ) {
@@ -3217,6 +4283,9 @@ class SimpleVPBot_Rest_Dashboard {
 		$ua = self::row_array( $row );
 		if ( is_array( $ua ) ) {
 			$ua['label'] = self::dashboard_svp_row_display_label( $row, $uid );
+			if ( class_exists( 'SimpleVPBot_Model_User' ) && SimpleVPBot_Model_User::is_reseller_row( $row ) ) {
+				$ua = self::sanitize_user_row_for_dashboard( $ua );
+			}
 		}
 		return new WP_REST_Response(
 			array(
@@ -3241,8 +4310,28 @@ class SimpleVPBot_Rest_Dashboard {
 			$q = substr( $q, 0, 128 );
 		}
 		$rows  = SimpleVPBot_Model_User::search( $q, 20 );
+		$scope_ids = null;
 		if ( ! empty( $ctx['isReseller'] ) ) {
-			$scope_ids = SimpleVPBot_Model_User::reseller_scope_user_ids( (int) $ctx['actorUserId'] );
+			$actor     = (int) $ctx['actorUserId'];
+			$scope_ids = class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				? SimpleVPBot_Bot_Reseller_Scope::effective_moderatable_user_ids( $actor )
+				: SimpleVPBot_Model_User::reseller_scope_user_ids( $actor );
+		} elseif ( (int) ( $ctx['impersonationTargetId'] ?? 0 ) > 0 && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			$scope_ids = SimpleVPBot_Bot_Reseller_Scope::effective_moderatable_user_ids( (int) $ctx['impersonationTargetId'] );
+		} else {
+			$owner_ctx = (int) $req->get_param( 'resellerContextId' );
+			if ( $owner_ctx > 0 ) {
+				$validated = self::validate_reseller_context_id( $owner_ctx );
+				if ( null === $validated ) {
+					return new WP_REST_Response( array( 'ok' => false, 'message' => 'invalid_reseller_context' ), 400 );
+				}
+				$owner_ctx = $validated;
+				if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+					$scope_ids = SimpleVPBot_Bot_Reseller_Scope::effective_moderatable_user_ids( $owner_ctx );
+				}
+			}
+		}
+		if ( is_array( $scope_ids ) ) {
 			$rows      = array_values(
 				array_filter(
 					(array) $rows,
@@ -3257,7 +4346,7 @@ class SimpleVPBot_Rest_Dashboard {
 		foreach ( (array) $rows as $r ) {
 			$ra = self::row_array( $r );
 			if ( $ra ) {
-				$users[] = $ra;
+				$users[] = self::sanitize_user_row_for_dashboard( $ra );
 			}
 		}
 		return new WP_REST_Response(
@@ -3285,7 +4374,7 @@ class SimpleVPBot_Rest_Dashboard {
 		if ( ! $user ) {
 			return new WP_REST_Response( array( 'ok' => false, 'message' => 'not_found' ), 404 );
 		}
-		if ( ! empty( $ctx['isReseller'] ) && ! SimpleVPBot_Model_User::reseller_can_access_user( (int) $ctx['actorUserId'], $id ) ) {
+		if ( ! self::dashboard_actor_may_read_user( $ctx, $id ) ) {
 			return new WP_REST_Response( array( 'ok' => false, 'message' => 'forbidden' ), 403 );
 		}
 		$svcs = SimpleVPBot_Model_Service::by_user( $id );
@@ -3348,7 +4437,7 @@ class SimpleVPBot_Rest_Dashboard {
 		if ( class_exists( 'SimpleVPBot_Model_User' ) ) {
 			foreach ( SimpleVPBot_Model_User::list_invited_by( $id, 150 ) as $ref ) {
 				$ra = self::row_array( $ref );
-				if ( $ra ) {
+				if ( $ra && self::dashboard_actor_may_read_user( $ctx, (int) ( $ra['id'] ?? 0 ) ) ) {
 					$referrals[] = $ra;
 				}
 			}
@@ -3471,15 +4560,87 @@ class SimpleVPBot_Rest_Dashboard {
 				}
 			}
 		}
+
+		$user_receipts            = array();
+		$user_receipt_aggregates  = array();
+		$p_user_rcpt              = self::dash_list_pagination( $req, 'receipts', 40 );
+		$tot_user_rcpt            = 0;
+		if ( class_exists( 'SimpleVPBot_Model_Receipt' ) ) {
+			global $wpdb;
+			$rcpt_t         = SimpleVPBot_Model_Receipt::table();
+			$u_tbl          = SimpleVPBot_Model_User::table();
+			$rcpt_scope_sql = ' AND r.user_id = ' . absint( $id );
+			$rcpt_filter    = self::receipt_admin_filter_from_request( $req );
+			$tot_user_rcpt  = self::receipt_admin_count( $wpdb, $rcpt_t, $u_tbl, $rcpt_scope_sql, $rcpt_filter );
+			$raw_user_rcpts = self::receipt_admin_select(
+				$wpdb,
+				$rcpt_t,
+				$u_tbl,
+				$rcpt_scope_sql,
+				$rcpt_filter,
+				$p_user_rcpt['per_page'],
+				$p_user_rcpt['offset']
+			);
+			$user_receipts = array_values(
+				array_filter(
+					array_map(
+						array( __CLASS__, 'format_receipt_for_dashboard' ),
+						(array) $raw_user_rcpts
+					)
+				)
+			);
+			$agg_rows = self::receipt_admin_aggregate_rows( $wpdb, $rcpt_t, $u_tbl, $rcpt_scope_sql, $rcpt_filter );
+			foreach ( (array) $agg_rows as $ar ) {
+				if ( ! is_array( $ar ) ) {
+					continue;
+				}
+				$user_receipt_aggregates[] = array(
+					'status'    => (string) ( $ar['status'] ?? '' ),
+					'count'     => (int) ( $ar['cnt'] ?? 0 ),
+					'sumAmount' => (float) ( $ar['sum_amount'] ?? 0 ),
+				);
+			}
+		}
+
+		$marketing_offers_user = array();
+		if ( class_exists( 'SimpleVPBot_Model_Marketing_Offer' ) ) {
+			$can_mkt = current_user_can( 'manage_options' );
+			if ( ! $can_mkt && ! empty( $ctx['isReseller'] ) ) {
+				$rp = SimpleVPBot_Model_User::reseller_permissions( (int) ( $ctx['actorUserId'] ?? 0 ) );
+				$can_mkt = ! empty( $rp['marketing.lifecycle'] );
+			}
+			if ( $can_mkt ) {
+				$marketing_offers_user = SimpleVPBot_Model_Marketing_Offer::list_for_user( $id, 15 );
+			}
+		}
+
+		if ( is_array( $user_arr ) ) {
+			$user_arr = self::sanitize_user_row_for_dashboard( $user_arr );
+		}
+		$referrals = array_values(
+			array_filter(
+				array_map(
+					static function ( $row ) {
+						return is_array( $row ) ? self::sanitize_user_row_for_dashboard( $row ) : null;
+					},
+					$referrals
+				)
+			)
+		);
+
 		return new WP_REST_Response(
 			array(
 				'ok'                 => true,
 				'user'               => $user_arr,
 				'services'           => $list,
 				'referrals'          => $referrals,
+				'marketingOffers'    => $marketing_offers_user,
 				'portalBaseUrl'      => $portal_base,
 				'resellerChoices'    => $reseller_choices,
 				'planCategories'     => $detail_plan_cats,
+				'receipts'           => $user_receipts,
+				'receiptAggregates'  => $user_receipt_aggregates,
+				'receiptsPagination' => self::dash_pagination_meta( $p_user_rcpt['page'], $p_user_rcpt['per_page'], $tot_user_rcpt ),
 				'activity'           => isset( $act['rows'] ) ? $act['rows'] : array(),
 				'activityPagination' => array(
 					'page'    => (int) ( $act['page'] ?? $page ),
@@ -3619,7 +4780,7 @@ class SimpleVPBot_Rest_Dashboard {
 		if ( $pid < 1 ) {
 			return false;
 		}
-		if ( current_user_can( 'manage_options' ) ) {
+		if ( self::dashboard_rest_is_unrestricted_site_admin() ) {
 			return true;
 		}
 		$ctx   = self::dashboard_actor_context();
@@ -3822,9 +4983,92 @@ class SimpleVPBot_Rest_Dashboard {
 		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
 			return new WP_REST_Response( array( 'ok' => false, 'message' => 'no_module' ), 500 );
 		}
-		$res = SimpleVPBot_Service_Admin_Ops::backup_now();
-		$code = ! empty( $res['ok'] ) ? 200 : 400;
-		return new WP_REST_Response( $res, $code );
+		try {
+			$res = SimpleVPBot_Service_Admin_Ops::backup_now_start_async();
+			// Always 200 for logical outcomes so proxies/WAFs do not replace JSON with HTML error pages.
+			return new WP_REST_Response( $res, 200 );
+		} catch ( Throwable $e ) { // phpcs:ignore
+			return new WP_REST_Response(
+				array(
+					'ok'      => false,
+					'message' => $e->getMessage(),
+				),
+				500
+			);
+		}
+	}
+
+	/**
+	 * Poll async manual backup status.
+	 *
+	 * @return WP_REST_Response
+	 */
+	public static function route_admin_backup_status() {
+		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'no_module' ), 500 );
+		}
+		$res = SimpleVPBot_Service_Admin_Ops::get_manual_backup_status_api();
+		return new WP_REST_Response( $res, 200 );
+	}
+
+	/**
+	 * Clear stuck manual backup locks (dashboard).
+	 *
+	 * @return WP_REST_Response
+	 */
+	public static function route_admin_backup_reset_stuck() {
+		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'no_module' ), 500 );
+		}
+		$res = SimpleVPBot_Service_Admin_Ops::reset_backup_stuck_locks();
+		return new WP_REST_Response( $res, 200 );
+	}
+
+	/**
+	 * Download a site-stored backup zip (streams file; large zips).
+	 *
+	 * @param WP_REST_Request $req Request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public static function route_admin_backup_download( WP_REST_Request $req ) {
+		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'no_module' ), 500 );
+		}
+		$filename = sanitize_file_name( (string) $req->get_param( 'filename' ) );
+		if ( '' === $filename ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'missing_filename' ), 400 );
+		}
+		$path = SimpleVPBot_Service_Admin_Ops::resolve_site_backup_download_path( $filename );
+		if ( '' === $path || ! is_readable( $path ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'not_found' ), 404 );
+		}
+		$size = (int) @filesize( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		add_filter(
+			'rest_pre_serve_request',
+			static function ( $served, $result, $request, $server ) use ( $path, $filename, $size ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter
+				if ( ! $request instanceof WP_REST_Request ) {
+					return $served;
+				}
+				$route = (string) $request->get_route();
+				if ( false === strpos( $route, '/dashboard/admin/backup/download' ) ) {
+					return $served;
+				}
+				if ( function_exists( 'nocache_headers' ) ) {
+					nocache_headers();
+				}
+				header( 'Content-Type: application/zip' );
+				header( 'Content-Disposition: attachment; filename="' . basename( $filename ) . '"' );
+				if ( $size > 0 ) {
+					header( 'Content-Length: ' . (string) $size );
+				}
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_readfile
+				readfile( $path );
+				return true;
+			},
+			10,
+			4
+		);
+		return new WP_REST_Response( null, 200 );
 	}
 
 	/**
@@ -4051,6 +5295,38 @@ class SimpleVPBot_Rest_Dashboard {
 		);
 	}
 
+	public static function route_admin_purge_expired( WP_REST_Request $req ) {
+		if ( ! class_exists( 'SimpleVPBot_Cron_Purge_Expired' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'no_module' ), 500 );
+		}
+		$data = SimpleVPBot_Cron_Purge_Expired::list_expired_candidates(
+			array(
+				'page'     => (int) $req->get_param( 'page' ),
+				'per_page' => (int) $req->get_param( 'per_page' ),
+				'status'   => (string) $req->get_param( 'status' ),
+			)
+		);
+		$panel_id = (int) $req->get_param( 'panel_id' );
+		$immediate = array(
+			'count' => 0,
+			'ids'   => array(),
+		);
+		if ( $panel_id > 0 && class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			$immediate = SimpleVPBot_Service_Admin_Ops::expired_linked_preview( $panel_id, 50 );
+		}
+		return new WP_REST_Response(
+			array(
+				'ok'                  => true,
+				'items'               => $data['items'],
+				'totals'              => $data['totals'],
+				'pagination'          => $data['pagination'],
+				'settings'            => $data['settings'],
+				'immediate_batch'     => $immediate,
+			),
+			200
+		);
+	}
+
 	public static function route_admin_logs( WP_REST_Request $req ) {
 		if ( ! class_exists( 'SimpleVPBot_Model_Log' ) ) {
 			return new WP_REST_Response( array( 'ok' => false, 'message' => 'no_model' ), 500 );
@@ -4239,14 +5515,49 @@ class SimpleVPBot_Rest_Dashboard {
 			} elseif ( isset( $params['membership_user_id'] ) ) {
 				$target_uid = (int) $params['membership_user_id'];
 			}
-			if ( $target_uid > 0 && ! SimpleVPBot_Model_User::reseller_can_access_user( (int) $ctx['actorUserId'], $target_uid ) ) {
+			if ( $target_uid > 0 && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				&& ! SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( (int) $ctx['actorUserId'], $target_uid ) ) {
 				return new WP_REST_Response( array( 'ok' => false, 'message' => 'forbidden_scope' ), 403 );
 			}
 			$service_id = isset( $params['service_id'] ) ? (int) $params['service_id'] : 0;
+			$service_ids = array();
 			if ( $service_id > 0 ) {
-				$svc = SimpleVPBot_Model_Service::find_any( $service_id );
+				$service_ids[] = $service_id;
+			}
+			if ( isset( $params['service_ids'] ) && is_array( $params['service_ids'] ) ) {
+				foreach ( $params['service_ids'] as $raw_sid ) {
+					$n = (int) $raw_sid;
+					if ( $n > 0 ) {
+						$service_ids[] = $n;
+					}
+				}
+			}
+			$service_ids = array_values( array_unique( $service_ids ) );
+			foreach ( $service_ids as $check_sid ) {
+				$svc = SimpleVPBot_Model_Service::find_any( $check_sid );
 				$svc_uid = $svc ? (int) ( $svc->user_id ?? 0 ) : 0;
-				if ( $svc_uid < 1 || ! SimpleVPBot_Model_User::reseller_can_access_user( (int) $ctx['actorUserId'], $svc_uid ) ) {
+				if ( $svc_uid < 1 || ! SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( (int) $ctx['actorUserId'], $svc_uid ) ) {
+					return new WP_REST_Response( array( 'ok' => false, 'message' => 'forbidden_scope' ), 403 );
+				}
+			}
+			if ( 'user_service_transfer' === $op && class_exists( 'SimpleVPBot_Service_Transfer' ) ) {
+				$tgt_raw = isset( $params['target'] ) ? trim( (string) $params['target'] ) : '';
+				if ( '' !== $tgt_raw ) {
+					$transfer_target = SimpleVPBot_Service_Transfer::resolve_user( $tgt_raw );
+					if ( ! $transfer_target
+						|| ! SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( (int) $ctx['actorUserId'], (int) $transfer_target->id ) ) {
+						return new WP_REST_Response( array( 'ok' => false, 'message' => 'forbidden_scope' ), 403 );
+					}
+				}
+			}
+			$receipt_id = isset( $params['receipt_id'] ) ? (int) $params['receipt_id'] : 0;
+			if ( $receipt_id < 1 && isset( $params['id'] ) && in_array( $op, array( 'receipt_approve', 'receipt_reject', 'receipt_update' ), true ) ) {
+				$receipt_id = (int) $params['id'];
+			}
+			if ( $receipt_id > 0 && class_exists( 'SimpleVPBot_Model_Receipt' ) ) {
+				$rec = SimpleVPBot_Model_Receipt::find( $receipt_id );
+				$rec_uid = $rec ? (int) ( $rec->user_id ?? 0 ) : 0;
+				if ( $rec_uid < 1 || ! SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( (int) $ctx['actorUserId'], $rec_uid ) ) {
 					return new WP_REST_Response( array( 'ok' => false, 'message' => 'forbidden_scope' ), 403 );
 				}
 			}
@@ -4256,10 +5567,49 @@ class SimpleVPBot_Rest_Dashboard {
 			$params['__actor_svp_user_id'] = (int) $ctx['actorUserId'];
 			$params['owner_svp_user_id']   = (int) $ctx['actorUserId'];
 		}
-		if ( current_user_can( 'manage_options' ) ) {
+		if ( self::dashboard_rest_is_unrestricted_site_admin() ) {
 			$owner_ctx = isset( $params['reseller_context_svp_user_id'] ) ? (int) $params['reseller_context_svp_user_id'] : 0;
 			if ( $owner_ctx > 0 ) {
-				$params['owner_svp_user_id'] = $owner_ctx;
+				$validated = self::validate_reseller_context_id( $owner_ctx );
+				if ( null === $validated ) {
+					return new WP_REST_Response( array( 'ok' => false, 'message' => 'invalid_reseller_context' ), 400 );
+				}
+				$owner_ctx = $validated;
+				$params['owner_svp_user_id']     = $owner_ctx;
+				$params['__actor_svp_user_id']   = $owner_ctx;
+				if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+					$target_uid = 0;
+					if ( isset( $params['svp_user_id'] ) ) {
+						$target_uid = (int) $params['svp_user_id'];
+					} elseif ( isset( $params['target_user_id'] ) ) {
+						$target_uid = (int) $params['target_user_id'];
+					} elseif ( isset( $params['membership_user_id'] ) ) {
+						$target_uid = (int) $params['membership_user_id'];
+					}
+					if ( $target_uid > 0 && ! SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( $owner_ctx, $target_uid ) ) {
+						return new WP_REST_Response( array( 'ok' => false, 'message' => 'forbidden_scope' ), 403 );
+					}
+					$service_ids = array();
+					if ( isset( $params['service_id'] ) ) {
+						$service_ids[] = (int) $params['service_id'];
+					}
+					if ( isset( $params['service_ids'] ) && is_array( $params['service_ids'] ) ) {
+						foreach ( $params['service_ids'] as $raw_sid ) {
+							$n = (int) $raw_sid;
+							if ( $n > 0 ) {
+								$service_ids[] = $n;
+							}
+						}
+					}
+					$service_ids = array_values( array_unique( $service_ids ) );
+					foreach ( $service_ids as $check_sid ) {
+						$svc = SimpleVPBot_Model_Service::find_any( $check_sid );
+						$svc_uid = $svc ? (int) ( $svc->user_id ?? 0 ) : 0;
+						if ( $svc_uid < 1 || ! SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( $owner_ctx, $svc_uid ) ) {
+							return new WP_REST_Response( array( 'ok' => false, 'message' => 'forbidden_scope' ), 403 );
+						}
+					}
+				}
 			}
 		}
 		unset( $params['op'] );

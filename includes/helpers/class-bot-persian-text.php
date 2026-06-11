@@ -62,6 +62,16 @@ class SimpleVPBot_Bot_Persian_Text {
 	}
 
 	/**
+	 * Plain integer string for bank copy_text (toman × 10 → Rial).
+	 *
+	 * @param float $amount_toman Amount in toman.
+	 * @return string
+	 */
+	public static function copy_plain_rial_from_toman( $amount_toman ) {
+		return (string) ( (int) round( (float) $amount_toman, 0 ) * 10 );
+	}
+
+	/**
 	 * Whether a toman amount should display as free (matches dashboard epsilon).
 	 *
 	 * @param float|int|string $amount Toman.

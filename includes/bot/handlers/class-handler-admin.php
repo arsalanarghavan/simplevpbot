@@ -32,6 +32,10 @@ class SimpleVPBot_Handler_Admin {
 		if ( 'admin_bak_restore' !== $st ) {
 			return false;
 		}
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			&& SimpleVPBot_Bot_Reseller_Scope::deny_global_settings_bot_action( $platform, $chat_id, (int) $user->id ) ) {
+			return true;
+		}
 		$doc     = $message['document'];
 		$file_id = (string) ( $doc['file_id'] ?? '' );
 		$fname   = isset( $doc['file_name'] ) ? (string) $doc['file_name'] : '';
@@ -71,6 +75,174 @@ class SimpleVPBot_Handler_Admin {
 	}
 
 	/**
+	 * Dispatch a registry admin_route key (UI layout or legacy reply).
+	 *
+	 * @param array<string, mixed> $ctx       Context (platform, chat_id, user, …).
+	 * @param string               $route_key Route id e.g. users_search, receipts.
+	 * @return bool True when handled.
+	 */
+	public static function dispatch_admin_route( array $ctx, $route_key ) {
+		$route_key = sanitize_key( (string) $route_key );
+		if ( '' === $route_key || empty( $ctx['user'] ) ) {
+			return false;
+		}
+		$platform = (string) $ctx['platform'];
+		$chat_id  = (int) $ctx['chat_id'];
+		$user     = $ctx['user'];
+
+		switch ( $route_key ) {
+			case 'dashboard':
+				if ( class_exists( 'SimpleVPBot_Handler_Admin_Panel' ) ) {
+					SimpleVPBot_Handler_Admin_Panel::send_landing( $platform, $chat_id, $user );
+					return true;
+				}
+				return false;
+			case 'users':
+				if ( class_exists( 'SimpleVPBot_Handler_Admin_Panel' ) ) {
+					SimpleVPBot_Handler_Admin_Panel::send_section( $platform, $chat_id, $user, 'users' );
+					return true;
+				}
+				SimpleVPBot_State::clear( (int) $user->id );
+				SimpleVPBot_Bot_Runtime::send_message(
+					$platform,
+					$chat_id,
+					SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.users_submenu', $user ),
+					array( 'reply_markup' => SimpleVPBot_Keyboards::admin_users_submenu_reply( $user ) )
+				);
+				return true;
+			case 'finance':
+				if ( class_exists( 'SimpleVPBot_Handler_Admin_Panel' ) ) {
+					SimpleVPBot_Handler_Admin_Panel::send_section( $platform, $chat_id, $user, 'finance' );
+					return true;
+				}
+				SimpleVPBot_State::clear( (int) $user->id );
+				SimpleVPBot_Bot_Runtime::send_message(
+					$platform,
+					$chat_id,
+					SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.finance_submenu', $user ),
+					array( 'reply_markup' => SimpleVPBot_Keyboards::admin_finance_submenu_reply() )
+				);
+				return true;
+			case 'settings':
+				if ( class_exists( 'SimpleVPBot_Handler_Admin_Panel' ) ) {
+					SimpleVPBot_Handler_Admin_Panel::send_section( $platform, $chat_id, $user, 'settings' );
+					return true;
+				}
+				SimpleVPBot_Handler_Admin_Pnl::send_submenu( $platform, $chat_id, 'set', array( 'user' => $user ) );
+				return true;
+			case 'advanced':
+				if ( class_exists( 'SimpleVPBot_Handler_Admin_Panel' ) ) {
+					SimpleVPBot_Handler_Admin_Panel::send_section( $platform, $chat_id, $user, 'settings' );
+					return true;
+				}
+				SimpleVPBot_Handler_Admin_Pnl::send_submenu( $platform, $chat_id, 'adv', array( 'user' => $user ) );
+				return true;
+			case 'users_search':
+				if ( class_exists( 'SimpleVPBot_Bot_Admin_Guard' )
+					&& ! SimpleVPBot_Bot_Admin_Guard::may_call_op( $user, 'user_search' ) ) {
+					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.denied_permission', $user ) );
+					return true;
+				}
+				SimpleVPBot_State::set( (int) $user->id, 'admin_find_user', array() );
+				SimpleVPBot_Bot_Runtime::send_message(
+					$platform,
+					$chat_id,
+					SimpleVPBot_Texts::get_for_user( 'msg.admin_find_user_prompt', $user )
+				);
+				return true;
+			case 'users_queue':
+				SimpleVPBot_Handler_Admin_Pnl::send_submenu( $platform, $chat_id, 'usr', array( 'user' => $user ) );
+				return true;
+			case 'transfer':
+				SimpleVPBot_State::set( (int) $user->id, 'admin_find_service_to_transfer', array() );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.prompt_service_id', $user ) );
+				return true;
+			case 'broadcast':
+				if ( class_exists( 'SimpleVPBot_Reseller_Permission_Gate' )
+					&& ! SimpleVPBot_Reseller_Permission_Gate::may_call_op( (int) $user->id, 'broadcast' ) ) {
+					SimpleVPBot_Bot_Runtime::send_message(
+						$platform,
+						$chat_id,
+						SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.denied_permission', $user )
+					);
+					return true;
+				}
+				SimpleVPBot_State::set( (int) $user->id, 'admin_broadcast', array() );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.prompt_broadcast', $user ) );
+				return true;
+			case 'receipts':
+				SimpleVPBot_Handler_Admin_Pnl::send_pending_receipts_review_paged( $platform, $chat_id, 0 );
+				return true;
+			case 'backup':
+				if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+					&& SimpleVPBot_Bot_Reseller_Scope::deny_global_settings_bot_action( $platform, $chat_id, (int) $user->id ) ) {
+					return true;
+				}
+				SimpleVPBot_Handler_Admin_Pnl::send_backup_panel( $platform, $chat_id );
+				return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Match reply text to an admin_route key (i18n + legacy FA labels).
+	 *
+	 * @param string      $text Trimmed button text.
+	 * @param object|null $user Admin user.
+	 * @return string Route key or empty.
+	 */
+	public static function match_admin_route_from_text( $text, $user ) {
+		$text = trim( (string) $text );
+		if ( '' === $text || ! $user ) {
+			return '';
+		}
+		if ( class_exists( 'SimpleVPBot_UI_Action_Registry' ) ) {
+			foreach ( array(
+				'admin.root.dashboard'     => 'dashboard',
+				'admin.root.users'         => 'users',
+				'admin.root.finance'       => 'finance',
+				'admin.root.settings'      => 'settings',
+				'admin.root.advanced'      => 'advanced',
+				'admin.users.search'       => 'users_search',
+				'admin.users.queue'        => 'users_queue',
+				'admin.users.transfer'     => 'transfer',
+				'admin.users.broadcast'    => 'broadcast',
+				'admin.finance.receipts'   => 'receipts',
+				'admin.adv.backup'         => 'backup',
+			) as $action_id => $route_key ) {
+				if ( SimpleVPBot_UI_Action_Registry::text_matches_reply_action( $text, $user, $action_id, false ) ) {
+					return $route_key;
+				}
+			}
+		}
+		$btn_map = array(
+			'dashboard'    => 'btn.admin.dashboard',
+			'users'        => 'btn.admin.users',
+			'finance'      => 'btn.admin.finance',
+			'settings'     => 'btn.admin.settings',
+			'advanced'     => 'btn.admin.advanced',
+			'users_search' => 'btn.admin.users_search',
+			'users_queue'  => 'btn.admin.users_queue',
+			'transfer'     => 'btn.admin.transfer',
+			'broadcast'    => 'btn.admin.broadcast',
+			'receipts'     => 'btn.admin.receipts',
+			'backup'       => 'btn.admin.backup',
+		);
+		foreach ( $btn_map as $route_key => $btn_key ) {
+			if ( $text === SimpleVPBot_Texts::get_for_user( $btn_key, $user ) ) {
+				return $route_key;
+			}
+		}
+		if ( '⚙️ تنظیمات ربات' === $text ) {
+			return 'settings';
+		}
+		if ( '💾 بکاپ' === $text ) {
+			return 'backup';
+		}
+		return '';
+	}
+
+	/**
 	 * Route admin menu texts.
 	 *
 	 * @param array<string, mixed> $ctx Context. Optional: message (full message array).
@@ -84,99 +256,129 @@ class SimpleVPBot_Handler_Admin {
 		$from     = isset( $ctx['from'] ) && is_array( $ctx['from'] ) ? $ctx['from'] : array();
 		$from_id  = (int) ( $from['id'] ?? 0 );
 
-		if ( '' !== $text && $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.exit', $user ) ) {
-			SimpleVPBot_Model_User::update( (int) $user->id, array( 'admin_mode' => 0 ) );
-			$user = SimpleVPBot_Model_User::find( (int) $user->id );
-			SimpleVPBot_Bot_Runtime::send_message(
-				$platform,
-				$chat_id,
-				$user ? SimpleVPBot_Texts::get_for_user( 'msg.admin_exit_to_user_menu', $user ) : '👋',
-				array( 'reply_markup' => SimpleVPBot_Keyboards::user_main_reply( $user ) )
-			);
+		if ( class_exists( 'SimpleVPBot_Bot_Admin_Guard' ) ) {
+			SimpleVPBot_Bot_Admin_Guard::bootstrap_acting_admin_from_ctx( $ctx );
+		}
+
+		if ( class_exists( 'SimpleVPBot_Handler_Admin_Panel' )
+			&& SimpleVPBot_Handler_Admin_Panel::route_text(
+				array(
+					'platform' => $platform,
+					'chat_id'  => $chat_id,
+					'user'     => $user,
+					'text'     => $text,
+				)
+			) ) {
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.dashboard', $user ) ) {
-			if ( class_exists( 'SimpleVPBot_Admin_Dashboard_Stats' ) ) {
-				$body = SimpleVPBot_Admin_Dashboard_Stats::format_text( 0 );
-				$mk   = SimpleVPBot_Admin_Dashboard_Stats::inline_day_picker( 0 );
-				SimpleVPBot_Bot_Runtime::send_message(
-					$platform,
-					$chat_id,
-					$body,
-					array( 'reply_markup' => $mk )
-				);
-			} else {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.stats_unavailable', $user ) );
-			}
+
+		if ( class_exists( 'SimpleVPBot_Handler_Admin_Marketing' )
+			&& SimpleVPBot_Handler_Admin_Marketing::route_text(
+				array(
+					'platform' => $platform,
+					'chat_id'  => $chat_id,
+					'user'     => $user,
+					'text'     => $text,
+				)
+			) ) {
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.users', $user ) ) {
-			SimpleVPBot_State::clear( (int) $user->id );
-			SimpleVPBot_Bot_Runtime::send_message(
-				$platform,
-				$chat_id,
-				SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.users_submenu', $user ),
-				array( 'reply_markup' => SimpleVPBot_Keyboards::admin_users_submenu_reply( $user ) )
-			);
+
+		if ( class_exists( 'SimpleVPBot_Handler_Admin_Resellers' )
+			&& SimpleVPBot_Handler_Admin_Resellers::route_text(
+				array(
+					'platform' => $platform,
+					'chat_id'  => $chat_id,
+					'user'     => $user,
+					'text'     => $text,
+				)
+			) ) {
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.finance', $user ) ) {
-			SimpleVPBot_State::clear( (int) $user->id );
-			SimpleVPBot_Bot_Runtime::send_message(
-				$platform,
-				$chat_id,
-				SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.finance_submenu', $user ),
-				array( 'reply_markup' => SimpleVPBot_Keyboards::admin_finance_submenu_reply() )
-			);
+
+		if ( class_exists( 'SimpleVPBot_Handler_Admin_Economics' )
+			&& SimpleVPBot_Handler_Admin_Economics::route_text(
+				array(
+					'platform' => $platform,
+					'chat_id'  => $chat_id,
+					'user'     => $user,
+					'text'     => $text,
+				)
+			) ) {
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.users_search', $user ) ) {
-			SimpleVPBot_State::set( (int) $user->id, 'admin_find_user', array() );
-			$find_prompt = SimpleVPBot_Texts::get_for_user( 'msg.admin_find_user_prompt', $user );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $find_prompt );
+
+		if ( class_exists( 'SimpleVPBot_Handler_Admin_Finance' )
+			&& SimpleVPBot_Handler_Admin_Finance::route_text(
+				array(
+					'platform' => $platform,
+					'chat_id'  => $chat_id,
+					'user'     => $user,
+					'text'     => $text,
+				)
+			) ) {
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.users_queue', $user ) ) {
-			SimpleVPBot_Handler_Admin_Hub::send_submenu( $platform, $chat_id, 'usr', array( 'user' => $user ) );
+
+		if ( class_exists( 'SimpleVPBot_Handler_Admin_Marketing' )
+			&& SimpleVPBot_Handler_Admin_Marketing::route_state(
+				array(
+					'platform' => $platform,
+					'chat_id'  => $chat_id,
+					'user'     => $user,
+					'text'     => $text,
+				)
+			) ) {
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.full_hub', $user ) ) {
-			SimpleVPBot_Handler_Admin_Hub::send_hub( $platform, $chat_id );
+
+		if ( class_exists( 'SimpleVPBot_Handler_Admin_Economics' )
+			&& SimpleVPBot_Handler_Admin_Economics::route_state(
+				array(
+					'platform' => $platform,
+					'chat_id'  => $chat_id,
+					'user'     => $user,
+					'text'     => $text,
+				)
+			) ) {
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.transfer', $user ) ) {
-			SimpleVPBot_State::set( (int) $user->id, 'admin_find_service_to_transfer', array() );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.prompt_service_id', $user ) );
+
+		if ( class_exists( 'SimpleVPBot_Handler_Admin_Finance' )
+			&& SimpleVPBot_Handler_Admin_Finance::route_state(
+				array(
+					'platform' => $platform,
+					'chat_id'  => $chat_id,
+					'user'     => $user,
+					'text'     => $text,
+				)
+			) ) {
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.broadcast', $user ) ) {
-			SimpleVPBot_State::set( (int) $user->id, 'admin_broadcast', array() );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.prompt_broadcast', $user ) );
+
+		if ( class_exists( 'SimpleVPBot_Handler_Admin_Catalog' )
+			&& SimpleVPBot_Handler_Admin_Catalog::route_state(
+				array(
+					'platform' => $platform,
+					'chat_id'  => $chat_id,
+					'user'     => $user,
+					'text'     => $text,
+				)
+			) ) {
 			return;
 		}
-		if ( class_exists( 'SimpleVPBot_UI_Action_Registry' )
-			&& SimpleVPBot_UI_Action_Registry::text_matches_reply_action( $text, $user, 'admin.finance.receipts', false ) ) {
-			SimpleVPBot_Handler_Admin_Hub::send_pending_receipts_review_paged( $platform, $chat_id, 0 );
+
+		$legacy_route = self::match_admin_route_from_text( $text, $user );
+		if ( '' !== $legacy_route && self::dispatch_admin_route( $ctx, $legacy_route ) ) {
 			return;
 		}
-		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.receipts', $user ) ) {
-			SimpleVPBot_Handler_Admin_Hub::send_pending_receipts_review_paged( $platform, $chat_id, 0 );
-			return;
-		}
-		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.backup', $user ) || '💾 بکاپ' === $text ) {
-			SimpleVPBot_Handler_Admin_Hub::send_backup_panel( $platform, $chat_id );
-			return;
-		}
-		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.settings', $user ) || '⚙️ تنظیمات ربات' === $text ) {
-			SimpleVPBot_Handler_Admin_Hub::send_submenu( $platform, $chat_id, 'set', array( 'user' => $user ) );
-			return;
-		}
-		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.advanced', $user ) ) {
-			SimpleVPBot_Handler_Admin_Hub::send_submenu( $platform, $chat_id, 'adv', array( 'user' => $user ) );
+		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.full_hub', $user )
+			|| $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.panel_full', $user ) ) {
+			SimpleVPBot_Handler_Admin_Pnl::send_hub( $platform, $chat_id );
 			return;
 		}
 		if ( $text === SimpleVPBot_Texts::get_for_user( 'btn.admin.bulk_short', $user ) || '➕ گروهی' === $text ) {
-			SimpleVPBot_Handler_Admin_Hub::send_submenu( $platform, $chat_id, 'blk', array( 'user' => $user ) );
+			SimpleVPBot_Handler_Admin_Pnl::send_submenu( $platform, $chat_id, 'blk', array( 'user' => $user ) );
 			return;
 		}
 
@@ -184,7 +386,15 @@ class SimpleVPBot_Handler_Admin {
 		$ntex = SimpleVPBot_Bot_Runtime::normalize_digits( $text );
 
 		if ( preg_match( '/^\/cancel(?:@\w+)?/i', $text ) || 'لغو' === $text ) {
-			$can_cancel = in_array( $st, array( 'admin_bak_interval', 'admin_bak_tg_chat', 'admin_bak_bl_chat', 'admin_bak_restore', 'admin_find_user', 'admin_dm', 'admin_broadcast', 'admin_w_balance' ), true )
+			$can_cancel = in_array( $st, array(
+				'admin_bak_interval', 'admin_bak_tg_chat', 'admin_bak_bl_chat', 'admin_bak_restore',
+				'admin_find_user', 'admin_dm', 'admin_broadcast', 'admin_w_balance',
+				'admin_discount_code', 'admin_discount_delete', 'admin_discount_toggle', 'admin_discount_edit',
+				'admin_lifecycle_toggle', 'admin_lifecycle_edit', 'admin_lifecycle_create',
+				'admin_lifecycle_delete', 'admin_lifecycle_run',
+				'admin_reseller_topup', 'admin_reseller_charges_filter', 'admin_reseller_charges_list',
+				'admin_xui_assign', 'admin_xui_panel_prices',
+			), true )
 				|| ( class_exists( 'SimpleVPBot_Handler_Admin_Settings' ) && SimpleVPBot_Handler_Admin_Settings::is_cancelable_settings_state( $st ) )
 				|| ( 0 === strpos( $st, 'admin_line_' ) )
 				|| ( 0 === strpos( $st, 'admin_ns_' ) );
@@ -211,6 +421,10 @@ class SimpleVPBot_Handler_Admin {
 			return;
 		}
 		if ( 'admin_bak_interval' === $st && '' !== $ntex ) {
+			if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				&& SimpleVPBot_Bot_Reseller_Scope::deny_global_settings_bot_action( $platform, $chat_id, (int) $user->id ) ) {
+				return;
+			}
 			$trimn = trim( (string) $ntex );
 			if ( is_numeric( $trimn ) ) {
 				$m = max( 5, (int) $trimn );
@@ -221,6 +435,10 @@ class SimpleVPBot_Handler_Admin {
 			}
 		}
 		if ( 'admin_bak_tg_chat' === $st && '' !== $ntex ) {
+			if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				&& SimpleVPBot_Bot_Reseller_Scope::deny_global_settings_bot_action( $platform, $chat_id, (int) $user->id ) ) {
+				return;
+			}
 			$trimn = trim( (string) $ntex );
 			if ( is_numeric( $trimn ) ) {
 				SimpleVPBot_Admin_Actions::patch_backup_settings( array( 'backup_telegram_chat_id' => (int) $trimn ) );
@@ -230,6 +448,10 @@ class SimpleVPBot_Handler_Admin {
 			}
 		}
 		if ( 'admin_bak_bl_chat' === $st && '' !== $ntex ) {
+			if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				&& SimpleVPBot_Bot_Reseller_Scope::deny_global_settings_bot_action( $platform, $chat_id, (int) $user->id ) ) {
+				return;
+			}
 			$trimn = trim( (string) $ntex );
 			if ( is_numeric( $trimn ) ) {
 				SimpleVPBot_Admin_Actions::patch_backup_settings( array( 'backup_bale_chat_id' => (int) $trimn ) );
@@ -239,6 +461,10 @@ class SimpleVPBot_Handler_Admin {
 			}
 		}
 		if ( 'admin_bak_restore' === $st && '' !== $text ) {
+			if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				&& SimpleVPBot_Bot_Reseller_Scope::deny_global_settings_bot_action( $platform, $chat_id, (int) $user->id ) ) {
+				return;
+			}
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.backup.send_zip', $user ) );
 			return;
 		}
@@ -263,11 +489,23 @@ class SimpleVPBot_Handler_Admin {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.not_found', $user ) );
 				return;
 			}
+			if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				&& ! SimpleVPBot_Bot_Reseller_Scope::bot_admin_may_access_service( $sid ) ) {
+				SimpleVPBot_State::clear( (int) $user->id );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.user_not_found', $user ) );
+				return;
+			}
 			SimpleVPBot_State::set( (int) $user->id, 'adm_service_transfer_' . $sid, array( 'service_id' => $sid ) );
 			SimpleVPBot_Bot_Runtime::send_message(
 				$platform,
 				$chat_id,
-				'🎁 انتقال سرویس #' . $sid . ' (مالک فعلی: ' . (int) $svc->user_id . ")\nشناسه مقصد را ارسال کنید:\n- svp_users.id\n- یا @username\n- یا عدد chat id (تلگرام/بله)"
+				SimpleVPBot_Texts::format(
+					SimpleVPBot_Texts::get_for_user( 'msg.admin.transfer_prompt', $user ),
+					array(
+						'id'    => $sid,
+						'owner' => (int) $svc->user_id,
+					)
+				)
 			);
 			return;
 		}
@@ -278,6 +516,11 @@ class SimpleVPBot_Handler_Admin {
 			SimpleVPBot_State::clear( (int) $user->id );
 			if ( ! $target ) {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.target_invalid', $user ) );
+				return;
+			}
+			if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				&& ! SimpleVPBot_Bot_Reseller_Scope::bot_admin_may_moderate_user( $tuid ) ) {
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.user_not_found', $user ) );
 				return;
 			}
 			$body = SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.dm_body_prefix', $user, array( 'body' => (string) $text ) );
@@ -308,6 +551,18 @@ class SimpleVPBot_Handler_Admin {
 			if ( ! $target ) {
 				SimpleVPBot_State::clear( (int) $user->id );
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.user_not_found', $user ) );
+				return;
+			}
+			if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				&& ! SimpleVPBot_Bot_Reseller_Scope::bot_admin_may_moderate_user( $tuid ) ) {
+				SimpleVPBot_State::clear( (int) $user->id );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.user_not_found', $user ) );
+				return;
+			}
+			if ( class_exists( 'SimpleVPBot_Bot_Admin_Guard' )
+				&& ! SimpleVPBot_Bot_Admin_Guard::may_call_op( $user, 'user_search' ) ) {
+				SimpleVPBot_State::clear( (int) $user->id );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.denied_permission', $user ) );
 				return;
 			}
 			if ( ! preg_match( '/^\d+(?:\.\d{1,2})?$/', (string) $ntex2 ) ) {
@@ -347,8 +602,17 @@ class SimpleVPBot_Handler_Admin {
 			return;
 		}
 		if ( 'admin_find_user' === $st && '' !== trim( (string) $text ) ) {
+			if ( class_exists( 'SimpleVPBot_Bot_Admin_Guard' )
+				&& ! SimpleVPBot_Bot_Admin_Guard::may_call_op( $user, 'user_search' ) ) {
+				SimpleVPBot_State::clear( (int) $user->id );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.denied_permission', $user ) );
+				return;
+			}
 			$qtrim = trim( SimpleVPBot_Bot_Runtime::normalize_digits( (string) $text ) );
 			$found = SimpleVPBot_Model_User::search( $qtrim, 10 );
+			if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+				$found = SimpleVPBot_Bot_Reseller_Scope::filter_users_for_bot_admin_scope( (array) $found );
+			}
 			if ( empty( $found ) ) {
 				SimpleVPBot_State::set( (int) $user->id, 'admin_find_user', array() );
 				SimpleVPBot_Bot_Runtime::send_message(
@@ -361,7 +625,7 @@ class SimpleVPBot_Handler_Admin {
 			}
 			SimpleVPBot_State::clear( (int) $user->id );
 			if ( 1 === count( $found ) ) {
-				SimpleVPBot_Handler_Admin_Hub::send_user_admin_card( $platform, $chat_id, (int) $found[0]->id );
+				SimpleVPBot_Handler_Admin_Pnl::send_user_admin_card( $platform, $chat_id, (int) $found[0]->id );
 				return;
 			}
 			$pick_rows = array();
@@ -377,6 +641,15 @@ class SimpleVPBot_Handler_Admin {
 			return;
 		}
 		if ( 'admin_broadcast' === $st && $text ) {
+			if ( class_exists( 'SimpleVPBot_Reseller_Permission_Gate' )
+				&& ! SimpleVPBot_Reseller_Permission_Gate::may_call_op( (int) $user->id, 'broadcast' ) ) {
+				SimpleVPBot_Bot_Runtime::send_message(
+					$platform,
+					$chat_id,
+					SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.denied_permission', $user )
+				);
+				return;
+			}
 			SimpleVPBot_State::clear( (int) $user->id );
 			$text_trim = trim( (string) $text );
 			$text_safe = class_exists( 'SimpleVPBot_Dashboard_Admin_Mutations' )
@@ -397,7 +670,9 @@ class SimpleVPBot_Handler_Admin {
 					'status'  => 'sending',
 				)
 			);
-			$users = SimpleVPBot_Model_User::all_approved();
+			$users = class_exists( 'SimpleVPBot_Bot_Admin_Guard' )
+				? SimpleVPBot_Bot_Admin_Guard::broadcast_recipients( (int) $user->id )
+				: SimpleVPBot_Model_User::all_approved();
 			$rows  = array();
 			$base  = array(
 				'text'       => $text_safe,
@@ -447,7 +722,7 @@ class SimpleVPBot_Handler_Admin {
 		if ( $raw_msg && ( empty( $hub_ctx['message'] ) || ! is_array( $hub_ctx['message'] ) ) ) {
 			$hub_ctx['message'] = $raw_msg;
 		}
-		if ( SimpleVPBot_Handler_Admin_Hub::route_menu_text( $hub_ctx ) ) {
+		if ( SimpleVPBot_Handler_Admin_Pnl::route_menu_text( $hub_ctx ) ) {
 			return;
 		}
 
@@ -478,9 +753,21 @@ class SimpleVPBot_Handler_Admin {
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.not_found', $user ) );
 			return;
 		}
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			&& ! SimpleVPBot_Bot_Reseller_Scope::bot_admin_may_access_service( $sid ) ) {
+			SimpleVPBot_State::clear( (int) $user->id );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.user_not_found', $user ) );
+			return;
+		}
 		$target = class_exists( 'SimpleVPBot_Service_Transfer' ) ? SimpleVPBot_Service_Transfer::resolve_user( $raw ) : null;
 		if ( ! $target ) {
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.transfer_target_ambiguous', $user ) );
+			return;
+		}
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			&& ! SimpleVPBot_Bot_Reseller_Scope::bot_admin_may_moderate_user( (int) $target->id ) ) {
+			SimpleVPBot_State::clear( (int) $user->id );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.user_not_found', $user ) );
 			return;
 		}
 		$label = 'admin:' . (int) $user->id;
@@ -523,6 +810,12 @@ class SimpleVPBot_Handler_Admin {
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.buy.session_invalid', $user ) );
 			return true;
 		}
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			&& ! SimpleVPBot_Bot_Reseller_Scope::bot_admin_may_moderate_user( $tuid ) ) {
+			SimpleVPBot_State::clear( (int) $user->id );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.user_not_found', $user ) );
+			return true;
+		}
 		$plan = SimpleVPBot_Model_Plan::find( $pid );
 		if ( ! $plan || ! SimpleVPBot_Model_Plan::is_per_gb( $plan ) ) {
 			SimpleVPBot_State::clear( (int) $user->id );
@@ -543,7 +836,7 @@ class SimpleVPBot_Handler_Admin {
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.ns_volume_range', $user, array( 'min' => $min_f, 'max' => $max_f ) ) );
 			return true;
 		}
-		$mk = SimpleVPBot_Handler_Admin_Hub::admin_create_service_mode_keyboard( $tuid, $pid, $gb );
+		$mk = SimpleVPBot_Handler_Admin_Pnl::admin_create_service_mode_keyboard( $tuid, $pid, $gb );
 		if ( empty( $mk ) ) {
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.internal_button_error', $user ) );
 			return true;
@@ -581,6 +874,13 @@ class SimpleVPBot_Handler_Admin {
 		}
 		$data = SimpleVPBot_State::data( $user );
 		if ( 'admin_line_ns' === $st && isset( $data['target_uid'] ) ) {
+			$tuid_ns = (int) $data['target_uid'];
+			if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				&& ! SimpleVPBot_Bot_Reseller_Scope::bot_admin_may_moderate_user( $tuid_ns ) ) {
+				SimpleVPBot_State::clear( (int) $user->id );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.user_not_found', $user ) );
+				return true;
+			}
 			$tok = preg_split( '/\s+/', $text );
 			if ( count( $tok ) < 3 ) {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.line.ns_parts', $user ) );
@@ -594,11 +894,21 @@ class SimpleVPBot_Handler_Admin {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.line.mode_wfi', $user ) );
 				return true;
 			}
+			$plan_row = SimpleVPBot_Model_Plan::find( $pid );
+			if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				&& ! SimpleVPBot_Bot_Reseller_Scope::plan_visible_in_context( $plan_row ) ) {
+				SimpleVPBot_State::clear( (int) $user->id );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.user_not_found', $user ) );
+				return true;
+			}
 			$vol_arg = $vol > 0 ? $vol : null;
-			$r       = SimpleVPBot_Admin_User_Ops::admin_create_service( (int) $data['target_uid'], $pid, $vol_arg, $mode );
+			$scope   = class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				? SimpleVPBot_Bot_Reseller_Scope::bot_admin_invoice_card_scope_reseller_id()
+				: 0;
+			$r       = SimpleVPBot_Admin_User_Ops::admin_create_service( (int) $data['target_uid'], $pid, $vol_arg, $mode, $scope );
 			SimpleVPBot_State::clear( (int) $user->id );
 			if ( empty( $r['ok'] ) ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::format( SimpleVPBot_Texts::get_for_user( 'msg.admin.error_generic', $user ), array( 'reason' => (string) ( $r['reason'] ?? 'خطا' ) ) ) );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::format( SimpleVPBot_Texts::get_for_user( 'msg.admin.error_generic', $user ), array( 'reason' => (string) ( $r['reason'] ?? SimpleVPBot_Texts::get_for_user( 'msg.admin.fallback.error', $user ) ) ) ) );
 				return true;
 			}
 			$msg = isset( $r['service_id'] )
@@ -608,18 +918,35 @@ class SimpleVPBot_Handler_Admin {
 			return true;
 		}
 		if ( 'admin_line_nr' === $st && isset( $data['service_id'] ) ) {
+			$sid_nr = (int) $data['service_id'];
+			if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				&& ! SimpleVPBot_Bot_Reseller_Scope::bot_admin_may_access_service( $sid_nr ) ) {
+				SimpleVPBot_State::clear( (int) $user->id );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.user_not_found', $user ) );
+				return true;
+			}
 			$mode = strtolower( $text );
 			$mode = in_array( $mode, array( 'w', 'f', 'i' ), true ) ? ( 'w' === $mode ? 'wallet' : ( 'f' === $mode ? 'free' : 'invoice' ) ) : '';
 			if ( '' === $mode ) {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.line.renew_one_char', $user ) );
 				return true;
 			}
-			$r = SimpleVPBot_Admin_User_Ops::admin_renew_service( (int) $data['service_id'], $mode );
+			$scope = class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				? SimpleVPBot_Bot_Reseller_Scope::bot_admin_invoice_card_scope_reseller_id()
+				: 0;
+			$r = SimpleVPBot_Admin_User_Ops::admin_renew_service( (int) $data['service_id'], $mode, $scope );
 			SimpleVPBot_State::clear( (int) $user->id );
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, ! empty( $r['ok'] ) ? SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.line.renew_ok', $user ) : SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.error_generic', $user, array( 'reason' => (string) ( $r['reason'] ?? '' ) ) ) );
 			return true;
 		}
 		if ( 'admin_line_nv' === $st && isset( $data['service_id'] ) ) {
+			$sid_nv = (int) $data['service_id'];
+			if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				&& ! SimpleVPBot_Bot_Reseller_Scope::bot_admin_may_access_service( $sid_nv ) ) {
+				SimpleVPBot_State::clear( (int) $user->id );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.user_not_found', $user ) );
+				return true;
+			}
 			$tok = preg_split( '/\s+/', $text );
 			if ( count( $tok ) < 2 ) {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.line.two_parts', $user ) );
@@ -632,12 +959,20 @@ class SimpleVPBot_Handler_Admin {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.line.mode_invalid', $user ) );
 				return true;
 			}
-			$r = SimpleVPBot_Admin_User_Ops::admin_add_volume( (int) $data['service_id'], $gb, $mode );
+			$scope = class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				? SimpleVPBot_Bot_Reseller_Scope::bot_admin_invoice_card_scope_reseller_id()
+				: 0;
+			$r = SimpleVPBot_Admin_User_Ops::admin_add_volume( (int) $data['service_id'], $gb, $mode, $scope );
 			SimpleVPBot_State::clear( (int) $user->id );
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, ! empty( $r['ok'] ) ? SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.line.volume_ok', $user ) : SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.error_generic', $user, array( 'reason' => (string) ( $r['reason'] ?? '' ) ) ) );
 			return true;
 		}
 		if ( 'admin_line_bl' === $st ) {
+			if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) && SimpleVPBot_Bot_Reseller_Scope::bot_admin_site_bulk_blocked() ) {
+				SimpleVPBot_State::clear( (int) $user->id );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Reseller_Scope::bot_admin_site_bulk_denied_message() );
+				return true;
+			}
 			$tok = preg_split( '/\s+/', $text );
 			if ( count( $tok ) < 2 || 'ok' !== strtolower( (string) $tok[0] ) ) {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.line.bulk_confirm', $user ) );

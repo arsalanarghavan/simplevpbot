@@ -100,10 +100,22 @@
     scrollbar-gutter: stable;
 }
 
-/* Keep fixed sidebar aligned when Radix/RemoveScroll reserves scrollbar gap. */
+/* Radix RemoveScroll targets body; real scroll is on .dashboard-main-scroll — neutralize shift. */
+body[data-scroll-locked] {
+    overflow: visible !important;
+    padding-inline: 0 !important;
+    margin-inline: 0 !important;
+}
+
+body[data-scroll-locked] .dashboard-main-scroll {
+    overflow: auto !important;
+    scrollbar-gutter: stable !important;
+}
+
 body[data-scroll-locked] [data-slot='sidebar'][data-side='right'] [data-slot='sidebar-container'] {
     right: var(--removed-body-scroll-bar-size, 0px);
 }
+
 body[data-scroll-locked] [data-slot='sidebar'][data-side='left'] [data-slot='sidebar-container'] {
     left: var(--removed-body-scroll-bar-size, 0px);
 }
@@ -111,7 +123,6 @@ body[data-scroll-locked] [data-slot='sidebar'][data-side='left'] [data-slot='sid
 body {
     @apply bg-background text-foreground;
 }
-
 /* shadcn accent presets (light) */
 [data-accent='red'] {
     --primary: oklch(57% 0.22 27);

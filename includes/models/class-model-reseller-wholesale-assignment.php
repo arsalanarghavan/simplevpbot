@@ -111,4 +111,50 @@ class SimpleVPBot_Model_Reseller_Wholesale_Assignment {
 			$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
 		}
 	}
+
+	/**
+	 * Line ids keyed by reseller id (batch for admin resellers tab).
+	 *
+	 * @param array<int, int> $reseller_ids Reseller ids.
+	 * @return array<string, array<int, int>>
+	 */
+	public static function line_ids_map_for_resellers( array $reseller_ids ) {
+		global $wpdb;
+		$ids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', $reseller_ids ),
+					static function ( $v ) {
+						return $v > 0;
+					}
+				)
+			)
+		);
+		$out = array();
+		if ( empty( $ids ) ) {
+			return $out;
+		}
+		foreach ( $ids as $rid ) {
+			$out[ (string) $rid ] = array();
+		}
+		$ph   = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT reseller_svp_user_id, line_id FROM " . self::table() . " WHERE reseller_svp_user_id IN ({$ph}) ORDER BY reseller_svp_user_id ASC, line_id ASC", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$ids
+			)
+		);
+		foreach ( (array) $rows as $row ) {
+			if ( ! $row || ! is_object( $row ) ) {
+				continue;
+			}
+			$key = (string) (int) ( $row->reseller_svp_user_id ?? 0 );
+			$lid = (int) ( $row->line_id ?? 0 );
+			if ( ! isset( $out[ $key ] ) || $lid < 1 ) {
+				continue;
+			}
+			$out[ $key ][] = $lid;
+		}
+		return $out;
+	}
 }

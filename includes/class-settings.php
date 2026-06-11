@@ -24,6 +24,8 @@ class SimpleVPBot_Settings {
 	public static function defaults() {
 		return array(
 			'enabled'                    => true,
+			'telegram_enabled'           => true,
+			'bale_enabled'               => true,
 			'test_account_enabled'       => false,
 			'admin_telegram_ids'         => array(),
 			'admin_bale_ids'             => array(),
@@ -66,12 +68,20 @@ class SimpleVPBot_Settings {
 			'notify_user_expiry'         => true,
 			'notify_user_users'          => true,
 			'notify_user_after_expire'   => true,
+			'purge_expired_enabled'      => false,
+			'purge_expired_grace_days'   => 7,
+			'purge_expired_warn_days'    => array( 7, 3, 1, 0 ),
+			'purge_expired_notify_user'  => true,
 			'notify_idle_enabled'        => false,
 			'notify_idle_after_days'    => 45,
 			'notify_idle_cooldown_days' => 90,
 			'notify_admin_panel_down'    => true,
 			'notify_admin_panel_down_cooldown' => 30,
+			'notify_panel_cost_expiry'   => true,
+			'panel_cost_reminder_days'   => '7,1,0',
+			'panel_cost_extend_days_on_paid' => 30,
 			'webhook_rate_limit_per_min' => 120,
+			'webhook_reseller_rate_limit_per_min' => 60,
 			/** When false (default), webhook/dashboard RL uses REMOTE_ADDR only (avoid forged X-Forwarded-For). Enable behind a trusted reverse proxy. */
 			'rate_limit_trust_forwarded_for' => false,
 			'bale_wallet_provider_token' => '',
@@ -95,6 +105,12 @@ class SimpleVPBot_Settings {
 			'force_join_bale_invite_link'      => '',
 			'force_join_bale_prompt_text'      => '',
 			'force_join_bale_announce_text'    => '',
+			'force_join_cache_ttl_sec'         => 180,
+			'force_join_negative_cache_ttl_sec' => 45,
+			'bot_admin_notify_usleep_us'       => 80000,
+			'bot_interactive_timeout_sec'    => 8,
+			'buy_catalog_cache_ttl_sec'      => 90,
+			'crypto_invoice_timeout_sec'     => 12,
 			'broadcast_batch_size'           => 20,
 			'broadcast_usleep_us'            => 280000,
 			'broadcast_max_retries'          => 8,
@@ -108,6 +124,14 @@ class SimpleVPBot_Settings {
 			'suppress_bulk_user_notifications' => false,
 			'cards_display_mode'             => 'list',
 			'cards_rotation_cursors'         => array(),
+			'payment_methods'                => array(
+				'c2c'          => true,
+				'crypto'       => true,
+				'crypto_auto'  => true,
+				'bale_wallet'  => true,
+				'site_wallet'  => true,
+				'wallet_topup' => true,
+			),
 			'receipt_reject_reasons'         => array(
 				'مبلغ واریزی با مبلغ سفارش مطابقت ندارد.',
 				'تصویر رسید واضح نیست.',
@@ -146,6 +170,14 @@ class SimpleVPBot_Settings {
 			'telegram_proxy_username'        => '',
 			'telegram_proxy_password'        => '',
 			'telegram_api_base_url'          => '',
+			'telegram_relay_enabled'         => false,
+			'telegram_relay_base_url'        => '',
+			'telegram_relay_public_url'      => '',
+			'telegram_relay_shared_secret'     => '',
+			'telegram_relay_wp_forward_url'  => '',
+			'telegram_relay_tenant_id'         => '',
+			'telegram_relay_allowed_ips'     => '',
+			'telegram_relay_force'           => false,
 			'default_reseller_permissions'   => array(),
 		);
 	}
@@ -213,6 +245,42 @@ class SimpleVPBot_Settings {
 	}
 
 	/**
+	 * Microseconds to sleep between sequential admin bot API calls.
+	 *
+	 * @return int
+	 */
+	public static function bot_admin_notify_usleep() {
+		return max( 0, min( 2000000, (int) self::get( 'bot_admin_notify_usleep_us', 80000 ) ) );
+	}
+
+	/**
+	 * HTTP timeout for interactive bot API calls (buy flow, callbacks).
+	 *
+	 * @return int
+	 */
+	public static function bot_interactive_timeout_sec() {
+		return max( 3, min( 30, (int) self::get( 'bot_interactive_timeout_sec', 8 ) ) );
+	}
+
+	/**
+	 * Buy catalog transient cache TTL (seconds).
+	 *
+	 * @return int
+	 */
+	public static function buy_catalog_cache_ttl_sec() {
+		return max( 15, min( 600, (int) self::get( 'buy_catalog_cache_ttl_sec', 90 ) ) );
+	}
+
+	/**
+	 * NOWPayments invoice HTTP timeout (seconds).
+	 *
+	 * @return int
+	 */
+	public static function crypto_invoice_timeout_sec() {
+		return max( 5, min( 30, (int) self::get( 'crypto_invoice_timeout_sec', 12 ) ) );
+	}
+
+	/**
 	 * Update settings (merge).
 	 *
 	 * @param array<string, mixed> $data Data.
@@ -246,6 +314,12 @@ class SimpleVPBot_Settings {
 		}
 		if ( empty( $all['crypto_ipn_path_secret'] ) ) {
 			$all['crypto_ipn_path_secret'] = wp_generate_password( 32, false, false );
+			$changed = true;
+		}
+		if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+			SimpleVPBot_Telegram_Relay::ensure_relay_secret();
+		} elseif ( empty( $all['telegram_relay_shared_secret'] ) ) {
+			$all['telegram_relay_shared_secret'] = wp_generate_password( 48, false, false );
 			$changed = true;
 		}
 		if ( $changed ) {
@@ -289,6 +363,7 @@ class SimpleVPBot_Settings {
 			'default_concurrent_users',
 			'price_per_extra_user',
 			'cards_display_mode',
+			'payment_methods',
 			'default_bot_locale',
 			'telegram_bot_username',
 			'bale_bot_username',
@@ -314,10 +389,15 @@ class SimpleVPBot_Settings {
 			'notify_user_expiry',
 			'notify_user_users',
 			'notify_user_after_expire',
+			'purge_expired_enabled',
+			'purge_expired_grace_days',
+			'purge_expired_warn_days',
+			'purge_expired_notify_user',
 			'notify_idle_enabled',
 			'notify_idle_after_days',
 			'notify_idle_cooldown_days',
 			'webhook_rate_limit_per_min',
+			'webhook_reseller_rate_limit_per_min',
 			'rate_limit_trust_forwarded_for',
 			'service_naming_mode',
 			'config_label_number_start',
@@ -428,6 +508,7 @@ class SimpleVPBot_Settings {
 			'crypto_ipn_path_secret',
 			'bale_wallet_provider_token',
 			'telegram_proxy_password',
+			'telegram_relay_shared_secret',
 		);
 		foreach ( $secret_keys as $k ) {
 			if ( ! empty( $all[ $k ] ) ) {
@@ -443,6 +524,13 @@ class SimpleVPBot_Settings {
 			$all['default_reseller_permissions'] = class_exists( 'SimpleVPBot_Model_User' )
 				? SimpleVPBot_Model_User::default_reseller_permissions_template()
 				: array();
+		}
+		$all['last_purge_expired_run'] = class_exists( 'SimpleVPBot_Cron_Purge_Expired' )
+			? SimpleVPBot_Cron_Purge_Expired::last_run_stats()
+			: array();
+		$all['telegram_relay_last_sync_at'] = (int) get_option( 'simplevpbot_relay_last_sync_at', 0 );
+		if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) && SimpleVPBot_Telegram_Relay::is_enabled() ) {
+			$all['telegram_relay_domains'] = SimpleVPBot_Telegram_Relay::collect_domains();
 		}
 		return $all;
 	}

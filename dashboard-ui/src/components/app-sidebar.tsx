@@ -1,7 +1,7 @@
 "use client"
 
 import { Check, LayoutDashboard, LifeBuoy, MessageSquareQuote, UserRoundCog } from "lucide-react"
-import type { MouseEvent } from "react"
+import type { MouseEvent, ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 
 import { NavGrouped } from "@/components/nav-grouped"
@@ -37,6 +37,7 @@ import { menuBtnCollapsedIcon } from "@/lib/sidebar-menu-classes"
 import { cn } from "@/lib/utils"
 import { buildDashboardTabUrl } from "@/lib/dash-tab"
 import { writeSiteSubtabToUrl } from "@/lib/site-settings-subtab"
+import { useDashLocale } from "@/lib/dash-locale-context"
 
 type NavTab = {
   key: string
@@ -44,16 +45,15 @@ type NavTab = {
 }
 
 function SidebarQuickLinks({
-  rtl,
   variant,
   dashboardBaseUrl,
   onSelectTab,
 }: {
-  rtl: boolean
   variant: "admin" | "reseller" | "user"
   dashboardBaseUrl: string
   onSelectTab: (tabKey: string) => void
 }) {
+  const { dir } = useDashLocale()
   const { t } = useTranslation()
   const base = dashboardBaseUrl.replace(/\/?$/, "")
 
@@ -75,7 +75,7 @@ function SidebarQuickLinks({
   return (
     <SidebarMenu
       className="border-b border-sidebar-border px-0 pb-3"
-      dir={rtl ? "rtl" : undefined}
+      dir={dir}
     >
       <SidebarMenuItem>
         <SidebarMenuButton
@@ -120,17 +120,16 @@ function RoleSwitcher({
   availablePersonas,
   restUrl,
   nonce,
-  rtl = false,
   personaSwitchBlocked,
 }: {
   activePersona: "admin" | "reseller" | "user"
   availablePersonas: Array<"admin" | "reseller" | "user">
   restUrl: string
   nonce: string
-  rtl?: boolean
   /** True while impersonating a reseller — persona API returns 403 until stopped. */
   personaSwitchBlocked?: boolean
 }) {
+  const { dir } = useDashLocale()
   const { t } = useTranslation()
   const label =
     activePersona === "admin"
@@ -176,7 +175,7 @@ function RoleSwitcher({
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent side="bottom" className={cn("max-w-xs", rtl && "text-right")}>
+          <TooltipContent side="bottom" className="max-w-xs text-start">
             <p>{t("layout.personaSwitchBlockedImpersonation")}</p>
           </TooltipContent>
         </Tooltip>
@@ -200,8 +199,8 @@ function RoleSwitcher({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        style={{ direction: rtl ? "rtl" : "ltr" }}
-        className={cn("min-w-48", rtl && "text-right")}
+        style={{ direction: dir }}
+        className="min-w-48 text-start"
       >
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
           {t("sidebar.role.switchLabel")}
@@ -210,7 +209,7 @@ function RoleSwitcher({
         {availablePersonas.includes("admin") ? (
           <DropdownMenuItem
             disabled={activePersona === "admin"}
-            className={cn("gap-2 text-sm", rtl && "justify-end")}
+            className="gap-2 text-sm"
             onClick={() => setPersona("admin")}
           >
             {activePersona === "admin" ? (
@@ -224,7 +223,7 @@ function RoleSwitcher({
         {availablePersonas.includes("reseller") ? (
           <DropdownMenuItem
             disabled={activePersona === "reseller"}
-            className={cn("gap-2 text-sm", rtl && "justify-end")}
+            className="gap-2 text-sm"
             onClick={() => setPersona("reseller")}
           >
             {activePersona === "reseller" ? (
@@ -238,7 +237,7 @@ function RoleSwitcher({
         {availablePersonas.includes("user") ? (
           <DropdownMenuItem
             disabled={activePersona === "user"}
-            className={cn("gap-2 text-sm", rtl && "justify-end")}
+            className="gap-2 text-sm"
             onClick={() => setPersona("user")}
           >
             {activePersona === "user" ? (
@@ -270,6 +269,7 @@ export function AppSidebar({
   personaRestUrl,
   personaNonce,
   personaSwitchBlocked = false,
+  mobileHeaderToolbar,
 }: {
   side: "left" | "right"
   variant: "admin" | "reseller" | "user"
@@ -292,8 +292,8 @@ export function AppSidebar({
   personaRestUrl?: string
   personaNonce?: string
   personaSwitchBlocked?: boolean
+  mobileHeaderToolbar?: ReactNode
 }) {
-  const isFa = side === "right"
   const { t } = useTranslation()
   const base = dashboardBaseUrl.replace(/\/?$/, "")
   const subItemUrl = (tabKey: string) => buildDashboardTabUrl(base, tabKey)
@@ -328,8 +328,7 @@ export function AppSidebar({
 
   const brandRowClass = cn(
     "flex h-full min-w-0 flex-1 items-center gap-2",
-    "group-data-[collapsible=icon]:justify-center",
-    isFa && "flex-row-reverse"
+    "group-data-[collapsible=icon]:justify-center"
   )
 
   const brandLogo = siteIconUrl ? (
@@ -351,19 +350,27 @@ export function AppSidebar({
     </div>
   )
 
+  const showSidebarHeader =
+    showOperatorHeader || (variant === "user" && showRoleSwitcher)
+
+  const mobileToolbarBlock = mobileHeaderToolbar ? (
+    <div className="w-full border-t border-sidebar-border pt-2 pb-1 md:hidden">
+      {mobileHeaderToolbar}
+    </div>
+  ) : null
+
   return (
     <Sidebar side={side} collapsible="icon">
-      {(showOperatorHeader || (variant === "user" && showRoleSwitcher)) && (
+      {showSidebarHeader && (
         <SidebarHeader
           className={cn(
-            "h-16 shrink-0 gap-0 border-b border-sidebar-border px-4 py-0",
-            isFa && "text-right"
+            "h-auto min-h-16 shrink-0 gap-0 border-b border-sidebar-border px-4 py-2 md:h-16 md:py-0",
+            mobileHeaderToolbar && "flex flex-col items-stretch"
           )}
         >
           <div
-            dir={isFa ? "rtl" : "ltr"}
             className={cn(
-              "flex h-full w-full items-center gap-2",
+              "flex h-12 w-full items-center gap-2 md:h-full",
               "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
             )}
           >
@@ -383,7 +390,6 @@ export function AppSidebar({
                   availablePersonas={personas}
                   restUrl={personaRestUrl!}
                   nonce={personaNonce!}
-                  rtl={isFa}
                   personaSwitchBlocked={personaSwitchBlocked}
                 />
               ) : null}
@@ -395,21 +401,25 @@ export function AppSidebar({
                   availablePersonas={personas}
                   restUrl={personaRestUrl!}
                   nonce={personaNonce!}
-                  rtl={isFa}
                   personaSwitchBlocked={personaSwitchBlocked}
                 />
               </div>
             ) : null}
           </div>
+          {mobileToolbarBlock}
         </SidebarHeader>
       )}
       <SidebarContent>
+        {!showSidebarHeader && mobileToolbarBlock ? (
+          <div className="border-b border-sidebar-border px-4 py-2 md:hidden">
+            {mobileHeaderToolbar}
+          </div>
+        ) : null}
         {variant === "admin" || variant === "reseller" ? (
           <NavGrouped
             activeTabKey={activeTabKey}
             onSelectTab={onSelectTab}
             subItemUrl={subItemUrl}
-            rtl={isFa}
             sections={adminSections}
           />
         ) : (
@@ -419,21 +429,19 @@ export function AppSidebar({
             activeTabKey={activeTabKey}
             onSubItemClick={onSelectTab}
             subItemUrl={subItemUrl}
-            rtl={isFa}
           />
         )}
       </SidebarContent>
       <SidebarFooter className="gap-0">
         {(variant === "admin" || variant === "reseller") && (
           <SidebarQuickLinks
-            rtl={isFa}
             variant={variant}
             dashboardBaseUrl={dashboardBaseUrl}
             onSelectTab={onSelectTab}
           />
         )}
         <div className={cn((variant === "admin" || variant === "reseller") && "px-0 pt-1")}>
-          <NavUser user={user} rtl={isFa} />
+          <NavUser user={user} />
         </div>
       </SidebarFooter>
       <SidebarRail />

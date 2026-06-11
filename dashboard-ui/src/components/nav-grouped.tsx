@@ -25,6 +25,7 @@ import {
   menuBtnCollapsedIcon,
   menuChevronCollapsedHidden,
 } from "@/lib/sidebar-menu-classes"
+import { useDashLocale } from "@/lib/dash-locale-context"
 import { cn } from "@/lib/utils"
 
 function findOpenMenuId(sections: AdminNavSection[], activeTabKey: string): string | null {
@@ -42,15 +43,14 @@ export function NavGrouped({
   activeTabKey,
   onSelectTab,
   subItemUrl,
-  rtl = false,
   sections = ADMIN_NAV_SECTIONS,
 }: {
   activeTabKey: string
   onSelectTab: (tabKey: string) => void
   subItemUrl: (tabKey: string) => string
-  rtl?: boolean
   sections?: AdminNavSection[]
 }) {
+  const { isFa, dir } = useDashLocale()
   const { t } = useTranslation()
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
 
@@ -66,8 +66,8 @@ export function NavGrouped({
       {sections.map((section) => (
         <SidebarGroup
           key={section.id}
-          className={cn(rtl && "text-right")}
-          dir={rtl ? "rtl" : undefined}
+          className="text-start"
+          dir={dir}
         >
           <SidebarGroupLabel>{t(section.hintKey)}</SidebarGroupLabel>
           <SidebarMenu>
@@ -120,7 +120,7 @@ export function NavGrouped({
                           className={cn(
                             "ms-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90",
                             menuChevronCollapsedHidden,
-                            rtl && "-scale-x-100"
+                            isFa && "-scale-x-100"
                           )}
                         />
                       </SidebarMenuButton>
@@ -128,7 +128,7 @@ export function NavGrouped({
                     <CollapsibleContent>
                       <SidebarMenuSub
                         className={cn(
-                          rtl &&
+                          isFa &&
                             "me-3.5 ms-0 translate-x-0 border-r border-l-0 pe-2.5 ps-0"
                         )}
                       >

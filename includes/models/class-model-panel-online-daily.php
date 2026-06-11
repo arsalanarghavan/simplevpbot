@@ -205,4 +205,174 @@ class SimpleVPBot_Model_Panel_Online_Daily {
 		}
 		return $series;
 	}
+
+	/**
+	 * Site calendar date for today (Y-m-d).
+	 *
+	 * @return string
+	 */
+	public static function today_stat_date() {
+		if ( class_exists( 'SimpleVPBot_Admin_Dashboard_Stats' ) ) {
+			return SimpleVPBot_Admin_Dashboard_Stats::stat_date_for_offset( 0 );
+		}
+		try {
+			return ( new DateTimeImmutable( 'today', wp_timezone() ) )->format( 'Y-m-d' );
+		} catch ( \Exception $e ) {
+			return gmdate( 'Y-m-d' );
+		}
+	}
+
+	/**
+	 * totalMaxOnline for today in a daily series (0 if missing).
+	 *
+	 * @param array<int, array{date:string,totalMaxOnline:int}> $series Series.
+	 * @return int
+	 */
+	public static function today_total_from_series( array $series ) {
+		$today = self::today_stat_date();
+		foreach ( $series as $pt ) {
+			if ( is_array( $pt ) && isset( $pt['date'] ) && (string) $pt['date'] === $today ) {
+				return isset( $pt['totalMaxOnline'] ) ? (int) $pt['totalMaxOnline'] : 0;
+			}
+		}
+		return 0;
+	}
+
+	/**
+	 * Set totalMaxOnline on the today point in a series.
+	 *
+	 * @param array<int, array{date:string,totalMaxOnline:int}> $series Series.
+	 * @param int                                               $total New total for today.
+	 * @return array<int, array{date:string,totalMaxOnline:int}>
+	 */
+	public static function set_today_total_in_series( array $series, $total ) {
+		$today = self::today_stat_date();
+		$n     = max( 0, (int) $total );
+		foreach ( $series as $i => $pt ) {
+			if ( ! is_array( $pt ) || ! isset( $pt['date'] ) ) {
+				continue;
+			}
+			if ( (string) $pt['date'] === $today ) {
+				$series[ $i ]['totalMaxOnline'] = $n;
+				return $series;
+			}
+		}
+		return $series;
+	}
+
+	/**
+	 * Upsert live counts and raise today's aggregate in the series.
+	 *
+	 * @param array<int, array{date:string,totalMaxOnline:int}> $series Series from daily_totals_*.
+	 * @param array<int, array<string, mixed>>                  $samples panelId + onlineNow (+ ok).
+	 * @return array<int, array{date:string,totalMaxOnline:int}>
+	 */
+	public static function merge_live_samples_into_series( array $series, array $samples ) {
+		if ( empty( $samples ) ) {
+			return $series;
+		}
+		$today    = self::today_stat_date();
+		$live_sum = 0;
+		foreach ( $samples as $snap ) {
+			if ( ! is_array( $snap ) || empty( $snap['ok'] ) || ! isset( $snap['onlineNow'], $snap['panelId'] ) ) {
+				continue;
+			}
+			$pid = (int) $snap['panelId'];
+			if ( $pid < 1 ) {
+				continue;
+			}
+			$n = max( 0, (int) $snap['onlineNow'] );
+			self::upsert_max( $pid, $today, $n );
+			$live_sum += $n;
+		}
+		if ( $live_sum < 1 ) {
+			return $series;
+		}
+		$db_today = self::today_total_from_series( $series );
+		return self::set_today_total_in_series( $series, max( $db_today, $live_sum ) );
+	}
+
+	/**
+	 * Merge live panel snapshots into today's chart point.
+	 *
+	 * @param array<int, array{date:string,totalMaxOnline:int}> $series Series.
+	 * @param array<int, array<string, mixed>>                  $live_snapshots REST livePanelSnapshots.
+	 * @return array<int, array{date:string,totalMaxOnline:int}>
+	 */
+	public static function merge_live_snapshots_into_series( array $series, array $live_snapshots ) {
+		return self::merge_live_samples_into_series( $series, $live_snapshots );
+	}
+
+	/**
+	 * Merge cached live transients (overview tab) into today's chart point.
+	 *
+	 * @param array<int, array{date:string,totalMaxOnline:int}> $series Series.
+	 * @param int[]                                               $panel_ids Panel ids.
+	 * @return array<int, array{date:string,totalMaxOnline:int}>
+	 */
+	public static function merge_cached_live_into_series( array $series, array $panel_ids ) {
+		if ( ! class_exists( 'SimpleVPBot_Dashboard_Panel_Live' ) ) {
+			return $series;
+		}
+		$pids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', is_array( $panel_ids ) ? $panel_ids : array() ),
+					static function ( $v ) {
+						return $v > 0;
+					}
+				)
+			)
+		);
+		if ( empty( $pids ) ) {
+			return $series;
+		}
+		$samples = array();
+		foreach ( $pids as $pid ) {
+			$cached = get_transient( SimpleVPBot_Dashboard_Panel_Live::transient_key( $pid ) );
+			if ( ! is_array( $cached ) || empty( $cached['ok'] ) || ! isset( $cached['onlineNow'] ) ) {
+				continue;
+			}
+			$samples[] = array(
+				'panelId'   => $pid,
+				'onlineNow' => (int) $cached['onlineNow'],
+				'ok'        => true,
+			);
+		}
+		return self::merge_live_samples_into_series( $series, $samples );
+	}
+
+	/**
+	 * When today's aggregate is still zero, run panel-online cron once (throttled) and reload series.
+	 *
+	 * @param array<int, array{date:string,totalMaxOnline:int}> $series Current series.
+	 * @param int                                                 $days Days window for reload.
+	 * @param int[]                                               $panel_ids Empty = all panels; else scoped ids.
+	 * @return array<int, array{date:string,totalMaxOnline:int}>
+	 */
+	public static function maybe_self_heal_today_series( array $series, $days = 7, array $panel_ids = array() ) {
+		if ( self::today_total_from_series( $series ) > 0 ) {
+			return $series;
+		}
+		if ( get_transient( 'svp_dash_online_sample_lock' ) ) {
+			return $series;
+		}
+		if ( ! class_exists( 'SimpleVPBot_Cron_Panel_Online' ) ) {
+			return $series;
+		}
+		set_transient( 'svp_dash_online_sample_lock', 1, 120 );
+		SimpleVPBot_Cron_Panel_Online::run();
+		$scoped = array_values(
+			array_filter(
+				array_map( 'intval', $panel_ids ),
+				static function ( $v ) {
+					return $v > 0;
+				}
+			)
+		);
+		if ( ! empty( $scoped ) ) {
+			return self::daily_totals_last_days_for_panels( $days, $scoped );
+		}
+		return self::daily_totals_last_days( $days );
+	}
 }

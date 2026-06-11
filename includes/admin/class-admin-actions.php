@@ -339,6 +339,23 @@ class SimpleVPBot_Admin_Actions {
 				'notify_idle_cooldown_days' => (int) ( $s['notify_idle_cooldown_days'] ?? 90 ),
 				'notify_admin_panel_down'   => ! empty( $s['notify_admin_panel_down'] ),
 				'notify_admin_panel_down_cooldown' => (int) ( $s['notify_admin_panel_down_cooldown'] ?? 30 ),
+				'notify_panel_cost_expiry'  => ! empty( $s['notify_panel_cost_expiry'] ),
+				'alert_ip_warn_min_distinct'     => max( 1, (int) ( $s['alert_ip_warn_min_distinct'] ?? 3 ) ),
+				'alert_ip_warn_hysteresis'       => ! empty( $s['alert_ip_warn_hysteresis'] ),
+				'alert_ip_warn_cooldown_minutes' => max( 0, (int) ( $s['alert_ip_warn_cooldown_minutes'] ?? 0 ) ),
+			);
+		}
+		if ( 'purge_expired' === $tab ) {
+			return class_exists( 'SimpleVPBot_Cron_Purge_Expired' )
+				? SimpleVPBot_Cron_Purge_Expired::dashboard_settings_snapshot()
+				: array();
+		}
+		if ( 'finance' === $tab ) {
+			$days = (string) ( $s['panel_cost_reminder_days'] ?? '7,1,0' );
+			return array(
+				'notify_panel_cost_expiry'       => ! empty( $s['notify_panel_cost_expiry'] ),
+				'panel_cost_reminder_days'       => $days,
+				'panel_cost_extend_days_on_paid' => (int) ( $s['panel_cost_extend_days_on_paid'] ?? 30 ),
 			);
 		}
 		if ( 'plans_catalog' === $tab ) {
@@ -362,11 +379,15 @@ class SimpleVPBot_Admin_Actions {
 			);
 		}
 		if ( 'cards' === $tab ) {
-			return array(
+			$out = array(
 				'cards_display_mode' => class_exists( 'SimpleVPBot_Card_Rotation' )
 					? SimpleVPBot_Card_Rotation::sanitize_display_mode( $s['cards_display_mode'] ?? 'list' )
 					: sanitize_key( (string) ( $s['cards_display_mode'] ?? 'list' ) ),
 			);
+			if ( class_exists( 'SimpleVPBot_Payment_Methods' ) ) {
+				$out['payment_methods'] = SimpleVPBot_Payment_Methods::site_map();
+			}
+			return $out;
 		}
 		if ( 'force_join' === $tab ) {
 			return array(
@@ -397,7 +418,7 @@ class SimpleVPBot_Admin_Actions {
 	public static function apply_settings_merge( $tab, array $patch ) {
 		$tab  = sanitize_key( (string) $tab );
 		$base = self::settings_post_for_tab( $tab );
-		if ( empty( $base ) && ! in_array( $tab, array( 'general', 'bots', 'panel', 'notifications', 'referral', 'plans_catalog', 'backup', 'cards', 'force_join' ), true ) ) {
+		if ( empty( $base ) && ! in_array( $tab, array( 'general', 'bots', 'panel', 'notifications', 'purge_expired', 'referral', 'plans_catalog', 'backup', 'cards', 'force_join' ), true ) ) {
 			return false;
 		}
 		$merged = array_merge( $base, $patch );
@@ -428,10 +449,12 @@ class SimpleVPBot_Admin_Actions {
 				$all['default_service_plan_id']   = max( 0, (int) ( $post['default_service_plan_id'] ?? 0 ) );
 				$all['crisis_mode']               = ! empty( $post['crisis_mode'] );
 				$all['suppress_bulk_user_notifications'] = ! empty( $post['suppress_bulk_user_notifications'] );
-				$mode = isset( $post['cards_display_mode'] ) ? (string) $post['cards_display_mode'] : 'list';
-				$all['cards_display_mode'] = class_exists( 'SimpleVPBot_Card_Rotation' )
-					? SimpleVPBot_Card_Rotation::sanitize_display_mode( $mode )
-					: ( in_array( sanitize_key( $mode ), array( 'list', 'sequential' ), true ) ? sanitize_key( $mode ) : 'list' );
+				if ( isset( $post['cards_display_mode'] ) ) {
+					$mode = (string) $post['cards_display_mode'];
+					$all['cards_display_mode'] = class_exists( 'SimpleVPBot_Card_Rotation' )
+						? SimpleVPBot_Card_Rotation::sanitize_display_mode( $mode )
+						: ( in_array( sanitize_key( $mode ), array( 'list', 'sequential' ), true ) ? sanitize_key( $mode ) : 'list' );
+				}
 				break;
 			case 'bots':
 				self::$bots_tab_tokens_updated = array();
@@ -506,10 +529,12 @@ class SimpleVPBot_Admin_Actions {
 				$all['default_service_plan_id']   = max( 0, (int) ( $post['default_service_plan_id'] ?? 0 ) );
 				$all['crisis_mode']               = ! empty( $post['crisis_mode'] );
 				$all['suppress_bulk_user_notifications'] = ! empty( $post['suppress_bulk_user_notifications'] );
-				$mode = isset( $post['cards_display_mode'] ) ? (string) $post['cards_display_mode'] : 'list';
-				$all['cards_display_mode'] = class_exists( 'SimpleVPBot_Card_Rotation' )
-					? SimpleVPBot_Card_Rotation::sanitize_display_mode( $mode )
-					: ( in_array( sanitize_key( $mode ), array( 'list', 'sequential' ), true ) ? sanitize_key( $mode ) : 'list' );
+				if ( isset( $post['cards_display_mode'] ) ) {
+					$mode = (string) $post['cards_display_mode'];
+					$all['cards_display_mode'] = class_exists( 'SimpleVPBot_Card_Rotation' )
+						? SimpleVPBot_Card_Rotation::sanitize_display_mode( $mode )
+						: ( in_array( sanitize_key( $mode ), array( 'list', 'sequential' ), true ) ? sanitize_key( $mode ) : 'list' );
+				}
 				$all['dashboard_site_name']     = sanitize_text_field( (string) ( $post['dashboard_site_name'] ?? '' ) );
 				$all['dashboard_site_icon_url'] = esc_url_raw( (string) ( $post['dashboard_site_icon_url'] ?? '' ) );
 				$all['branding_logo_url']       = esc_url_raw( (string) ( $post['branding_logo_url'] ?? '' ) );
@@ -551,6 +576,23 @@ class SimpleVPBot_Admin_Actions {
 					$post['inbound_display_names'] ?? array()
 				);
 				$all['config_label_prepend_inbound']       = ! empty( $post['config_label_prepend_inbound'] );
+				break;
+			case 'relay':
+				$all['telegram_relay_enabled'] = ! empty( $post['telegram_relay_enabled'] );
+				$all['telegram_relay_force'] = ! empty( $post['telegram_relay_force'] );
+				$all['telegram_relay_base_url'] = esc_url_raw( trim( (string) ( $post['telegram_relay_base_url'] ?? '' ) ) );
+				$all['telegram_relay_public_url'] = esc_url_raw( trim( (string) ( $post['telegram_relay_public_url'] ?? '' ) ) );
+				$all['telegram_relay_wp_forward_url'] = esc_url_raw( trim( (string) ( $post['telegram_relay_wp_forward_url'] ?? '' ) ) );
+				$all['telegram_relay_allowed_ips'] = sanitize_text_field( (string) ( $post['telegram_relay_allowed_ips'] ?? '' ) );
+				if ( array_key_exists( 'telegram_relay_shared_secret', $post ) ) {
+					$rsec = trim( (string) $post['telegram_relay_shared_secret'] );
+					if ( '' !== $rsec ) {
+						$all['telegram_relay_shared_secret'] = $rsec;
+					}
+				}
+				if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+					SimpleVPBot_Telegram_Relay::ensure_relay_secret();
+				}
 				break;
 			case 'proxy':
 				$all['telegram_proxy_enabled']  = ! empty( $post['telegram_proxy_enabled'] );
@@ -596,9 +638,41 @@ class SimpleVPBot_Admin_Actions {
 				$all['notify_idle_cooldown_days'] = max( 7, (int) ( $post['notify_idle_cooldown_days'] ?? 90 ) );
 				$all['notify_admin_panel_down']   = ! empty( $post['notify_admin_panel_down'] );
 				$all['notify_admin_panel_down_cooldown'] = max( 5, (int) ( $post['notify_admin_panel_down_cooldown'] ?? 30 ) );
+				$all['notify_panel_cost_expiry']  = ! empty( $post['notify_panel_cost_expiry'] );
 				$all['alert_ip_warn_min_distinct']     = max( 1, (int) ( $post['alert_ip_warn_min_distinct'] ?? 3 ) );
 				$all['alert_ip_warn_hysteresis']       = ! empty( $post['alert_ip_warn_hysteresis'] );
 				$all['alert_ip_warn_cooldown_minutes'] = max( 0, (int) ( $post['alert_ip_warn_cooldown_minutes'] ?? 0 ) );
+				break;
+			case 'purge_expired':
+				$all['purge_expired_enabled']      = ! empty( $post['purge_expired_enabled'] );
+				$all['purge_expired_grace_days']   = max( 1, min( 365, (int) ( $post['purge_expired_grace_days'] ?? 7 ) ) );
+				$warn_raw                          = isset( $post['purge_expired_warn_days'] ) ? sanitize_text_field( (string) $post['purge_expired_warn_days'] ) : '7,3,1,0';
+				$parsed_warn                       = array();
+				foreach ( array_filter( array_map( 'trim', explode( ',', $warn_raw ) ) ) as $part ) {
+					if ( is_numeric( $part ) ) {
+						$d = (int) $part;
+						if ( $d >= 0 && $d <= 365 ) {
+							$parsed_warn[] = $d;
+						}
+					}
+				}
+				$all['purge_expired_warn_days']    = ! empty( $parsed_warn ) ? array_values( array_unique( $parsed_warn ) ) : array( 7, 3, 1, 0 );
+				$all['purge_expired_notify_user']  = ! empty( $post['purge_expired_notify_user'] );
+				break;
+			case 'finance':
+				$all['notify_panel_cost_expiry'] = ! empty( $post['notify_panel_cost_expiry'] );
+				$days                            = isset( $post['panel_cost_reminder_days'] ) ? sanitize_text_field( (string) $post['panel_cost_reminder_days'] ) : '7,1,0';
+				$parsed                          = array();
+				foreach ( array_filter( array_map( 'trim', explode( ',', $days ) ) ) as $part ) {
+					if ( is_numeric( $part ) ) {
+						$d = (int) $part;
+						if ( $d >= 0 && $d <= 365 ) {
+							$parsed[] = $d;
+						}
+					}
+				}
+				$all['panel_cost_reminder_days']       = ! empty( $parsed ) ? implode( ',', array_unique( $parsed ) ) : '7,1,0';
+				$all['panel_cost_extend_days_on_paid'] = max( 1, min( 365, (int) ( $post['panel_cost_extend_days_on_paid'] ?? 30 ) ) );
 				break;
 			case 'plans_catalog':
 				$all['default_concurrent_users'] = max( 0, (int) ( $post['default_concurrent_users'] ?? 2 ) );
@@ -615,10 +689,20 @@ class SimpleVPBot_Admin_Actions {
 				$all['bale_bot_username']                 = sanitize_text_field( (string) ( $post['bale_bot_username'] ?? '' ) );
 				break;
 			case 'cards':
-				$mode = (string) ( $post['cards_display_mode'] ?? 'list' );
-				$all['cards_display_mode'] = class_exists( 'SimpleVPBot_Card_Rotation' )
-					? SimpleVPBot_Card_Rotation::sanitize_display_mode( $mode )
-					: ( 'sequential' === sanitize_key( $mode ) ? 'sequential' : 'list' );
+				if ( isset( $post['cards_display_mode'] ) ) {
+					$mode = (string) $post['cards_display_mode'];
+					$all['cards_display_mode'] = class_exists( 'SimpleVPBot_Card_Rotation' )
+						? SimpleVPBot_Card_Rotation::sanitize_display_mode( $mode )
+						: ( 'sequential' === sanitize_key( $mode ) ? 'sequential' : 'list' );
+				}
+				if ( isset( $post['payment_methods'] ) && class_exists( 'SimpleVPBot_Payment_Methods' ) ) {
+					$raw = $post['payment_methods'];
+					if ( is_string( $raw ) ) {
+						$decoded = json_decode( $raw, true );
+						$raw     = is_array( $decoded ) ? $decoded : array();
+					}
+					$all['payment_methods'] = SimpleVPBot_Payment_Methods::sanitize_map( is_array( $raw ) ? $raw : array() );
+				}
 				break;
 			case 'force_join':
 				$all['force_join_telegram_enabled'] = ! empty( $post['force_join_telegram_enabled'] );
@@ -669,21 +753,30 @@ class SimpleVPBot_Admin_Actions {
 	 */
 	public static function after_settings_tab_saved( $tab ) {
 		if ( 'backup' === $tab ) {
-			SimpleVPBot_Cron_Manager::clear_backup();
-			SimpleVPBot_Cron_Manager::schedule_all();
+			$name      = SimpleVPBot_Settings::backup_schedule_name();
+			$schedules = wp_get_schedules();
+			$interval  = isset( $schedules[ $name ] ) ? $name : 'hourly';
+			SimpleVPBot_Cron_Manager::schedule_backup_event( $interval );
 		}
-		if ( 'bots' === $tab ) {
-			SimpleVPBot_Settings::ensure_secrets();
+		if ( 'bots' === $tab || 'relay' === $tab ) {
+			if ( 'bots' === $tab ) {
+				SimpleVPBot_Settings::ensure_secrets();
+			}
 			$s = SimpleVPBot_Settings::all();
-			if ( ! empty( self::$bots_tab_tokens_updated ) && class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			if ( 'bots' === $tab && ! empty( self::$bots_tab_tokens_updated ) && class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
 				SimpleVPBot_Service_Admin_Ops::sync_main_bot_usernames( self::$bots_tab_tokens_updated );
 				self::$bots_tab_tokens_updated = array();
 			}
-			if ( ! empty( $s['enabled'] ) && class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
-				if ( '' !== trim( (string) ( $s['telegram_token'] ?? '' ) ) ) {
+			if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+				SimpleVPBot_Telegram_Relay::maybe_sync_after_settings();
+			}
+			if ( 'bots' === $tab && class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+				$tg_on = ! class_exists( 'SimpleVPBot_Platforms' ) || SimpleVPBot_Platforms::main_platform_flag( 'telegram', $s );
+				$bl_on = ! class_exists( 'SimpleVPBot_Platforms' ) || SimpleVPBot_Platforms::main_platform_flag( 'bale', $s );
+				if ( $tg_on && '' !== trim( (string) ( $s['telegram_token'] ?? '' ) ) ) {
 					SimpleVPBot_Service_Admin_Ops::set_webhook_telegram();
 				}
-				if ( '' !== trim( (string) ( $s['bale_token'] ?? '' ) ) ) {
+				if ( $bl_on && '' !== trim( (string) ( $s['bale_token'] ?? '' ) ) ) {
 					SimpleVPBot_Service_Admin_Ops::set_webhook_bale();
 				}
 			}

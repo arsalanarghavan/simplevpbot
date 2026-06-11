@@ -11,6 +11,7 @@ import {
   Receipt,
   Server,
   Tags,
+  TrendingUp,
   UsersRound,
 } from "lucide-react"
 import {
@@ -24,8 +25,18 @@ import {
 } from "recharts"
 
 import { Badge } from "@/components/ui/badge"
+import { DashSelect } from "@/components/dash-select"
+import { Label } from "@/components/ui/label"
+import {
+  DashboardEconomicsOverviewCard,
+  type EconomicsOverviewPayload,
+} from "@/components/dashboard-economics-overview-card"
+import {
+  DashboardEconomicsPaymentAlert,
+  type UpcomingPayment,
+} from "@/components/dashboard-economics-payment-alert"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
 import { Button } from "@/components/ui/button"
 import { DataPagination } from "@/components/data-pagination"
 import {
@@ -51,11 +62,13 @@ import {
   formatNumericString,
 } from "@/lib/format-locale"
 import { OverviewPreviewGrid } from "@/components/dashboard-overview-sections"
-import { CHART_PRIMARY, overviewAccentOutlineBtn } from "@/lib/chart-accent"
+import { overviewAccentOutlineBtn, useChartPrimaryColor } from "@/lib/chart-accent"
 import { cn } from "@/lib/utils"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { buildDashboardTabUrl } from "@/lib/dash-tab"
 import type { DashRecord } from "@/lib/overview-rows"
+import { overviewPlatformEnabled } from "@/lib/enabled-platforms"
+import { useDashLocale } from "@/lib/dash-locale-context"
 type OverviewUsers = {
   users_approved?: number
   users_pending?: number
@@ -113,11 +126,17 @@ type OnlineDailyPoint = {
   totalMaxOnline: number
 }
 
+type OverviewEconomics = EconomicsOverviewPayload & {
+  upcomingPayments?: UpcomingPayment[]
+}
+
 type OverviewPayload = {
   stats?: StatsPayload
   counts?: Record<string, unknown>
   bot?: {
     enabled?: boolean
+    telegram_enabled?: boolean
+    bale_enabled?: boolean
     telegram_bot_username?: string
     bale_bot_username?: string
   }
@@ -126,6 +145,7 @@ type OverviewPayload = {
   onlineDailySeries?: OnlineDailyPoint[]
   livePanelSnapshots?: unknown[]
   externalHostSnapshots?: unknown[]
+  economics?: OverviewEconomics | null
 }
 
 export type { OverviewPayload, PanelHealth, StatsPayload }
@@ -203,20 +223,19 @@ function StatCard({
   title,
   value,
   sub,
-  isFa,
   className,
 }: {
   title: string
   value: number
   sub?: string
-  isFa: boolean
-  className?: string
+className?: string
 }) {
+  const { isFa } = useDashLocale()
+
   return (
     <div
       className={cn(
         "rounded-lg border border-border bg-card p-4 shadow-sm",
-        isFa && "text-right",
         className
       )}
     >
@@ -293,11 +312,21 @@ function DashTabLink({
   )
 }
 
+type ResellerOverviewMetrics = {
+  window_days?: number
+  sales_toman?: number
+  sales_count?: number
+  wholesale_toman?: number
+  margin_est?: number
+  downline_users?: number
+  active_services?: number
+  receipts_toman?: number
+}
+
 export function DashboardOverview({
   overview,
   panels,
   panelsPagination,
-  isFa,
   dashboardBaseUrl,
   allowedNavTabs = null,
   onSelectTab,
@@ -307,6 +336,11 @@ export function DashboardOverview({
   compactHealthOnly = false,
   prependResellerFinance = false,
   actorBalance = undefined,
+  resellerOverviewMetrics = null,
+  overviewMetricsWindowDays = 30,
+  onOverviewMetricsWindowChange,
+  statsDay = 0,
+  onStatsDayChange,
   recentUsers = [],
   recentReceipts = [],
   pendingUsersPreview = [],
@@ -316,12 +350,12 @@ export function DashboardOverview({
   onOpenUserDetail,
   onOpenResellerWorkspace,
   onReceiptsFilterNavigate,
+  onEconomicsRefresh,
 }: {
   overview: OverviewPayload | undefined
   panels: DashRecord[]
   panelsPagination: PaginationMeta | null
-  isFa: boolean
-  dashboardBaseUrl: string
+dashboardBaseUrl: string
   /** When set (reseller), only show links to tabs in this set. */
   allowedNavTabs?: Set<string> | null
   onSelectTab: (tabKey: string) => void
@@ -334,6 +368,13 @@ export function DashboardOverview({
   prependResellerFinance?: boolean
   /** Reseller wallet balance (toman); shown when compactHealthOnly and defined. */
   actorBalance?: number
+  /** Reseller self-service performance KPIs (dashboard tab only). */
+  resellerOverviewMetrics?: ResellerOverviewMetrics | Record<string, unknown> | null
+  overviewMetricsWindowDays?: number
+  onOverviewMetricsWindowChange?: (days: number) => void
+  /** Reseller stats day offset (0 = today, up to 7). */
+  statsDay?: number
+  onStatsDayChange?: (day: number) => void
   recentUsers?: DashRecord[]
   recentReceipts?: DashRecord[]
   pendingUsersPreview?: DashRecord[]
@@ -343,8 +384,11 @@ export function DashboardOverview({
   onOpenUserDetail?: (svpUserId: number) => void
   onOpenResellerWorkspace?: (resellerId: number) => void
   onReceiptsFilterNavigate?: (status?: string) => void
+  onEconomicsRefresh?: () => void
 }) {
+  const { isFa } = useDashLocale()
   const { t } = useTranslation()
+  const chartPrimary = useChartPrimaryColor()
   const allowTab = (tab: string) => !allowedNavTabs || allowedNavTabs.has(tab)
   const u = overview?.stats?.users ?? {}
   const counts = overview?.counts ?? {}
@@ -420,6 +464,11 @@ export function DashboardOverview({
     [series, isFa]
   )
 
+  const perfMetrics = (resellerOverviewMetrics ?? null) as ResellerOverviewMetrics | null
+  const perfWindow = [7, 30, 90].includes(overviewMetricsWindowDays) ? overviewMetricsWindowDays : 30
+  const resellerFocused = prependResellerFinance && isReseller
+  const statsDayClamped = [0, 1, 2, 3, 4, 5, 6, 7].includes(statsDay) ? statsDay : 0
+
   const loadLine =
     host?.loadAvg && host.loadAvg.length >= 3
       ? host.loadAvg.map((x) => formatNumber(x, isFa)).join(" / ")
@@ -428,7 +477,7 @@ export function DashboardOverview({
   if (compactHealthOnly) {
     const showFinance = typeof actorBalance === "number"
     return (
-      <div className={dashPageRootClass(isFa, "space-y-4")} dir={dashDir(isFa)}>
+      <DashPage className={"space-y-4"}>
         <DashboardPageHeader
           title={<h2 className="text-lg font-semibold">{t("dashboardOverview.compactTitle")}</h2>}
           description={t("dashboardOverview.compactSubtitle")}
@@ -440,7 +489,7 @@ export function DashboardOverview({
             ) : undefined
           }
         />
-        {showFinance ? (
+        {showFinance && allowTab("reseller_charge") ? (
           <Card>
             <CardContent className={cn("flex flex-wrap items-center justify-between gap-3 pt-6")}>
               <div>
@@ -495,16 +544,15 @@ export function DashboardOverview({
         </Card>
         <DataPagination
           meta={panelsPagination}
-          isFa={isFa}
-          onPageChange={onPanelsPageChange}
+        onPageChange={onPanelsPageChange}
           onPerPageChange={onPanelsPerPageChange}
         />
-      </div>
+      </DashPage>
     )
   }
 
   return (
-    <div className={dashPageRootClass(isFa, "space-y-6")} dir={dashDir(isFa)}>
+    <DashPage className={"space-y-6"}>
       <DashboardPageHeader
         title={<h2 className="text-lg font-semibold">{t("dashboardOverview.title")}</h2>}
         description={
@@ -515,9 +563,48 @@ export function DashboardOverview({
                 {t("dashboardOverview.statDate")}: {formatDateOnly(String(overview.stats.stat_date), isFa)}
               </p>
             ) : null}
+            {resellerFocused && onStatsDayChange ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Label htmlFor="overview-stats-day" className="text-xs text-muted-foreground">
+                  {t("dashboardOverview.statsDayLabel")}
+                </Label>
+                <DashSelect
+                  id="overview-stats-day"
+                  triggerClassName="h-8 w-[10rem]"
+                  value={String(statsDayClamped)}
+                  onValueChange={(v) => {
+                    const d = Number(v)
+                    if (Number.isFinite(d) && d >= 0 && d <= 7) onStatsDayChange(d)
+                  }}
+                  options={[0, 1, 2, 3, 4, 5, 6, 7].map((d) => ({
+                    value: String(d),
+                    label:
+                      d === 0
+                        ? t("dashboardOverview.statsDayToday")
+                        : t("dashboardOverview.statsDayAgo", { days: formatNumber(d, isFa) }),
+                  }))}
+                />
+              </div>
+            ) : null}
           </>
         }
       />
+
+      {!isReseller && !compactHealthOnly && overview?.economics ? (
+        <>
+          {(overview.economics.upcomingPayments?.length ?? 0) > 0 ? (
+            <DashboardEconomicsPaymentAlert
+              items={overview.economics.upcomingPayments ?? []}
+        dashboardBaseUrl={dashboardBaseUrl}
+              onDismissRefresh={onEconomicsRefresh}
+            />
+          ) : null}
+          <DashboardEconomicsOverviewCard
+            economics={overview.economics}
+        dashboardBaseUrl={dashboardBaseUrl}
+          />
+        </>
+      ) : null}
 
       {prependResellerFinance ? (
         <div className="space-y-4">
@@ -534,16 +621,104 @@ export function DashboardOverview({
                   </p>
                   <p className="text-2xl font-semibold tabular-nums">{formatNumber(actorBalance, isFa)}</p>
                 </div>
-                <Button type="button" variant="default" size="sm" onClick={() => onSelectTab("reseller_charge")}>
-                  {t("dashboardOverview.actorWalletTopUp")}
-                </Button>
+                {allowTab("reseller_charge") ? (
+                  <Button type="button" variant="default" size="sm" onClick={() => onSelectTab("reseller_charge")}>
+                    {t("dashboardOverview.actorWalletTopUp")}
+                  </Button>
+                ) : null}
               </CardContent>
             </Card>
           ) : null}
         </div>
       ) : null}
 
-      {host != null ? (
+      {prependResellerFinance && onOverviewMetricsWindowChange ? (
+        <Card className="border-primary/20">
+          <CardHeader className="pb-2">
+            <div className={cn("flex flex-wrap items-start justify-between gap-3")}>
+              <div className={cn("flex items-start gap-3")}>
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <TrendingUp className="size-5" aria-hidden />
+                </div>
+                <div className="space-y-1">
+                  <CardTitle className="text-base">{t("dashboardOverview.perfTitle")}</CardTitle>
+                  <CardDescription>
+                    {t("dashboardOverview.perfSubtitle", { days: formatNumber(perfWindow, isFa) })}
+                  </CardDescription>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="overview-metrics-window">{t("dashboardOverview.perfWindowDays")}</Label>
+                <DashSelect
+                  id="overview-metrics-window"
+                  triggerClassName="w-[8rem]"
+                  value={String(perfWindow)}
+                  onValueChange={(v) => {
+                    const d = Number(v)
+                    if ([7, 30, 90].includes(d)) onOverviewMetricsWindowChange(d)
+                  }}
+                  options={[
+                    { value: "7", label: t("dashboardOverview.perfWindow7") },
+                    { value: "30", label: t("dashboardOverview.perfWindow30") },
+                    { value: "90", label: t("dashboardOverview.perfWindow90") },
+                  ]}
+                />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <StatCard
+                className="border-primary/15 bg-primary/[0.03]"
+                title={t("dashboardOverview.perfSales")}
+                value={num(perfMetrics?.sales_toman)}
+                sub={t("dashboardOverview.perfSalesHint")}
+              />
+              <StatCard
+                title={t("dashboardOverview.perfWholesale")}
+                value={num(perfMetrics?.wholesale_toman)}
+                sub={t("dashboardOverview.perfWholesaleHint")}
+              />
+              <StatCard
+                title={t("dashboardOverview.perfMargin")}
+                value={num(perfMetrics?.margin_est)}
+                sub={t("dashboardOverview.perfMarginHint")}
+              />
+              <StatCard
+                title={t("dashboardOverview.perfDownline")}
+                value={num(perfMetrics?.downline_users)}
+                sub={
+                  [
+                    t("dashboardOverview.perfDownlineLifetimeHint"),
+                    num(perfMetrics?.active_services) > 0
+                      ? t("dashboardOverview.perfActiveServices", {
+                          count: formatNumber(num(perfMetrics?.active_services), isFa),
+                        })
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                }
+              />
+              <StatCard
+                title={t("dashboardOverview.perfReceipts")}
+                value={num(perfMetrics?.receipts_toman)}
+                sub={t("dashboardOverview.perfReceiptsHint")}
+              />
+            </div>
+            {num(perfMetrics?.sales_count) > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {t("dashboardOverview.perfSalesCount", {
+                  count: formatNumber(num(perfMetrics?.sales_count), isFa),
+                })}
+              </p>
+            ) : null}
+            <p className="text-xs text-muted-foreground">{t("dashboardOverview.perfMarginDisclaimer")}</p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {host != null && !resellerFocused ? (
         <Card className="border-primary/20">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">{t("dashboardOverview.hostThisServer")}</CardTitle>
@@ -593,8 +768,8 @@ export function DashboardOverview({
               <AreaChart data={chartRows} margin={{ top: 8, right: 8, left: isFa ? 8 : 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="fillOnline" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={CHART_PRIMARY} stopOpacity={0.35} />
-                    <stop offset="95%" stopColor={CHART_PRIMARY} stopOpacity={0} />
+                    <stop offset="5%" stopColor={chartPrimary} stopOpacity={0.35} />
+                    <stop offset="95%" stopColor={chartPrimary} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
@@ -624,7 +799,7 @@ export function DashboardOverview({
                 <Area
                   type="monotone"
                   dataKey="totalMaxOnline"
-                  stroke={CHART_PRIMARY}
+                  stroke={chartPrimary}
                   fill="url(#fillOnline)"
                   strokeWidth={2}
                 />
@@ -634,6 +809,7 @@ export function DashboardOverview({
         </CardContent>
       </Card>
 
+      {!resellerFocused ? (
       <section className="relative space-y-4 overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-b from-primary/[0.06] to-transparent p-4 sm:p-5">
         <div
           className={cn(
@@ -652,49 +828,51 @@ export function DashboardOverview({
             className="border-border/80 bg-card/90 shadow-sm"
             title={t("dashboardOverview.usersTotal")}
             value={num(u.users_total)}
-            isFa={isFa}
-          />
+        />
           <StatCard
             className="border-border/80 bg-card/90 shadow-sm"
             title={t("dashboardOverview.usersApproved")}
             value={num(u.users_approved)}
-            isFa={isFa}
-          />
+        />
           <StatCard
             className="border-border/80 bg-card/90 shadow-sm"
             title={t("dashboardOverview.usersPending")}
             value={num(u.users_pending)}
-            isFa={isFa}
-          />
+        />
           <StatCard
             className="border-border/80 bg-card/90 shadow-sm"
             title={t("dashboardOverview.usersToday")}
             value={num(u.users_today)}
-            isFa={isFa}
-          />
+        />
+          {overviewPlatformEnabled(bot, "telegram") ? (
           <StatCard
             className="border-primary/15 bg-primary/[0.04]"
             title={t("dashboardOverview.usersTelegram")}
             value={num(u.users_with_telegram)}
-            isFa={isFa}
-          />
+        />
+          ) : null}
+          {overviewPlatformEnabled(bot, "bale") ? (
           <StatCard
             className="border-primary/15 bg-primary/[0.06]"
             title={t("dashboardOverview.usersBale")}
             value={num(u.users_with_bale)}
-            isFa={isFa}
-          />
-          <StatCard title={t("dashboardOverview.usersRejected")} value={num(u.users_rejected)} isFa={isFa} />
-          <StatCard title={t("dashboardOverview.usersBlocked")} value={num(u.users_blocked)} isFa={isFa} />
-          <StatCard title={t("dashboardOverview.servicesTotal")} value={num(u.services_total)} isFa={isFa} />
+        />
+          ) : null}
+          <StatCard title={t("dashboardOverview.usersRejected")} value={num(u.users_rejected)}
+        />
+          <StatCard title={t("dashboardOverview.usersBlocked")} value={num(u.users_blocked)}
+        />
+          <StatCard title={t("dashboardOverview.servicesTotal")} value={num(u.services_total)}
+        />
         </div>
       </section>
+      ) : null}
 
+      {!resellerFocused ? (
       <section className="grid gap-4 lg:grid-cols-2">
         <div
           className={cn(
-            "relative overflow-hidden rounded-2xl border border-primary/15 bg-card p-5 shadow-sm",
-            isFa && "text-right"
+            "relative overflow-hidden rounded-2xl border border-primary/15 bg-card p-5 shadow-sm"
           )}
         >
           <div
@@ -712,20 +890,23 @@ export function DashboardOverview({
               <p className="text-sm font-medium">
                 {bot.enabled ? t("dashboardOverview.botEnabled") : t("dashboardOverview.botDisabled")}
               </p>
+              {overviewPlatformEnabled(bot, "telegram") ? (
               <p className="text-xs text-muted-foreground">
                 {t("dashboardOverview.telegram")}: {String(bot.telegram_bot_username || "—")}
               </p>
+              ) : null}
+              {overviewPlatformEnabled(bot, "bale") ? (
               <p className="text-xs text-muted-foreground">
                 {t("dashboardOverview.bale")}: {String(bot.bale_bot_username || "—")}
               </p>
+              ) : null}
             </div>
           </div>
         </div>
 
         <div
           className={cn(
-            "relative overflow-hidden rounded-2xl border border-primary/15 bg-card p-5 shadow-sm",
-            isFa && "text-right"
+            "relative overflow-hidden rounded-2xl border border-primary/15 bg-card p-5 shadow-sm"
           )}
         >
           <div
@@ -766,11 +947,13 @@ export function DashboardOverview({
           </div>
         </div>
       </section>
+      ) : null}
 
+      {!resellerFocused ? (
       <Card className="overflow-hidden border-primary/20 shadow-md">
         <CardHeader className="border-b border-border/60 bg-primary/[0.03] pb-4">
           <div className={cn("flex flex-wrap items-start justify-between gap-3")}>
-            <div className={cn("space-y-1", isFa && "text-right")}>
+            <div className={cn("space-y-1")}>
               <CardTitle className="text-lg">{t("dashboardOverview.financeCard")}</CardTitle>
               <CardDescription className="max-w-2xl text-pretty">
                 {t("dashboardOverview.financeCardHint")}
@@ -783,8 +966,7 @@ export function DashboardOverview({
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <div
               className={cn(
-                "rounded-xl border border-border/80 bg-gradient-to-b from-card to-muted/20 p-4 shadow-sm",
-                isFa && "text-right"
+                "rounded-xl border border-border/80 bg-gradient-to-b from-card to-muted/20 p-4 shadow-sm"
               )}
             >
               <Layers className={cn("mb-2 size-5 text-primary", isFa && "ms-auto")} aria-hidden />
@@ -793,8 +975,7 @@ export function DashboardOverview({
             </div>
             <div
               className={cn(
-                "rounded-xl border border-border/80 bg-gradient-to-b from-card to-muted/20 p-4 shadow-sm",
-                isFa && "text-right"
+                "rounded-xl border border-border/80 bg-gradient-to-b from-card to-muted/20 p-4 shadow-sm"
               )}
             >
               <Tags className={cn("mb-2 size-5 text-primary", isFa && "ms-auto")} aria-hidden />
@@ -805,8 +986,7 @@ export function DashboardOverview({
             </div>
             <div
               className={cn(
-                "rounded-xl border border-border/80 bg-gradient-to-b from-card to-muted/20 p-4 shadow-sm",
-                isFa && "text-right"
+                "rounded-xl border border-border/80 bg-gradient-to-b from-card to-muted/20 p-4 shadow-sm"
               )}
             >
               <CreditCard className={cn("mb-2 size-5 text-primary", isFa && "ms-auto")} aria-hidden />
@@ -815,8 +995,7 @@ export function DashboardOverview({
             </div>
             <div
               className={cn(
-                "rounded-xl border border-primary/20 bg-gradient-to-b from-primary/[0.07] to-card p-4 shadow-sm",
-                isFa && "text-right"
+                "rounded-xl border border-primary/20 bg-gradient-to-b from-primary/[0.07] to-card p-4 shadow-sm"
               )}
             >
               <Receipt className={cn("mb-2 size-5 text-primary", isFa && "ms-auto")} aria-hidden />
@@ -827,8 +1006,7 @@ export function DashboardOverview({
             </div>
             <div
               className={cn(
-                "rounded-xl border border-border/80 bg-gradient-to-b from-card to-muted/20 p-4 shadow-sm",
-                isFa && "text-right"
+                "rounded-xl border border-border/80 bg-gradient-to-b from-card to-muted/20 p-4 shadow-sm"
               )}
             >
               <Percent className={cn("mb-2 size-5 text-primary", isFa && "ms-auto")} aria-hidden />
@@ -840,7 +1018,7 @@ export function DashboardOverview({
           </div>
 
           {receiptRowsSorted.length > 0 && receiptBarTotal > 0 ? (
-            <div className={cn("space-y-3", isFa && "text-right")}>
+            <div className={cn("space-y-3")}>
               <p className="text-sm font-medium">{t("dashboardOverview.receiptsByStatus")}</p>
               <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
                 {receiptRowsSorted.map(([status, val]) => {
@@ -925,11 +1103,11 @@ export function DashboardOverview({
           </div>
         </CardContent>
       </Card>
+      ) : null}
 
-      {onOpenUserDetail && onReceiptsFilterNavigate ? (
+      {!resellerFocused && onOpenUserDetail && onReceiptsFilterNavigate ? (
         <OverviewPreviewGrid
-          isFa={isFa}
-          isReseller={isReseller}
+        isReseller={isReseller}
           allowTab={allowTab}
           recentUsers={recentUsers}
           recentReceipts={recentReceipts}
@@ -1038,8 +1216,7 @@ export function DashboardOverview({
                       <CardContent className="space-y-4 text-sm">
                         <div
                           className={cn(
-                            "rounded-xl border border-border/80 bg-background/80 px-3 py-3",
-                            isFa && "text-right"
+                            "rounded-xl border border-border/80 bg-background/80 px-3 py-3"
                           )}
                         >
                           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -1078,7 +1255,6 @@ export function DashboardOverview({
                     </Card>
                   </TooltipTrigger>
                   <TooltipContent
-                    side={isFa ? "left" : "right"}
                     className="max-w-xs text-xs leading-relaxed"
                   >
                     <p className="text-muted-foreground">{t("dashboardOverview.ttRttHint")}</p>
@@ -1114,13 +1290,12 @@ export function DashboardOverview({
         </div>
         <DataPagination
           meta={panelsPagination}
-          isFa={isFa}
-          onPageChange={onPanelsPageChange}
+        onPageChange={onPanelsPageChange}
           onPerPageChange={onPanelsPerPageChange}
         />
       </section>
 
-      <section className={cn("space-y-2", isFa && "text-right")}>
+      <section className={cn("space-y-2")}>
         <h3 className="text-sm font-medium">{t("dashboardOverview.quickLinks")}</h3>
         <div className="flex flex-wrap gap-2">
           {allowTab("users") ? (
@@ -1146,6 +1321,6 @@ export function DashboardOverview({
           ) : null}
         </div>
       </section>
-    </div>
+    </DashPage>
   )
 }

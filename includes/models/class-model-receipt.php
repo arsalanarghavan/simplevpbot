@@ -197,6 +197,68 @@ class SimpleVPBot_Model_Receipt {
 	}
 
 	/**
+	 * Pending receipts for users in scope (reseller bot admin).
+	 *
+	 * @param int        $offset Offset.
+	 * @param int        $limit  Limit.
+	 * @param array<int> $user_ids svp_users.id values.
+	 * @return array<int, object>
+	 */
+	public static function pending_paged_for_user_ids( $offset, $limit, array $user_ids ) {
+		$ids = array_values(
+			array_filter(
+				array_map( 'intval', $user_ids ),
+				static function ( $v ) {
+					return $v > 0;
+				}
+			)
+		);
+		if ( empty( $ids ) ) {
+			return array();
+		}
+		global $wpdb;
+		$offset = max( 0, (int) $offset );
+		$limit  = max( 1, min( 50, (int) $limit ) );
+		$ph     = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT * FROM " . self::table() . " WHERE status IN ('pending', 'processing') AND user_id IN ({$ph}) ORDER BY id ASC LIMIT %d OFFSET %d",
+				array_merge( $ids, array( $limit, $offset ) )
+			)
+		);
+	}
+
+	/**
+	 * Count pending receipts for users in scope.
+	 *
+	 * @param array<int> $user_ids svp_users.id values.
+	 * @return int
+	 */
+	public static function pending_count_for_user_ids( array $user_ids ) {
+		$ids = array_values(
+			array_filter(
+				array_map( 'intval', $user_ids ),
+				static function ( $v ) {
+					return $v > 0;
+				}
+			)
+		);
+		if ( empty( $ids ) ) {
+			return 0;
+		}
+		global $wpdb;
+		$ph = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
+		return (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM " . self::table() . " WHERE status IN ('pending', 'processing') AND user_id IN ({$ph})",
+				$ids
+			)
+		);
+	}
+
+	/**
 	 * List receipts with optional status filter (newest first).
 	 *
 	 * @param int         $offset Offset.

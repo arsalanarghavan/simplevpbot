@@ -15,34 +15,19 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { DashSelect } from "@/components/dash-select"
 import { DataPagination } from "@/components/data-pagination"
 import { getAdminJson, postAdminMutate } from "@/lib/dash-admin-mutate"
 import { parsePaginationMeta, type PaginationMeta } from "@/lib/dash-pagination"
+import { formatServiceExpiryLine } from "@/lib/format-locale"
+import { useDashLocale } from "@/lib/dash-locale-context"
 import { useAdminTp } from "@/lib/use-admin-tp"
 import { cn } from "@/lib/utils"
+import { DashDialogContent, DashDialogHeader } from "@/components/dash-dialog-content"
+import { Dialog, DialogTitle } from "@/components/ui/dialog"
 
 type LogRow = {
   id: number
@@ -52,7 +37,10 @@ type LogRow = {
   created_at: string
 }
 
-export function SiteSettingsLogsTab({ isFa }: { isFa: boolean }) {
+const LOGS_TABLE_COLS = ["10%", "12%", "48%", "20%", "10%"]
+
+export function SiteSettingsLogsTab() {
+  const { isFa, ltrCell } = useDashLocale()
   const { t } = useTranslation()
   const tp = useAdminTp("siteSettings.logs")
   const [rows, setRows] = useState<LogRow[]>([])
@@ -88,7 +76,7 @@ export function SiteSettingsLogsTab({ isFa }: { isFa: boolean }) {
     } finally {
       setLoading(false)
     }
-  }, [page, perPage, level, search])
+  }, [page, perPage, level, search, t])
 
   useEffect(() => {
     void load()
@@ -123,22 +111,25 @@ export function SiteSettingsLogsTab({ isFa }: { isFa: boolean }) {
   }, [clearDays, load, tp])
 
   return (
-    <div className={cn("space-y-4", isFa && "text-right")}>
+    <div className={cn("space-y-4 text-start")}>
       <div className={cn("flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between")}>
         <div className={cn("flex flex-wrap gap-2")}>
           <div className="space-y-1">
             <Label className="text-xs">{tp("filterLevel")}</Label>
-            <Select value={level || "all"} onValueChange={(v) => { setLevel(v === "all" ? "" : v); setPage(1) }}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{tp("levelAll")}</SelectItem>
-                <SelectItem value="info">info</SelectItem>
-                <SelectItem value="warning">warning</SelectItem>
-                <SelectItem value="error">error</SelectItem>
-              </SelectContent>
-            </Select>
+            <DashSelect
+              triggerClassName="w-[140px]"
+              value={level || "all"}
+              onValueChange={(v) => {
+                setLevel(v === "all" ? "" : v)
+                setPage(1)
+              }}
+              options={[
+                { value: "all", label: tp("levelAll") },
+                { value: "info", label: "info" },
+                { value: "warning", label: "warning" },
+                { value: "error", label: "error" },
+              ]}
+            />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">{tp("search")}</Label>
@@ -147,7 +138,8 @@ export function SiteSettingsLogsTab({ isFa }: { isFa: boolean }) {
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder={tp("searchPlaceholder")}
-                className="w-48"
+                className={cn("w-48", ltrCell())}
+                dir="ltr"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     setSearch(searchInput.trim())
@@ -167,8 +159,8 @@ export function SiteSettingsLogsTab({ isFa }: { isFa: boolean }) {
               {tp("clearBtn")}
             </Button>
           </AlertDialogTrigger>
-          <AlertDialogContent className={cn(isFa && "text-right [direction:rtl]")}>
-            <AlertDialogHeader className={cn(isFa && "text-right sm:text-right")}>
+          <AlertDialogContent className={cn("text-start")}>
+            <AlertDialogHeader className={cn("text-start")}>
               <AlertDialogTitle>{tp("clearTitle")}</AlertDialogTitle>
               <AlertDialogDescription>{tp("clearDesc")}</AlertDialogDescription>
             </AlertDialogHeader>
@@ -181,6 +173,7 @@ export function SiteSettingsLogsTab({ isFa }: { isFa: boolean }) {
                 value={clearDays}
                 onChange={(e) => setClearDays(e.target.value)}
                 dir="ltr"
+                className={ltrCell("tabular-nums")}
               />
               <p className="text-xs text-muted-foreground">{tp("clearOlderHint")}</p>
             </div>
@@ -207,54 +200,57 @@ export function SiteSettingsLogsTab({ isFa }: { isFa: boolean }) {
         </div>
       ) : null}
 
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-16">ID</TableHead>
-              <TableHead className="w-24">{tp("colLevel")}</TableHead>
-              <TableHead>{tp("colMessage")}</TableHead>
-              <TableHead className="w-40">{tp("colTime")}</TableHead>
-              <TableHead className="w-24" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading && rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
-                  {tp("loading")}
-                </TableCell>
-              </TableRow>
-            ) : null}
-            {!loading && rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
-                  {tp("empty")}
-                </TableCell>
-              </TableRow>
-            ) : null}
-            {rows.map((r) => (
-              <TableRow key={r.id}>
-                <TableCell className="font-mono text-xs">{r.id}</TableCell>
-                <TableCell className="font-mono text-xs">{r.level}</TableCell>
-                <TableCell className="max-w-md truncate text-sm">{r.message}</TableCell>
-                <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{r.created_at}</TableCell>
-                <TableCell>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => setDetail(r)}>
-                    {tp("details")}
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      <DashTableShell minWidth="40rem" colWidths={LOGS_TABLE_COLS}>
+        <thead>
+          <tr className="bg-muted/40">
+            <DashTh>ID</DashTh>
+            <DashTh>{tp("colLevel")}</DashTh>
+            <DashTh>{tp("colMessage")}</DashTh>
+            <DashTh>{tp("colTime")}</DashTh>
+            <DashTh />
+          </tr>
+        </thead>
+        <tbody>
+          {loading && rows.length === 0 ? (
+            <tr>
+              <DashTd colSpan={5} className="text-center text-muted-foreground">
+                {tp("loading")}
+              </DashTd>
+            </tr>
+          ) : null}
+          {!loading && rows.length === 0 ? (
+            <tr>
+              <DashTd colSpan={5} className="text-center text-muted-foreground">
+                {tp("empty")}
+              </DashTd>
+            </tr>
+          ) : null}
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <DashTd dir="ltr" className={ltrCell("font-mono text-xs")}>
+                {r.id}
+              </DashTd>
+              <DashTd dir="ltr" className={ltrCell("font-mono text-xs")}>
+                {r.level}
+              </DashTd>
+              <DashTd className="max-w-md truncate text-sm">{r.message}</DashTd>
+              <DashTd className="whitespace-nowrap text-xs text-muted-foreground">
+                {formatServiceExpiryLine(r.created_at, isFa)}
+              </DashTd>
+              <DashTd>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setDetail(r)}>
+                  {tp("details")}
+                </Button>
+              </DashTd>
+            </tr>
+          ))}
+        </tbody>
+      </DashTableShell>
 
       {pagination ? (
         <DataPagination
           meta={pagination}
-          isFa={isFa}
-          onPageChange={setPage}
+        onPageChange={setPage}
           onPerPageChange={(n) => {
             setPerPage(n)
             setPage(1)
@@ -263,23 +259,23 @@ export function SiteSettingsLogsTab({ isFa }: { isFa: boolean }) {
       ) : null}
 
       <Dialog open={detail != null} onOpenChange={(o) => !o && setDetail(null)}>
-        <DialogContent className={cn("sm:max-w-2xl", isFa && "text-right [direction:rtl]")}>
-          <DialogHeader className={cn(isFa && "text-right sm:text-right")}>
+        <DashDialogContent className={cn("sm:max-w-2xl")}>
+          <DashDialogHeader className={cn("text-start")}>
             <DialogTitle>{tp("detailTitle")}</DialogTitle>
-          </DialogHeader>
+          </DashDialogHeader>
           {detail ? (
-            <div className="space-y-3 text-sm">
+            <div className="space-y-3 text-sm text-start">
               <p>
                 <span className="text-muted-foreground">{tp("colLevel")}: </span>
                 {detail.level}
               </p>
               <p className="whitespace-pre-wrap break-words">{detail.message}</p>
-              <pre className="max-h-80 overflow-auto rounded-md bg-muted p-3 text-xs" dir="ltr">
+              <pre className={ltrCell("max-h-80 overflow-auto rounded-md bg-muted p-3 text-xs")} dir="ltr">
                 {contextPreview}
               </pre>
             </div>
           ) : null}
-        </DialogContent>
+        </DashDialogContent>
       </Dialog>
     </div>
   )

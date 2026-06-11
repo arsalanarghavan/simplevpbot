@@ -231,6 +231,9 @@ class SimpleVPBot_Admin_User_Ops {
 		$scope = (int) $invoice_card_scope_reseller_svp_id;
 		if ( $scope > 0 ) {
 			$meta['invoice_card_owner_scope_svp_id'] = $scope;
+			if ( empty( $meta['billing_reseller_svp_id'] ) ) {
+				$meta['billing_reseller_svp_id'] = $scope;
+			}
 		}
 		$uid = (int) $user->id;
 		$tid = SimpleVPBot_Model_Transaction::insert(

@@ -84,7 +84,7 @@ class SimpleVPBot_Cron_Admin_Alerts {
 			}
 		);
 		if ( ! $ok ) {
-			$legacy_label = __( 'پنل ذخیره‌شده در «تنظیمات افزونه → پنل X-UI» (جدول «پنل‌ها» خالی است)', 'simplevpbot' );
+			$legacy_label = SimpleVPBot_Texts::get( 'msg.cron.admin.panel_legacy_label' );
 			self::maybe_notify( 'legacy', $cool, $legacy_label, 0, $detail );
 		}
 	}
@@ -104,19 +104,19 @@ class SimpleVPBot_Cron_Admin_Alerts {
 		set_transient( $key, 1, $cool_min * MINUTE_IN_SECONDS );
 
 		$msg  = '🛠 ';
-		$msg .= __( 'ورود ۳x-ui از طرف سرور وردپرس/ربات برقرار نشد.', 'simplevpbot' );
+		$msg .= SimpleVPBot_Texts::get( 'msg.cron.admin.panel_login_failed' );
 		$msg .= "\n\n";
 		$msg .= '📛 ';
-		$msg .= __( 'پنل:', 'simplevpbot' ) . ' ' . $label;
+		$msg .= SimpleVPBot_Texts::get( 'msg.cron.admin.panel_label' ) . ' ' . $label;
 		if ( $panel_id > 0 ) {
 			$msg .= "\n🆔 ";
-			$msg .= __( 'شناسهٔ رکورد در دیتابیس (svp_panels.id):', 'simplevpbot' ) . ' ' . $panel_id;
+			$msg .= SimpleVPBot_Texts::get( 'msg.cron.admin.panel_db_id' ) . ' ' . $panel_id;
 		}
 		if ( '' !== trim( $detail ) ) {
 			$msg .= "\n\n" . trim( $detail );
 		}
 		$msg .= "\n\n";
-		$msg .= __( 'اگر در مرورگر پنل باز است: مسیر webBasePath در Panel URL، Secret ورود، فایروال یا TLS بین هاست وردپرس و پنل را بررسی کنید. برای غیرفعال‌کردن این هشدار: تنظیمات ربات → اعلان قطع پنل.', 'simplevpbot' );
+		$msg .= SimpleVPBot_Texts::get( 'msg.cron.admin.panel_troubleshoot' );
 
 		$s      = SimpleVPBot_Settings::all();
 		$tg_tok = (string) ( $s['telegram_token'] ?? '' );

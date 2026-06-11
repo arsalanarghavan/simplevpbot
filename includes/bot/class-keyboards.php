@@ -2,9 +2,8 @@
 /**
  * Reply + Inline keyboards (emoji labels from Texts).
  *
- * Telegram Bot API does not expose background color or theme for KeyboardButton / InlineKeyboardButton;
- * appearance is client-defined. GLASS_PREFIX is optional (empty = no extra decoration); admin route handlers
- * strip it before matching when non-empty.
+ * Reply/inline labels from Texts and Bot UI Studio layouts (style / icon_custom_emoji_id via UI_Layout).
+ * GLASS_PREFIX is optional (empty = no extra decoration); admin route handlers strip it before matching when non-empty.
  *
  * @package SimpleVPBot
  */
@@ -128,6 +127,9 @@ class SimpleVPBot_Keyboards {
 	 * @return string
 	 */
 	public static function admin_back_main_label() {
+		if ( class_exists( 'SimpleVPBot_Bot_Admin_Nav' ) ) {
+			return SimpleVPBot_Texts::get( 'btn.admin.back_panel', '⬅️ پنل مدیریت' );
+		}
 		return SimpleVPBot_Texts::get( 'btn.admin.back_menu', '⬅️ منوی مدیریت' );
 	}
 
@@ -153,6 +155,9 @@ class SimpleVPBot_Keyboards {
 	 * @return array<int, array<int, array<string, string>>>
 	 */
 	public static function admin_main_keyboard_rows( $user = null ) {
+		if ( class_exists( 'SimpleVPBot_Bot_Admin_Nav' ) ) {
+			return self::admin_panel_main_rows( $user );
+		}
 		if ( class_exists( 'SimpleVPBot_UI_Layout' ) ) {
 			$k = SimpleVPBot_UI_Layout::build_reply_keyboard( 'admin_main', $user );
 			return isset( $k['keyboard'] ) && is_array( $k['keyboard'] ) ? $k['keyboard'] : array();
@@ -173,9 +178,257 @@ class SimpleVPBot_Keyboards {
 			),
 			array(
 				array( 'text' => $t( 'btn.admin.advanced' ) ),
-				array( 'text' => $t( 'btn.admin.exit' ) ),
 			),
 		);
+	}
+
+	/**
+	 * Five-section admin panel root keyboard rows.
+	 *
+	 * @param object|null $user Admin user row.
+	 * @return array<int, array<int, array<string, string>>>
+	 */
+	public static function admin_panel_main_rows( $user = null ) {
+		$rows   = array();
+		$sec_ids = class_exists( 'SimpleVPBot_Bot_Admin_Nav' )
+			? SimpleVPBot_Bot_Admin_Nav::visible_section_ids( $user )
+			: array();
+		$pair   = array();
+		foreach ( $sec_ids as $sec_id ) {
+			$lbl = SimpleVPBot_Bot_Admin_Nav::section_label( $sec_id, $user );
+			if ( '' === $lbl ) {
+				continue;
+			}
+			$pair[] = array( 'text' => self::glass_button_text( $lbl, 64 ) );
+			if ( count( $pair ) >= 2 ) {
+				$rows[] = $pair;
+				$pair   = array();
+			}
+		}
+		if ( ! empty( $pair ) ) {
+			$rows[] = $pair;
+		}
+		$t = function ( $key ) use ( $user ) {
+			return ( $user && is_object( $user ) )
+				? SimpleVPBot_Texts::get_for_user( $key, $user )
+				: SimpleVPBot_Texts::get( $key, '' );
+		};
+		$portal_row = array();
+		if ( $user && is_object( $user ) && (int) ( $user->id ?? 0 ) > 0 && class_exists( 'SimpleVPBot_Portal_Link' ) ) {
+			$adm_url = SimpleVPBot_Portal_Link::build_admin_url( (int) $user->id );
+			if ( '' !== $adm_url ) {
+				$portal_row[] = array( 'text' => $t( 'btn.admin.send_admin_portal' ) );
+			}
+		}
+		if ( ! empty( $portal_row ) ) {
+			$rows[] = $portal_row;
+		}
+		return $rows;
+	}
+
+	/**
+	 * @param object|null $user Admin user.
+	 * @return array<string, mixed>
+	 */
+	public static function admin_panel_main_reply( $user = null ) {
+		return array(
+			'keyboard'          => self::admin_panel_main_rows( $user ),
+			'resize_keyboard'   => true,
+			'one_time_keyboard' => false,
+		);
+	}
+
+	/**
+	 * Section submenu with tab buttons + back.
+	 *
+	 * @param string      $section_id Section id.
+	 * @param object|null $user       Admin user.
+	 * @return array<string, mixed>
+	 */
+	public static function admin_panel_section_reply( $section_id, $user = null ) {
+		$tabs = class_exists( 'SimpleVPBot_Bot_Admin_Nav' )
+			? SimpleVPBot_Bot_Admin_Nav::tabs_in_section( $section_id, $user )
+			: array();
+		$rows = array();
+		$pair = array();
+		foreach ( $tabs as $tab ) {
+			$lbl = SimpleVPBot_Bot_Admin_Nav::tab_label( $tab, $user );
+			if ( '' === $lbl ) {
+				continue;
+			}
+			$pair[] = array( 'text' => self::glass_button_text( $lbl, 64 ) );
+			if ( count( $pair ) >= 2 ) {
+				$rows[] = $pair;
+				$pair   = array();
+			}
+		}
+		if ( ! empty( $pair ) ) {
+			$rows[] = $pair;
+		}
+		$back = ( $user && is_object( $user ) )
+			? SimpleVPBot_Texts::get_for_user( 'btn.admin.back_panel', $user )
+			: SimpleVPBot_Texts::get( 'btn.admin.back_panel', '⬅️ پنل مدیریت' );
+		$rows[] = array( array( 'text' => $back ) );
+		return array(
+			'keyboard'          => $rows,
+			'resize_keyboard'   => true,
+			'one_time_keyboard' => false,
+		);
+	}
+
+	/**
+	 * @param object|null $user User.
+	 * @return array<string, mixed>
+	 */
+	public static function admin_marketing_referral_reply( $user = null, $site_admin = true ) {
+		$t = function ( $key ) use ( $user ) {
+			return ( $user && is_object( $user ) )
+				? SimpleVPBot_Texts::get_for_user( $key, $user )
+				: SimpleVPBot_Texts::get( $key, '' );
+		};
+		$rows = array();
+		if ( $site_admin ) {
+			$rows[] = array(
+				array( 'text' => $t( 'btn.admin.referral_toggle' ) ),
+				array( 'text' => $t( 'btn.admin.referral_percent' ) ),
+			);
+		}
+		$rows[] = array( array( 'text' => $t( 'btn.admin.back_section' ) ) );
+		return self::admin_reply_wrap_rows( $rows );
+	}
+
+	/**
+	 * @param object|null $user User.
+	 * @return array<string, mixed>
+	 */
+	public static function admin_marketing_lifecycle_reply( $user = null ) {
+		$t = function ( $key ) use ( $user ) {
+			return ( $user && is_object( $user ) )
+				? SimpleVPBot_Texts::get_for_user( $key, $user )
+				: SimpleVPBot_Texts::get( $key, '' );
+		};
+		$site_admin = ! $user || ! is_object( $user )
+			|| SimpleVPBot_Reseller_Permission_Gate::permission_actor_id( (int) $user->id ) < 1;
+		$rows       = array();
+		if ( $site_admin ) {
+			$rows[] = array(
+				array( 'text' => $t( 'btn.admin.lifecycle_new' ) ),
+				array( 'text' => $t( 'btn.admin.lifecycle_edit' ) ),
+			);
+			$rows[] = array(
+				array( 'text' => $t( 'btn.admin.lifecycle_delete' ) ),
+				array( 'text' => $t( 'btn.admin.lifecycle_run' ) ),
+			);
+		}
+		$rows[] = array( array( 'text' => $t( 'btn.admin.lifecycle_toggle' ) ) );
+		$rows[] = array( array( 'text' => $t( 'btn.admin.back_section' ) ) );
+		return self::admin_reply_wrap_rows( $rows );
+	}
+
+	/**
+	 * @param object|null $user User.
+	 * @return array<string, mixed>
+	 */
+	public static function admin_marketing_discounts_reply( $user = null ) {
+		$t = function ( $key ) use ( $user ) {
+			return ( $user && is_object( $user ) )
+				? SimpleVPBot_Texts::get_for_user( $key, $user )
+				: SimpleVPBot_Texts::get( $key, '' );
+		};
+		return self::admin_reply_wrap_rows(
+			array(
+				array(
+					array( 'text' => $t( 'btn.admin.discount_new' ) ),
+					array( 'text' => $t( 'btn.admin.discount_edit' ) ),
+				),
+				array(
+					array( 'text' => $t( 'btn.admin.discount_toggle' ) ),
+					array( 'text' => $t( 'btn.admin.discount_delete' ) ),
+				),
+				array( array( 'text' => $t( 'btn.admin.back_section' ) ) ),
+			)
+		);
+	}
+
+	/**
+	 * Unit economics tab reply keyboard.
+	 *
+	 * @param object|null $user User.
+	 * @return array<string, mixed>
+	 */
+	public static function admin_economics_reply( $user = null ) {
+		$t = function ( $key, $def = '' ) use ( $user ) {
+			return ( $user && is_object( $user ) )
+				? SimpleVPBot_Texts::get_for_user( $key, $user, $def )
+				: SimpleVPBot_Texts::get( $key, $def );
+		};
+		$rows = array(
+			array(
+				array( 'text' => $t( 'btn.admin.economics_config' ) ),
+				array( 'text' => $t( 'btn.admin.economics_refresh' ) ),
+			),
+			array(
+				array( 'text' => $t( 'btn.admin.economics_panel_lines' ) ),
+				array( 'text' => $t( 'btn.admin.economics_shared_lines' ) ),
+			),
+			array(
+				array( 'text' => $t( 'btn.admin.economics_mark_paid' ) ),
+				array( 'text' => $t( 'btn.admin.economics_delete_line' ) ),
+			),
+			array(
+				array( 'text' => $t( 'btn.admin.economics_edit_line' ) ),
+				array( 'text' => $t( 'btn.admin.economics_deactivate_line' ) ),
+			),
+		);
+		$back = self::admin_panel_section_reply( 'finance', $user );
+		if ( isset( $back['keyboard'] ) && is_array( $back['keyboard'] ) ) {
+			$rows = array_merge( $rows, $back['keyboard'] );
+		}
+		return self::admin_reply_wrap_rows( $rows );
+	}
+
+	/**
+	 * Reseller charge tab reply keyboard.
+	 *
+	 * @param object|null $user User.
+	 * @return array<string, mixed>
+	 */
+	public static function admin_reseller_charge_reply( $user = null, array $opts = array() ) {
+		$t = function ( $key, $def = '' ) use ( $user ) {
+			return ( $user && is_object( $user ) )
+				? SimpleVPBot_Texts::get_for_user( $key, $user, $def )
+				: SimpleVPBot_Texts::get( $key, $def );
+		};
+		$rows = array(
+			array( array( 'text' => $t( 'btn.admin.reseller_topup' ) ) ),
+			array(
+				array( 'text' => $t( 'btn.admin.charges_filter_all' ) ),
+				array( 'text' => $t( 'btn.admin.charges_filter_purchase' ) ),
+			),
+			array(
+				array( 'text' => $t( 'btn.admin.charges_filter_renew' ) ),
+				array( 'text' => $t( 'btn.admin.charges_filter_volume' ) ),
+			),
+			array(
+				array( 'text' => $t( 'btn.admin.charges_filter_topup' ) ),
+				array( 'text' => $t( 'btn.admin.charges_filter_dates' ) ),
+			),
+		);
+		$nav = array();
+		if ( ! empty( $opts['has_prev'] ) ) {
+			$nav[] = array( 'text' => $t( 'btn.admin.charges_prev' ) );
+		}
+		if ( ! empty( $opts['has_next'] ) ) {
+			$nav[] = array( 'text' => $t( 'btn.admin.charges_next' ) );
+		}
+		if ( $nav ) {
+			$rows[] = $nav;
+		}
+		$back = self::admin_panel_section_reply( 'finance', $user );
+		if ( isset( $back['keyboard'] ) && is_array( $back['keyboard'] ) ) {
+			$rows = array_merge( $rows, $back['keyboard'] );
+		}
+		return self::admin_reply_wrap_rows( $rows );
 	}
 
 	/**
@@ -588,30 +841,35 @@ class SimpleVPBot_Keyboards {
 	 * @param array<string, mixed> $s Settings row.
 	 * @return array<string, mixed>
 	 */
-	public static function admin_backup_panel_reply( array $s ) {
+	public static function admin_backup_panel_reply( array $s, $user = null ) {
+		$t = function ( $key, $def = '' ) use ( $user ) {
+			return ( $user && is_object( $user ) )
+				? SimpleVPBot_Texts::get_for_user( $key, $user, $def )
+				: SimpleVPBot_Texts::get( $key, $def );
+		};
 		$sta  = ! empty( $s['backup_send_telegram_admins'] ) ? '✓' : '✗';
 		$sba  = ! empty( $s['backup_send_bale_admins'] ) ? '✓' : '✗';
 		$stc  = ! empty( $s['backup_send_telegram_channel'] ) ? '✓' : '✗';
 		$sbc  = ! empty( $s['backup_send_bale_channel'] ) ? '✓' : '✗';
 		return self::admin_reply_wrap_rows(
 			array(
-				array( array( 'text' => '▶️ بکاپ الان' ) ),
+				array( array( 'text' => $t( 'btn.admin.backup.now', '▶️ بکاپ الان' ) ) ),
 				array(
-					array( 'text' => 'TG ad ' . $sta ),
-					array( 'text' => 'Bl ad ' . $sba ),
+					array( 'text' => $t( 'btn.admin.backup.tg_ad', 'TG ad' ) . ' ' . $sta ),
+					array( 'text' => $t( 'btn.admin.backup.bl_ad', 'Bl ad' ) . ' ' . $sba ),
 				),
 				array(
-					array( 'text' => 'TG ch ' . $stc ),
-					array( 'text' => 'Bl ch ' . $sbc ),
+					array( 'text' => $t( 'btn.admin.backup.tg_ch', 'TG ch' ) . ' ' . $stc ),
+					array( 'text' => $t( 'btn.admin.backup.bl_ch', 'Bl ch' ) . ' ' . $sbc ),
 				),
 				array(
-					array( 'text' => '⏱ فاصله (دقیقه)' ),
-					array( 'text' => '📢 TG ch id' ),
-					array( 'text' => '💬 Bale ch id' ),
+					array( 'text' => $t( 'btn.admin.backup.interval', '⏱ فاصله (دقیقه)' ) ),
+					array( 'text' => $t( 'btn.admin.backup.tg_ch_id', '📢 TG ch id' ) ),
+					array( 'text' => $t( 'btn.admin.backup.bl_ch_id', '💬 Bale ch id' ) ),
 				),
 				array(
-					array( 'text' => '📥 ریستور (۲ مرحله)' ),
-					array( 'text' => '❌ لغو حالت' ),
+					array( 'text' => $t( 'btn.admin.backup.restore', '📥 ریستور (۲ مرحله)' ) ),
+					array( 'text' => $t( 'btn.admin.backup.cancel_mode', '❌ لغو حالت' ) ),
 				),
 			)
 		);
@@ -660,7 +918,9 @@ class SimpleVPBot_Keyboards {
 	 */
 	public static function inline_card_payment( array $cards, $transaction_id, $amount_toman, $platform, $user = null ) {
 		$rows   = array();
-		$amount_plain = (string) (int) round( (float) $amount_toman );
+		$amount_rial = class_exists( 'SimpleVPBot_Bot_Persian_Text' )
+			? SimpleVPBot_Bot_Persian_Text::copy_plain_rial_from_toman( (float) $amount_toman )
+			: (string) ( (int) round( (float) $amount_toman ) * 10 );
 		foreach ( $cards as $c ) {
 			$pan = preg_replace( '/\D+/', '', (string) $c->card_number );
 			$label = SimpleVPBot_Texts::format(
@@ -688,7 +948,7 @@ class SimpleVPBot_Keyboards {
 			$rows[] = array(
 				array(
 					'text'      => self::i18n_btn( 'btn.common.copy_amount' ),
-					'copy_text' => array( 'text' => $amount_plain ),
+					'copy_text' => array( 'text' => $amount_rial ),
 				),
 			);
 		}
@@ -761,7 +1021,10 @@ class SimpleVPBot_Keyboards {
 	 * @return array<string, mixed>
 	 */
 	public static function inline_invoice_actions( $card, $amount_toman, $platform, $url_optional = '', $user = null ) {
-		$am = (string) (int) round( (float) $amount_toman );
+		$am_toman = (string) (int) round( (float) $amount_toman );
+		$am_rial  = class_exists( 'SimpleVPBot_Bot_Persian_Text' )
+			? SimpleVPBot_Bot_Persian_Text::copy_plain_rial_from_toman( (float) $amount_toman )
+			: (string) ( (int) round( (float) $amount_toman ) * 10 );
 		if ( SimpleVPBot_Model_Card::is_crypto_manual( $card ) ) {
 			$addr = trim( (string) $card->card_number );
 			$rows  = array();
@@ -776,7 +1039,7 @@ class SimpleVPBot_Keyboards {
 			$rows[] = array(
 				array(
 					'text'      => self::i18n_btn( 'btn.common.copy_amount_toman', $user ),
-					'copy_text' => array( 'text' => $am ),
+					'copy_text' => array( 'text' => $am_toman ),
 				),
 			);
 			$note = trim( (string) ( $card->note ?? '' ) );
@@ -801,11 +1064,9 @@ class SimpleVPBot_Keyboards {
 					'text'      => self::i18n_btn( 'btn.common.copy_card_number', $user ),
 					'copy_text' => array( 'text' => $pan ),
 				),
-			),
-			array(
 				array(
-					'text'      => self::i18n_btn( 'btn.common.copy_amount_toman', $user ),
-					'copy_text' => array( 'text' => $am ),
+					'text'      => self::i18n_btn( 'btn.common.copy_amount', $user ),
+					'copy_text' => array( 'text' => $am_rial ),
 				),
 			),
 		);
@@ -981,7 +1242,7 @@ class SimpleVPBot_Keyboards {
 			);
 			$rows[] = array( array( 'text' => self::i18n_btn( 'btn.svc.transfer', $u ), 'callback_data' => 'svc:tx:' . $id ) );
 			if ( $show_admin_soft_delete ) {
-				$cb = 'adm:svc_del:' . $id;
+				$cb = 'pnl:svc_del:' . $id;
 				if ( strlen( $cb ) <= 64 ) {
 					$rows[] = array(
 						array(
@@ -1018,6 +1279,9 @@ class SimpleVPBot_Keyboards {
 		}
 		$rows[] = array(
 			array( 'text' => self::i18n_btn( 'btn.svc.regenerate_key', $u ), 'callback_data' => 'svc:k:' . $id ),
+			array( 'text' => self::i18n_btn( 'btn.svc.regenerate_sub_id', $u ), 'callback_data' => 'svc:rs:' . $id ),
+		);
+		$rows[] = array(
 			array( 'text' => self::i18n_btn( 'btn.svc.update_servers', $u ), 'callback_data' => 'svc:u:' . $id ),
 		);
 		$renew_vol = array(
@@ -1045,7 +1309,7 @@ class SimpleVPBot_Keyboards {
 			array( 'text' => self::i18n_btn( 'btn.common.back', $u ), 'callback_data' => 'svc:b:' . $id ),
 		);
 		if ( $show_admin_soft_delete ) {
-			$cb = 'adm:svc_del:' . $id;
+			$cb = 'pnl:svc_del:' . $id;
 			if ( strlen( $cb ) <= 64 ) {
 				$rows[] = array(
 					array(
@@ -1089,7 +1353,9 @@ class SimpleVPBot_Keyboards {
 				}
 				$b = self::svc_xray_slot_button( $slot, $id, $platform, $portal, self::user_for_labels( $user_id ) );
 				if ( array() !== $b ) {
-					$rline[] = $b;
+					$rline[] = class_exists( 'SimpleVPBot_UI_Layout' )
+						? SimpleVPBot_UI_Layout::decorate_button( $b, $cell )
+						: $b;
 				}
 			}
 			if ( array() !== $rline ) {
@@ -1199,7 +1465,7 @@ class SimpleVPBot_Keyboards {
 					'callback_data' => 'svc:b:' . $id,
 				);
 			case 'svc_xray.del_admin':
-				$cb = 'adm:svc_del:' . $id;
+				$cb = 'pnl:svc_del:' . $id;
 				if ( strlen( $cb ) > 64 ) {
 					return array();
 				}
@@ -1237,7 +1503,9 @@ class SimpleVPBot_Keyboards {
 				}
 				$b = self::svc_l2tp_slot_button( $slot, $id, $portal, self::user_for_labels( $user_id ) );
 				if ( array() !== $b ) {
-					$rline[] = $b;
+					$rline[] = class_exists( 'SimpleVPBot_UI_Layout' )
+						? SimpleVPBot_UI_Layout::decorate_button( $b, $cell )
+						: $b;
 				}
 			}
 			if ( array() !== $rline ) {
@@ -1316,7 +1584,7 @@ class SimpleVPBot_Keyboards {
 					'callback_data' => 'svc:tx:' . $id,
 				);
 			case 'svc_l2tp.del_admin':
-				$cb = 'adm:svc_del:' . $id;
+				$cb = 'pnl:svc_del:' . $id;
 				if ( strlen( $cb ) > 64 ) {
 					return array();
 				}

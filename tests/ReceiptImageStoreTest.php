@@ -34,7 +34,7 @@ class ReceiptImageStoreTest extends TestCase {
 
 	public function test_migration_adds_stored_image_path(): void {
 		$act = (string) file_get_contents( dirname( __DIR__ ) . '/includes/class-activator.php' );
-		$this->assertStringContainsString( "DB_VERSION = '2.3.2'", $act );
+		$this->assertStringContainsString( "DB_VERSION = '2.4.4'", $act );
 		$this->assertStringContainsString( 'maybe_migrate_232_receipt_stored_image', $act );
 		$this->assertStringContainsString( 'stored_image_path', $act );
 	}

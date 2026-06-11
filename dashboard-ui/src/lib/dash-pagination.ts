@@ -14,6 +14,8 @@ export const LIST_QUERY_PREFIX = {
   l2tpServers: "l2tp",
   texts: "texts",
   referralEvents: "referralEvents",
+  resellerReports: "resellerReports",
+  marketingOffers: "marketingOffers",
 } as const
 
 export type ListQueryKey = keyof typeof LIST_QUERY_PREFIX
@@ -82,6 +84,10 @@ export function buildAdminStateQuery(
   if (tab === "texts") {
     sp.set("texts_page", "1")
     sp.set("texts_per_page", "500")
+  }
+  if (tab === "l2tp_servers" && opts?.l2tpEnabled !== false) {
+    sp.set("l2tp_page", "1")
+    sp.set("l2tp_per_page", "100")
   }
   if (tab === "plan_cats") {
     sp.set("panels_page", "1")

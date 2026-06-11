@@ -7,6 +7,7 @@
 	<testsuites>
 		<testsuite name="simplevpbot">
 			<directory suffix="Test.php">tests</directory>
+			<exclude>tests/integration</exclude>
 		</testsuite>
 	</testsuites>
 </phpunit>

@@ -2,7 +2,8 @@
 
 import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
-import { formatNumber } from "@/lib/format-locale"
+import { formatNumber, formatServiceExpiryLine } from "@/lib/format-locale"
+import { broadcastRowStatusLabel } from "@/lib/broadcast-labels"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -15,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { dashDir } from "@/lib/dash-locale"
+
 import { overviewAccentOutlineBtn } from "@/lib/chart-accent"
 import {
   formatOverviewAmount,
@@ -27,14 +28,15 @@ import {
   userStatusBadgeVariant,
   type DashRecord,
 } from "@/lib/overview-rows"
+import { receiptSelectedService } from "@/lib/format-receipt"
 import { cn } from "@/lib/utils"
+import { useDashLocale } from "@/lib/dash-locale-context"
 
 export function OverviewSectionCard({
   title,
   description,
   viewAllLabel,
   onViewAll,
-  isFa,
   children,
   className,
 }: {
@@ -42,20 +44,19 @@ export function OverviewSectionCard({
   description?: string
   viewAllLabel: string
   onViewAll: () => void
-  isFa: boolean
-  children: ReactNode
+children: ReactNode
   className?: string
 }) {
+
   return (
     <Card className={cn("overflow-hidden border-border/80 shadow-sm", className)}>
       <CardHeader className="border-b border-border/60 bg-muted/20 pb-3">
         <div
           className={cn(
-            "flex flex-wrap items-start justify-between gap-2",
-            isFa && "flex-row-reverse"
+            "flex flex-wrap items-start justify-between gap-2"
           )}
         >
-          <div className={cn("min-w-0 space-y-0.5", isFa && "text-start")}>
+          <div className={cn("min-w-0 space-y-0.5")}>
             <CardTitle className="text-base">{title}</CardTitle>
             {description ? (
               <CardDescription className="text-pretty">{description}</CardDescription>
@@ -77,30 +78,28 @@ export function OverviewSectionCard({
   )
 }
 
-function OverviewEmpty({ message, isFa }: { message: string; isFa: boolean }) {
+function OverviewEmpty({ message }: { message: string }) {
   return (
-    <p className={cn("px-4 py-8 text-sm text-muted-foreground", isFa ? "text-right" : "text-center")}>
+    <p className="px-4 py-8 text-center text-sm text-muted-foreground">
       {message}
     </p>
   )
 }
 
 function OverviewDataTable({
-  isFa,
   headers,
   rows,
 }: {
-  isFa: boolean
   headers: string[]
   rows: ReactNode[]
 }) {
   if (rows.length === 0) return null
   return (
-    <Table dir={dashDir(isFa)}>
+    <Table>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
           {headers.map((h) => (
-            <TableHead key={h} className={cn(isFa && "text-start")}>
+            <TableHead key={h} className="text-start">
               {h}
             </TableHead>
           ))}
@@ -138,15 +137,14 @@ function ClickableRow({
 
 export function OverviewRecentUsers({
   rows,
-  isFa,
   onViewAll,
   onOpenUser,
 }: {
   rows: DashRecord[]
-  isFa: boolean
-  onViewAll: () => void
+onViewAll: () => void
   onOpenUser: (id: number) => void
 }) {
+  const { isFa } = useDashLocale()
   const { t } = useTranslation()
   const tp = (k: string) => t(`dashboardOverview.${k}`)
   const statusLabel = (st: string) =>
@@ -157,16 +155,16 @@ export function OverviewRecentUsers({
     const st = String(u.status ?? "")
     return (
       <ClickableRow key={id} onClick={() => id > 0 && onOpenUser(id)}>
-        <TableCell className={cn("font-medium", isFa && "text-start")}>
+        <TableCell className={cn("font-medium")}>
           {userDisplayLabel(u)}
         </TableCell>
-        <TableCell className={cn(isFa && "text-start")}>
+        <TableCell className="text-start">
           <Badge variant={userStatusBadgeVariant(st)} className="font-normal">
             {statusLabel(st)}
           </Badge>
         </TableCell>
         <TableCell
-          className={cn("text-muted-foreground tabular-nums text-xs", isFa && "text-start")}
+          className={cn("text-muted-foreground tabular-nums text-xs")}
         >
           <span dir="ltr" className="inline-block">
             {formatOverviewDate(u.created_at, isFa)}
@@ -181,14 +179,13 @@ export function OverviewRecentUsers({
       title={tp("recentUsers")}
       viewAllLabel={tp("viewAll")}
       onViewAll={onViewAll}
-      isFa={isFa}
-    >
+        >
       {tableRows.length === 0 ? (
-        <OverviewEmpty message={tp("emptyPreview")} isFa={isFa} />
+        <OverviewEmpty message={tp("emptyPreview")}
+        />
       ) : (
         <OverviewDataTable
-          isFa={isFa}
-          headers={[tp("colUser"), tp("colStatus"), tp("colDate")]}
+        headers={[tp("colUser"), tp("colStatus"), tp("colDate")]}
           rows={tableRows}
         />
       )}
@@ -198,15 +195,14 @@ export function OverviewRecentUsers({
 
 export function OverviewRecentReceipts({
   rows,
-  isFa,
   onViewAll,
   onOpenReceipt,
 }: {
   rows: DashRecord[]
-  isFa: boolean
-  onViewAll: () => void
+onViewAll: () => void
   onOpenReceipt: (row: DashRecord) => void
 }) {
+  const { isFa } = useDashLocale()
   const { t } = useTranslation()
   const tp = (k: string) => t(`dashboardOverview.${k}`)
   const rt = (k: string) => t(`receiptsAdmin.${k}`, { defaultValue: k })
@@ -226,21 +222,24 @@ export function OverviewRecentReceipts({
     const amt = receiptAmount(r)
     return (
       <ClickableRow key={id} onClick={() => onOpenReceipt(r)}>
-        <TableCell className={cn("max-w-[10rem] truncate font-medium", isFa && "text-start")}>
+        <TableCell className={cn("max-w-[10rem] truncate font-medium")}>
           {label}
         </TableCell>
-        <TableCell className={cn("tabular-nums", isFa && "text-start")}>
+        <TableCell className={cn("max-w-[10rem] truncate text-sm")}>
+          {receiptSelectedService(r)}
+        </TableCell>
+        <TableCell className={cn("tabular-nums")}>
           <span dir="ltr" className="inline-block">
             {formatOverviewAmount(amt, isFa, rt("amountFree"))}
           </span>
         </TableCell>
-        <TableCell className={cn(isFa && "text-start")}>
+        <TableCell className="text-start">
           <Badge variant={receiptStatusBadgeVariant(st)} className="font-normal">
             {receiptStatusLabel(st)}
           </Badge>
         </TableCell>
         <TableCell
-          className={cn("text-muted-foreground tabular-nums text-xs", isFa && "text-start")}
+          className={cn("text-muted-foreground tabular-nums text-xs")}
         >
           <span dir="ltr" className="inline-block">
             {formatOverviewDate(r.created_at, isFa)}
@@ -255,14 +254,13 @@ export function OverviewRecentReceipts({
       title={tp("recentReceipts")}
       viewAllLabel={tp("viewAll")}
       onViewAll={onViewAll}
-      isFa={isFa}
-    >
+        >
       {tableRows.length === 0 ? (
-        <OverviewEmpty message={tp("emptyPreview")} isFa={isFa} />
+        <OverviewEmpty message={tp("emptyPreview")}
+        />
       ) : (
         <OverviewDataTable
-          isFa={isFa}
-          headers={[tp("colUser"), tp("colAmount"), tp("colStatus"), tp("colDate")]}
+        headers={[tp("colUser"), rt("colSelectedService"), tp("colAmount"), tp("colStatus"), tp("colDate")]}
           rows={tableRows}
         />
       )}
@@ -272,15 +270,14 @@ export function OverviewRecentReceipts({
 
 export function OverviewPendingUsers({
   rows,
-  isFa,
   onViewAll,
   onOpenUser,
 }: {
   rows: DashRecord[]
-  isFa: boolean
-  onViewAll: () => void
+onViewAll: () => void
   onOpenUser: (id: number) => void
 }) {
+  const { isFa } = useDashLocale()
   const { t } = useTranslation()
   const tp = (k: string) => t(`dashboardOverview.${k}`)
 
@@ -288,11 +285,11 @@ export function OverviewPendingUsers({
     const id = overviewNum(u.id)
     return (
       <ClickableRow key={id} onClick={() => id > 0 && onOpenUser(id)}>
-        <TableCell className={cn("font-medium", isFa && "text-start")}>
+        <TableCell className={cn("font-medium")}>
           {userDisplayLabel(u)}
         </TableCell>
         <TableCell
-          className={cn("text-muted-foreground tabular-nums text-xs", isFa && "text-start")}
+          className={cn("text-muted-foreground tabular-nums text-xs")}
         >
           <span dir="ltr" className="inline-block">
             {formatOverviewDate(u.created_at, isFa)}
@@ -308,14 +305,13 @@ export function OverviewPendingUsers({
       description={tp("pendingApprovalsHint")}
       viewAllLabel={tp("viewAll")}
       onViewAll={onViewAll}
-      isFa={isFa}
-    >
+        >
       {tableRows.length === 0 ? (
-        <OverviewEmpty message={tp("emptyPreview")} isFa={isFa} />
+        <OverviewEmpty message={tp("emptyPreview")}
+        />
       ) : (
         <OverviewDataTable
-          isFa={isFa}
-          headers={[tp("colUser"), tp("colDate")]}
+        headers={[tp("colUser"), tp("colDate")]}
           rows={tableRows}
         />
       )}
@@ -325,15 +321,14 @@ export function OverviewPendingUsers({
 
 export function OverviewRecentResellers({
   rows,
-  isFa,
   onViewAll,
   onOpenReseller,
 }: {
   rows: DashRecord[]
-  isFa: boolean
-  onViewAll: () => void
+onViewAll: () => void
   onOpenReseller: (id: number) => void
 }) {
+  const { isFa } = useDashLocale()
   const { t } = useTranslation()
   const tp = (k: string) => t(`dashboardOverview.${k}`)
   const statusLabel = (st: string) =>
@@ -344,15 +339,15 @@ export function OverviewRecentResellers({
     const st = String(u.status ?? "")
     return (
       <ClickableRow key={id} onClick={() => id > 0 && onOpenReseller(id)}>
-        <TableCell className={cn("font-medium", isFa && "text-start")}>
+        <TableCell className={cn("font-medium")}>
           {userDisplayLabel(u)}
         </TableCell>
-        <TableCell className={cn(isFa && "text-start")}>
+        <TableCell className="text-start">
           <Badge variant={userStatusBadgeVariant(st)} className="font-normal">
             {statusLabel(st)}
           </Badge>
         </TableCell>
-        <TableCell className={cn("tabular-nums", isFa && "text-start")}>
+        <TableCell className={cn("tabular-nums")}>
           <span dir="ltr" className="inline-block">
             {formatNumber(overviewNum(u.svc_count), isFa)}
           </span>
@@ -366,14 +361,13 @@ export function OverviewRecentResellers({
       title={tp("recentResellers")}
       viewAllLabel={tp("viewAll")}
       onViewAll={onViewAll}
-      isFa={isFa}
-    >
+        >
       {tableRows.length === 0 ? (
-        <OverviewEmpty message={tp("emptyPreview")} isFa={isFa} />
+        <OverviewEmpty message={tp("emptyPreview")}
+        />
       ) : (
         <OverviewDataTable
-          isFa={isFa}
-          headers={[tp("colUser"), tp("colStatus"), tp("colServices")]}
+        headers={[tp("colUser"), tp("colStatus"), tp("colServices")]}
           rows={tableRows}
         />
       )}
@@ -383,24 +377,16 @@ export function OverviewRecentResellers({
 
 export function OverviewRecentBroadcasts({
   rows,
-  isFa,
   onViewAll,
   onOpenBroadcast,
 }: {
   rows: DashRecord[]
-  isFa: boolean
-  onViewAll: () => void
+onViewAll: () => void
   onOpenBroadcast: () => void
 }) {
+  const { isFa } = useDashLocale()
   const { t } = useTranslation()
   const tp = (k: string) => t(`dashboardOverview.${k}`)
-
-  const broadcastStatusLabel = (st: string) => {
-    if (st === "sent") return t("broadcastAdmin.qs_sent")
-    if (st === "pending") return t("broadcastAdmin.qs_pending")
-    if (st === "sending") return t("broadcastAdmin.qs_sending")
-    return st || "—"
-  }
 
   const tableRows = rows.map((b) => {
     const id = overviewNum(b.id)
@@ -408,20 +394,16 @@ export function OverviewRecentBroadcasts({
     const st = String(b.status ?? "")
     return (
       <ClickableRow key={id} onClick={onOpenBroadcast}>
-        <TableCell className={cn("max-w-[14rem] truncate font-medium", isFa && "text-start")}>
+        <TableCell className={cn("max-w-[14rem] truncate font-medium")}>
           {title}
         </TableCell>
-        <TableCell className={cn(isFa && "text-start")}>
+        <TableCell className="text-start">
           <Badge variant="secondary" className="font-normal">
-            {broadcastStatusLabel(st)}
+            {broadcastRowStatusLabel(st, t)}
           </Badge>
         </TableCell>
-        <TableCell
-          className={cn("text-muted-foreground tabular-nums text-xs", isFa && "text-start")}
-        >
-          <span dir="ltr" className="inline-block">
-            {formatOverviewDate(b.created_at, isFa)}
-          </span>
+        <TableCell className={cn("text-muted-foreground text-xs")}>
+          {b.created_at ? formatServiceExpiryLine(String(b.created_at), isFa) : "—"}
         </TableCell>
       </ClickableRow>
     )
@@ -432,14 +414,13 @@ export function OverviewRecentBroadcasts({
       title={tp("recentBroadcasts")}
       viewAllLabel={tp("viewAll")}
       onViewAll={onViewAll}
-      isFa={isFa}
-    >
+        >
       {tableRows.length === 0 ? (
-        <OverviewEmpty message={tp("emptyPreview")} isFa={isFa} />
+        <OverviewEmpty message={tp("emptyPreview")}
+        />
       ) : (
         <OverviewDataTable
-          isFa={isFa}
-          headers={[tp("colTitle"), tp("colStatus"), tp("colDate")]}
+        headers={[tp("colTitle"), tp("colStatus"), tp("colDate")]}
           rows={tableRows}
         />
       )}
@@ -448,7 +429,6 @@ export function OverviewRecentBroadcasts({
 }
 
 export function OverviewPreviewGrid({
-  isFa,
   isReseller,
   allowTab,
   recentUsers,
@@ -461,8 +441,7 @@ export function OverviewPreviewGrid({
   onOpenResellerWorkspace,
   onReceiptsFilterNavigate,
 }: {
-  isFa: boolean
-  isReseller: boolean
+isReseller: boolean
   allowTab: (tab: string) => boolean
   recentUsers: DashRecord[]
   recentReceipts: DashRecord[]
@@ -488,16 +467,14 @@ export function OverviewPreviewGrid({
         {showUsers ? (
           <OverviewRecentUsers
             rows={recentUsers}
-            isFa={isFa}
-            onViewAll={() => onSelectTab("users")}
+        onViewAll={() => onSelectTab("users")}
             onOpenUser={onOpenUserDetail}
           />
         ) : null}
         {showReceipts ? (
           <OverviewRecentReceipts
             rows={recentReceipts}
-            isFa={isFa}
-            onViewAll={() => onReceiptsFilterNavigate()}
+        onViewAll={() => onReceiptsFilterNavigate()}
             onOpenReceipt={(row) => {
               const st = String(row.status ?? "").toLowerCase()
               onReceiptsFilterNavigate(st === "pending" || st === "processing" ? st : undefined)
@@ -507,16 +484,14 @@ export function OverviewPreviewGrid({
         {showUsers ? (
           <OverviewPendingUsers
             rows={pendingUsersPreview}
-            isFa={isFa}
-            onViewAll={() => onSelectTab("users")}
+        onViewAll={() => onSelectTab("users")}
             onOpenUser={onOpenUserDetail}
           />
         ) : null}
         {showResellers ? (
           <OverviewRecentResellers
             rows={recentResellers}
-            isFa={isFa}
-            onViewAll={() => onSelectTab("resellers")}
+        onViewAll={() => onSelectTab("resellers")}
             onOpenReseller={(id) => onOpenResellerWorkspace?.(id)}
           />
         ) : null}
@@ -524,8 +499,7 @@ export function OverviewPreviewGrid({
       {showBroadcast && recentBroadcasts.length > 0 ? (
         <OverviewRecentBroadcasts
           rows={recentBroadcasts}
-          isFa={isFa}
-          onViewAll={() => onSelectTab("broadcast")}
+        onViewAll={() => onSelectTab("broadcast")}
           onOpenBroadcast={() => onSelectTab("broadcast")}
         />
       ) : null}

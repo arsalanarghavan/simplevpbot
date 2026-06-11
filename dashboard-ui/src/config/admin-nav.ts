@@ -44,10 +44,12 @@ export const ADMIN_ONLY_TAB_KEYS = new Set<string>([
   "backup",
   "configs",
   "texts",
-  "reseller_reports",
+  "notifications",
+  "logs",
   "reseller_bots",
   "reseller_xui_panels",
   "reseller_settings",
+  "unit_economics",
 ])
 
 /**
@@ -109,6 +111,23 @@ export function filterAdminNavForReseller(
           { kind: "leaf", tabKey: "reseller_settings", icon: Settings2 },
           ...sec.entries,
         ],
+      }
+    })
+  }
+
+  if (allowedTabs.has("reseller_reports")) {
+    patched = patched.map((sec) => {
+      if (sec.id !== "users") return sec
+      return {
+        ...sec,
+        entries: sec.entries.map((ent) => {
+          if (ent.kind !== "collapsible" || ent.id !== "resellers_menu") return ent
+          if (ent.children.some((c) => c.tabKey === "reseller_reports")) return ent
+          return {
+            ...ent,
+            children: [...ent.children, { tabKey: "reseller_reports" }],
+          }
+        }),
       }
     })
   }
@@ -217,6 +236,7 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
         labelKey: "sidebar.groups.marketing",
         children: [
           { tabKey: "referral" },
+          { tabKey: "marketing_lifecycle" },
           { tabKey: "discounts" },
         ],
       },
@@ -233,6 +253,7 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
         labelKey: "sidebar.groups.finance",
         children: [
           { tabKey: "plans" },
+          { tabKey: "unit_economics" },
           { tabKey: "cards" },
           { tabKey: "receipts" },
           { tabKey: "referral_reports" },
@@ -298,10 +319,12 @@ export const ADMIN_TAB_KEYS: string[] = [
   "users_bulk",
   "broadcast",
   "plans",
+  "unit_economics",
   "cards",
   "receipts",
   "referral",
   "referral_reports",
+  "marketing_lifecycle",
   "discounts",
   "plan_cats",
   "reseller_bots",
@@ -311,9 +334,32 @@ export const ADMIN_TAB_KEYS: string[] = [
   "reseller_xui_panels",
   "xui_panels",
   "configs",
+  "l2tp_servers",
   "backup",
   "audit",
 ]
+
+/** Add L2TP servers tab under servers_menu when the feature flag is on. */
+export function injectL2tpNavTab(
+  sections: AdminNavSection[],
+  enabled: boolean
+): AdminNavSection[] {
+  if (!enabled) return sections
+  return sections.map((sec) => {
+    if (sec.id !== "settings") return sec
+    return {
+      ...sec,
+      entries: sec.entries.map((ent) => {
+        if (ent.kind !== "collapsible" || ent.id !== "servers_menu") return ent
+        if (ent.children.some((c) => c.tabKey === "l2tp_servers")) return ent
+        return {
+          ...ent,
+          children: [...ent.children, { tabKey: "l2tp_servers" }],
+        }
+      }),
+    }
+  })
+}
 
 export type SearchNavRow = {
   tabKey: string

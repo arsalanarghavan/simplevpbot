@@ -229,6 +229,15 @@ abstract class SimpleVPBot_Bot_Client {
 	}
 
 	/**
+	 * getWebhookInfo.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function get_webhook_info() {
+		return $this->call( 'getWebhookInfo', array() );
+	}
+
+	/**
 	 * getFile.
 	 *
 	 * @param array<string, mixed> $p Params.

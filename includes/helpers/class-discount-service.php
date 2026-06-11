@@ -118,11 +118,11 @@ class SimpleVPBot_Discount_Service {
 			$billing_rid = (int) $meta['invoice_card_owner_scope_svp_id'];
 		}
 		if ( $billing_rid > 0 ) {
-			$owner_candidates = array( $billing_rid, 0 );
+			$owner_candidates = array( $billing_rid );
 		} elseif ( $uid > 0 && class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
 			$rid = (int) SimpleVPBot_Reseller_Branding::nearest_reseller_id_for_user( $uid );
 			if ( $rid > 0 ) {
-				$owner_candidates = array( $rid, 0 );
+				$owner_candidates = array( $rid );
 			}
 		}
 		$row = SimpleVPBot_Model_Discount_Code::find_by_code_for_owners( $code, $owner_candidates );

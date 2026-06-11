@@ -70,4 +70,43 @@ class CardRotationTest extends TestCase {
 		$wl = (string) file_get_contents( $root . '/dashboard-ui/src/components/site-settings/site-settings-whitelabel-tab.tsx' );
 		$this->assertStringContainsString( 'value="random"', $wl );
 	}
+
+	/**
+	 * Daily limit eligibility considers transaction amount.
+	 */
+	public function test_fits_daily_limit_with_amount(): void {
+		require_once dirname( __DIR__ ) . '/includes/helpers/class-card-rotation.php';
+		$this->assertFalse( SimpleVPBot_Card_Rotation::fits_daily_limit( 80, 100, 30 ) );
+		$this->assertTrue( SimpleVPBot_Card_Rotation::fits_daily_limit( 80, 100, 20 ) );
+		$this->assertTrue( SimpleVPBot_Card_Rotation::fits_daily_limit( 80, 100, 20.0000005 ) );
+		$this->assertTrue( SimpleVPBot_Card_Rotation::fits_daily_limit( 999, 0, 50000 ) );
+	}
+
+	/**
+	 * Checkout card ids are cached on transaction meta.
+	 */
+	public function test_model_card_caches_checkout_card_ids(): void {
+		$root  = dirname( __DIR__ );
+		$model = (string) file_get_contents( $root . '/includes/models/class-model-card.php' );
+		$this->assertStringContainsString( 'checkout_card_ids', $model );
+		$this->assertStringContainsString( 'persist_checkout_card_ids', $model );
+	}
+
+	/**
+	 * C2C copy amount uses Rial (toman × 10).
+	 */
+	public function test_copy_plain_rial_from_toman(): void {
+		require_once dirname( __DIR__ ) . '/includes/helpers/class-bot-persian-text.php';
+		$this->assertSame( '500000', SimpleVPBot_Bot_Persian_Text::copy_plain_rial_from_toman( 50000 ) );
+		$this->assertSame( '100000', SimpleVPBot_Bot_Persian_Text::copy_plain_rial_from_toman( 10000.4 ) );
+	}
+
+	/**
+	 * Cards tab partial save does not reset display mode when omitted.
+	 */
+	public function test_admin_cards_tab_partial_save(): void {
+		$root = dirname( __DIR__ );
+		$code = (string) file_get_contents( $root . '/includes/admin/class-admin-actions.php' );
+		$this->assertStringContainsString( "isset( \$post['cards_display_mode'] )", $code );
+	}
 }

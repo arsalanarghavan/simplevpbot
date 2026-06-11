@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { BOT_PLATFORMS } from "@/config/bot-platforms"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { mainEnabledPlatforms } from "@/lib/enabled-platforms"
+import { DashPage } from "@/components/dash-page"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -71,13 +72,12 @@ function payloadFromForm(platform: PlatformId, f: PlatformForm): Record<string, 
 
 export function DashboardForceJoinAdmin({
   settings,
-  isFa,
   onMutateSuccess,
 }: {
   settings: DashRecord | undefined
-  isFa: boolean
   onMutateSuccess?: () => void
 }) {
+
   const { t } = useTranslation()
   const tp = (k: string) => t(`forceJoinAdmin.${k}`)
   const s = settings ?? {}
@@ -99,6 +99,11 @@ export function DashboardForceJoinAdmin({
   const [publishing, setPublishing] = useState<PlatformId | "">("")
   const [error, setError] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
+
+  const visiblePlatforms = useMemo(() => {
+    const enabled = new Set(mainEnabledPlatforms(s))
+    return BOT_PLATFORMS.filter((p) => enabled.has(p.id))
+  }, [s])
 
   const busy = saving || publishing !== ""
 
@@ -236,7 +241,7 @@ export function DashboardForceJoinAdmin({
   }
 
   return (
-    <div className={dashPageRootClass(isFa, "space-y-4")} dir={dashDir(isFa)}>
+    <DashPage className={"space-y-4"}>
       <div>
         <h3 className="text-base font-medium">{tp("sectionTitle")}</h3>
         <p className="text-sm text-muted-foreground">{tp("sectionDesc")}</p>
@@ -253,7 +258,7 @@ export function DashboardForceJoinAdmin({
         <p className="text-sm text-emerald-600 dark:text-emerald-400">{okMsg}</p>
       ) : null}
       <div className="grid gap-4 lg:grid-cols-2">
-        {BOT_PLATFORMS.map((plat) =>
+        {visiblePlatforms.map((plat) =>
           platformCard(plat.id, t(plat.titleKey))
         )}
       </div>
@@ -262,6 +267,6 @@ export function DashboardForceJoinAdmin({
           {saving ? tp("saving") : tp("save")}
         </Button>
       </div>
-    </div>
+    </DashPage>
   )
 }

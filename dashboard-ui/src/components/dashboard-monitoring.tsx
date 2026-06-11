@@ -32,7 +32,7 @@ import {
 } from "@/components/dashboard-overview"
 import { PanelServerStatusViz } from "@/components/panel-server-status-viz"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
 import {
   formatBytes,
   formatChartDayLabel,
@@ -41,8 +41,10 @@ import {
   formatNumber,
   formatNumericString,
 } from "@/lib/format-locale"
+import { useChartPrimaryColor } from "@/lib/chart-accent"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { cn } from "@/lib/utils"
+import { useDashLocale } from "@/lib/dash-locale-context"
 
 type PanelStatLine = NonNullable<StatsPayload["panels"]>[number]
 
@@ -89,21 +91,24 @@ export function DashboardMonitoring({
   panels,
   panelsPagination,
   monitorHosts,
-  isFa,
   onRefreshPanelHealth,
   onRefreshLivePanelMetrics,
   compactHealthOnly = false,
+  isReseller = false,
 }: {
   overview: OverviewPayload | undefined
   panels: Record<string, unknown>[]
   panelsPagination: PaginationMeta | null
   monitorHosts: Record<string, unknown>[]
-  isFa: boolean
-  onRefreshPanelHealth?: () => void
+onRefreshPanelHealth?: () => void
   onRefreshLivePanelMetrics?: () => void
   compactHealthOnly?: boolean
+  isReseller?: boolean
 }) {
+  const { isFa } = useDashLocale()
+
   const { t } = useTranslation()
+  const chartPrimary = useChartPrimaryColor()
   const host = overview?.host
   const series: OnlineDailyPoint[] = overview?.onlineDailySeries ?? []
   const panelHealth: PanelHealth[] = overview?.panelHealth ?? []
@@ -201,7 +206,7 @@ export function DashboardMonitoring({
 
   if (compactHealthOnly) {
     return (
-      <div className={dashPageRootClass(isFa, "space-y-4")} dir={dashDir(isFa)}>
+      <DashPage className={"space-y-4"}>
         <DashboardPageHeader
           title={t("monitoringPage.compactTitle")}
           description={t("monitoringPage.compactSubtitle")}
@@ -252,12 +257,12 @@ export function DashboardMonitoring({
             )}
           </CardContent>
         </Card>
-      </div>
+      </DashPage>
     )
   }
 
   return (
-    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+    <DashPage>
       <DashboardPageHeader
         title={t("monitoringPage.title")}
         description={t("monitoringPage.subtitle")}
@@ -276,6 +281,10 @@ export function DashboardMonitoring({
           </>
         }
       />
+
+      {isReseller ? (
+        <p className="text-sm text-muted-foreground">{t("monitoringPage.scopedResellerHint")}</p>
+      ) : null}
 
       {host != null ? (
         <Card>
@@ -327,8 +336,8 @@ export function DashboardMonitoring({
               <AreaChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="monFillOnline" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                    <stop offset="5%" stopColor={chartPrimary} stopOpacity={0.35} />
+                    <stop offset="95%" stopColor={chartPrimary} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -359,7 +368,7 @@ export function DashboardMonitoring({
                   type="monotone"
                   dataKey="totalMaxOnline"
                   name={t("dashboardOverview.colMaxOnline")}
-                  stroke="hsl(var(--primary))"
+                  stroke={chartPrimary}
                   fill="url(#monFillOnline)"
                   strokeWidth={2}
                   dot={false}
@@ -395,7 +404,7 @@ export function DashboardMonitoring({
                 <RechartsTooltip
                   formatter={(value: number) => [formatNumber(value, isFa), t("dashboardOverview.colOnlineNow")]}
                 />
-                <Bar dataKey="online" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} maxBarSize={48} />
+                <Bar dataKey="online" fill={chartPrimary} radius={[4, 4, 0, 0]} maxBarSize={48} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -483,7 +492,8 @@ export function DashboardMonitoring({
                     </div>
                   </div>
                   {live?.ok && live.status && Object.keys(live.status).length > 0 ? (
-                    <PanelServerStatusViz status={live.status} isFa={isFa} />
+                    <PanelServerStatusViz status={live.status}
+        />
                   ) : null}
                 </div>
               )
@@ -532,13 +542,14 @@ export function DashboardMonitoring({
                   {ex?.checkedAt ? ` · ${formatDateTime(ex.checkedAt, isFa)}` : ""}
                 </div>
                 {ex?.metrics && Object.keys(ex.metrics).length > 0 ? (
-                  <PanelServerStatusViz status={ex.metrics} isFa={isFa} hideTitle />
+                  <PanelServerStatusViz status={ex.metrics}
+        hideTitle />
                 ) : null}
               </div>
             )
           })}
         </CardContent>
       </Card>
-    </div>
+    </DashPage>
   )
 }

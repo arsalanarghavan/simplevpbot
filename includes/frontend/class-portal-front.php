@@ -21,6 +21,7 @@ class SimpleVPBot_Portal_Front {
 		add_action( 'init', array( __CLASS__, 'register_rewrite' ), 5 );
 		add_action( 'init', array( __CLASS__, 'maybe_flush_rewrite' ), 20 );
 		add_filter( 'query_vars', array( __CLASS__, 'query_vars' ) );
+		add_action( 'template_redirect', array( 'SimpleVPBot_Portal_Subscription', 'maybe_serve' ), -1 );
 		add_action( 'template_redirect', array( __CLASS__, 'render_page' ), 0 );
 	}
 

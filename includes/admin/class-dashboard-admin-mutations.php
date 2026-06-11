@@ -21,12 +21,33 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 */
 	private static $audit_actor_svp_user_id = 0;
 
+	/** @var bool Bot panel acting as site admin (no WP session). */
+	private static $bot_acting_as_site_admin = false;
+
+	/**
+	 * Run mutation apply with site-admin privileges for bot panel actors.
+	 *
+	 * @param callable(): array{ok:bool, message?:string, code?:string, data?:mixed} $fn Callback.
+	 * @return array{ok:bool, message?:string, code?:string, data?:mixed}
+	 */
+	public static function with_bot_site_admin( callable $fn ) {
+		self::$bot_acting_as_site_admin = true;
+		try {
+			return $fn();
+		} finally {
+			self::$bot_acting_as_site_admin = false;
+		}
+	}
+
 	/**
 	 * Site admin acting as themselves (not dashboard impersonation).
 	 *
 	 * @return bool
 	 */
 	private static function mutate_is_unrestricted_site_admin() {
+		if ( self::$bot_acting_as_site_admin ) {
+			return true;
+		}
 		return class_exists( 'SimpleVPBot_Rest_Dashboard' )
 			&& SimpleVPBot_Rest_Dashboard::dashboard_rest_is_unrestricted_site_admin();
 	}
@@ -162,7 +183,11 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			return true;
 		}
 		$uid = (int) $svp_user_id;
-		return $uid > 0 && SimpleVPBot_Model_User::reseller_can_access_user( $actor, $uid );
+		if ( $actor < 1 ) {
+			return true;
+		}
+		return $uid > 0 && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			&& SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( $actor, $uid );
 	}
 
 	/**
@@ -247,6 +272,349 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	}
 
 	/**
+	 * Whether dashboard reseller actor may moderate target user (defense-in-depth).
+	 *
+	 * @param array<string, mixed> $p           Params.
+	 * @param int                  $target_user_id Target svp_users.id.
+	 * @return bool
+	 */
+	private static function actor_may_moderate_user( array $p, $target_user_id ) {
+		$actor = self::dashboard_reseller_actor_id( $p );
+		$uid   = (int) $target_user_id;
+		if ( $actor < 1 ) {
+			return true;
+		}
+		return $uid > 0 && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			&& SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( $actor, $uid );
+	}
+
+	/**
+	 * Defense-in-depth: actor may mutate a service owned by a moderatable user.
+	 *
+	 * @param array<string, mixed> $p          Params.
+	 * @param int                  $service_id Service id.
+	 * @return array{ok:bool, message?:string}|null Null when allowed.
+	 */
+	private static function require_service_moderation_for_actor( array $p, $service_id ) {
+		$sid = (int) $service_id;
+		if ( $sid < 1 ) {
+			return array( 'ok' => false, 'message' => 'invalid_service' );
+		}
+		$row = self::dashboard_find_service( $sid );
+		if ( ! $row ) {
+			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		if ( ! self::actor_may_moderate_user( $p, (int) ( $row->user_id ?? 0 ) ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		return null;
+	}
+
+	/**
+	 * Mutation ops that accept service_id and require moderation guard.
+	 *
+	 * @return array<int, string>
+	 */
+	private static function mutation_ops_with_service_id() {
+		return array(
+			'service_delete',
+			'service_apply_canonical_panel_identity',
+			'user_renew_service',
+			'user_add_volume',
+			'user_reduce_volume',
+			'user_add_days',
+			'user_reduce_days',
+			'user_service_reduce_slots',
+			'user_service_transfer',
+			'user_service_toggle_enable',
+			'service_alerts_patch',
+			'service_set_note',
+			'service_panel_sync',
+			'service_regen_key',
+			'service_regen_sub_id',
+			'service_panel_refresh',
+			'service_panel_delete_client',
+			'user_service_add_slots',
+			'service_set_limit_ip',
+			'service_panel_transfer',
+			'purge_expired_purge_one',
+		);
+	}
+
+	/**
+	 * @param string               $op     Operation key.
+	 * @param array<string, mixed> $params Params.
+	 * @return array{ok:bool, message?:string}|null
+	 */
+	private static function gate_service_moderation_for_op( $op, array $params ) {
+		if ( ! in_array( $op, self::mutation_ops_with_service_id(), true ) ) {
+			return null;
+		}
+		$sid = (int) ( $params['service_id'] ?? 0 );
+		if ( $sid < 1 ) {
+			return null;
+		}
+		return self::require_service_moderation_for_actor( $params, $sid );
+	}
+
+	/**
+	 * Panel client configs: resolve owner user and enforce moderation scope.
+	 *
+	 * @param array<string, mixed> $p Params.
+	 * @param bool                 $require_owner_resolved Configs batch: reject when owner cannot be resolved.
+	 * @return array{ok:bool, message?:string}|null
+	 */
+	private static function require_panel_client_moderation_for_actor( array $p, $require_owner_resolved = false ) {
+		$linked = (int) ( $p['linked_service_id'] ?? 0 );
+		if ( $linked > 0 ) {
+			return self::require_service_moderation_for_actor( $p, $linked );
+		}
+		$row = array(
+			'panel_id'   => (int) ( $p['panel_id'] ?? 0 ),
+			'inbound_id' => (int) ( $p['inbound_id'] ?? 0 ),
+			'email'      => isset( $p['email'] ) ? (string) $p['email'] : '',
+		);
+		$uid = self::users_bulk_user_id_for_panel_row( $row );
+		if ( $uid < 1 ) {
+			if ( $require_owner_resolved ) {
+				return array( 'ok' => false, 'message' => 'client_owner_unresolved' );
+			}
+			return null;
+		}
+		if ( ! self::actor_may_moderate_user( $p, $uid ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		return null;
+	}
+
+	/**
+	 * Restrict service queries to panels a reseller actor may use (when panel_id unset).
+	 *
+	 * @param array<string, mixed> $payload panel_id?, __actor_svp_user_id?.
+	 * @param string               $sql     SQL fragment (append-only).
+	 * @param array<int, mixed>    $args    Prepared args (by reference).
+	 */
+	private static function users_bulk_append_panel_allowlist_sql( array $payload, &$sql, array &$args ) {
+		$panel_id = (int) ( $payload['panel_id'] ?? 0 );
+		if ( $panel_id > 0 ) {
+			return;
+		}
+		$actor = (int) ( $payload['__actor_svp_user_id'] ?? 0 );
+		if ( $actor < 1 ) {
+			return;
+		}
+		$allowed = self::users_bulk_actor_panel_ids( $actor );
+		if ( ! is_array( $allowed ) ) {
+			return;
+		}
+		if ( empty( $allowed ) ) {
+			$sql .= ' AND 1=0';
+			return;
+		}
+		$ph   = implode( ',', array_fill( 0, count( $allowed ), '%d' ) );
+		$sql .= " AND panel_id IN ({$ph})";
+		$args = array_merge( $args, $allowed );
+	}
+
+	/**
+	 * Whether an X-UI panel serves clients attributed to more than one reseller.
+	 *
+	 * @param int $panel_id Panel id.
+	 * @return bool
+	 */
+	private static function panel_is_multi_reseller_shared( $panel_id ) {
+		$panel_id = (int) $panel_id;
+		if ( $panel_id < 1 || ! class_exists( 'SimpleVPBot_Model_Service' ) || ! class_exists( 'SimpleVPBot_Model_User' ) ) {
+			return false;
+		}
+		global $wpdb;
+		$s_tbl = SimpleVPBot_Model_Service::table();
+		$u_tbl = SimpleVPBot_Model_User::table();
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$signup_cnt = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(DISTINCT u.signup_reseller_svp_id)
+				FROM {$s_tbl} s
+				INNER JOIN {$u_tbl} u ON u.id = s.user_id
+				WHERE s.panel_id = %d AND s.deleted_at IS NULL AND u.signup_reseller_svp_id > 0",
+				$panel_id
+			)
+		);
+		if ( $signup_cnt > 1 ) {
+			return true;
+		}
+		if ( class_exists( 'SimpleVPBot_Model_Reseller_Panel_Price' ) ) {
+			$rpp = SimpleVPBot_Model_Reseller_Panel_Price::table();
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$price_cnt = (int) $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(DISTINCT reseller_svp_user_id) FROM {$rpp} WHERE panel_id = %d",
+					$panel_id
+				)
+			);
+			if ( $price_cnt > 1 ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Site admin configs batch on shared panels requires reseller workspace context.
+	 *
+	 * @param array<string, mixed> $p        Mutate params.
+	 * @param int                  $panel_id Panel id.
+	 * @return array{ok:bool, message?:string}|null
+	 */
+	private static function require_configs_batch_workspace_context( array $p, $panel_id ) {
+		if ( self::dashboard_reseller_actor_id( $p ) > 0 ) {
+			return null;
+		}
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
+			return null;
+		}
+		$ctx = isset( $p['reseller_context_svp_user_id'] ) ? (int) $p['reseller_context_svp_user_id'] : 0;
+		if ( $ctx < 1 ) {
+			$ctx = (int) ( $p['__actor_svp_user_id'] ?? 0 );
+		}
+		if ( $ctx > 0 ) {
+			return null;
+		}
+		if ( ! self::panel_is_multi_reseller_shared( $panel_id ) ) {
+			return null;
+		}
+		return array( 'ok' => false, 'message' => 'workspace_context_required' );
+	}
+
+	/**
+	 * Resolve svp_users.id for a configs batch row (audit / logging).
+	 *
+	 * @param array<string, mixed> $row      Batch item.
+	 * @param int                  $panel_id Panel id.
+	 * @return int
+	 */
+	private static function configs_batch_item_subject_user_id( array $row, $panel_id ) {
+		$linked = (int) ( $row['linked_service_id'] ?? 0 );
+		if ( $linked > 0 ) {
+			$svc = self::dashboard_find_service( $linked );
+			return ( $svc && isset( $svc->user_id ) ) ? (int) $svc->user_id : 0;
+		}
+		return self::users_bulk_user_id_for_panel_row(
+			array(
+				'panel_id'   => (int) $panel_id,
+				'inbound_id' => (int) ( $row['inbound_id'] ?? 0 ),
+				'email'      => isset( $row['email'] ) ? (string) $row['email'] : '',
+			)
+		);
+	}
+
+	/**
+	 * Audit each configs batch item after a successful mutation.
+	 *
+	 * @param array<string, mixed>             $p        Mutate params.
+	 * @param int                                $panel_id Panel id.
+	 * @param string                             $event    Audit event type.
+	 * @param array<int, array<string, mixed>> $items    Client rows.
+	 * @param array<string, mixed>             $extra    Extra payload fields.
+	 */
+	private static function audit_configs_batch_items( array $p, $panel_id, $event, array $items, array $extra = array() ) {
+		foreach ( $items as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$uid = self::configs_batch_item_subject_user_id( $row, $panel_id );
+			if ( $uid < 1 ) {
+				continue;
+			}
+			self::log_rest_user(
+				$uid,
+				$event,
+				array_merge(
+					array(
+						'panel_id'   => (int) $panel_id,
+						'inbound_id' => (int) ( $row['inbound_id'] ?? 0 ),
+						'email'      => isset( $row['email'] ) ? (string) $row['email'] : '',
+					),
+					$extra
+				)
+			);
+		}
+	}
+
+	/**
+	 * Defense-in-depth: every configs batch item must be moderatable by actor (when set).
+	 *
+	 * @param array<string, mixed>             $p       Mutate params.
+	 * @param int                                $panel_id Panel id.
+	 * @param array<int, array<string, mixed>> $items   Client rows.
+	 * @return array{ok:bool, message?:string}|null
+	 */
+	private static function require_configs_batch_items_moderation( array $p, $panel_id, array $items ) {
+		if ( empty( $items ) ) {
+			return null;
+		}
+		$ws = self::require_configs_batch_workspace_context( $p, $panel_id );
+		if ( is_array( $ws ) ) {
+			return $ws;
+		}
+		foreach ( $items as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$check = array_merge(
+				$p,
+				array(
+					'panel_id'          => (int) $panel_id,
+					'inbound_id'        => (int) ( $row['inbound_id'] ?? 0 ),
+					'email'             => isset( $row['email'] ) ? (string) $row['email'] : '',
+					'linked_service_id' => (int) ( $row['linked_service_id'] ?? 0 ),
+				)
+			);
+			$gate = self::require_panel_client_moderation_for_actor( $check, true );
+			if ( is_array( $gate ) ) {
+				return $gate;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Single configs client op: workspace + resolvable owner + moderation scope.
+	 *
+	 * @param array<string, mixed> $p Params.
+	 * @return array{ok:bool, message?:string}|null
+	 */
+	private static function require_configs_single_client_moderation_for_actor( array $p ) {
+		$panel_id = (int) ( $p['panel_id'] ?? 0 );
+		$ws       = self::require_configs_batch_workspace_context( $p, $panel_id );
+		if ( is_array( $ws ) ) {
+			return $ws;
+		}
+		return self::require_panel_client_moderation_for_actor( $p, true );
+	}
+
+	/**
+	 * Reseller actor for bot/reseller mutations: REST actor first, else WP-linked row.
+	 *
+	 * @param array<string, mixed> $p Params.
+	 * @return int 0 when not a reseller actor.
+	 */
+	private static function mutate_reseller_actor_id( array $p ) {
+		$actor = self::dashboard_reseller_actor_id( $p );
+		if ( $actor > 0 ) {
+			return $actor;
+		}
+		if ( self::mutate_is_unrestricted_site_admin() ) {
+			return 0;
+		}
+		if ( ! class_exists( 'SimpleVPBot_Model_User' ) ) {
+			return 0;
+		}
+		$wp = SimpleVPBot_Model_User::find_by_wp_user( get_current_user_id() );
+		return ( $wp && SimpleVPBot_Model_User::is_reseller_row( $wp ) ) ? (int) $wp->id : 0;
+	}
+
+	/**
 	 * Reseller may only mutate rows they own (owner_svp_user_id === actor).
 	 *
 	 * @param array<string, mixed> $p Params.
@@ -299,6 +667,31 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 */
 	private static function apply_inner( $op, array $params ) {
 		$op = sanitize_key( (string) $op );
+		$svc_gate = self::gate_service_moderation_for_op( $op, $params );
+		if ( is_array( $svc_gate ) ) {
+			return $svc_gate;
+		}
+		$config_batch_ops = array(
+			'configs_clients_batch',
+			'configs_assign_plan',
+		);
+		$config_single_ops = array(
+			'configs_client_toggle_enable',
+			'configs_client_reset_traffic',
+			'configs_client_delete',
+			'configs_panel_client_patch',
+		);
+		if ( in_array( $op, $config_single_ops, true ) ) {
+			$cfg_gate = self::require_configs_single_client_moderation_for_actor( $params );
+			if ( is_array( $cfg_gate ) ) {
+				return $cfg_gate;
+			}
+		} elseif ( in_array( $op, $config_batch_ops, true ) ) {
+			$cfg_gate = self::require_configs_batch_workspace_context( $params, (int) ( $params['panel_id'] ?? 0 ) );
+			if ( is_array( $cfg_gate ) ) {
+				return $cfg_gate;
+			}
+		}
 		switch ( $op ) {
 			case 'settings_tab':
 				return self::op_settings_tab( $params );
@@ -308,6 +701,20 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return self::op_receipt_reject_reasons_save( $params );
 			case 'telegram_proxy_test':
 				return self::op_telegram_proxy_test();
+			case 'telegram_relay_test':
+				return self::op_telegram_relay_test();
+			case 'telegram_relay_sync':
+				return self::op_telegram_relay_sync();
+			case 'telegram_relay_set_webhook':
+				return self::op_telegram_relay_set_webhook();
+			case 'telegram_relay_rotate_secret':
+				return self::op_telegram_relay_rotate_secret();
+			case 'telegram_relay_status':
+				return self::op_telegram_relay_status();
+			case 'telegram_relay_domains_sync':
+				return self::op_telegram_relay_domains_sync();
+			case 'telegram_relay_set_webhook_reseller':
+				return self::op_telegram_relay_set_webhook_reseller( $params );
 			case 'logs_clear':
 				return self::op_logs_clear( $params );
 			case 'plan':
@@ -320,6 +727,16 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return self::op_panel_test( $params );
 			case 'crypto_settings':
 				return self::op_crypto_settings( $params );
+			case 'unit_economics_save':
+				return self::op_unit_economics_save( $params );
+			case 'unit_economics_config_save':
+				return self::op_unit_economics_config_save( $params );
+			case 'panel_economics_save':
+				return self::op_panel_economics_save( $params );
+			case 'shared_economics_save':
+				return self::op_shared_economics_save( $params );
+			case 'panel_economics_mark_paid':
+				return self::op_panel_economics_mark_paid( $params );
 			case 'card_add':
 				return self::op_card_add( $params );
 			case 'card_update':
@@ -328,6 +745,8 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return self::op_card_delete( $params );
 			case 'card_reorder':
 				return self::op_card_reorder( $params );
+			case 'reseller_payment_methods_save':
+				return self::op_reseller_payment_methods_save( $params );
 			case 'l2tp_add':
 				return self::op_l2tp_add( $params );
 			case 'l2tp_update':
@@ -364,6 +783,14 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return self::op_discount_delete( $params );
 			case 'discount_redemptions':
 				return self::op_discount_redemptions( $params );
+			case 'marketing_rule_save':
+				return self::op_marketing_rule_save( $params );
+			case 'marketing_rule_delete':
+				return self::op_marketing_rule_delete( $params );
+			case 'marketing_send_manual':
+				return self::op_marketing_send_manual( $params );
+			case 'marketing_run_rule_now':
+				return self::op_marketing_run_rule_now( $params );
 			case 'link_wp_user':
 				return self::op_link_wp_user( $params );
 			case 'service_delete':
@@ -418,6 +845,12 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return self::op_reseller_wp_provision( $params );
 			case 'reseller_panel_prices_save':
 				return self::op_reseller_panel_prices_save( $params );
+			case 'wholesale_line_save':
+				return self::op_wholesale_line_save( $params );
+			case 'wholesale_line_delete':
+				return self::op_wholesale_line_delete( $params );
+			case 'reseller_wholesale_lines_assign':
+				return self::op_reseller_wholesale_lines_assign( $params );
 			case 'reseller_permissions_save':
 				return self::op_reseller_permissions_save( $params );
 			case 'reseller_bot_tokens_save':
@@ -444,10 +877,14 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return self::op_user_admin_message( $params );
 			case 'service_alerts_patch':
 				return self::op_service_alerts_patch( $params );
+			case 'service_set_note':
+				return self::op_service_set_note( $params );
 			case 'service_panel_sync':
 				return self::op_service_panel_sync( $params );
 			case 'service_regen_key':
 				return self::op_service_regen_key( $params );
+			case 'service_regen_sub_id':
+				return self::op_service_regen_sub_id( $params );
 			case 'service_panel_refresh':
 				return self::op_service_panel_refresh( $params );
 			case 'service_panel_delete_client':
@@ -464,6 +901,12 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return self::op_configs_client_delete( $params );
 			case 'configs_delete_expired_linked':
 				return self::op_configs_delete_expired_linked( $params );
+			case 'purge_expired_run_cron':
+				return self::op_purge_expired_run_cron( $params );
+			case 'purge_expired_purge_ready':
+				return self::op_purge_expired_purge_ready( $params );
+			case 'purge_expired_purge_one':
+				return self::op_purge_expired_purge_one( $params );
 			case 'configs_panel_client_patch':
 				return self::op_configs_panel_client_patch( $params );
 			case 'configs_clients_batch':
@@ -474,10 +917,14 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return self::op_service_panel_transfer( $params );
 			case 'bot_toggle_enabled':
 				return self::op_bot_toggle_enabled( $params );
+			case 'bot_toggle_platform_enabled':
+				return self::op_bot_toggle_platform_enabled( $params );
 			case 'bot_test_telegram':
 				return self::op_bot_test_telegram( $params );
 			case 'bot_test_bale':
 				return self::op_bot_test_bale( $params );
+			case 'bot_diagnostics':
+				return self::op_bot_diagnostics( $params );
 			case 'bot_set_webhook':
 				return self::op_bot_set_webhook( $params );
 			case 'bot_delete_webhook':
@@ -580,6 +1027,105 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	}
 
 	/**
+	 * @return array{ok:bool, message?:string, data?:array<string,mixed>}
+	 */
+	private static function op_telegram_relay_test() {
+		if ( ! class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$res = SimpleVPBot_Telegram_Relay::health();
+		return array(
+			'ok'      => ! empty( $res['ok'] ),
+			'message' => (string) ( $res['message'] ?? '' ),
+			'data'    => isset( $res['data'] ) && is_array( $res['data'] ) ? $res['data'] : array(),
+		);
+	}
+
+	/**
+	 * @return array{ok:bool, message?:string, data?:array<string,mixed>}
+	 */
+	private static function op_telegram_relay_sync() {
+		if ( ! class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		return SimpleVPBot_Telegram_Relay::push_config_to_relay();
+	}
+
+	/**
+	 * @return array{ok:bool, message?:string, data?:array<string,mixed>}
+	 */
+	private static function op_telegram_relay_set_webhook() {
+		if ( ! class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		if ( ! SimpleVPBot_Telegram_Relay::is_enabled() ) {
+			return array( 'ok' => false, 'message' => 'relay_disabled' );
+		}
+		return SimpleVPBot_Telegram_Relay::set_webhook_via_relay( 'main', 0, true );
+	}
+
+	/**
+	 * @return array{ok:bool, message?:string, data?:array{secret:string}}
+	 */
+	private static function op_telegram_relay_rotate_secret() {
+		if ( ! class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$sec = SimpleVPBot_Telegram_Relay::rotate_relay_secret();
+		return array(
+			'ok'   => true,
+			'data' => array( 'secret' => $sec ),
+		);
+	}
+
+	/**
+	 * @return array{ok:bool, message?:string, data?:array<string,mixed>}
+	 */
+	private static function op_telegram_relay_status() {
+		if ( ! class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$res = SimpleVPBot_Telegram_Relay::status_via_relay();
+		return array(
+			'ok'      => ! empty( $res['ok'] ),
+			'message' => (string) ( $res['message'] ?? '' ),
+			'data'    => isset( $res['data'] ) && is_array( $res['data'] ) ? $res['data'] : array(),
+		);
+	}
+
+	/**
+	 * @return array{ok:bool, message?:string, data?:array<string,mixed>}
+	 */
+	private static function op_telegram_relay_domains_sync() {
+		if ( ! class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$sync = SimpleVPBot_Telegram_Relay::push_config_to_relay();
+		if ( empty( $sync['ok'] ) ) {
+			return $sync;
+		}
+		return SimpleVPBot_Telegram_Relay::domains_sync_via_relay();
+	}
+
+	/**
+	 * @param array<string, mixed> $p Params.
+	 * @return array{ok:bool, message?:string, data?:array<string,mixed>}
+	 */
+	private static function op_telegram_relay_set_webhook_reseller( array $p ) {
+		if ( ! class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$rid = (int) ( $p['reseller_svp_user_id'] ?? $p['bot_id'] ?? 0 );
+		if ( $rid < 1 ) {
+			return array( 'ok' => false, 'message' => 'invalid_reseller' );
+		}
+		if ( ! SimpleVPBot_Telegram_Relay::is_enabled() ) {
+			return array( 'ok' => false, 'message' => 'relay_disabled' );
+		}
+		return SimpleVPBot_Telegram_Relay::set_webhook_via_relay( 'reseller', $rid, true );
+	}
+
+	/**
 	 * @param array<string, mixed> $p Params.
 	 * @return array{ok:bool, message?:string, data?:array{deleted:int}}
 	 */
@@ -657,6 +1203,9 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		if ( 'delete' === $action && $rid > 0 ) {
 			if ( SimpleVPBot_Model_Plan::count_by_panel_id( $rid ) > 0 || SimpleVPBot_Model_Service::count_for_panel( $rid ) > 0 ) {
 				return array( 'ok' => false, 'code' => 'inuse' );
+			}
+			if ( class_exists( 'SimpleVPBot_Model_Panel_Economics_Line' ) ) {
+				SimpleVPBot_Model_Panel_Economics_Line::delete_for_panel( $rid );
 			}
 			SimpleVPBot_Model_Panel::delete( $rid );
 			return array( 'ok' => true, 'code' => 'deleted' );
@@ -741,6 +1290,166 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	}
 
 	/**
+	 * Persist unit economics inputs and return recalculated metrics.
+	 *
+	 * @param array<string, mixed> $p Params.
+	 * @return array{ok:bool, unitEconomics?: array<string, mixed>, message?: string}
+	 */
+	private static function op_unit_economics_save( array $p ) {
+		return self::op_unit_economics_config_save( $p );
+	}
+
+	/**
+	 * Save global volume + selling price only (v2).
+	 *
+	 * @param array<string, mixed> $p Params.
+	 * @return array{ok:bool, unitEconomics?: array<string, mixed>, message?: string}
+	 */
+	private static function op_unit_economics_config_save( array $p ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		if ( ! class_exists( 'SimpleVPBot_Unit_Economics_Calculator' )
+			|| ! class_exists( 'SimpleVPBot_Model_Unit_Economics_Config' ) ) {
+			return array( 'ok' => false, 'message' => 'unit_economics_unavailable' );
+		}
+		SimpleVPBot_Model_Unit_Economics_Config::upsert_global_inputs(
+			array(
+				'total_sold_volume_gb' => $p['total_sold_volume_gb'] ?? 0,
+				'selling_price_per_gb' => $p['selling_price_per_gb'] ?? 0,
+				'volume_mode'          => isset( $p['volume_mode'] ) ? (string) $p['volume_mode'] : '',
+				'volume_window_days'   => $p['volume_window_days'] ?? null,
+			)
+		);
+		$result = SimpleVPBot_Unit_Economics_Calculator::calculate_from_db();
+		return array(
+			'ok'                => true,
+			'unitEconomics'     => $result,
+			'panelEconomicsMap' => SimpleVPBot_Unit_Economics_Calculator::panel_economics_map_for_rest(),
+		);
+	}
+
+	/**
+	 * Save cost lines for one panel.
+	 *
+	 * @param array<string, mixed> $p panel_id, lines[].
+	 * @return array{ok:bool, panelEconomics?: array<string, mixed>, message?: string}
+	 */
+	/**
+	 * Save shared infrastructure lines (panel_id = 0).
+	 *
+	 * @param array<string, mixed> $p lines[].
+	 * @return array<string, mixed>
+	 */
+	private static function op_shared_economics_save( array $p ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		if ( ! class_exists( 'SimpleVPBot_Model_Panel_Economics_Line' )
+			|| ! class_exists( 'SimpleVPBot_Unit_Economics_Calculator' ) ) {
+			return array( 'ok' => false, 'message' => 'unit_economics_unavailable' );
+		}
+		$lines_raw = isset( $p['lines'] ) && is_array( $p['lines'] ) ? $p['lines'] : array();
+		$clean     = array();
+		foreach ( $lines_raw as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$clean[] = SimpleVPBot_Model_Panel_Economics_Line::sanitize_line( $row );
+		}
+		SimpleVPBot_Model_Panel_Economics_Line::replace_for_shared( $clean );
+		return array(
+			'ok'                => true,
+			'panelEconomicsMap' => SimpleVPBot_Unit_Economics_Calculator::panel_economics_map_for_rest(),
+			'unitEconomics'     => SimpleVPBot_Unit_Economics_Calculator::calculate_from_db(),
+		);
+	}
+
+	/**
+	 * Mark a cost line as paid (updates paid_at / extends expires_at).
+	 *
+	 * @param array<string, mixed> $p line_id, extend_days?.
+	 * @return array<string, mixed>
+	 */
+	private static function op_panel_economics_mark_paid( array $p ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		$line_id = isset( $p['line_id'] ) ? (int) $p['line_id'] : 0;
+		if ( $line_id < 1 || ! class_exists( 'SimpleVPBot_Model_Panel_Economics_Line' ) ) {
+			return array( 'ok' => false, 'message' => 'invalid_line' );
+		}
+		$extend = isset( $p['extend_days'] )
+			? (int) $p['extend_days']
+			: (int) SimpleVPBot_Settings::get( 'panel_cost_extend_days_on_paid', 30 );
+		if ( ! SimpleVPBot_Model_Panel_Economics_Line::mark_paid( $line_id, $extend ) ) {
+			return array( 'ok' => false, 'message' => 'mark_paid_failed' );
+		}
+		$out = array( 'ok' => true );
+		if ( class_exists( 'SimpleVPBot_Unit_Economics_Overview' ) ) {
+			$out['economics'] = SimpleVPBot_Unit_Economics_Overview::build();
+		}
+		if ( class_exists( 'SimpleVPBot_Unit_Economics_Calculator' ) ) {
+			$out['panelEconomicsMap'] = SimpleVPBot_Unit_Economics_Calculator::panel_economics_map_for_rest();
+		}
+		return $out;
+	}
+
+	private static function op_panel_economics_save( array $p ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		$panel_id = isset( $p['panel_id'] ) ? (int) $p['panel_id'] : 0;
+		if ( $panel_id < 1 || ! class_exists( 'SimpleVPBot_Model_Panel' ) || ! SimpleVPBot_Model_Panel::find( $panel_id ) ) {
+			return array( 'ok' => false, 'message' => 'invalid_panel' );
+		}
+		if ( ! class_exists( 'SimpleVPBot_Model_Panel_Economics_Line' )
+			|| ! class_exists( 'SimpleVPBot_Unit_Economics_Calculator' ) ) {
+			return array( 'ok' => false, 'message' => 'unit_economics_unavailable' );
+		}
+		$lines_raw = isset( $p['lines'] ) && is_array( $p['lines'] ) ? $p['lines'] : array();
+		$clean     = array();
+		foreach ( $lines_raw as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$clean[] = SimpleVPBot_Model_Panel_Economics_Line::sanitize_line( $row );
+		}
+		SimpleVPBot_Model_Panel_Economics_Line::replace_for_panel( $panel_id, $clean );
+
+		$config = class_exists( 'SimpleVPBot_Model_Unit_Economics_Config' )
+			? SimpleVPBot_Model_Unit_Economics_Config::global_inputs()
+			: array(
+				'total_sold_volume_gb' => 0.0,
+				'selling_price_per_gb' => 0.0,
+			);
+		$active_for_panel = array();
+		foreach ( SimpleVPBot_Model_Panel_Economics_Line::for_panel( $panel_id ) as $row ) {
+			if ( empty( $row->active ) ) {
+				continue;
+			}
+			$active_for_panel[] = SimpleVPBot_Model_Panel_Economics_Line::row_to_array( $row );
+		}
+		$shared_lines = array();
+		foreach ( SimpleVPBot_Model_Panel_Economics_Line::for_shared() as $row ) {
+			if ( empty( $row->active ) ) {
+				continue;
+			}
+			$shared_lines[] = SimpleVPBot_Model_Panel_Economics_Line::row_to_array( $row );
+		}
+		$metrics = SimpleVPBot_Unit_Economics_Calculator::calculate_for_panel( $panel_id, $active_for_panel, $config, null, $shared_lines );
+		$lines_edit = SimpleVPBot_Model_Panel_Economics_Line::map_by_panel_for_edit();
+		return array(
+			'ok'             => true,
+			'panelEconomics' => array(
+				'lines'   => isset( $lines_edit[ $panel_id ] ) ? $lines_edit[ $panel_id ] : array(),
+				'metrics' => $metrics,
+			),
+			'unitEconomics'  => SimpleVPBot_Unit_Economics_Calculator::calculate_from_db(),
+		);
+	}
+
+	/**
 	 * @param array<string, mixed> $p Params.
 	 * @return array{ok:bool}
 	 */
@@ -806,6 +1515,29 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				)
 			);
 		}
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * Save per-reseller payment method toggles.
+	 *
+	 * @param array<string, mixed> $p payment_methods map.
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function op_reseller_payment_methods_save( array $p ) {
+		$actor = self::dashboard_reseller_actor_id( $p );
+		if ( $actor < 1 ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		if ( ! class_exists( 'SimpleVPBot_Payment_Methods' ) || ! class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			return array( 'ok' => false, 'message' => 'unavailable' );
+		}
+		$raw = isset( $p['payment_methods'] ) ? $p['payment_methods'] : array();
+		if ( is_string( $raw ) ) {
+			$decoded = json_decode( $raw, true );
+			$raw     = is_array( $decoded ) ? $decoded : array();
+		}
+		SimpleVPBot_Model_Reseller_Bot_Profile::save_payment_methods( $actor, is_array( $raw ) ? $raw : array() );
 		return array( 'ok' => true );
 	}
 
@@ -1044,6 +1776,9 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		if ( $m_uid < 1 || ! class_exists( 'SimpleVPBot_User_Membership' ) ) {
 			return array( 'ok' => false, 'message' => 'invalid' );
 		}
+		if ( ! self::actor_may_moderate_user( $p, $m_uid ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
 		if ( 'approve' === $m_act ) {
 			$res = SimpleVPBot_User_Membership::approve( $m_uid, $label );
 			if ( ! empty( $res['ok'] ) ) {
@@ -1110,7 +1845,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			return array( 'ok' => false, 'message' => 'forbidden_scope' );
 		}
 		if ( 'approve' === $act ) {
-			$res = SimpleVPBot_Receipt_Processor::approve( $rid, $label );
+			$res = SimpleVPBot_Receipt_Processor::approve_async_start( $rid, $label );
 			return self::receipt_mutate_rest_response( $res );
 		}
 		if ( 'reject' === $act ) {
@@ -1222,9 +1957,6 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		}
 		$new = isset( $p['status'] ) ? sanitize_key( (string) $p['status'] ) : '';
 		if ( '' !== $new ) {
-			if ( 'approved' === $new ) {
-				@set_time_limit( 120 );
-			}
 			$reason = isset( $p['reject_reason'] ) ? sanitize_textarea_field( (string) $p['reject_reason'] ) : '';
 			$label  = (string) wp_get_current_user()->user_login;
 			$res    = SimpleVPBot_Receipt_Processor::admin_set_receipt_status( $rid, $new, $label, $reason );
@@ -1328,10 +2060,23 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 
 		$include_tg = ( 'both' === $targets || 'telegram' === $targets );
 		$include_bl = ( 'both' === $targets || 'bale' === $targets );
+		if ( class_exists( 'SimpleVPBot_Platforms' ) ) {
+			if ( ! SimpleVPBot_Platforms::is_enabled( 'telegram', $owner ) ) {
+				$include_tg = false;
+			}
+			if ( ! SimpleVPBot_Platforms::is_enabled( 'bale', $owner ) ) {
+				$include_bl = false;
+			}
+		}
+		if ( ! $include_tg && ! $include_bl ) {
+			return array( 'ok' => false, 'message' => 'platform_disabled' );
+		}
 
 		$users = array();
 		if ( $owner > 0 ) {
-			$scope_ids = SimpleVPBot_Model_User::reseller_scope_user_ids( $owner );
+			$scope_ids = class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				? SimpleVPBot_Bot_Reseller_Scope::effective_moderatable_user_ids( $owner )
+				: SimpleVPBot_Model_User::reseller_scope_user_ids( $owner );
 			foreach ( (array) SimpleVPBot_Model_User::all_approved() as $u ) {
 				$uid = (int) ( $u->id ?? 0 );
 				if ( $uid > 0 && in_array( $uid, $scope_ids, true ) ) {
@@ -1448,6 +2193,16 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		return (string) $text;
 	}
 
+	/**
+	 * Portal / external entry for discount save (scoped by owner in $post).
+	 *
+	 * @param array<string, mixed> $post Fields (svpc_*).
+	 * @return array{ok:bool, message?:string, data?:mixed}
+	 */
+	public static function discount_save_from_post( array $post ) {
+		return self::op_discount_save( $post );
+	}
+
 	private static function op_discount_save( array $post ) {
 		$actor = self::dashboard_reseller_actor_id( $post );
 		$id   = isset( $post['svpc_id'] ) ? (int) $post['svpc_id'] : 0;
@@ -1487,6 +2242,9 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		$mdc       = isset( $post['svpc_max_discount'] ) ? trim( (string) $post['svpc_max_discount'] ) : '';
 		$max_disc  = ( '' === $mdc || ! is_numeric( $mdc ) ) ? null : max( 0.0, (float) str_replace( ',', '.', $mdc ) );
 		$restricted = isset( $post['svpc_restricted_user_id'] ) ? max( 0, (int) $post['svpc_restricted_user_id'] ) : 0;
+		if ( $restricted > 0 && ! self::actor_may_moderate_user( $post, $restricted ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden_scope' );
+		}
 		$plan_ids_raw = isset( $post['svpc_allowed_plan_ids'] ) ? $post['svpc_allowed_plan_ids'] : array();
 		if ( is_string( $plan_ids_raw ) ) {
 			$dec = json_decode( $plan_ids_raw, true );
@@ -1505,6 +2263,14 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		$owner_id = isset( $post['owner_svp_user_id'] ) ? max( 0, (int) $post['owner_svp_user_id'] ) : 0;
 		if ( $actor > 0 ) {
 			$owner_id = $actor;
+			if ( ! empty( $plan_ids ) && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) && class_exists( 'SimpleVPBot_Model_Plan' ) ) {
+				foreach ( $plan_ids as $pid_check ) {
+					$plan_row = SimpleVPBot_Model_Plan::find( (int) $pid_check );
+					if ( ! $plan_row || ! SimpleVPBot_Bot_Reseller_Scope::plan_visible_for_reseller( $plan_row, $actor ) ) {
+						return array( 'ok' => false, 'message' => 'forbidden_plan' );
+					}
+				}
+			}
 		}
 		if ( ! empty( $post['svpc_active'] ) && ! empty( $plan_ids ) ) {
 			$overlap = SimpleVPBot_Model_Discount_Code::active_with_plan_overlap( $owner_id, $plan_ids, $id );
@@ -1595,6 +2361,13 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				'created_at'      => (string) ( $row->created_at ?? '' ),
 			);
 			$uid = (int) ( $row->svp_user_id ?? 0 );
+			if (
+				! self::mutate_is_unrestricted_site_admin()
+				&& $uid > 0
+				&& ! self::actor_may_moderate_user( $p, $uid )
+			) {
+				continue;
+			}
 			if ( $uid > 0 && class_exists( 'SimpleVPBot_Model_User' ) ) {
 				$u = SimpleVPBot_Model_User::find( $uid );
 				if ( $u ) {
@@ -1713,6 +2486,10 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		if ( $sid < 1 ) {
 			return array( 'ok' => false, 'message' => 'invalid_service' );
 		}
+		$guard = self::require_service_moderation_for_actor( $p, $sid );
+		if ( is_array( $guard ) ) {
+			return $guard;
+		}
 		$row = self::dashboard_find_service( $sid );
 		$uid = $row ? (int) $row->user_id : 0;
 		$em  = $row ? (string) ( $row->email ?? '' ) : '';
@@ -1743,6 +2520,10 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		$sid = isset( $p['service_id'] ) ? (int) $p['service_id'] : 0;
 		if ( $sid < 1 ) {
 			return array( 'ok' => false, 'message' => 'invalid_service' );
+		}
+		$guard = self::require_service_moderation_for_actor( $p, $sid );
+		if ( is_array( $guard ) ) {
+			return $guard;
 		}
 		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
 			return array( 'ok' => false, 'message' => 'unavailable' );
@@ -1779,6 +2560,9 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		$user = SimpleVPBot_Model_User::find( $uid );
 		if ( ! $user ) {
 			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		if ( ! self::actor_may_moderate_user( $p, $uid ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		$st = (string) $user->status;
 		if ( 'ban' === $act ) {
@@ -1825,6 +2609,9 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		$user = SimpleVPBot_Model_User::find( $uid );
 		if ( ! $user ) {
 			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		if ( ! self::actor_may_moderate_user( $p, $uid ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		$cur = round( (float) ( $user->balance ?? 0 ), 2 );
 		$new = round( $cur + $delta, 2 );
@@ -1900,12 +2687,16 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		if ( $tuid < 1 || $pid < 1 ) {
 			return array( 'ok' => false, 'message' => 'invalid' );
 		}
+		if ( ! self::actor_may_moderate_user( $p, $tuid ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
 		$actor = self::dashboard_reseller_actor_id( $p );
 		if ( $actor > 0 && class_exists( 'SimpleVPBot_Model_User' ) ) {
 			$actor_row = SimpleVPBot_Model_User::find( $actor );
 			if ( $actor_row && SimpleVPBot_Model_User::is_reseller_row( $actor_row ) ) {
 				$plan_row = SimpleVPBot_Model_Plan::find( $pid );
-				if ( ! $plan_row || (int) ( $plan_row->owner_svp_user_id ?? 0 ) !== $actor ) {
+				if ( ! $plan_row || ! class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+					|| ! SimpleVPBot_Bot_Reseller_Scope::plan_visible_for_reseller( $plan_row, $actor ) ) {
 					return array( 'ok' => false, 'reason' => 'forbidden_plan' );
 				}
 			}
@@ -1946,6 +2737,10 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		$mode = sanitize_key( (string) ( $p['mode'] ?? 'free' ) );
 		if ( $sid < 1 ) {
 			return array( 'ok' => false, 'message' => 'invalid_service' );
+		}
+		$guard = self::require_service_moderation_for_actor( $p, $sid );
+		if ( is_array( $guard ) ) {
+			return $guard;
 		}
 		$svc = self::dashboard_find_service( $sid );
 		if ( ! $svc ) {
@@ -2105,6 +2900,17 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		if ( ! $svc ) {
 			return array( 'ok' => false, 'message' => 'not_found' );
 		}
+		$actor = self::dashboard_reseller_actor_id( $p );
+		if ( $actor > 0 && class_exists( 'SimpleVPBot_Service_Transfer' ) && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			$owner_uid = (int) ( $svc->user_id ?? 0 );
+			if ( $owner_uid < 1 || ! SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( $actor, $owner_uid ) ) {
+				return array( 'ok' => false, 'message' => 'forbidden_scope' );
+			}
+			$transfer_target = SimpleVPBot_Service_Transfer::resolve_user( $tgt );
+			if ( ! $transfer_target || ! SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( $actor, (int) $transfer_target->id ) ) {
+				return array( 'ok' => false, 'message' => 'forbidden_scope' );
+			}
+		}
 		$from_uid = (int) $svc->user_id;
 		$label    = (string) wp_get_current_user()->user_login;
 		$res      = SimpleVPBot_Service_Admin_Ops::service_transfer( $sid, $tgt, $label );
@@ -2157,12 +2963,29 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			$st = 'pending';
 		}
 
+		$parent_actor = 0;
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
+			$actor = self::dashboard_reseller_actor_id( $p );
+			if ( $actor > 0 ) {
+				$ar = SimpleVPBot_Model_User::find( $actor );
+				if ( $ar && SimpleVPBot_Model_User::is_reseller_row( $ar ) ) {
+					$parent_actor = $actor;
+				}
+			}
+		}
+		if ( 'reseller' === $role && $parent_actor > 0 ) {
+			$invited_by = $parent_actor;
+			if ( 'pending' === $st ) {
+				$st = 'approved';
+			}
+		}
+
 		$dash_pwd  = (string) ( $p['dashboard_password'] ?? '' );
 		$uname_raw = sanitize_text_field( (string) ( $p['username'] ?? '' ) );
 		$log       = sanitize_user( $uname_raw, true );
 
 		if ( 'reseller' === $role && strlen( $dash_pwd ) >= 6 && '' !== $log ) {
-			if ( ! current_user_can( 'manage_options' ) ) {
+			if ( ! self::mutate_is_unrestricted_site_admin() && $parent_actor < 1 ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
 			if ( username_exists( $log ) ) {
@@ -2207,12 +3030,24 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				wp_delete_user( $wp_id );
 				return array( 'ok' => false, 'message' => 'insert_failed' );
 			}
-			self::log_rest_user( $new_id, 'user_manual_create', array( 'dashboard_login' => true, 'wp_user_id' => $wp_id ) );
+			self::log_rest_user(
+				$new_id,
+				'user_manual_create',
+				array(
+					'dashboard_login'    => true,
+					'wp_user_id'         => $wp_id,
+					'parent_reseller_id' => $parent_actor > 0 ? $parent_actor : null,
+				)
+			);
 			return array( 'ok' => true, 'user_id' => $new_id );
 		}
 
 		if ( strlen( $dash_pwd ) >= 6 && '' !== $log && 'reseller' !== $role ) {
 			return array( 'ok' => false, 'message' => 'invalid' );
+		}
+
+		if ( 'reseller' === $role && ! self::mutate_is_unrestricted_site_admin() && $parent_actor < 1 ) {
+			$role = 'user';
 		}
 
 		if ( $tg < 1 && $bl < 1 ) {
@@ -2250,7 +3085,15 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		if ( $new_id < 1 ) {
 			return array( 'ok' => false, 'message' => 'insert_failed' );
 		}
-		self::log_rest_user( $new_id, 'user_manual_create', array( 'tg_user_id' => $tg, 'bale_user_id' => $bl ) );
+		self::log_rest_user(
+			$new_id,
+			'user_manual_create',
+			array(
+				'tg_user_id'         => $tg,
+				'bale_user_id'       => $bl,
+				'parent_reseller_id' => ( $parent_actor > 0 && 'reseller' === $role ) ? $parent_actor : null,
+			)
+		);
 		return array( 'ok' => true, 'user_id' => $new_id );
 	}
 
@@ -2261,7 +3104,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 * @return array{ok:bool, message?:string, data?:mixed}
 	 */
 	private static function op_user_merge_preview( array $p ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		$keep = (int) ( $p['keep_id'] ?? 0 );
@@ -2279,7 +3122,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 * @return array{ok:bool, message?:string, data?:mixed}
 	 */
 	private static function op_user_merge( array $p ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		$keep    = (int) ( $p['keep_id'] ?? 0 );
@@ -2321,6 +3164,24 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		$user = SimpleVPBot_Model_User::find( $uid );
 		if ( ! $user ) {
 			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		if ( ! self::actor_may_moderate_user( $p, $uid ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		$owner_rid = (int) ( $p['owner_svp_user_id'] ?? 0 );
+		if ( class_exists( 'SimpleVPBot_Platforms' ) ) {
+			if ( ( 'both' === $ch || 'telegram' === $ch ) && ! SimpleVPBot_Platforms::is_enabled( 'telegram', $owner_rid ) ) {
+				if ( 'telegram' === $ch ) {
+					return array( 'ok' => false, 'message' => 'channel_disabled' );
+				}
+				$ch = 'bale';
+			}
+			if ( ( 'both' === $ch || 'bale' === $ch ) && ! SimpleVPBot_Platforms::is_enabled( 'bale', $owner_rid ) ) {
+				if ( 'bale' === $ch ) {
+					return array( 'ok' => false, 'message' => 'channel_disabled' );
+				}
+				$ch = 'telegram';
+			}
 		}
 		$sent = 0;
 		if ( class_exists( 'SimpleVPBot_User_Notify' ) ) {
@@ -2376,6 +3237,34 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	}
 
 	/**
+	 * @param array<string, mixed> $p service_id, service_note (max 512).
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function op_service_set_note( array $p ) {
+		$sid = (int) ( $p['service_id'] ?? 0 );
+		if ( $sid < 1 ) {
+			return array( 'ok' => false, 'message' => 'invalid_service' );
+		}
+		$row = self::dashboard_find_service( $sid );
+		if ( ! $row ) {
+			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		$note = isset( $p['service_note'] ) ? sanitize_text_field( (string) $p['service_note'] ) : '';
+		if ( function_exists( 'mb_substr' ) ) {
+			$note = mb_substr( $note, 0, 512 );
+		} else {
+			$note = substr( $note, 0, 512 );
+		}
+		$patch = class_exists( 'SimpleVPBot_Service_Naming' ) && SimpleVPBot_Service_Naming::is_platform_slug_service( $row )
+			? array( 'service_note' => $note )
+			: array( 'remark' => $note );
+		SimpleVPBot_Model_Service::update( $sid, $patch );
+		$uid = (int) $row->user_id;
+		self::log_rest_user( $uid, 'service_set_note', array( 'service_id' => $sid ) );
+		return array( 'ok' => true );
+	}
+
+	/**
 	 * @param array<string, mixed> $p service_id.
 	 * @return array{ok:bool, reason?:string, limit_ip?:int, panel_enabled?:int|null}
 	 */
@@ -2420,6 +3309,30 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		}
 		self::log_rest_user( (int) $svc->user_id, 'service_regen_key', array( 'service_id' => $sid ) );
 		return array( 'ok' => true );
+	}
+
+	/**
+	 * @param array<string, mixed> $p service_id.
+	 * @return array{ok:bool, reason?:string, sub_id?:string}
+	 */
+	private static function op_service_regen_sub_id( array $p ) {
+		$sid = (int) ( $p['service_id'] ?? 0 );
+		if ( $sid < 1 || ! class_exists( 'SimpleVPBot_Service_Dashboard_Panel' ) ) {
+			return array( 'ok' => false, 'message' => 'invalid' );
+		}
+		$svc = self::dashboard_find_service( $sid );
+		if ( ! $svc ) {
+			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		$r = SimpleVPBot_Service_Dashboard_Panel::xray_regenerate_sub_id( $sid );
+		if ( empty( $r['ok'] ) ) {
+			return array( 'ok' => false, 'reason' => (string) ( $r['reason'] ?? 'failed' ) );
+		}
+		self::log_rest_user( (int) $svc->user_id, 'service_regen_sub_id', array( 'service_id' => $sid ) );
+		return array(
+			'ok'     => true,
+			'sub_id' => (string) ( $r['sub_id'] ?? '' ),
+		);
 	}
 
 	/**
@@ -2577,9 +3490,70 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
 			return array( 'ok' => false, 'message' => 'module_missing' );
 		}
+		$actor = self::dashboard_reseller_actor_id( $p );
+		if ( $actor > 0 ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
 		$pid    = (int) ( $p['panel_id'] ?? 0 );
 		$expect = (int) ( $p['confirm_count'] ?? -1 );
 		return SimpleVPBot_Service_Admin_Ops::configs_delete_expired_linked_batch( $pid, $expect );
+	}
+
+	/**
+	 * @param array<string, mixed> $p Params.
+	 * @return array{ok:bool, message?:string, data?:mixed}
+	 */
+	private static function op_purge_expired_run_cron( array $p ) {
+		if ( ! class_exists( 'SimpleVPBot_Cron_Purge_Expired' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$limit = max( 1, min( 100, (int) ( $p['limit'] ?? SimpleVPBot_Cron_Purge_Expired::BATCH_LIMIT ) ) );
+		$data  = SimpleVPBot_Cron_Purge_Expired::run_batch( $limit, 'manual', true );
+		return array(
+			'ok'      => true,
+			'message' => 'ok',
+			'data'    => $data,
+		);
+	}
+
+	/**
+	 * @param array<string, mixed> $p Params.
+	 * @return array{ok:bool, message?:string, data?:mixed}
+	 */
+	private static function op_purge_expired_purge_ready( array $p ) {
+		if ( ! class_exists( 'SimpleVPBot_Cron_Purge_Expired' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		if ( empty( $p['confirm'] ) ) {
+			return array( 'ok' => false, 'message' => 'confirm_required' );
+		}
+		$limit = max( 1, min( 100, (int) ( $p['limit'] ?? 50 ) ) );
+		$data  = SimpleVPBot_Cron_Purge_Expired::purge_ready_batch( $limit );
+		return array(
+			'ok'      => true,
+			'message' => 'ok',
+			'data'    => $data,
+		);
+	}
+
+	/**
+	 * @param array<string, mixed> $p service_id, optional force_early.
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function op_purge_expired_purge_one( array $p ) {
+		if ( ! class_exists( 'SimpleVPBot_Cron_Purge_Expired' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$sid = (int) ( $p['service_id'] ?? 0 );
+		if ( $sid < 1 ) {
+			return array( 'ok' => false, 'message' => 'bad_params' );
+		}
+		return SimpleVPBot_Cron_Purge_Expired::purge_service_by_id(
+			$sid,
+			array(
+				'force_early' => ! empty( $p['force_early'] ),
+			)
+		);
 	}
 
 	/**
@@ -2593,6 +3567,10 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		$pid = (int) ( $p['panel_id'] ?? 0 );
 		$iid = (int) ( $p['inbound_id'] ?? 0 );
 		$em  = isset( $p['email'] ) ? sanitize_text_field( (string) $p['email'] ) : '';
+		$guard = self::require_panel_client_moderation_for_actor( $p );
+		if ( is_array( $guard ) ) {
+			return $guard;
+		}
 		$patch = array();
 		if ( array_key_exists( 'expiry_ms', $p ) ) {
 			$patch['expiry_ms'] = (int) $p['expiry_ms'];
@@ -2643,7 +3621,21 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			}
 			$items[] = $it;
 		}
-		return SimpleVPBot_Service_Admin_Ops::configs_clients_batch( $pid, $op, $items );
+		$batch_guard = self::require_configs_batch_items_moderation( $p, $pid, $items );
+		if ( is_array( $batch_guard ) ) {
+			return $batch_guard;
+		}
+		$r = SimpleVPBot_Service_Admin_Ops::configs_clients_batch( $pid, $op, $items );
+		if ( ! empty( $r['ok'] ) ) {
+			self::audit_configs_batch_items(
+				$p,
+				$pid,
+				'configs_clients_batch',
+				$items,
+				array( 'batch_op' => $op )
+			);
+		}
+		return $r;
 	}
 
 	/**
@@ -2667,6 +3659,10 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				'inbound_id'        => (int) ( $row['inbound_id'] ?? 0 ),
 				'email'             => sanitize_text_field( (string) ( $row['email'] ?? '' ) ),
 			);
+		}
+		$batch_guard = self::require_configs_batch_items_moderation( $p, $pid, $items );
+		if ( is_array( $batch_guard ) ) {
+			return $batch_guard;
 		}
 		$r = SimpleVPBot_Service_Admin_Ops::configs_assign_plan( $pid, $plid, $items );
 		if ( isset( $r['data']['succeeded'] ) && (int) $r['data']['succeeded'] > 0 ) {
@@ -2833,10 +3829,15 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 */
 	private static function users_bulk_payload_base( array $p ) {
 		$f = self::users_bulk_panel_filter( $p );
-		return array(
+		$out = array(
 			'panel_id'   => $f['panel_id'],
 			'inbound_id' => $f['inbound_id'],
 		);
+		$actor = self::dashboard_reseller_actor_id( $p );
+		if ( $actor > 0 ) {
+			$out['__actor_svp_user_id'] = $actor;
+		}
+		return $out;
 	}
 
 	/**
@@ -2866,15 +3867,9 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 * @return string
 	 */
 	public static function users_bulk_user_display_name( $user ) {
-		if ( ! $user || ! is_object( $user ) ) {
-			return 'کاربر';
-		}
-		$name = trim( (string) ( $user->first_name ?? '' ) . ' ' . (string) ( $user->last_name ?? '' ) );
-		if ( '' !== $name ) {
-			return $name;
-		}
-		$uname = trim( (string) ( $user->username ?? '' ) );
-		return '' !== $uname ? $uname : 'کاربر';
+		return class_exists( 'SimpleVPBot_User_Display' )
+			? SimpleVPBot_User_Display::name( $user )
+			: 'کاربر';
 	}
 
 	/**
@@ -2990,7 +3985,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 * @param bool                $active_only Only non-expired services.
 	 * @return int
 	 */
-	private static function users_bulk_count_matching_services( array $user_ids, array $filter, $active_only = false ) {
+	private static function users_bulk_count_matching_services( array $user_ids, array $filter, $active_only = false, array $panel_payload = array() ) {
 		global $wpdb;
 		$user_ids = array_values( array_unique( array_map( 'intval', $user_ids ) ) );
 		if ( empty( $user_ids ) ) {
@@ -3013,6 +4008,9 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				$args[] = $inbound_id;
 			}
 		}
+		if ( ! empty( $panel_payload ) ) {
+			self::users_bulk_append_panel_allowlist_sql( $panel_payload, $sql, $args );
+		}
 		if ( empty( $args ) ) {
 			return (int) $wpdb->get_var( $sql ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		}
@@ -3032,7 +4030,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		return array(
 			'dry_run'         => true,
 			'user_count'      => count( $user_ids ),
-			'service_count'   => self::users_bulk_count_matching_services( $user_ids, $f, $active_only ),
+			'service_count'   => self::users_bulk_count_matching_services( $user_ids, $f, $active_only, self::users_bulk_payload_base( $p ) ),
 			'panel_id'        => $f['panel_id'],
 			'inbound_id'      => $f['inbound_id'],
 			'sample_user_ids' => array_slice( $user_ids, 0, 15 ),
@@ -3163,6 +4161,20 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				'user_id'    => self::users_bulk_user_id_for_panel_row( $row ),
 			);
 		}
+		$actor = self::dashboard_reseller_actor_id( $p );
+		if ( $actor > 0 && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) && ! empty( $targets ) ) {
+			$scope_ids  = SimpleVPBot_Bot_Reseller_Scope::effective_moderatable_user_ids( $actor );
+			$scope_flip = array_flip( $scope_ids );
+			$targets    = array_values(
+				array_filter(
+					$targets,
+					static function ( $t ) use ( $scope_flip ) {
+						$uid = (int) ( $t['user_id'] ?? 0 );
+						return $uid > 0 && isset( $scope_flip[ $uid ] );
+					}
+				)
+			);
+		}
 		return array( 'ok' => true, 'targets' => $targets );
 	}
 
@@ -3224,6 +4236,8 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				$sql    .= ' AND inbound_id = %d';
 				$args[] = $inbound_id;
 			}
+		} else {
+			self::users_bulk_append_panel_allowlist_sql( $payload, $sql, $args );
 		}
 		$rows = $wpdb->get_col( $wpdb->prepare( $sql, $args ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		return array_map( 'intval', (array) $rows );
@@ -3255,7 +4269,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		$actor = (int) ( $p['__actor_svp_user_id'] ?? 0 );
 		$scope_frag = null;
 		if ( $actor > 0 ) {
-			$scope_frag = SimpleVPBot_Model_User::reseller_scope_clause( $actor, 'u' );
+			$scope_frag = SimpleVPBot_Model_User::reseller_moderation_scope_clause( $actor, 'u' );
 			if ( ! $scope_frag ) {
 				return array( 'ok' => true, 'ids' => array() );
 			}
@@ -3275,8 +4289,11 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return array( 'ok' => false, 'message' => 'too_many_users' );
 			}
 			if ( $actor > 0 && ! empty( $ids ) ) {
-				$allowed = array_flip( SimpleVPBot_Model_User::reseller_scope_user_ids( $actor ) );
-				$ids     = array_values(
+				$scope_ids = class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+					? SimpleVPBot_Bot_Reseller_Scope::effective_moderatable_user_ids( $actor )
+					: SimpleVPBot_Model_User::reseller_scope_user_ids( $actor );
+				$allowed   = array_flip( $scope_ids );
+				$ids       = array_values(
 					array_filter(
 						$ids,
 						static function ( $id ) use ( $allowed ) {
@@ -3709,7 +4726,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	}
 
 	private static function op_users_bulk_run_worker( array $p ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		$max_iter = isset( $p['max_iterations'] ) ? absint( $p['max_iterations'] ) : 20;
@@ -3780,8 +4797,9 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			return array( 'ok' => false, 'message' => 'invalid_amount' );
 		}
 		$meta = array(
-			'dashboard_reseller_topup'       => true,
+			'dashboard_reseller_topup'        => true,
 			'invoice_card_owner_scope_svp_id' => $actor,
+			'billing_reseller_svp_id'         => $actor,
 		);
 		$tid = SimpleVPBot_Model_Transaction::insert(
 			array(
@@ -3796,26 +4814,21 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		if ( $tid < 1 ) {
 			return array( 'ok' => false, 'message' => 'insert_failed' );
 		}
-		$cards = SimpleVPBot_Model_Card::active_for_transaction( (int) $tid );
-		if ( empty( $cards ) ) {
-			SimpleVPBot_Model_Transaction::set_status( (int) $tid, 'cancelled' );
-			return array( 'ok' => false, 'message' => 'no_cards' );
-		}
 		$tx_row = SimpleVPBot_Model_Transaction::find( (int) $tid );
-		$sent   = false;
-		if ( $tx_row && class_exists( 'SimpleVPBot_Handler_Buy' ) && class_exists( 'SimpleVPBot_Bot_Runtime' ) ) {
-			$bale_tok    = (string) SimpleVPBot_Settings::get( 'bale_wallet_provider_token', '' );
-			if ( class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
-				$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $actor );
-				if ( $prof && '' !== trim( (string) ( $prof->bale_wallet_provider_token ?? '' ) ) ) {
-					$bale_tok = (string) $prof->bale_wallet_provider_token;
-				}
-			}
-			$show_bale_w = '' !== $bale_tok;
-			$markup_tg   = SimpleVPBot_Keyboards::inline_payment_method( $cards, (int) $tid, false );
-			$markup_bl   = SimpleVPBot_Keyboards::inline_payment_method( $cards, (int) $tid, $show_bale_w );
-			$text_tg     = SimpleVPBot_Handler_Buy::checkout_message_for_tx( $tx_row, '🧾 شارژ کیف پول (داشبورد)' );
-			$text_bl     = $text_tg;
+		if ( ! $tx_row ) {
+			return array( 'ok' => false, 'message' => 'insert_failed' );
+		}
+		if ( class_exists( 'SimpleVPBot_Payment_Methods' ) && ! SimpleVPBot_Payment_Methods::checkout_has_any_method( 'telegram', $tx_row, $row, $actor ) ) {
+			SimpleVPBot_Model_Transaction::set_status( (int) $tid, 'cancelled' );
+			return array( 'ok' => false, 'message' => 'no_payment_methods' );
+		}
+		$sent = false;
+		if ( class_exists( 'SimpleVPBot_Handler_Buy' ) && class_exists( 'SimpleVPBot_Bot_Runtime' ) ) {
+			$title   = '🧾 شارژ کیف پول (داشبورد)';
+			$text_tg = SimpleVPBot_Handler_Buy::checkout_message_for_tx( $tx_row, $title );
+			$text_bl = $text_tg;
+			$markup_tg = SimpleVPBot_Handler_Buy::checkout_reply_markup( 'telegram', (int) $tid );
+			$markup_bl = SimpleVPBot_Handler_Buy::checkout_reply_markup( 'bale', (int) $tid );
 			if ( ! empty( $row->tg_user_id ) ) {
 				$r = SimpleVPBot_Bot_Runtime::send_message_for_reseller(
 					'telegram',
@@ -3855,7 +4868,9 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 * @return array{ok:bool, message?:string, user_id?:int, wp_user_id?:int}
 	 */
 	private static function op_reseller_wp_provision( array $p ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		$is_admin = self::mutate_is_unrestricted_site_admin();
+		$actor    = self::dashboard_reseller_actor_id( $p );
+		if ( ! $is_admin && $actor < 1 ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		$log      = sanitize_user( (string) ( $p['wp_username'] ?? '' ), true );
@@ -3883,9 +4898,20 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				wp_delete_user( $wp_id );
 				return array( 'ok' => false, 'message' => 'not_reseller_row' );
 			}
+			if ( ! $is_admin && (int) ( $row->invited_by ?? 0 ) !== $actor ) {
+				require_once ABSPATH . 'wp-admin/includes/user.php';
+				wp_delete_user( $wp_id );
+				return array( 'ok' => false, 'message' => 'forbidden_scope' );
+			}
 			SimpleVPBot_Model_User::set_linked_wp_user( $svp_ex, $wp_id );
 			self::log_rest_user( $svp_ex, 'reseller_wp_provision', array( 'wp_user_id' => $wp_id ) );
 			return array( 'ok' => true, 'user_id' => $svp_ex, 'wp_user_id' => $wp_id );
+		}
+
+		if ( ! $is_admin ) {
+			require_once ABSPATH . 'wp-admin/includes/user.php';
+			wp_delete_user( $wp_id );
+			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 
 		$new_id = SimpleVPBot_Model_User::insert(
@@ -3988,7 +5014,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 * @return array{ok:bool, message?:string, line_id?:int}
 	 */
 	private static function op_wholesale_line_save( array $p ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		if ( ! class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Line' ) || ! class_exists( 'SimpleVPBot_Model_Reseller_Wholesale_Tier' ) ) {
@@ -4065,7 +5091,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 * @return array{ok:bool, message?:string}
 	 */
 	private static function op_wholesale_line_delete( array $p ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		$lid = (int) ( $p['line_id'] ?? 0 );
@@ -4092,7 +5118,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 * @return array{ok:bool, message?:string}
 	 */
 	private static function op_reseller_wholesale_lines_assign( array $p ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		$rid = (int) ( $p['reseller_svp_user_id'] ?? 0 );
@@ -4116,7 +5142,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 * @return array{ok:bool,message?:string}
 	 */
 	private static function op_reseller_permissions_save( array $p ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		$rid = (int) ( $p['reseller_svp_user_id'] ?? 0 );
@@ -4131,6 +5157,42 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		SimpleVPBot_Model_User::set_reseller_permissions( $rid, $permissions );
 		self::log_rest_user( $rid, 'reseller_permissions_save', array( 'keys' => array_keys( $permissions ) ) );
 		return array( 'ok' => true );
+	}
+
+	/**
+	 * Shared token patch + optional text overrides for reseller bot profile ops.
+	 *
+	 * @param int                  $rid Reseller svp_users.id.
+	 * @param array<string, mixed> $p   telegram_token?, bale_token?, brand_name?, text_overrides?.
+	 * @return array{tg:string, bl:string, patched:array<int,string>}
+	 */
+	private static function patch_reseller_bot_profile_tokens( $rid, array $p ) {
+		$tg    = array_key_exists( 'telegram_token', $p ) ? (string) $p['telegram_token'] : '';
+		$bl    = array_key_exists( 'bale_token', $p ) ? (string) $p['bale_token'] : '';
+		$brand = array_key_exists( 'brand_name', $p ) ? (string) $p['brand_name'] : null;
+		$patched = SimpleVPBot_Model_Reseller_Bot_Profile::patch_tokens(
+			(int) $rid,
+			array_key_exists( 'telegram_token', $p ) ? $tg : null,
+			array_key_exists( 'bale_token', $p ) ? $bl : null,
+			$brand
+		);
+		if ( ! empty( $patched ) ) {
+			SimpleVPBot_Model_Reseller_Bot_Profile::sync_reseller_bot_usernames( (int) $rid, $patched );
+		}
+		if ( isset( $p['text_overrides'] ) && is_array( $p['text_overrides'] ) ) {
+			$loc = class_exists( 'SimpleVPBot_Texts' ) ? SimpleVPBot_Texts::site_default_locale() : 'fa';
+			SimpleVPBot_Model_Reseller_Bot_Profile::save_text_overrides(
+				(int) $rid,
+				array(
+					$loc => $p['text_overrides'],
+				)
+			);
+		}
+		return array(
+			'tg'      => $tg,
+			'bl'      => $bl,
+			'patched' => is_array( $patched ) ? $patched : array(),
+		);
 	}
 
 	/**
@@ -4153,34 +5215,16 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return array( 'ok' => false, 'message' => 'not_reseller' );
 			}
 		} else {
-			$wp = SimpleVPBot_Model_User::find_by_wp_user( get_current_user_id() );
-			if ( ! $wp || ! SimpleVPBot_Model_User::is_reseller_row( $wp ) ) {
+			$rid = self::mutate_reseller_actor_id( $p );
+			if ( $rid < 1 ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
-			$rid = (int) $wp->id;
 		}
-		$tg    = array_key_exists( 'telegram_token', $p ) ? (string) $p['telegram_token'] : '';
-		$bl    = array_key_exists( 'bale_token', $p ) ? (string) $p['bale_token'] : '';
-		$brand = array_key_exists( 'brand_name', $p ) ? (string) $p['brand_name'] : null;
-		$patched = SimpleVPBot_Model_Reseller_Bot_Profile::patch_tokens(
-			$rid,
-			array_key_exists( 'telegram_token', $p ) ? $tg : null,
-			array_key_exists( 'bale_token', $p ) ? $bl : null,
-			$brand
-		);
-		if ( ! empty( $patched ) ) {
-			SimpleVPBot_Model_Reseller_Bot_Profile::sync_reseller_bot_usernames( $rid, $patched );
+		$tok = self::patch_reseller_bot_profile_tokens( $rid, $p );
+		self::log_rest_user( $rid, 'reseller_bot_tokens_save', array( 'has_tg' => strlen( $tok['tg'] ) > 0, 'has_bl' => strlen( $tok['bl'] ) > 0 ) );
+		if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+			SimpleVPBot_Telegram_Relay::maybe_sync_after_settings();
 		}
-		if ( isset( $p['text_overrides'] ) && is_array( $p['text_overrides'] ) ) {
-			$loc = class_exists( 'SimpleVPBot_Texts' ) ? SimpleVPBot_Texts::site_default_locale() : 'fa';
-			SimpleVPBot_Model_Reseller_Bot_Profile::save_text_overrides(
-				$rid,
-				array(
-					$loc => $p['text_overrides'],
-				)
-			);
-		}
-		self::log_rest_user( $rid, 'reseller_bot_tokens_save', array( 'has_tg' => strlen( $tg ) > 0, 'has_bl' => strlen( $bl ) > 0 ) );
 		return array( 'ok' => true );
 	}
 
@@ -4204,11 +5248,10 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return array( 'ok' => false, 'message' => 'not_reseller' );
 			}
 		} else {
-			$wp = SimpleVPBot_Model_User::find_by_wp_user( get_current_user_id() );
-			if ( ! $wp || ! SimpleVPBot_Model_User::is_reseller_row( $wp ) ) {
+			$rid = self::mutate_reseller_actor_id( $p );
+			if ( $rid < 1 ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
-			$rid = (int) $wp->id;
 		}
 		$plat = sanitize_key( (string) ( $p['platform'] ?? '' ) );
 		if ( 'telegram' === $plat ) {
@@ -4242,17 +5285,19 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return array( 'ok' => false, 'message' => 'not_reseller' );
 			}
 		} else {
-			$wp = SimpleVPBot_Model_User::find_by_wp_user( get_current_user_id() );
-			if ( ! $wp || ! SimpleVPBot_Model_User::is_reseller_row( $wp ) ) {
+			$rid = self::mutate_reseller_actor_id( $p );
+			if ( $rid < 1 ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
-			$rid = (int) $wp->id;
 		}
 		$new = (string) SimpleVPBot_Model_Reseller_Bot_Profile::rotate_webhook_secret( $rid );
 		if ( '' === $new ) {
 			return array( 'ok' => false, 'message' => 'rotate_failed' );
 		}
 		self::log_rest_user( $rid, 'reseller_bot_secret_rotate', array() );
+		if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+			SimpleVPBot_Telegram_Relay::maybe_sync_after_settings();
+		}
 		return array( 'ok' => true );
 	}
 
@@ -4264,7 +5309,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 */
 	private static function op_bot_toggle_enabled( array $p ) {
 		unset( $p );
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		if ( ! class_exists( 'SimpleVPBot_Admin_Actions' ) ) {
@@ -4275,6 +5320,49 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		}
 		SimpleVPBot_Admin_Actions::after_settings_tab_saved( 'bots' );
 		return array( 'ok' => true );
+	}
+
+
+	/**
+	 * Toggle Telegram or Bale for main bot or reseller profile.
+	 *
+	 * @param array<string, mixed> $p platform, reseller_svp_user_id optional.
+	 * @return array{ok:bool, message?:string}
+	 */
+	private static function op_bot_toggle_platform_enabled( array $p ) {
+		if ( ! class_exists( 'SimpleVPBot_Platforms' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$plat = SimpleVPBot_Platforms::normalize( (string) ( $p['platform'] ?? '' ) );
+		$rid  = (int) ( $p['reseller_svp_user_id'] ?? $p['bot_id'] ?? 0 );
+		if ( $rid > 0 ) {
+			if ( ! self::mutate_is_unrestricted_site_admin() ) {
+				$self = self::mutate_reseller_actor_id( $p );
+				if ( $self < 1 || $self !== $rid ) {
+					return array( 'ok' => false, 'message' => 'forbidden' );
+				}
+			} else {
+				$row = SimpleVPBot_Model_User::find( $rid );
+				if ( ! $row || ! SimpleVPBot_Model_User::is_reseller_row( $row ) ) {
+					return array( 'ok' => false, 'message' => 'not_reseller' );
+				}
+			}
+			$new = SimpleVPBot_Platforms::toggle_reseller_platform( $rid, $plat );
+			if ( null === $new ) {
+				return array( 'ok' => false, 'message' => 'toggle_failed' );
+			}
+			SimpleVPBot_Platforms::after_platform_toggle( $plat, $new, $rid );
+			return array( 'ok' => true, 'enabled' => $new );
+		}
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
+			return array( 'ok' => false, 'message' => 'forbidden' );
+		}
+		$new = SimpleVPBot_Platforms::toggle_main_platform( $plat );
+		SimpleVPBot_Platforms::after_platform_toggle( $plat, $new, 0 );
+		if ( class_exists( 'SimpleVPBot_Admin_Actions' ) ) {
+			SimpleVPBot_Admin_Actions::after_settings_tab_saved( 'bots' );
+		}
+		return array( 'ok' => true, 'enabled' => $new );
 	}
 
 	/**
@@ -4289,11 +5377,10 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		}
 		$rid = (int) ( $p['reseller_svp_user_id'] ?? 0 );
 		if ( ! self::mutate_is_unrestricted_site_admin() ) {
-			$wp = SimpleVPBot_Model_User::find_by_wp_user( get_current_user_id() );
-			if ( ! $wp || ! SimpleVPBot_Model_User::is_reseller_row( $wp ) ) {
+			$self = self::mutate_reseller_actor_id( $p );
+			if ( $self < 1 ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
-			$self = (int) $wp->id;
 			if ( $rid < 1 || $rid !== $self ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
@@ -4317,11 +5404,10 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		}
 		$rid = (int) ( $p['reseller_svp_user_id'] ?? 0 );
 		if ( ! self::mutate_is_unrestricted_site_admin() ) {
-			$wp = SimpleVPBot_Model_User::find_by_wp_user( get_current_user_id() );
-			if ( ! $wp || ! SimpleVPBot_Model_User::is_reseller_row( $wp ) ) {
+			$self = self::mutate_reseller_actor_id( $p );
+			if ( $self < 1 ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
-			$self = (int) $wp->id;
 			if ( $rid < 1 || $rid !== $self ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
@@ -4334,13 +5420,65 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	}
 
 	/**
+	 * Live bot diagnostics (getMe + getWebhookInfo).
+	 *
+	 * @param array<string, mixed> $p platform, reseller_svp_user_id?, reveal_token?, send_outbound_ping?.
+	 * @return array{ok:bool, message?:string, data?:mixed}
+	 */
+	private static function op_bot_diagnostics( array $p ) {
+		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$plat = sanitize_key( (string) ( $p['platform'] ?? '' ) );
+		if ( ! in_array( $plat, array( 'telegram', 'bale' ), true ) ) {
+			return array( 'ok' => false, 'message' => 'bad_platform' );
+		}
+		$rid       = (int) ( $p['reseller_svp_user_id'] ?? 0 );
+		$reveal    = ! empty( $p['reveal_token'] );
+		$send_ping = ! empty( $p['send_outbound_ping'] );
+
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
+			$self = self::mutate_reseller_actor_id( $p );
+			if ( $self < 1 ) {
+				return array( 'ok' => false, 'message' => 'forbidden' );
+			}
+			if ( $rid < 1 || $rid !== $self ) {
+				return array( 'ok' => false, 'message' => 'forbidden' );
+			}
+			$reveal = false;
+		} elseif ( $reveal && ! self::mutate_is_unrestricted_site_admin() ) {
+			$reveal = false;
+		}
+
+		if ( $rid > 0 ) {
+			$res = SimpleVPBot_Service_Admin_Ops::bot_diagnostics_reseller( $plat, $rid, $reveal, $send_ping );
+		} else {
+			if ( ! self::mutate_is_unrestricted_site_admin() ) {
+				return array( 'ok' => false, 'message' => 'forbidden' );
+			}
+			$res = SimpleVPBot_Service_Admin_Ops::bot_diagnostics_main( $plat, $reveal, $send_ping );
+		}
+
+		$can_reveal = self::mutate_is_unrestricted_site_admin();
+		if ( ! empty( $res['data'] ) && is_array( $res['data'] ) ) {
+			$res['data']['can_reveal_token'] = $can_reveal;
+		}
+
+		return array(
+			'ok'      => ! empty( $res['ok'] ),
+			'message' => isset( $res['message'] ) ? (string) $res['message'] : '',
+			'data'    => isset( $res['data'] ) ? $res['data'] : null,
+		);
+	}
+
+	/**
 	 * Set webhook: main bot (bot_id 0) or reseller (bot_id = reseller svp user id).
 	 *
 	 * @param array<string, mixed> $p bot_id, platform: telegram|bale.
 	 * @return array{ok:bool, message?:string, data?:mixed}
 	 */
 	private static function op_bot_set_webhook( array $p ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
@@ -4372,7 +5510,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 * @return array{ok:bool, message?:string, data?:mixed}
 	 */
 	private static function op_bot_delete_webhook( array $p ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		if ( ! class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
@@ -4417,11 +5555,10 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return array( 'ok' => false, 'message' => 'not_reseller' );
 			}
 		} else {
-			$wp = SimpleVPBot_Model_User::find_by_wp_user( get_current_user_id() );
-			if ( ! $wp || ! SimpleVPBot_Model_User::is_reseller_row( $wp ) ) {
+			$rid = self::mutate_reseller_actor_id( $p );
+			if ( $rid < 1 ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
-			$rid = (int) $wp->id;
 		}
 		$plat = sanitize_key( (string) ( $p['platform'] ?? '' ) );
 		if ( 'telegram' === $plat ) {
@@ -4452,7 +5589,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			return array( 'ok' => false, 'message' => 'invalid' );
 		}
 		if ( $rid < 1 ) {
-			if ( ! current_user_can( 'manage_options' ) ) {
+			if ( ! self::mutate_is_unrestricted_site_admin() ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
 			if ( ! SimpleVPBot_Admin_Actions::add_main_admin_id( $plat, $cid ) ) {
@@ -4466,8 +5603,8 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return array( 'ok' => false, 'message' => 'not_reseller' );
 			}
 		} else {
-			$wp = SimpleVPBot_Model_User::find_by_wp_user( get_current_user_id() );
-			if ( ! $wp || ! SimpleVPBot_Model_User::is_reseller_row( $wp ) || (int) $wp->id !== $rid ) {
+			$self = self::mutate_reseller_actor_id( $p );
+			if ( $self < 1 || $self !== $rid ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
 		}
@@ -4495,7 +5632,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			return array( 'ok' => false, 'message' => 'invalid' );
 		}
 		if ( $rid < 1 ) {
-			if ( ! current_user_can( 'manage_options' ) ) {
+			if ( ! self::mutate_is_unrestricted_site_admin() ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
 			if ( ! SimpleVPBot_Admin_Actions::remove_main_admin_id( $plat, $cid ) ) {
@@ -4509,8 +5646,8 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return array( 'ok' => false, 'message' => 'not_reseller' );
 			}
 		} else {
-			$wp = SimpleVPBot_Model_User::find_by_wp_user( get_current_user_id() );
-			if ( ! $wp || ! SimpleVPBot_Model_User::is_reseller_row( $wp ) || (int) $wp->id !== $rid ) {
+			$self = self::mutate_reseller_actor_id( $p );
+			if ( $self < 1 || $self !== $rid ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
 		}
@@ -4536,11 +5673,8 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			return array( 'ok' => false, 'message' => 'invalid_reseller' );
 		}
 		if ( ! self::mutate_is_unrestricted_site_admin() ) {
-			$wp = SimpleVPBot_Model_User::find_by_wp_user( get_current_user_id() );
-			if ( ! $wp || ! SimpleVPBot_Model_User::is_reseller_row( $wp ) ) {
-				return array( 'ok' => false, 'message' => 'forbidden' );
-			}
-			if ( (int) $wp->id !== $rid ) {
+			$self = self::mutate_reseller_actor_id( $p );
+			if ( $self < 1 || $self !== $rid ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
 		}
@@ -4569,7 +5703,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 * @return array{ok:bool, message?:string}
 	 */
 	private static function op_bot_reseller_delete( array $p ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		if ( ! class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
@@ -4608,24 +5742,12 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return array( 'ok' => false, 'message' => 'not_reseller' );
 			}
 		} else {
-			$wp = SimpleVPBot_Model_User::find_by_wp_user( get_current_user_id() );
-			if ( ! $wp || ! SimpleVPBot_Model_User::is_reseller_row( $wp ) ) {
+			$rid = self::mutate_reseller_actor_id( $p );
+			if ( $rid < 1 ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
-			$rid = (int) $wp->id;
 		}
-		$tg    = array_key_exists( 'telegram_token', $p ) ? (string) $p['telegram_token'] : '';
-		$bl    = array_key_exists( 'bale_token', $p ) ? (string) $p['bale_token'] : '';
-		$brand = array_key_exists( 'brand_name', $p ) ? (string) $p['brand_name'] : null;
-		$patched = SimpleVPBot_Model_Reseller_Bot_Profile::patch_tokens(
-			$rid,
-			array_key_exists( 'telegram_token', $p ) ? $tg : null,
-			array_key_exists( 'bale_token', $p ) ? $bl : null,
-			$brand
-		);
-		if ( ! empty( $patched ) ) {
-			SimpleVPBot_Model_Reseller_Bot_Profile::sync_reseller_bot_usernames( $rid, $patched );
-		}
+		self::patch_reseller_bot_profile_tokens( $rid, $p );
 		if ( array_key_exists( 'bale_wallet_provider_token', $p ) ) {
 			SimpleVPBot_Model_Reseller_Bot_Profile::save_bale_wallet_provider_token( $rid, (string) $p['bale_wallet_provider_token'] );
 		}
@@ -4634,33 +5756,29 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 		SimpleVPBot_Model_Reseller_Bot_Profile::save_admin_ids( $rid, $tg_ids, $bl_ids );
 		$en = ! isset( $p['enabled'] ) || ! empty( $p['enabled'] );
 		SimpleVPBot_Model_Reseller_Bot_Profile::set_enabled( $rid, $en );
-		if ( isset( $p['text_overrides'] ) && is_array( $p['text_overrides'] ) ) {
-			$loc = class_exists( 'SimpleVPBot_Texts' ) ? SimpleVPBot_Texts::site_default_locale() : 'fa';
-			SimpleVPBot_Model_Reseller_Bot_Profile::save_text_overrides(
-				$rid,
-				array(
-					$loc => $p['text_overrides'],
-				)
-			);
-		}
 		if (
 			array_key_exists( 'logo_url', $p )
 			|| array_key_exists( 'custom_domain', $p )
+			|| array_key_exists( 'telegram_relay_public_url', $p )
 			|| array_key_exists( 'config_label_override', $p )
 			|| array_key_exists( 'config_label_prefix', $p )
 		) {
 			SimpleVPBot_Model_Reseller_Bot_Profile::save_branding_fields(
 				$rid,
 				array(
-					'logo_url'              => (string) ( $p['logo_url'] ?? '' ),
-					'favicon_url'           => (string) ( $p['favicon_url'] ?? '' ),
-					'theme_primary'         => (string) ( $p['theme_primary'] ?? '' ),
-					'theme_accent'          => (string) ( $p['theme_accent'] ?? '' ),
-					'custom_domain'         => (string) ( $p['custom_domain'] ?? '' ),
-					'config_label_override' => (string) ( $p['config_label_override'] ?? '' ),
-					'config_label_prefix'   => (string) ( $p['config_label_prefix'] ?? '' ),
+					'logo_url'                  => (string) ( $p['logo_url'] ?? '' ),
+					'favicon_url'               => (string) ( $p['favicon_url'] ?? '' ),
+					'theme_primary'             => (string) ( $p['theme_primary'] ?? '' ),
+					'theme_accent'              => (string) ( $p['theme_accent'] ?? '' ),
+					'custom_domain'             => (string) ( $p['custom_domain'] ?? '' ),
+					'telegram_relay_public_url' => (string) ( $p['telegram_relay_public_url'] ?? '' ),
+					'config_label_override'     => (string) ( $p['config_label_override'] ?? '' ),
+					'config_label_prefix'       => (string) ( $p['config_label_prefix'] ?? '' ),
 				)
 			);
+		}
+		if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+			SimpleVPBot_Telegram_Relay::maybe_sync_after_settings();
 		}
 		if ( isset( $p['inbound_display_names'] ) && class_exists( 'SimpleVPBot_Model_Reseller_Inbound_Display_Name' ) ) {
 			$map = SimpleVPBot_Settings::sanitize_inbound_display_names_input( $p['inbound_display_names'] );
@@ -4687,11 +5805,10 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 				return array( 'ok' => false, 'message' => 'invalid_reseller' );
 			}
 		} else {
-			$wp = SimpleVPBot_Model_User::find_by_wp_user( get_current_user_id() );
-			if ( ! $wp || ! SimpleVPBot_Model_User::is_reseller_row( $wp ) ) {
+			$rid = self::mutate_reseller_actor_id( $p );
+			if ( $rid < 1 ) {
 				return array( 'ok' => false, 'message' => 'forbidden' );
 			}
-			$rid = (int) $wp->id;
 		}
 		$map = SimpleVPBot_Settings::sanitize_inbound_display_names_input( $p['inbound_display_names'] ?? array() );
 		SimpleVPBot_Model_Reseller_Inbound_Display_Name::replace_map_for_reseller( $rid, $map );
@@ -4706,7 +5823,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 * @return array{ok:bool, message?:string, users?:array}
 	 */
 	private static function op_reseller_bind_users( array $p ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		if ( ! class_exists( 'SimpleVPBot_Reseller_Backfill' ) ) {
@@ -4738,7 +5855,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 * @return array{ok:bool, message?:string}
 	 */
 	private static function op_user_set_role( array $p ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		$uid  = (int) ( $p['target_user_id'] ?? $p['svp_user_id'] ?? 0 );
@@ -4794,7 +5911,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 * @return array{ok:bool, message?:string}
 	 */
 	private static function op_user_set_referrer( array $p ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		$uid = (int) ( $p['target_user_id'] ?? $p['svp_user_id'] ?? 0 );
@@ -4813,6 +5930,9 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			$parent = SimpleVPBot_Model_User::find( $ref );
 			if ( ! $parent ) {
 				return array( 'ok' => false, 'message' => 'referrer_not_found' );
+			}
+			if ( class_exists( 'SimpleVPBot_Reseller_Closure' ) && SimpleVPBot_Reseller_Closure::invited_by_would_cycle( $uid, $ref ) ) {
+				return array( 'ok' => false, 'message' => 'referrer_cycle' );
 			}
 		}
 		SimpleVPBot_Model_User::update(
@@ -4896,7 +6016,7 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 	 * @return array{ok:bool, billing?:array, invited?:array}
 	 */
 	private static function op_reseller_backfill_run( array $p ) {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! self::mutate_is_unrestricted_site_admin() ) {
 			return array( 'ok' => false, 'message' => 'forbidden' );
 		}
 		if ( ! class_exists( 'SimpleVPBot_Reseller_Backfill' ) ) {
@@ -4915,5 +6035,154 @@ class SimpleVPBot_Dashboard_Admin_Mutations {
 			'billing' => $billing,
 			'invited' => $invited,
 		);
+	}
+
+	/**
+	 * Save marketing automation rule.
+	 *
+	 * @param array<string, mixed> $post Payload.
+	 * @return array<string, mixed>
+	 */
+	private static function op_marketing_rule_save( array $post ) {
+		if ( ! class_exists( 'SimpleVPBot_Model_Marketing_Rule' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$actor = self::dashboard_reseller_actor_id( $post );
+		$id    = isset( $post['rule_id'] ) ? (int) $post['rule_id'] : 0;
+		$seg   = SimpleVPBot_Model_Marketing_Rule::sanitize_segment( (string) ( $post['segment_key'] ?? '' ) );
+		if ( '' === $seg ) {
+			return array( 'ok' => false, 'message' => 'invalid_segment' );
+		}
+		$owner = isset( $post['owner_svp_user_id'] ) ? max( 0, (int) $post['owner_svp_user_id'] ) : 0;
+		if ( $actor > 0 ) {
+			$owner = $actor;
+		}
+		if ( $id > 0 ) {
+			$ex = SimpleVPBot_Model_Marketing_Rule::find( $id );
+			if ( ! $ex ) {
+				return array( 'ok' => false, 'message' => 'not_found' );
+			}
+			if ( ! self::dashboard_reseller_owns_row_owner( $post, (int) ( $ex->owner_svp_user_id ?? 0 ) ) ) {
+				return array( 'ok' => false, 'message' => 'forbidden_scope' );
+			}
+			$owner = (int) ( $ex->owner_svp_user_id ?? 0 );
+		} elseif ( $actor > 0 ) {
+			$owner = $actor;
+		}
+		$dtype = sanitize_key( (string) ( $post['discount_type'] ?? 'percent' ) );
+		if ( ! in_array( $dtype, array( 'percent', 'fixed_toman' ), true ) ) {
+			$dtype = 'percent';
+		}
+		$dval = (float) str_replace( ',', '.', (string) ( $post['discount_value'] ?? '0' ) );
+		if ( $dval < 0 ) {
+			$dval = 0.0;
+		}
+		if ( 'percent' === $dtype ) {
+			$dval = min( 100.0, $dval );
+		}
+		$mdc = isset( $post['max_discount_toman'] ) ? trim( (string) $post['max_discount_toman'] ) : '';
+		$max_disc = ( '' === $mdc || ! is_numeric( $mdc ) ) ? null : max( 0.0, (float) str_replace( ',', '.', $mdc ) );
+		$now = current_time( 'mysql' );
+		$row = array(
+			'owner_svp_user_id'   => $owner,
+			'segment_key'         => $seg,
+			'enabled'             => ! empty( $post['enabled'] ) ? 1 : 0,
+			'priority'            => max( 1, (int) ( $post['priority'] ?? 100 ) ),
+			'cooldown_days'       => max( 1, (int) ( $post['cooldown_days'] ?? 90 ) ),
+			'after_days'          => max( 0, (int) ( $post['after_days'] ?? 0 ) ),
+			'pending_hours'       => max( 0, (int) ( $post['pending_hours'] ?? 0 ) ),
+			'funnel_idle_hours'   => max( 0, (int) ( $post['funnel_idle_hours'] ?? 0 ) ),
+			'expires_within_days' => max( 0, (int) ( $post['expires_within_days'] ?? 0 ) ),
+			'discount_type'       => $dtype,
+			'discount_value'      => $dval,
+			'max_discount_toman'  => $max_disc,
+			'code_valid_days'     => max( 1, (int) ( $post['code_valid_days'] ?? 7 ) ),
+			'max_uses_per_user'   => max( 1, (int) ( $post['max_uses_per_user'] ?? 1 ) ),
+			'message_body'        => isset( $post['message_body'] ) ? (string) $post['message_body'] : '',
+			'channel_telegram'    => ! isset( $post['channel_telegram'] ) || ! empty( $post['channel_telegram'] ) ? 1 : 0,
+			'channel_bale'        => ! isset( $post['channel_bale'] ) || ! empty( $post['channel_bale'] ) ? 1 : 0,
+			'updated_at'          => $now,
+		);
+		if ( $id > 0 ) {
+			SimpleVPBot_Model_Marketing_Rule::update( $id, $row );
+			return array( 'ok' => true, 'rule_id' => $id );
+		}
+		$row['created_at'] = $now;
+		$rid = SimpleVPBot_Model_Marketing_Rule::insert( $row );
+		return array( 'ok' => true, 'rule_id' => $rid );
+	}
+
+	/**
+	 * @param array<string, mixed> $post Payload.
+	 * @return array<string, mixed>
+	 */
+	private static function op_marketing_rule_delete( array $post ) {
+		if ( ! class_exists( 'SimpleVPBot_Model_Marketing_Rule' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$id = isset( $post['rule_id'] ) ? (int) $post['rule_id'] : 0;
+		if ( $id < 1 ) {
+			return array( 'ok' => false, 'message' => 'invalid_id' );
+		}
+		$ex = SimpleVPBot_Model_Marketing_Rule::find( $id );
+		if ( ! $ex ) {
+			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		if ( ! self::dashboard_reseller_owns_row_owner( $post, (int) ( $ex->owner_svp_user_id ?? 0 ) ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden_scope' );
+		}
+		SimpleVPBot_Model_Marketing_Rule::delete( $id );
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * @param array<string, mixed> $post Payload.
+	 * @return array<string, mixed>
+	 */
+	private static function op_marketing_send_manual( array $post ) {
+		if ( ! class_exists( 'SimpleVPBot_Marketing_Automation' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$actor  = self::dashboard_reseller_actor_id( $post );
+		$uid    = isset( $post['svp_user_id'] ) ? (int) $post['svp_user_id'] : 0;
+		$rule_id = isset( $post['rule_id'] ) ? (int) $post['rule_id'] : 0;
+		if ( $uid < 1 ) {
+			return array( 'ok' => false, 'message' => 'invalid_user' );
+		}
+		if ( $actor > 0 && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			&& ! SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( $actor, $uid ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden_scope' );
+		}
+		if ( $rule_id > 0 ) {
+			$rule = SimpleVPBot_Model_Marketing_Rule::find( $rule_id );
+			if ( ! $rule || ! self::dashboard_reseller_owns_row_owner( $post, (int) ( $rule->owner_svp_user_id ?? 0 ) ) ) {
+				return array( 'ok' => false, 'message' => 'forbidden_scope' );
+			}
+		}
+		return SimpleVPBot_Marketing_Automation::send_manual( $uid, $rule_id, $actor );
+	}
+
+	/**
+	 * @param array<string, mixed> $post Payload.
+	 * @return array<string, mixed>
+	 */
+	private static function op_marketing_run_rule_now( array $post ) {
+		if ( ! class_exists( 'SimpleVPBot_Marketing_Automation' ) ) {
+			return array( 'ok' => false, 'message' => 'module_missing' );
+		}
+		$rule_id = isset( $post['rule_id'] ) ? (int) $post['rule_id'] : 0;
+		if ( $rule_id < 1 ) {
+			return array( 'ok' => false, 'message' => 'invalid_id' );
+		}
+		$rule = SimpleVPBot_Model_Marketing_Rule::find( $rule_id );
+		if ( ! $rule ) {
+			return array( 'ok' => false, 'message' => 'not_found' );
+		}
+		if ( ! self::dashboard_reseller_owns_row_owner( $post, (int) ( $rule->owner_svp_user_id ?? 0 ) ) ) {
+			return array( 'ok' => false, 'message' => 'forbidden_scope' );
+		}
+		$limit = isset( $post['limit'] ) ? max( 1, min( 200, (int) $post['limit'] ) ) : 80;
+		$stats = SimpleVPBot_Marketing_Automation::run_rule_now( $rule_id, $limit );
+		return array_merge( array( 'ok' => true ), $stats );
 	}
 }

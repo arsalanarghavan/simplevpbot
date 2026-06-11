@@ -6,13 +6,11 @@ import { Button } from "@/components/ui/button"
 
 export function ImpersonationBanner({
   targetLabel,
-  isFa,
   restBase,
   nonce,
   dashboardBaseUrl,
 }: {
   targetLabel: string
-  isFa: boolean
   restBase: string
   nonce: string
   dashboardBaseUrl: string
@@ -43,7 +41,6 @@ export function ImpersonationBanner({
 
   return (
     <div
-      dir={isFa ? "rtl" : "ltr"}
       className="flex w-full shrink-0 flex-wrap items-center justify-between gap-3 border-b border-amber-200/80 bg-amber-50 px-4 py-2 text-sm dark:border-amber-900/50 dark:bg-amber-950/40"
     >
       <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -64,7 +61,7 @@ export function ImpersonationBanner({
         type="button"
         variant="secondary"
         size="sm"
-        className="shrink-0"
+        className="w-full shrink-0 sm:w-auto"
         onClick={() => void stop()}
         disabled={busy}
       >

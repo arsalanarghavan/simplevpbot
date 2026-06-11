@@ -42,6 +42,7 @@ class SimpleVPBot_Admin_Ajax {
 	 */
 	public static function l2tp_test() {
 		self::verify();
+		self::legacy_ajax_require_pure_site_admin();
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing
 		$id = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
 		$r  = SimpleVPBot_Service_Admin_Ops::l2tp_test( $id );
@@ -62,12 +63,98 @@ class SimpleVPBot_Admin_Ajax {
 	}
 
 	/**
+	 * WP-linked reseller id for legacy admin screens (0 = pure site admin).
+	 *
+	 * @return int
+	 */
+	private static function legacy_ajax_linked_reseller_id() {
+		if ( ! class_exists( 'SimpleVPBot_Model_User' ) ) {
+			return 0;
+		}
+		$row = SimpleVPBot_Model_User::find_by_wp_user( get_current_user_id() );
+		return ( $row && SimpleVPBot_Model_User::is_reseller_row( $row ) ) ? (int) $row->id : 0;
+	}
+
+	/**
+	 * Block WP-linked reseller accounts from destructive legacy admin AJAX.
+	 */
+	private static function legacy_ajax_require_pure_site_admin() {
+		if ( self::legacy_ajax_linked_reseller_id() > 0 ) {
+			wp_send_json_error( array( 'message' => 'legacy_admin_reseller_forbidden' ), 403 );
+		}
+	}
+
+	/**
+	 * Legacy admin: reseller-linked WP users may only touch users in their moderation tree.
+	 *
+	 * @param int $target_user_id svp_users.id.
+	 * @return bool
+	 */
+	private static function legacy_ajax_may_moderate_user( $target_user_id ) {
+		$rid = self::legacy_ajax_linked_reseller_id();
+		$uid = (int) $target_user_id;
+		if ( $rid < 1 ) {
+			return true;
+		}
+		return $uid > 0 && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			&& SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( $rid, $uid );
+	}
+
+	/**
+	 * Legacy admin: reseller may only use panels from their catalog.
+	 *
+	 * @param int $panel_id Panel id (0 uses default 1).
+	 * @return bool
+	 */
+	private static function legacy_ajax_may_access_panel( $panel_id ) {
+		$rid = self::legacy_ajax_linked_reseller_id();
+		if ( $rid < 1 ) {
+			return true;
+		}
+		$pid = (int) $panel_id;
+		if ( $pid < 1 ) {
+			$pid = 1;
+		}
+		return class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			&& in_array( $pid, SimpleVPBot_Bot_Reseller_Scope::allowed_panel_ids_for( $rid ), true );
+	}
+
+	/**
+	 * Filter inbound client rows for WP-linked reseller actors.
+	 *
+	 * @param array<int, array<string, mixed>> $clients Raw client rows.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function legacy_ajax_filter_inbound_clients( array $clients ) {
+		if ( self::legacy_ajax_linked_reseller_id() < 1 ) {
+			return $clients;
+		}
+		$out = array();
+		foreach ( $clients as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$uid = (int) ( $row['linked_user_id'] ?? 0 );
+			if ( $uid < 1 ) {
+				continue;
+			}
+			if ( self::legacy_ajax_may_moderate_user( $uid ) ) {
+				$out[] = $row;
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * Test 3x-ui login + status with detailed diagnostics + autodetect for API base path.
 	 */
 	public static function test_panel() {
 		self::verify();
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing
 		$panel_id = isset( $_POST['panel_id'] ) ? (int) $_POST['panel_id'] : 0;
+		if ( ! self::legacy_ajax_may_access_panel( $panel_id ) ) {
+			wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+		}
 		$r        = SimpleVPBot_Service_Admin_Ops::test_panel( $panel_id );
 		if ( empty( $r['ok'] ) ) {
 			$err = array( 'message' => (string) ( $r['message'] ?? '' ) );
@@ -84,6 +171,7 @@ class SimpleVPBot_Admin_Ajax {
 	 */
 	public static function test_telegram() {
 		self::verify();
+		self::legacy_ajax_require_pure_site_admin();
 		$r = SimpleVPBot_Service_Admin_Ops::test_telegram();
 		if ( empty( $r['ok'] ) ) {
 			wp_send_json_error( array( 'message' => (string) ( $r['message'] ?? '' ), 'response' => isset( $r['data'] ) ? $r['data'] : null ) );
@@ -96,6 +184,7 @@ class SimpleVPBot_Admin_Ajax {
 	 */
 	public static function set_webhook_tg() {
 		self::verify();
+		self::legacy_ajax_require_pure_site_admin();
 		$r = SimpleVPBot_Service_Admin_Ops::set_webhook_telegram();
 		if ( empty( $r['ok'] ) ) {
 			wp_send_json_error( array( 'message' => (string) ( $r['message'] ?? '' ) ) );
@@ -108,6 +197,7 @@ class SimpleVPBot_Admin_Ajax {
 	 */
 	public static function set_webhook_bale() {
 		self::verify();
+		self::legacy_ajax_require_pure_site_admin();
 		$r = SimpleVPBot_Service_Admin_Ops::set_webhook_bale();
 		if ( empty( $r['ok'] ) ) {
 			wp_send_json_error( array( 'message' => (string) ( $r['message'] ?? '' ) ) );
@@ -120,11 +210,12 @@ class SimpleVPBot_Admin_Ajax {
 	 */
 	public static function backup_now() {
 		self::verify();
-		$r = SimpleVPBot_Service_Admin_Ops::backup_now();
+		self::legacy_ajax_require_pure_site_admin();
+		$r = SimpleVPBot_Service_Admin_Ops::backup_now_start_async();
 		if ( empty( $r['ok'] ) ) {
 			wp_send_json_error( array( 'message' => (string) ( $r['message'] ?? '' ) ) );
 		}
-		wp_send_json_success( isset( $r['data'] ) ? $r['data'] : array() );
+		wp_send_json_success( $r );
 	}
 
 	/**
@@ -132,6 +223,7 @@ class SimpleVPBot_Admin_Ajax {
 	 */
 	public static function restore_backup() {
 		self::verify();
+		self::legacy_ajax_require_pure_site_admin();
 		if ( empty( $_POST['confirm'] ) || '1' !== (string) wp_unslash( $_POST['confirm'] ) ) { // phpcs:ignore
 			wp_send_json_error( array( 'message' => __( 'برای ریستور باید کادر تایید را بزنید.', 'simplevpbot' ) ) );
 		}
@@ -165,6 +257,9 @@ class SimpleVPBot_Admin_Ajax {
 		self::verify();
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing
 		$panel_id = isset( $_POST['panel_id'] ) ? (int) $_POST['panel_id'] : 0;
+		if ( ! self::legacy_ajax_may_access_panel( $panel_id ) ) {
+			wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+		}
 		$r        = SimpleVPBot_Service_Admin_Ops::inbounds_list( $panel_id );
 		if ( empty( $r['ok'] ) ) {
 			wp_send_json_error( array( 'message' => (string) ( $r['message'] ?? '' ) ) );
@@ -184,9 +279,15 @@ class SimpleVPBot_Admin_Ajax {
 		if ( $pid < 0 ) {
 			$pid = 0;
 		}
+		if ( ! self::legacy_ajax_may_access_panel( $pid ) ) {
+			wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+		}
 		$r   = SimpleVPBot_Service_Admin_Ops::inbound_clients( $iid, $pid );
 		if ( empty( $r['ok'] ) ) {
 			wp_send_json_error( array( 'message' => (string) ( $r['message'] ?? '' ) ) );
+		}
+		if ( isset( $r['data']['clients'] ) && is_array( $r['data']['clients'] ) ) {
+			$r['data']['clients'] = self::legacy_ajax_filter_inbound_clients( $r['data']['clients'] );
 		}
 		wp_send_json_success( isset( $r['data'] ) ? $r['data'] : array() );
 	}
@@ -215,6 +316,12 @@ class SimpleVPBot_Admin_Ajax {
 		if ( $pid < 0 ) {
 			$pid = 0;
 		}
+		if ( ! self::legacy_ajax_may_access_panel( $pid ) ) {
+			wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+		}
+		if ( ! self::legacy_ajax_may_moderate_user( $uid ) ) {
+			wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+		}
 		$r     = SimpleVPBot_Service_Admin_Ops::inbound_link( $iid, $email, $uid, $pid );
 		if ( empty( $r['ok'] ) ) {
 			wp_send_json_error( array( 'message' => (string) ( $r['message'] ?? '' ) ) );
@@ -234,6 +341,12 @@ class SimpleVPBot_Admin_Ajax {
 		if ( $pid < 0 ) {
 			$pid = 0;
 		}
+		if ( ! self::legacy_ajax_may_access_panel( $pid ) ) {
+			wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+		}
+		if ( self::legacy_ajax_linked_reseller_id() > 0 ) {
+			wp_send_json_error( array( 'message' => 'legacy_admin_reseller_forbidden' ), 403 );
+		}
 		$r   = SimpleVPBot_Service_Admin_Ops::inbound_autolink( $iid, $pid );
 		if ( empty( $r['ok'] ) ) {
 			wp_send_json_error( array( 'message' => (string) ( $r['message'] ?? '' ) ) );
@@ -246,6 +359,7 @@ class SimpleVPBot_Admin_Ajax {
 	 */
 	public static function traffic_cap_repair_db() {
 		self::verify();
+		self::legacy_ajax_require_pure_site_admin();
 		$n = SimpleVPBot_Inbound_Linker::repair_cap_total_traffic_in_database();
 		wp_send_json_success( array( 'updated_rows' => $n ) );
 	}
@@ -257,6 +371,13 @@ class SimpleVPBot_Admin_Ajax {
 		self::verify();
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing
 		$rid   = isset( $_POST['rid'] ) ? (int) $_POST['rid'] : 0;
+		if ( $rid > 0 && class_exists( 'SimpleVPBot_Model_Receipt' ) ) {
+			$rec = SimpleVPBot_Model_Receipt::find( $rid );
+			$uid = $rec ? (int) ( $rec->user_id ?? 0 ) : 0;
+			if ( $uid > 0 && ! self::legacy_ajax_may_moderate_user( $uid ) ) {
+				wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+			}
+		}
 		$label = (string) wp_get_current_user()->user_login;
 		$r     = SimpleVPBot_Service_Admin_Ops::receipt_retry_provision( $rid, $label );
 		if ( empty( $r['ok'] ) ) {
@@ -274,6 +395,19 @@ class SimpleVPBot_Admin_Ajax {
 		$sid = isset( $_POST['service_id'] ) ? (int) $_POST['service_id'] : 0;
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing
 		$target_raw = isset( $_POST['target'] ) ? trim( (string) wp_unslash( $_POST['target'] ) ) : '';
+		if ( $sid > 0 && class_exists( 'SimpleVPBot_Model_Service' ) ) {
+			$svc = SimpleVPBot_Model_Service::find_any( $sid );
+			if ( $svc && ! self::legacy_ajax_may_moderate_user( (int) ( $svc->user_id ?? 0 ) ) ) {
+				wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+			}
+		}
+		if ( '' !== $target_raw && class_exists( 'SimpleVPBot_Service_Transfer' ) ) {
+			$tgt = SimpleVPBot_Service_Transfer::resolve_user( $target_raw );
+			$tgt_uid = $tgt ? (int) ( $tgt->id ?? 0 ) : 0;
+			if ( $tgt_uid > 0 && ! self::legacy_ajax_may_moderate_user( $tgt_uid ) ) {
+				wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+			}
+		}
 		$label      = (string) wp_get_current_user()->user_login;
 		$r          = SimpleVPBot_Service_Admin_Ops::service_transfer( $sid, $target_raw, $label );
 		if ( empty( $r['ok'] ) ) {
@@ -287,6 +421,7 @@ class SimpleVPBot_Admin_Ajax {
 	 */
 	public static function user_merge_preview() {
 		self::verify();
+		self::legacy_ajax_require_pure_site_admin();
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing
 		$keep = isset( $_POST['keep_id'] ) ? (int) $_POST['keep_id'] : 0;
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing
@@ -303,6 +438,7 @@ class SimpleVPBot_Admin_Ajax {
 	 */
 	public static function user_merge() {
 		self::verify();
+		self::legacy_ajax_require_pure_site_admin();
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing
 		$keep = isset( $_POST['keep_id'] ) ? (int) $_POST['keep_id'] : 0;
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing
@@ -335,6 +471,10 @@ class SimpleVPBot_Admin_Ajax {
 			status_header( 404 );
 			exit;
 		}
+		if ( ! self::receipt_image_allowed_for_actor( (int) ( $rec->user_id ?? 0 ) ) ) {
+			status_header( 403 );
+			exit;
+		}
 		if ( class_exists( 'SimpleVPBot_Receipt_Image_Store' ) ) {
 			$local = SimpleVPBot_Receipt_Image_Store::readable_path_for_receipt( $rec );
 			if ( '' !== $local ) {
@@ -359,9 +499,6 @@ class SimpleVPBot_Admin_Ajax {
 		$tok = class_exists( 'SimpleVPBot_Bot_Runtime' )
 			? (string) SimpleVPBot_Bot_Runtime::bot_token_for_reseller( $platform, $reseller_id )
 			: '';
-		if ( '' === $tok ) {
-			$tok = (string) SimpleVPBot_Settings::get( $is_bale ? 'bale_token' : 'telegram_token', '' );
-		}
 		if ( '' === $tok ) {
 			status_header( 404 );
 			exit;
@@ -402,6 +539,163 @@ class SimpleVPBot_Admin_Ajax {
 	}
 
 	/**
+	 * Whether the logged-in dashboard actor may view a receipt image.
+	 *
+	 * @param int $receipt_user_id Receipt owner svp_users.id.
+	 * @return bool
+	 */
+	private static function receipt_image_allowed_for_actor( $receipt_user_id ) {
+		$uid = (int) $receipt_user_id;
+		if ( $uid < 1 ) {
+			return false;
+		}
+		if ( ! class_exists( 'SimpleVPBot_REST_Dashboard' ) || ! class_exists( 'SimpleVPBot_Model_User' ) ) {
+			return current_user_can( 'manage_options' );
+		}
+		$ctx = SimpleVPBot_REST_Dashboard::dashboard_actor_context();
+		if ( ! empty( $ctx['isAdmin'] ) ) {
+			$imp_tid = (int) ( $ctx['impersonationTargetId'] ?? 0 );
+			if ( $imp_tid > 0 && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+				return SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( $imp_tid, $uid );
+			}
+			return true;
+		}
+		$actor = (int) ( $ctx['actorUserId'] ?? 0 );
+		if ( $actor < 1 ) {
+			return false;
+		}
+		if ( ! empty( $ctx['isReseller'] ) ) {
+			return class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				&& SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( $actor, $uid );
+		}
+		return $actor === $uid;
+	}
+
+	/**
+	 * Reseller svp_users.id when signed portal admin is a reseller row.
+	 *
+	 * @param object $portal_admin_user Verified portal admin row.
+	 * @return int
+	 */
+	private static function portal_reseller_actor_id( $portal_admin_user ) {
+		if ( ! $portal_admin_user || ! is_object( $portal_admin_user ) || ! class_exists( 'SimpleVPBot_Model_User' ) ) {
+			return 0;
+		}
+		return SimpleVPBot_Model_User::is_reseller_row( $portal_admin_user ) ? (int) $portal_admin_user->id : 0;
+	}
+
+	/**
+	 * Whether portal admin may act on a target bot user.
+	 *
+	 * @param object $portal_admin_user Verified portal admin row.
+	 * @param int    $target_uid        Target svp_users.id.
+	 * @return bool
+	 */
+	private static function portal_admin_can_access_user( $portal_admin_user, $target_uid ) {
+		$target_uid = (int) $target_uid;
+		if ( $target_uid < 1 ) {
+			return false;
+		}
+		$rid = self::portal_reseller_actor_id( $portal_admin_user );
+		if ( $rid < 1 ) {
+			return true;
+		}
+		return class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			? SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( $rid, $target_uid )
+			: SimpleVPBot_Model_User::reseller_can_access_user( $rid, $target_uid );
+	}
+
+	/**
+	 * Required reseller permission for a signed portal op (null = reseller forbidden).
+	 *
+	 * @param string $op Portal operation key.
+	 * @return string|null Permission key from RESELLER_PERMISSION_KEYS.
+	 */
+	private static function portal_reseller_required_permission( $op ) {
+		$op = sanitize_key( (string) $op );
+		static $map = array(
+			'stats'                    => 'users.manage',
+			'membership_pending_page'  => 'users.manage',
+			'membership_approved_page' => 'users.manage',
+			'membership_rejected_page' => 'users.manage',
+			'membership_detail'        => 'users.manage',
+			'membership_approve'       => 'users.manage',
+			'membership_reject'        => 'users.manage',
+			'membership_reopen'        => 'users.manage',
+			'create_service'           => 'services.manage',
+			'renew_service'            => 'services.manage',
+			'add_volume'               => 'services.manage',
+			'service_transfer'         => 'services.manage',
+			'receipts_page'            => 'receipts.review',
+			'discount_list'            => 'plans.manage',
+			'discount_save'            => 'plans.manage',
+			'discount_delete'          => 'plans.manage',
+		);
+		return isset( $map[ $op ] ) ? $map[ $op ] : null;
+	}
+
+	/**
+	 * Whether a signed portal admin may invoke an op (mirrors REST reseller_permissions).
+	 *
+	 * @param object $portal_admin_user Verified portal admin row.
+	 * @param string $op                Operation key.
+	 * @return bool
+	 */
+	private static function portal_reseller_may_call_op( $portal_admin_user, $op ) {
+		$rid = self::portal_reseller_actor_id( $portal_admin_user );
+		if ( $rid < 1 ) {
+			return true;
+		}
+		$perm = self::portal_reseller_required_permission( $op );
+		if ( null === $perm ) {
+			return false;
+		}
+		if ( class_exists( 'SimpleVPBot_Reseller_Permission_Gate' ) ) {
+			return SimpleVPBot_Reseller_Permission_Gate::may_call_op_by_permission( (int) $portal_admin_user->id, $perm );
+		}
+		if ( ! class_exists( 'SimpleVPBot_Model_User' ) ) {
+			return false;
+		}
+		$perms = SimpleVPBot_Model_User::reseller_permissions( $rid );
+		return ! empty( $perms[ $perm ] );
+	}
+
+	/**
+	 * Deny global portal ops for reseller actors (settings, site discounts, etc.).
+	 *
+	 * @param object $portal_admin_user Verified portal admin row.
+	 */
+	private static function portal_deny_reseller_global( $portal_admin_user ) {
+		if ( self::portal_reseller_actor_id( $portal_admin_user ) > 0 ) {
+			wp_send_json_error( array( 'message' => 'forbidden' ), 403 );
+		}
+	}
+
+	/**
+	 * Whether portal admin may provision with this plan (reseller-owned only for reseller actors).
+	 *
+	 * @param object $portal_admin_user Verified portal admin row.
+	 * @param int    $plan_id           Plan id.
+	 * @return bool
+	 */
+	private static function portal_reseller_may_use_plan( $portal_admin_user, $plan_id ) {
+		$plan_id = (int) $plan_id;
+		if ( $plan_id < 1 ) {
+			return false;
+		}
+		$rid = self::portal_reseller_actor_id( $portal_admin_user );
+		if ( $rid < 1 ) {
+			return true;
+		}
+		if ( ! class_exists( 'SimpleVPBot_Model_Plan' ) ) {
+			return false;
+		}
+		$plan_row = SimpleVPBot_Model_Plan::find( $plan_id );
+		return $plan_row && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			&& SimpleVPBot_Bot_Reseller_Scope::plan_visible_for_reseller( $plan_row, $rid );
+	}
+
+	/**
 	 * Portal admin JSON (signed; no WP login).
 	 */
 	public static function init_portal_routes() {
@@ -409,6 +703,22 @@ class SimpleVPBot_Admin_Ajax {
 		add_action( 'wp_ajax_nopriv_simplevpbot_portal_admin', array( __CLASS__, 'portal_admin' ) );
 		add_action( 'wp_ajax_simplevpbot_portal_tg_avatar', array( __CLASS__, 'portal_tg_avatar' ) );
 		add_action( 'wp_ajax_nopriv_simplevpbot_portal_tg_avatar', array( __CLASS__, 'portal_tg_avatar' ) );
+	}
+
+	/**
+	 * Invoice/card billing scope for signed portal admin when actor is a reseller.
+	 *
+	 * @param object $portal_admin_user svp_users row (verified admin).
+	 * @return int svp_users.id or 0.
+	 */
+	private static function portal_admin_invoice_card_scope( $portal_admin_user ) {
+		if ( ! $portal_admin_user || ! is_object( $portal_admin_user ) || ! class_exists( 'SimpleVPBot_Model_User' ) ) {
+			return 0;
+		}
+		if ( SimpleVPBot_Model_User::is_reseller_row( $portal_admin_user ) ) {
+			return (int) $portal_admin_user->id;
+		}
+		return 0;
 	}
 
 	/**
@@ -454,11 +764,12 @@ class SimpleVPBot_Admin_Ajax {
 	/**
 	 * Paged membership queue slice.
 	 *
-	 * @param string $status pending|approved|rejected.
-	 * @param int    $offset Offset.
+	 * @param string      $status pending|approved|rejected.
+	 * @param int         $offset Offset.
+	 * @param object|null $portal_admin_user Verified portal admin (optional scope).
 	 * @return array<string, mixed>
 	 */
-	private static function portal_membership_queue_page( $status, $offset ) {
+	private static function portal_membership_queue_page( $status, $offset, $portal_admin_user = null ) {
 		$st = sanitize_key( (string) $status );
 		if ( ! in_array( $st, array( 'pending', 'approved', 'rejected' ), true ) ) {
 			return array(
@@ -473,8 +784,15 @@ class SimpleVPBot_Admin_Ajax {
 		}
 		$off   = max( 0, (int) $offset );
 		$limit = 5;
-		$total = SimpleVPBot_Model_User::count_status( $st );
-		$rows  = SimpleVPBot_Model_User::list_by_status_paged( $st, $off, $limit );
+		$rid   = $portal_admin_user ? self::portal_reseller_actor_id( $portal_admin_user ) : 0;
+		if ( $rid > 0 && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) && class_exists( 'SimpleVPBot_Model_User' ) ) {
+			$scope_ids = SimpleVPBot_Bot_Reseller_Scope::effective_moderatable_user_ids( $rid );
+			$total     = SimpleVPBot_Model_User::count_by_status_for_ids( $st, $scope_ids );
+			$rows      = SimpleVPBot_Model_User::list_by_status_paged_for_ids( $st, $off, $limit, $scope_ids );
+		} else {
+			$total = SimpleVPBot_Model_User::count_status( $st );
+			$rows  = SimpleVPBot_Model_User::list_by_status_paged( $st, $off, $limit );
+		}
 		$items = array();
 		foreach ( (array) $rows as $r ) {
 			$items[] = array(
@@ -518,6 +836,10 @@ class SimpleVPBot_Admin_Ajax {
 			status_header( 403 );
 			exit;
 		}
+		if ( ! self::portal_admin_can_access_user( $admin, $tid ) ) {
+			status_header( 403 );
+			exit;
+		}
 		$row = SimpleVPBot_Model_User::find( $tid );
 		if ( ! $row || ! (int) ( $row->tg_user_id ?? 0 ) ) {
 			status_header( 404 );
@@ -553,13 +875,24 @@ class SimpleVPBot_Admin_Ajax {
 		check_ajax_referer( 'svp_portal_admin_' . (int) $user->id, 'nonce' );
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing
 		$op = isset( $_POST['op'] ) ? sanitize_key( (string) wp_unslash( $_POST['op'] ) ) : '';
+		if ( ! self::portal_reseller_may_call_op( $user, $op ) ) {
+			wp_send_json_error( array( 'message' => 'forbidden_perm' ), 403 );
+		}
 		if ( 'stats' === $op ) {
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing
 			$day = isset( $_POST['day'] ) ? (int) $_POST['day'] : 0;
 			$day = max( 0, min( 7, $day ) );
 			if ( class_exists( 'SimpleVPBot_Admin_Dashboard_Stats' ) ) {
-				$payload = SimpleVPBot_Admin_Dashboard_Stats::build_payload( $day );
-				$payload['text'] = SimpleVPBot_Admin_Dashboard_Stats::format_text( $day );
+				$rid = self::portal_reseller_actor_id( $user );
+				if ( $rid > 0 && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+					$scope_ids = SimpleVPBot_Bot_Reseller_Scope::effective_moderatable_user_ids( $rid );
+					$panel_ids = SimpleVPBot_Bot_Reseller_Scope::allowed_panel_ids_for( $rid );
+					$payload   = SimpleVPBot_Admin_Dashboard_Stats::build_reseller_payload( $scope_ids, $panel_ids, $day );
+					$payload['text'] = SimpleVPBot_Admin_Dashboard_Stats::format_reseller_text( $scope_ids, $panel_ids, $day );
+				} else {
+					$payload         = SimpleVPBot_Admin_Dashboard_Stats::build_payload( $day );
+					$payload['text'] = SimpleVPBot_Admin_Dashboard_Stats::format_text( $day );
+				}
 				wp_send_json_success( $payload );
 			}
 			wp_send_json_error( array( 'message' => 'stats_unavailable' ), 500 );
@@ -567,21 +900,24 @@ class SimpleVPBot_Admin_Ajax {
 		if ( 'membership_pending_page' === $op ) {
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing
 			$off = isset( $_POST['offset'] ) ? (int) $_POST['offset'] : 0;
-			wp_send_json_success( self::portal_membership_queue_page( 'pending', $off ) );
+			wp_send_json_success( self::portal_membership_queue_page( 'pending', $off, $user ) );
 		}
 		if ( 'membership_approved_page' === $op ) {
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing
 			$off = isset( $_POST['offset'] ) ? (int) $_POST['offset'] : 0;
-			wp_send_json_success( self::portal_membership_queue_page( 'approved', $off ) );
+			wp_send_json_success( self::portal_membership_queue_page( 'approved', $off, $user ) );
 		}
 		if ( 'membership_rejected_page' === $op ) {
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing
 			$off = isset( $_POST['offset'] ) ? (int) $_POST['offset'] : 0;
-			wp_send_json_success( self::portal_membership_queue_page( 'rejected', $off ) );
+			wp_send_json_success( self::portal_membership_queue_page( 'rejected', $off, $user ) );
 		}
 		if ( 'membership_detail' === $op ) {
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing
 			$tid = isset( $_POST['user_id'] ) ? (int) $_POST['user_id'] : 0;
+			if ( ! self::portal_admin_can_access_user( $user, $tid ) ) {
+				wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+			}
 			$u   = $tid > 0 ? SimpleVPBot_Model_User::find( $tid ) : null;
 			if ( ! $u ) {
 				wp_send_json_error( array( 'message' => 'no_user' ), 404 );
@@ -614,6 +950,9 @@ class SimpleVPBot_Admin_Ajax {
 		if ( 'membership_approve' === $op ) {
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing
 			$tid = isset( $_POST['user_id'] ) ? (int) $_POST['user_id'] : 0;
+			if ( ! self::portal_admin_can_access_user( $user, $tid ) ) {
+				wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+			}
 			$u   = $tid > 0 ? SimpleVPBot_Model_User::find( $tid ) : null;
 			if ( ! $u || 'pending' !== (string) $u->status ) {
 				wp_send_json_error( array( 'message' => 'not_pending' ), 400 );
@@ -624,6 +963,9 @@ class SimpleVPBot_Admin_Ajax {
 		if ( 'membership_reject' === $op ) {
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing
 			$tid = isset( $_POST['user_id'] ) ? (int) $_POST['user_id'] : 0;
+			if ( ! self::portal_admin_can_access_user( $user, $tid ) ) {
+				wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+			}
 			$u   = $tid > 0 ? SimpleVPBot_Model_User::find( $tid ) : null;
 			if ( ! $u || 'pending' !== (string) $u->status ) {
 				wp_send_json_error( array( 'message' => 'not_pending' ), 400 );
@@ -634,6 +976,9 @@ class SimpleVPBot_Admin_Ajax {
 		if ( 'membership_reopen' === $op ) {
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing
 			$tid = isset( $_POST['user_id'] ) ? (int) $_POST['user_id'] : 0;
+			if ( ! self::portal_admin_can_access_user( $user, $tid ) ) {
+				wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+			}
 			$r   = SimpleVPBot_User_Membership::reopen_rejected_to_pending( $tid );
 			if ( empty( $r['ok'] ) ) {
 				wp_send_json_error( array( 'message' => (string) ( $r['reason'] ?? 'failed' ) ), 400 );
@@ -642,11 +987,18 @@ class SimpleVPBot_Admin_Ajax {
 		}
 		if ( 'create_service' === $op && class_exists( 'SimpleVPBot_Admin_User_Ops' ) ) {
 			$tuid = isset( $_POST['target_uid'] ) ? (int) $_POST['target_uid'] : 0;
+			if ( ! self::portal_admin_can_access_user( $user, $tuid ) ) {
+				wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+			}
 			$pid  = isset( $_POST['plan_id'] ) ? (int) $_POST['plan_id'] : 0;
 			$vol  = isset( $_POST['volume_gb'] ) ? (int) $_POST['volume_gb'] : 0;
 			$mode = isset( $_POST['mode'] ) ? sanitize_key( (string) wp_unslash( $_POST['mode'] ) ) : '';
+			if ( ! self::portal_reseller_may_use_plan( $user, $pid ) ) {
+				wp_send_json_error( array( 'reason' => 'forbidden_plan' ), 403 );
+			}
 			$vol  = $vol > 0 ? $vol : null;
-			$r    = SimpleVPBot_Admin_User_Ops::admin_create_service( $tuid, $pid, $vol, $mode );
+			$scope = self::portal_admin_invoice_card_scope( $user );
+			$r    = SimpleVPBot_Admin_User_Ops::admin_create_service( $tuid, $pid, $vol, $mode, $scope );
 			if ( empty( $r['ok'] ) ) {
 				wp_send_json_error( $r );
 			}
@@ -655,7 +1007,18 @@ class SimpleVPBot_Admin_Ajax {
 		if ( 'renew_service' === $op && class_exists( 'SimpleVPBot_Admin_User_Ops' ) ) {
 			$sid  = isset( $_POST['service_id'] ) ? (int) $_POST['service_id'] : 0;
 			$mode = isset( $_POST['mode'] ) ? sanitize_key( (string) wp_unslash( $_POST['mode'] ) ) : '';
-			$r    = SimpleVPBot_Admin_User_Ops::admin_renew_service( $sid, $mode );
+			if ( $sid < 1 ) {
+				wp_send_json_error( array( 'message' => 'invalid_service' ), 400 );
+			}
+			$svc = class_exists( 'SimpleVPBot_Model_Service' ) ? SimpleVPBot_Model_Service::find( $sid ) : null;
+			if ( ! $svc ) {
+				wp_send_json_error( array( 'message' => 'not_found' ), 404 );
+			}
+			if ( ! self::portal_admin_can_access_user( $user, (int) ( $svc->user_id ?? 0 ) ) ) {
+				wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+			}
+			$scope = self::portal_admin_invoice_card_scope( $user );
+			$r    = SimpleVPBot_Admin_User_Ops::admin_renew_service( $sid, $mode, $scope );
 			if ( empty( $r['ok'] ) ) {
 				wp_send_json_error( $r );
 			}
@@ -665,13 +1028,122 @@ class SimpleVPBot_Admin_Ajax {
 			$sid  = isset( $_POST['service_id'] ) ? (int) $_POST['service_id'] : 0;
 			$gb   = isset( $_POST['extra_gb'] ) ? (int) $_POST['extra_gb'] : 1;
 			$mode = isset( $_POST['mode'] ) ? sanitize_key( (string) wp_unslash( $_POST['mode'] ) ) : '';
-			$r    = SimpleVPBot_Admin_User_Ops::admin_add_volume( $sid, $gb, $mode );
+			if ( $sid < 1 ) {
+				wp_send_json_error( array( 'message' => 'invalid_service' ), 400 );
+			}
+			$svc = class_exists( 'SimpleVPBot_Model_Service' ) ? SimpleVPBot_Model_Service::find( $sid ) : null;
+			if ( ! $svc ) {
+				wp_send_json_error( array( 'message' => 'not_found' ), 404 );
+			}
+			if ( ! self::portal_admin_can_access_user( $user, (int) ( $svc->user_id ?? 0 ) ) ) {
+				wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+			}
+			$scope = self::portal_admin_invoice_card_scope( $user );
+			$r    = SimpleVPBot_Admin_User_Ops::admin_add_volume( $sid, $gb, $mode, $scope );
 			if ( empty( $r['ok'] ) ) {
 				wp_send_json_error( $r );
 			}
 			wp_send_json_success( $r );
 		}
+		if ( 'service_transfer' === $op && class_exists( 'SimpleVPBot_Service_Admin_Ops' ) ) {
+			$sid = isset( $_POST['service_id'] ) ? (int) $_POST['service_id'] : 0;
+			$tgt = isset( $_POST['target'] ) ? trim( (string) wp_unslash( $_POST['target'] ) ) : '';
+			if ( $sid < 1 || '' === $tgt ) {
+				wp_send_json_error( array( 'message' => 'invalid' ), 400 );
+			}
+			$svc = class_exists( 'SimpleVPBot_Model_Service' ) ? SimpleVPBot_Model_Service::find( $sid ) : null;
+			if ( ! $svc ) {
+				wp_send_json_error( array( 'message' => 'not_found' ), 404 );
+			}
+			if ( ! self::portal_admin_can_access_user( $user, (int) ( $svc->user_id ?? 0 ) ) ) {
+				wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+			}
+			if ( class_exists( 'SimpleVPBot_Service_Transfer' ) && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+				$transfer_target = SimpleVPBot_Service_Transfer::resolve_user( $tgt );
+				$rid             = self::portal_reseller_actor_id( $user );
+				if ( ! $transfer_target || ( $rid > 0 && ! SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( $rid, (int) $transfer_target->id ) ) ) {
+					wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
+				}
+			}
+			$label = 'portal:#' . (int) $user->id;
+			$r     = SimpleVPBot_Service_Admin_Ops::service_transfer( $sid, $tgt, $label );
+			if ( empty( $r['ok'] ) ) {
+				wp_send_json_error( array( 'message' => isset( $r['message'] ) ? (string) $r['message'] : 'failed' ) );
+			}
+			wp_send_json_success( $r );
+		}
+		if ( 'receipts_page' === $op && class_exists( 'SimpleVPBot_Model_Receipt' ) ) {
+			global $wpdb;
+			$off   = isset( $_POST['offset'] ) ? max( 0, (int) $_POST['offset'] ) : 0;
+			$limit = 10;
+			$rid   = self::portal_reseller_actor_id( $user );
+			$rcpt_t = $wpdb->prefix . 'svp_receipts';
+			if ( $rid > 0 && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+				$scope_ids = SimpleVPBot_Bot_Reseller_Scope::effective_moderatable_user_ids( $rid );
+				if ( empty( $scope_ids ) ) {
+					wp_send_json_success(
+						array(
+							'offset'   => $off,
+							'limit'    => $limit,
+							'total'    => 0,
+							'items'    => array(),
+							'has_prev' => false,
+							'has_next' => false,
+						)
+					);
+				}
+				$in = implode( ',', array_map( 'absint', $scope_ids ) );
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$total = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$rcpt_t} WHERE user_id IN ({$in})" );
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$rows = $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT id, user_id, amount, status, created_at FROM {$rcpt_t} WHERE user_id IN ({$in}) ORDER BY id DESC LIMIT %d OFFSET %d",
+						$limit,
+						$off
+					)
+				);
+			} else {
+				$total = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$rcpt_t}" ); // phpcs:ignore
+				$rows  = $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT id, user_id, amount, status, created_at FROM {$rcpt_t} ORDER BY id DESC LIMIT %d OFFSET %d",
+						$limit,
+						$off
+					)
+				);
+			}
+			$items = array();
+			foreach ( (array) $rows as $row ) {
+				if ( ! $row || ! is_object( $row ) ) {
+					continue;
+				}
+				$uid = (int) ( $row->user_id ?? 0 );
+				$u   = $uid > 0 ? SimpleVPBot_Model_User::find( $uid ) : null;
+				$items[] = array(
+					'id'         => (int) ( $row->id ?? 0 ),
+					'user_id'    => $uid,
+					'user_label' => $u ? SimpleVPBot_Model_User::label( $u ) : ( '#' . $uid ),
+					'amount'     => (float) ( $row->amount ?? 0 ),
+					'status'     => (string) ( $row->status ?? '' ),
+					'created_at' => (string) ( $row->created_at ?? '' ),
+				);
+			}
+			wp_send_json_success(
+				array(
+					'offset'   => $off,
+					'limit'    => $limit,
+					'total'    => $total,
+					'items'    => $items,
+					'has_prev' => $off > 0,
+					'has_next' => ( $off + $limit ) < $total,
+				)
+			);
+		}
 		if ( 'bulk_days' === $op && class_exists( 'SimpleVPBot_Admin_User_Ops' ) ) {
+			if ( self::portal_admin_invoice_card_scope( $user ) > 0 ) {
+				wp_send_json_error( array( 'message' => 'forbidden' ), 403 );
+			}
 			if ( empty( $_POST['bulk_ack'] ) || '1' !== (string) wp_unslash( $_POST['bulk_ack'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
 				wp_send_json_error( array( 'message' => 'confirm_required' ), 400 );
 			}
@@ -679,6 +1151,9 @@ class SimpleVPBot_Admin_Ajax {
 			wp_send_json_success( SimpleVPBot_Admin_User_Ops::bulk_extend_days( $d, true, 200 ) );
 		}
 		if ( 'bulk_gb' === $op && class_exists( 'SimpleVPBot_Admin_User_Ops' ) ) {
+			if ( self::portal_admin_invoice_card_scope( $user ) > 0 ) {
+				wp_send_json_error( array( 'message' => 'forbidden' ), 403 );
+			}
 			if ( empty( $_POST['bulk_ack'] ) || '1' !== (string) wp_unslash( $_POST['bulk_ack'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
 				wp_send_json_error( array( 'message' => 'confirm_required' ), 400 );
 			}
@@ -686,6 +1161,7 @@ class SimpleVPBot_Admin_Ajax {
 			wp_send_json_success( SimpleVPBot_Admin_User_Ops::bulk_add_volume( $g, 200 ) );
 		}
 		if ( 'save_crypto' === $op ) {
+			self::portal_deny_reseller_global( $user );
 			$all = SimpleVPBot_Settings::all();
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing
 			$all['crypto_nowpayments_api_key'] = sanitize_text_field( (string) wp_unslash( $_POST['api_key'] ?? '' ) );
@@ -698,6 +1174,7 @@ class SimpleVPBot_Admin_Ajax {
 			wp_send_json_success( array( 'saved' => true ) );
 		}
 		if ( 'rotate_ipn_path' === $op ) {
+			self::portal_deny_reseller_global( $user );
 			$all = SimpleVPBot_Settings::all();
 			$all['crypto_ipn_path_secret']        = wp_generate_password( 32, false, false );
 			SimpleVPBot_Settings::update( $all );
@@ -705,6 +1182,7 @@ class SimpleVPBot_Admin_Ajax {
 			wp_send_json_success( array( 'ipn_url' => SimpleVPBot_Crypto_Payment::ipn_callback_url() ) );
 		}
 		if ( 'referral_get' === $op ) {
+			self::portal_deny_reseller_global( $user );
 			$s = SimpleVPBot_Settings::all();
 			wp_send_json_success(
 				array(
@@ -720,6 +1198,7 @@ class SimpleVPBot_Admin_Ajax {
 			);
 		}
 		if ( 'referral_save' === $op ) {
+			self::portal_deny_reseller_global( $user );
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing
 			$post = array(
 				'referral_enabled'                  => ! empty( $_POST['referral_enabled'] ),
@@ -737,7 +1216,8 @@ class SimpleVPBot_Admin_Ajax {
 		}
 		if ( 'discount_list' === $op ) {
 			$items = array();
-			foreach ( SimpleVPBot_Model_Discount_Code::all_ordered() as $r ) {
+			$rid   = self::portal_reseller_actor_id( $user );
+			foreach ( SimpleVPBot_Model_Discount_Code::all_ordered_for_owner( $rid > 0 ? $rid : null ) as $r ) {
 				$items[] = array(
 					'id'                   => (int) $r->id,
 					'code'                 => (string) $r->code,
@@ -750,10 +1230,61 @@ class SimpleVPBot_Admin_Ajax {
 			}
 			wp_send_json_success( array( 'items' => $items ) );
 		}
+		// Reseller discount writes: signed portal only (REST mutate policy blocks discount_save).
+		if ( 'discount_save' === $op ) {
+			if ( ! class_exists( 'SimpleVPBot_Dashboard_Admin_Mutations' ) ) {
+				wp_send_json_error( array( 'message' => 'module_missing' ), 500 );
+			}
+			$rid = self::portal_reseller_actor_id( $user );
+			// phpcs:ignore WordPress.Security.NonceVerification.Missing
+			$plans_raw = isset( $_POST['discount_plan_ids'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['discount_plan_ids'] ) ) : '';
+			$plan_ids  = array();
+			if ( '' !== trim( $plans_raw ) ) {
+				foreach ( preg_split( '/\s*,\s*/', $plans_raw ) as $part ) {
+					$n = (int) $part;
+					if ( $n > 0 ) {
+						$plan_ids[] = $n;
+					}
+				}
+			}
+			$post = array(
+				'svpc_id'                  => isset( $_POST['discount_id'] ) ? (int) $_POST['discount_id'] : 0,
+				'svpc_code'                => isset( $_POST['discount_code'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['discount_code'] ) ) : '',
+				'svpc_type'                => isset( $_POST['discount_type'] ) ? sanitize_key( (string) wp_unslash( $_POST['discount_type'] ) ) : 'percent',
+				'svpc_value'               => isset( $_POST['discount_value'] ) ? (string) wp_unslash( $_POST['discount_value'] ) : '0',
+				'svpc_active'              => ! empty( $_POST['discount_active'] ),
+				'svpc_max_uses'            => isset( $_POST['discount_max_uses'] ) ? (string) wp_unslash( $_POST['discount_max_uses'] ) : '',
+				'svpc_valid_from'          => isset( $_POST['discount_valid_from'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['discount_valid_from'] ) ) : '',
+				'svpc_valid_until'         => isset( $_POST['discount_valid_until'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['discount_valid_until'] ) ) : '',
+				'svpc_min_order'           => isset( $_POST['discount_min_order'] ) ? (string) wp_unslash( $_POST['discount_min_order'] ) : '',
+				'svpc_max_order'           => isset( $_POST['discount_max_order'] ) ? (string) wp_unslash( $_POST['discount_max_order'] ) : '',
+				'svpc_max_discount'        => isset( $_POST['discount_max_discount'] ) ? (string) wp_unslash( $_POST['discount_max_discount'] ) : '',
+				'svpc_restricted_user_id'  => isset( $_POST['discount_restricted_user_id'] ) ? max( 0, (int) $_POST['discount_restricted_user_id'] ) : 0,
+				'svpc_allowed_plan_ids'    => $plan_ids,
+				'svpc_allow_new'           => ! empty( $_POST['discount_allow_new'] ),
+				'svpc_allow_renew'         => ! empty( $_POST['discount_allow_renew'] ),
+				'svpc_allow_vol'           => ! empty( $_POST['discount_allow_vol'] ),
+				'svpc_allow_users'         => ! empty( $_POST['discount_allow_users'] ),
+			);
+			if ( $rid > 0 ) {
+				$post['owner_svp_user_id']   = $rid;
+				$post['__actor_svp_user_id'] = $rid;
+			}
+			$r = SimpleVPBot_Dashboard_Admin_Mutations::discount_save_from_post( $post );
+			if ( empty( $r['ok'] ) ) {
+				wp_send_json_error( $r, 400 );
+			}
+			wp_send_json_success( $r );
+		}
 		if ( 'discount_delete' === $op ) {
 			$did = isset( $_POST['discount_id'] ) ? (int) $_POST['discount_id'] : 0; // phpcs:ignore
 			if ( $did < 1 ) {
 				wp_send_json_error( array( 'message' => 'bad_id' ), 400 );
+			}
+			$row = SimpleVPBot_Model_Discount_Code::find( $did );
+			$rid = self::portal_reseller_actor_id( $user );
+			if ( $rid > 0 && ( ! $row || (int) ( $row->owner_svp_user_id ?? 0 ) !== $rid ) ) {
+				wp_send_json_error( array( 'message' => 'forbidden_scope' ), 403 );
 			}
 			SimpleVPBot_Model_Discount_Code::delete( $did );
 			wp_send_json_success( array( 'deleted' => $did ) );

@@ -81,4 +81,31 @@ class RequiredChannelTest extends TestCase {
 		$this->assertStringContainsString( "case 'force_join_publish':", $mut );
 		$this->assertStringContainsString( 'op_force_join_publish', $mut );
 	}
+
+	/**
+	 * Membership cache key is stable per platform/chat/user.
+	 */
+	public function test_membership_cache_key(): void {
+		$key = SimpleVPBot_Required_Channel::membership_cache_key( 'telegram', -100123, 456 );
+		$this->assertSame( 'svp_chjoin_telegram_-100123_456', $key );
+	}
+
+	/**
+	 * user_passes supports force_refresh for verify flow.
+	 */
+	public function test_user_passes_force_refresh_signature(): void {
+		$src = (string) file_get_contents( dirname( __DIR__ ) . '/includes/helpers/class-required-channel.php' );
+		$this->assertStringContainsString( 'fetch_member_status', $src );
+		$this->assertStringContainsString( 'fail-open', $src );
+		$this->assertStringContainsString( '$force_refresh = false', $src );
+	}
+
+	/**
+	 * Verify handler retries membership after propagation delay.
+	 */
+	public function test_callback_verify_retry(): void {
+		$cb = (string) file_get_contents( dirname( __DIR__ ) . '/includes/bot/handlers/class-handler-callback.php' );
+		$this->assertStringContainsString( 'user_passes( $platform, $from_id, true )', $cb );
+		$this->assertStringContainsString( 'usleep( 300000 )', $cb );
+	}
 }

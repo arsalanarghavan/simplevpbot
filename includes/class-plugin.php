@@ -57,9 +57,18 @@ class SimpleVPBot_Plugin {
 		'SimpleVPBot_Model_Panel_Online_Daily' => 'models/class-model-panel-online-daily.php',
 		'SimpleVPBot_Model_Card'          => 'models/class-model-card.php',
 		'SimpleVPBot_Model_L2TP_Server'   => 'models/class-model-l2tp-server.php',
+		'SimpleVPBot_Model_Unit_Economics_Config'  => 'models/class-model-unit-economics-config.php',
+		'SimpleVPBot_Model_Unit_Economics_Server'   => 'models/class-model-unit-economics-server.php',
+		'SimpleVPBot_Model_Panel_Economics_Line'    => 'models/class-model-panel-economics-line.php',
+		'SimpleVPBot_Unit_Economics_Calculator'     => 'helpers/class-unit-economics-calculator.php',
+		'SimpleVPBot_Unit_Economics_Sales_Volume'   => 'helpers/class-unit-economics-sales-volume.php',
+		'SimpleVPBot_Unit_Economics_Revenue'      => 'helpers/class-unit-economics-revenue.php',
+		'SimpleVPBot_Unit_Economics_Overview'     => 'helpers/class-unit-economics-overview.php',
 		'SimpleVPBot_Model_Transaction'   => 'models/class-model-transaction.php',
 		'SimpleVPBot_Model_Discount_Code' => 'models/class-model-discount-code.php',
 		'SimpleVPBot_Model_Discount_Redemption' => 'models/class-model-discount-redemption.php',
+		'SimpleVPBot_Model_Marketing_Rule'  => 'models/class-model-marketing-rule.php',
+		'SimpleVPBot_Model_Marketing_Offer' => 'models/class-model-marketing-offer.php',
 		'SimpleVPBot_Model_Receipt'       => 'models/class-model-receipt.php',
 		'SimpleVPBot_Model_Pending'       => 'models/class-model-pending.php',
 		'SimpleVPBot_Model_Sync_Code'     => 'models/class-model-sync-code.php',
@@ -69,6 +78,7 @@ class SimpleVPBot_Plugin {
 		'SimpleVPBot_Model_Users_Bulk_Job' => 'models/class-model-users-bulk-job.php',
 		'SimpleVPBot_Model_Monitor_Host'  => 'models/class-model-monitor-host.php',
 		'SimpleVPBot_Webhook'             => 'bot/class-webhook.php',
+		'SimpleVPBot_Webhook_Queue'       => 'bot/class-webhook-queue.php',
 		'SimpleVPBot_Webhook_Diagnostics' => 'bot/class-webhook-diagnostics.php',
 		'SimpleVPBot_Bot_Runtime'         => 'bot/class-bot-runtime.php',
 		'SimpleVPBot_Bot_Context'         => 'bot/class-bot-context.php',
@@ -92,7 +102,21 @@ class SimpleVPBot_Plugin {
 		'SimpleVPBot_Handler_Account'    => 'bot/handlers/class-handler-account.php',
 		'SimpleVPBot_Handler_Sync'       => 'bot/handlers/class-handler-sync.php',
 		'SimpleVPBot_Handler_Admin'         => 'bot/handlers/class-handler-admin.php',
-		'SimpleVPBot_Handler_Admin_Hub'     => 'bot/handlers/class-handler-admin-hub.php',
+		'SimpleVPBot_Handler_Admin_Panel'   => 'bot/handlers/class-handler-admin-panel.php',
+		'SimpleVPBot_Handler_Admin_Resellers' => 'bot/handlers/class-handler-admin-resellers.php',
+		'SimpleVPBot_Handler_Admin_Marketing' => 'bot/handlers/class-handler-admin-marketing.php',
+		'SimpleVPBot_Handler_Admin_Finance'   => 'bot/handlers/class-handler-admin-finance.php',
+		'SimpleVPBot_Handler_Admin_Catalog'   => 'bot/handlers/class-handler-admin-catalog.php',
+		'SimpleVPBot_Handler_Admin_Economics' => 'bot/handlers/class-handler-admin-economics.php',
+		'SimpleVPBot_Handler_Admin_Pnl'       => 'bot/handlers/class-handler-admin-pnl.php',
+		'SimpleVPBot_Handler_Admin_Users'     => 'bot/handlers/class-handler-admin-users.php',
+		'SimpleVPBot_Handler_Admin_Receipts'  => 'bot/handlers/class-handler-admin-receipts.php',
+		'SimpleVPBot_Handler_Admin_Bulk'      => 'bot/handlers/class-handler-admin-bulk.php',
+		'SimpleVPBot_Handler_Admin_Inbound'   => 'bot/handlers/class-handler-admin-inbound.php',
+		'SimpleVPBot_Handler_Admin_Backup'    => 'bot/handlers/class-handler-admin-backup.php',
+		'SimpleVPBot_Handler_Admin_Texts'     => 'bot/handlers/class-handler-admin-texts.php',
+		'SimpleVPBot_Handler_Admin_Logs'      => 'bot/handlers/class-handler-admin-logs.php',
+		'SimpleVPBot_Handler_Admin_Stats'     => 'bot/handlers/class-handler-admin-stats.php',
 		'SimpleVPBot_Handler_Admin_Settings' => 'bot/handlers/class-handler-admin-settings.php',
 		'SimpleVPBot_Handler_Callback'     => 'bot/handlers/class-handler-callback.php',
 		'SimpleVPBot_Service_Admin_Ops'   => 'admin/services/class-service-admin-ops.php',
@@ -107,8 +131,16 @@ class SimpleVPBot_Plugin {
 		'SimpleVPBot_Reseller_Closure'   => 'helpers/class-reseller-closure.php',
 		'SimpleVPBot_Audit_Log'          => 'helpers/class-audit-log.php',
 		'SimpleVPBot_Bot_Reseller_Scope' => 'helpers/class-bot-reseller-scope.php',
+		'SimpleVPBot_Reseller_Permission_Gate' => 'helpers/class-reseller-permission-gate.php',
+		'SimpleVPBot_Bot_Admin_Nav'      => 'helpers/class-bot-admin-nav.php',
+		'SimpleVPBot_Bot_Admin_Guard'    => 'helpers/class-bot-admin-guard.php',
+		'SimpleVPBot_Bot_Admin_Mutate'   => 'helpers/class-bot-admin-mutate.php',
+		'SimpleVPBot_Bot_Admin_Catalog_Scope' => 'helpers/class-bot-admin-catalog-scope.php',
+		'SimpleVPBot_Bot_Admin_Plan_Picker'   => 'helpers/class-bot-admin-plan-picker.php',
 		'SimpleVPBot_Reseller_Backfill'  => 'helpers/class-reseller-backfill.php',
 		'SimpleVPBot_User_Notify'        => 'helpers/class-user-notify.php',
+		'SimpleVPBot_User_Display'       => 'helpers/class-user-display.php',
+		'SimpleVPBot_Notification_Dedup' => 'helpers/class-notification-dedup.php',
 		'SimpleVPBot_Qr'                 => 'helpers/class-qr.php',
 		'SimpleVPBot_Service_Provisioner'=> 'helpers/class-service-provisioner.php',
 		'SimpleVPBot_Service_Dashboard_Panel' => 'helpers/class-service-dashboard-panel.php',
@@ -116,6 +148,7 @@ class SimpleVPBot_Plugin {
 		'SimpleVPBot_L2TP_Provisioner'   => 'helpers/class-l2tp-provisioner.php',
 		'SimpleVPBot_Feature_L2tp'       => 'helpers/class-feature-l2tp.php',
 		'SimpleVPBot_Telegram_Http'      => 'helpers/class-telegram-http.php',
+		'SimpleVPBot_Telegram_Relay'     => 'helpers/class-telegram-relay.php',
 		'SimpleVPBot_Secret_Box'         => 'helpers/class-secret-box.php',
 		'SimpleVPBot_Receipt_Processor'  => 'helpers/class-receipt-processor.php',
 		'SimpleVPBot_Receipt_Image_Store' => 'helpers/class-receipt-image-store.php',
@@ -123,6 +156,9 @@ class SimpleVPBot_Plugin {
 		'SimpleVPBot_Portal_Link'        => 'helpers/class-portal-link.php',
 		'SimpleVPBot_Admin_User_Ops'     => 'helpers/class-admin-user-ops.php',
 		'SimpleVPBot_Admin_Dashboard_Stats' => 'helpers/class-admin-dashboard-stats.php',
+		'SimpleVPBot_Admin_Reseller_Reports' => 'helpers/class-admin-reseller-reports.php',
+		'SimpleVPBot_Marketing_Lifecycle_Analytics' => 'helpers/class-marketing-lifecycle-analytics.php',
+		'SimpleVPBot_Marketing_Automation' => 'helpers/class-marketing-automation.php',
 		'SimpleVPBot_Dashboard_Panel_Live'  => 'helpers/class-dashboard-panel-live.php',
 		'SimpleVPBot_Bot_Persian_Text'     => 'helpers/class-bot-persian-text.php',
 		'SimpleVPBot_Bot_Admin_User_Caption' => 'helpers/class-bot-admin-user-caption.php',
@@ -141,6 +177,8 @@ class SimpleVPBot_Plugin {
 		'SimpleVPBot_Backup_Restore'      => 'helpers/class-backup-restore.php',
 		'SimpleVPBot_Backup_Merge_Restore' => 'helpers/class-backup-merge-restore.php',
 		'SimpleVPBot_Card_Rotation'      => 'helpers/class-card-rotation.php',
+		'SimpleVPBot_Payment_Methods'    => 'helpers/class-payment-methods.php',
+		'SimpleVPBot_Platforms'          => 'helpers/class-platforms.php',
 		'SimpleVPBot_Support_Contacts'   => 'helpers/class-support-contacts.php',
 		'SimpleVPBot_Inbound_Linker'     => 'helpers/class-inbound-linker.php',
 		'SimpleVPBot_Service_Reconcile'  => 'helpers/class-service-reconcile.php',
@@ -149,16 +187,19 @@ class SimpleVPBot_Plugin {
 		'SimpleVPBot_Service_Panel_Traffic_51200_Repair' => 'helpers/class-service-panel-traffic-51200-repair.php',
 		'SimpleVPBot_User_Membership'   => 'helpers/class-user-membership.php',
 		'SimpleVPBot_Required_Channel'  => 'helpers/class-required-channel.php',
+		'SimpleVPBot_Deferred_Work'     => 'helpers/class-deferred-work.php',
 		'SimpleVPBot_User_Activity_Log' => 'helpers/class-user-activity-log.php',
 		'SimpleVPBot_Activity_Callback_Label' => 'helpers/class-activity-callback-label.php',
 		'SimpleVPBot_Service_Transfer'   => 'helpers/class-service-transfer.php',
 		'SimpleVPBot_Service_Renew'      => 'helpers/class-service-renew.php',
 		'SimpleVPBot_Service_Alerts'     => 'helpers/class-service-alerts.php',
 		'SimpleVPBot_Shortcode_Portal'   => 'frontend/class-shortcode-portal.php',
+		'SimpleVPBot_Portal_Subscription' => 'helpers/class-portal-subscription.php',
 		'SimpleVPBot_Portal_Front'        => 'frontend/class-portal-front.php',
 		'SimpleVPBot_Cron_Manager'       => 'cron/class-cron-manager.php',
 		'SimpleVPBot_Cron_Backup'        => 'cron/class-cron-backup.php',
 		'SimpleVPBot_Cron_Expiry'        => 'cron/class-cron-expiry.php',
+		'SimpleVPBot_Cron_Purge_Expired' => 'cron/class-cron-purge-expired.php',
 		'SimpleVPBot_Cron_Autorenew'     => 'cron/class-cron-autorenew.php',
 		'SimpleVPBot_Cron_Broadcast'     => 'cron/class-cron-broadcast.php',
 		'SimpleVPBot_Cron_Users_Bulk'    => 'cron/class-cron-users-bulk.php',
@@ -166,7 +207,9 @@ class SimpleVPBot_Plugin {
 		'SimpleVPBot_Cron_Panel_Service_Sync' => 'cron/class-cron-panel-service-sync.php',
 		'SimpleVPBot_Cron_Inbound_Clients_Cache' => 'cron/class-cron-inbound-clients-cache.php',
 		'SimpleVPBot_Cron_Idle_Offers'    => 'cron/class-cron-idle-offers.php',
+		'SimpleVPBot_Cron_Marketing'      => 'cron/class-cron-marketing.php',
 		'SimpleVPBot_Cron_Admin_Alerts' => 'cron/class-cron-admin-alerts.php',
+		'SimpleVPBot_Cron_Panel_Economics_Renewal' => 'cron/class-cron-panel-economics-renewal.php',
 		'SimpleVPBot_Admin_Menu'         => 'admin/class-admin-menu.php',
 		'SimpleVPBot_Admin_Actions'      => 'admin/class-admin-actions.php',
 		'SimpleVPBot_Admin_Ajax'         => 'admin/class-admin-ajax.php',
@@ -222,13 +265,20 @@ class SimpleVPBot_Plugin {
 		if ( class_exists( 'SimpleVPBot_Telegram_Http' ) ) {
 			SimpleVPBot_Telegram_Http::init();
 		}
+		if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+			SimpleVPBot_Telegram_Relay::init();
+		}
 
 		SimpleVPBot_Settings::ensure_secrets();
 		SimpleVPBot_Settings::init();
 		SimpleVPBot_Webhook::init();
+		SimpleVPBot_Webhook_Queue::init();
 		SimpleVPBot_Webhook_Diagnostics::init();
 		SimpleVPBot_Crypto_Payment::init();
 		SimpleVPBot_Cron_Manager::init();
+		if ( class_exists( 'SimpleVPBot_Deferred_Work' ) ) {
+			SimpleVPBot_Deferred_Work::init();
+		}
 
 		SimpleVPBot_Admin_Ajax::init_portal_routes();
 

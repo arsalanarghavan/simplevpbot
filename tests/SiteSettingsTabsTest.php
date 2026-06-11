@@ -40,7 +40,7 @@ class SiteSettingsTabsTest extends TestCase {
 			$this->assertStringContainsString( "'{$key}'", $settings );
 		}
 
-		foreach ( array( 'whitelabel', 'service_naming', 'proxy', 'resellers_defaults', 'force_join' ) as $tab ) {
+		foreach ( array( 'whitelabel', 'service_naming', 'proxy', 'relay', 'resellers_defaults', 'force_join' ) as $tab ) {
 			$this->assertStringContainsString( "case '{$tab}':", $actions );
 		}
 
@@ -77,6 +77,7 @@ class SiteSettingsTabsTest extends TestCase {
 				'site-settings/image-url-field.tsx',
 				'site-settings/color-hex-field.tsx',
 				'site-settings-proxy-tab.tsx',
+				'site-settings-relay-tab.tsx',
 				'site-settings-notifications-tab.tsx',
 				'site-settings-logs-tab.tsx',
 				'site-settings-resellers-tab.tsx',

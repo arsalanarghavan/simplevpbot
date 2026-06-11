@@ -44,8 +44,82 @@ class SimpleVPBot_Receipt_Processor {
 			}
 			return array( 'ok' => false, 'reason' => 'already_processing' );
 		}
-		$rec = SimpleVPBot_Model_Receipt::find( $rid );
-		$tx  = $rec ? SimpleVPBot_Model_Transaction::find( (int) $rec->transaction_id ) : null;
+		return self::approve_continue( $rid, $label );
+	}
+
+	/**
+	 * Claim receipt and run approve_continue synchronously (dashboard / bot).
+	 *
+	 * @param int    $rid Receipt id.
+	 * @param string $admin_label Shown on buttons.
+	 * @return array{ok:bool, reason:string, purchase_failed?:bool}
+	 */
+	public static function approve_async_start( $rid, $admin_label ) {
+		$rid   = (int) $rid;
+		$label = (string) $admin_label;
+		$rec   = SimpleVPBot_Model_Receipt::find( $rid );
+		if ( ! $rec ) {
+			return array( 'ok' => false, 'reason' => 'not_found' );
+		}
+		if ( 'approved' === (string) $rec->status ) {
+			return array( 'ok' => true, 'reason' => 'already_approved' );
+		}
+		if ( 'processing' === (string) $rec->status ) {
+			return array( 'ok' => true, 'reason' => 'processing' );
+		}
+		if ( 'pending' !== (string) $rec->status ) {
+			return array( 'ok' => false, 'reason' => 'not_pending' );
+		}
+		if ( ! SimpleVPBot_Model_Receipt::claim_pending( $rid ) ) {
+			$rec2 = SimpleVPBot_Model_Receipt::find( $rid );
+			if ( $rec2 && 'approved' === (string) $rec2->status ) {
+				return array( 'ok' => true, 'reason' => 'already_approved' );
+			}
+			if ( $rec2 && 'processing' === (string) $rec2->status ) {
+				return array( 'ok' => true, 'reason' => 'processing' );
+			}
+			return array( 'ok' => false, 'reason' => 'already_processing' );
+		}
+		return self::approve_continue( $rid, $label );
+	}
+
+	/**
+	 * Continue approval after claim_pending (sync bot callback / dashboard).
+	 *
+	 * @param int                  $rid Receipt id.
+	 * @param string               $admin_label Shown on buttons.
+	 * @param array<string, mixed>|null $clicked_message Optional platform/chat_id/message_id from bot callback.
+	 * @return array{ok:bool, reason:string, purchase_failed?:bool, rec?:object, tx?:object, meta?:array}
+	 */
+	public static function approve_continue( $rid, $admin_label, $clicked_message = null ) {
+		$rid   = (int) $rid;
+		$label = (string) $admin_label;
+		$rec   = SimpleVPBot_Model_Receipt::find( $rid );
+		if ( ! $rec ) {
+			return array( 'ok' => false, 'reason' => 'not_found' );
+		}
+		if ( 'approved' === (string) $rec->status ) {
+			if ( class_exists( 'SimpleVPBot_Deferred_Work' ) ) {
+				SimpleVPBot_Deferred_Work::clear_scheduled_cron(
+					SimpleVPBot_Deferred_Work::RECEIPT_APPROVE_CRON_HOOK,
+					array( $rid, $label )
+				);
+			}
+			return array( 'ok' => true, 'reason' => 'already_approved' );
+		}
+		if ( 'pending' === (string) $rec->status ) {
+			if ( ! SimpleVPBot_Model_Receipt::claim_pending( $rid ) ) {
+				$rec2 = SimpleVPBot_Model_Receipt::find( $rid );
+				if ( $rec2 && 'approved' === (string) $rec2->status ) {
+					return array( 'ok' => true, 'reason' => 'already_approved' );
+				}
+				return array( 'ok' => false, 'reason' => 'already_processing' );
+			}
+			$rec = SimpleVPBot_Model_Receipt::find( $rid );
+		} elseif ( 'processing' !== (string) $rec->status ) {
+			return array( 'ok' => false, 'reason' => 'not_pending' );
+		}
+		$tx = $rec ? SimpleVPBot_Model_Transaction::find( (int) $rec->transaction_id ) : null;
 		if ( ! $rec || ! $tx ) {
 			SimpleVPBot_Model_Receipt::release_to_pending( $rid );
 			return array( 'ok' => false, 'reason' => 'no_tx' );
@@ -69,6 +143,16 @@ class SimpleVPBot_Receipt_Processor {
 				),
 			);
 			self::edit_admin_messages( $rec, $markup_err );
+			self::finalize_clicked_if( $clicked_message, $markup_err );
+			$user_row = SimpleVPBot_Model_User::find( (int) $rec->user_id );
+			if ( $user_row ) {
+				self::notify_user_both_bots(
+					$user_row,
+					'⏳ رسید شما ثبت شد. آماده‌سازی سرویس با تأخیر مواجه شد؛ تیم پشتیبانی پیگیری می‌کند.',
+					array(),
+					$tx
+				);
+			}
 			$raw_reason = (string) ( $effects['provision_error'] ?? 'purchase_failed' );
 			return array(
 				'ok'              => false,
@@ -97,36 +181,17 @@ class SimpleVPBot_Receipt_Processor {
 			),
 		);
 		self::edit_admin_messages( $rec, $markup_done );
+		self::finalize_clicked_if( $clicked_message, $markup_done );
 		$user_row = SimpleVPBot_Model_User::find( (int) $rec->user_id );
 		if ( $user_row ) {
-			self::notify_user_both_bots( $user_row, '✅ پرداخت شما تایید شد. ممنون!', array(), $tx );
+			$tx_done = SimpleVPBot_Model_Transaction::find( (int) $tx->id );
+			$sid     = $tx_done && ! empty( $tx_done->service_id ) ? (int) $tx_done->service_id : 0;
+			$tg_cfg  = 'purchase' === (string) $tx->type && self::user_gets_telegram_config_delivery( $user_row, $sid );
+			if ( ! $tg_cfg ) {
+				self::notify_user_both_bots( $user_row, '✅ پرداخت شما تایید شد. ممنون!', array(), $tx );
+			}
 			if ( 'purchase' === $tx->type ) {
-				$tx2 = SimpleVPBot_Model_Transaction::find( (int) $tx->id );
-				$svc = $tx2 && $tx2->service_id ? SimpleVPBot_Model_Service::find( (int) $tx2->service_id ) : null;
-				if ( $svc ) {
-					$extra = array(
-						'reply_markup' => array(
-							'inline_keyboard' => array(
-								array(
-									array(
-										'text'          => SimpleVPBot_Keyboards::glass_button_text( SimpleVPBot_Texts::get( 'btn.service.show_panel', '🖥 جزئیات سرویس' ) ),
-										'callback_data' => 'svc:p:' . (int) $svc->id,
-									),
-								),
-							),
-						),
-					);
-					$intent = isset( $meta['intent'] ) ? (string) $meta['intent'] : '';
-					if ( 'renew_same' === $intent ) {
-						self::notify_user_both_bots( $user_row, '♻️ تمدید سرویس شما اعمال شد.', $extra, $tx );
-					} elseif ( 'add_volume' === $intent ) {
-						self::notify_user_both_bots( $user_row, '➕ حجم سرویس شما افزایش یافت.', $extra, $tx );
-					} elseif ( 'add_user_slots' === $intent ) {
-						self::notify_user_both_bots( $user_row, '👥 محدودیت کاربر هم‌زمان برای سرویس شما بیشتر شد.', $extra, $tx );
-					} elseif ( ! empty( $meta['plan_id'] ) ) {
-						self::notify_user_service_ready( $user_row, (int) $svc->id, $tx );
-					}
-				}
+				self::notify_user_after_purchase_approved( $user_row, $tx, $meta, (int) $rid );
 			}
 		}
 		if ( 'purchase' === (string) $tx->type ) {
@@ -154,7 +219,23 @@ class SimpleVPBot_Receipt_Processor {
 				)
 			);
 		}
+		if ( class_exists( 'SimpleVPBot_Deferred_Work' ) ) {
+			SimpleVPBot_Deferred_Work::clear_scheduled_cron(
+				SimpleVPBot_Deferred_Work::RECEIPT_APPROVE_CRON_HOOK,
+				array( $rid, $label )
+			);
+		}
 		return array( 'ok' => true, 'reason' => 'approved', 'rec' => $rec, 'tx' => $tx, 'meta' => $meta );
+	}
+
+	/**
+	 * Cron fallback for async receipt approval.
+	 *
+	 * @param int    $rid Receipt id.
+	 * @param string $admin_label Admin label.
+	 */
+	public static function approve_continue_cron( $rid, $admin_label ) {
+		self::approve_continue( (int) $rid, (string) $admin_label );
 	}
 
 	/**
@@ -187,6 +268,11 @@ class SimpleVPBot_Receipt_Processor {
 				$purchase_failed = true;
 				$provision_err   = (string) $res_svc['reason'];
 			} else {
+				$gate = self::user_purchase_expiry_window_rejection( $meta, (int) $res_svc['service_id'], 'renew_same' );
+				if ( null !== $gate ) {
+					$purchase_failed = true;
+					$provision_err   = $gate;
+				} else {
 				$rn = SimpleVPBot_Service_Renew::apply_after_payment( (int) $res_svc['service_id'] );
 				if ( ! empty( $rn['ok'] ) ) {
 					if ( ! self::try_approve_purchase_tx( $tx, $meta, (int) $res_svc['service_id'] ) ) {
@@ -205,6 +291,7 @@ class SimpleVPBot_Receipt_Processor {
 						)
 					);
 				}
+				}
 			}
 		} elseif ( ! empty( $meta['intent'] ) && 'add_volume' === (string) $meta['intent'] && (int) ( $meta['extra_gb'] ?? 0 ) >= 1 ) {
 			$res_svc = self::resolve_intent_service_for_transaction( $tx, $meta, true );
@@ -222,6 +309,11 @@ class SimpleVPBot_Receipt_Processor {
 					)
 				);
 			} else {
+				$gate = self::user_purchase_expiry_window_rejection( $meta, (int) $res_svc['service_id'], 'add_volume' );
+				if ( null !== $gate ) {
+					$purchase_failed = true;
+					$provision_err   = $gate;
+				} else {
 				$rn = SimpleVPBot_Service_Renew::apply_add_volume_after_payment( (int) $res_svc['service_id'], (int) $meta['extra_gb'] );
 				if ( ! empty( $rn['ok'] ) ) {
 					if ( ! self::try_approve_purchase_tx( $tx, $meta, (int) $res_svc['service_id'] ) ) {
@@ -243,6 +335,7 @@ class SimpleVPBot_Receipt_Processor {
 							'tx_user_id' => (int) $tx->user_id,
 						)
 					);
+				}
 				}
 			}
 		} elseif ( ! empty( $meta['intent'] ) && 'add_user_slots' === (string) $meta['intent'] && isset( $meta['extra_users'] ) ) {
@@ -441,6 +534,31 @@ class SimpleVPBot_Receipt_Processor {
 			return substr( $out, 0, 117 ) . '…';
 		}
 		return $out;
+	}
+
+	/**
+	 * Block user renew/add_volume when outside the 5-day window (admin meta bypasses).
+	 *
+	 * @param array<string, mixed> $meta       Transaction meta.
+	 * @param int                  $service_id Service id.
+	 * @param string               $intent     renew_same|add_volume.
+	 * @return string|null Rejection reason or null when allowed.
+	 */
+	private static function user_purchase_expiry_window_rejection( array $meta, $service_id, $intent ) {
+		if ( SimpleVPBot_Service_Renew::purchase_meta_bypasses_expiry_window( $meta ) ) {
+			return null;
+		}
+		$svc = SimpleVPBot_Model_Service::find( (int) $service_id );
+		if ( ! $svc ) {
+			return 'service_missing';
+		}
+		if ( 'renew_same' === $intent && ! SimpleVPBot_Service_Renew::user_may_renew_same( $svc ) ) {
+			return 'renew_window';
+		}
+		if ( 'add_volume' === $intent && ! SimpleVPBot_Service_Renew::user_may_add_volume( $svc ) ) {
+			return 'add_volume_window';
+		}
+		return null;
 	}
 
 	/**
@@ -693,6 +811,10 @@ class SimpleVPBot_Receipt_Processor {
 				return array( 'ok' => false, 'reason' => (string) $res_svc['reason'] );
 			}
 			$intent_sid = (int) $res_svc['service_id'];
+			$gate       = self::user_purchase_expiry_window_rejection( $meta, $intent_sid, 'renew_same' );
+			if ( null !== $gate ) {
+				return array( 'ok' => false, 'reason' => $gate );
+			}
 			$rn         = SimpleVPBot_Service_Renew::apply_after_payment( $intent_sid );
 			if ( empty( $rn['ok'] ) ) {
 				SimpleVPBot_Logger::error(
@@ -707,22 +829,7 @@ class SimpleVPBot_Receipt_Processor {
 			$user = SimpleVPBot_Model_User::find( (int) $tx->user_id );
 			if ( $user ) {
 				self::notify_user_both_bots( $user, '✅ پرداخت شما تایید شد. ممنون!', array(), $tx );
-				$svc = SimpleVPBot_Model_Service::find( $intent_sid );
-				if ( $svc ) {
-					$extra = array(
-						'reply_markup' => array(
-							'inline_keyboard' => array(
-								array(
-									array(
-										'text'          => SimpleVPBot_Keyboards::glass_button_text( SimpleVPBot_Texts::get( 'btn.service.show_panel', '🖥 جزئیات سرویس' ) ),
-										'callback_data' => 'svc:p:' . (int) $svc->id,
-									),
-								),
-							),
-						),
-					);
-					self::notify_user_both_bots( $user, '♻️ تمدید سرویس شما اعمال شد.', $extra, $tx );
-				}
+				self::notify_user_after_purchase_approved( $user, $tx, $meta, 0 );
 			}
 			SimpleVPBot_Purchase_Side_Effects::on_paid_transaction( (int) $tx->id );
 			return array( 'ok' => true, 'tx' => $tx, 'meta' => $meta );
@@ -744,6 +851,10 @@ class SimpleVPBot_Receipt_Processor {
 				return array( 'ok' => false, 'reason' => (string) $res_svc['reason'] );
 			}
 			$intent_sid = (int) $res_svc['service_id'];
+			$gate       = self::user_purchase_expiry_window_rejection( $meta, $intent_sid, 'add_volume' );
+			if ( null !== $gate ) {
+				return array( 'ok' => false, 'reason' => $gate );
+			}
 			$rn         = SimpleVPBot_Service_Renew::apply_add_volume_after_payment( $intent_sid, (int) $meta['extra_gb'] );
 			if ( empty( $rn['ok'] ) ) {
 				SimpleVPBot_Logger::error(
@@ -764,22 +875,7 @@ class SimpleVPBot_Receipt_Processor {
 			$user = SimpleVPBot_Model_User::find( (int) $tx->user_id );
 			if ( $user ) {
 				self::notify_user_both_bots( $user, '✅ پرداخت شما تایید شد. ممنون!', array(), $tx );
-				$svc = SimpleVPBot_Model_Service::find( $intent_sid );
-				if ( $svc ) {
-					$extra = array(
-						'reply_markup' => array(
-							'inline_keyboard' => array(
-								array(
-									array(
-										'text'          => SimpleVPBot_Keyboards::glass_button_text( SimpleVPBot_Texts::get( 'btn.service.show_panel', '🖥 جزئیات سرویس' ) ),
-										'callback_data' => 'svc:p:' . (int) $svc->id,
-									),
-								),
-							),
-						),
-					);
-					self::notify_user_both_bots( $user, '➕ حجم سرویس شما افزایش یافت.', $extra, $tx );
-				}
+				self::notify_user_after_purchase_approved( $user, $tx, $meta, 0 );
 			}
 			SimpleVPBot_Purchase_Side_Effects::on_paid_transaction( (int) $tx->id );
 			return array( 'ok' => true, 'tx' => $tx, 'meta' => $meta );
@@ -805,22 +901,7 @@ class SimpleVPBot_Receipt_Processor {
 			$user = SimpleVPBot_Model_User::find( (int) $tx->user_id );
 			if ( $user ) {
 				self::notify_user_both_bots( $user, '✅ پرداخت شما تایید شد. ممنون!', array(), $tx );
-				$svc = SimpleVPBot_Model_Service::find( $intent_sid );
-				if ( $svc ) {
-					$extra = array(
-						'reply_markup' => array(
-							'inline_keyboard' => array(
-								array(
-									array(
-										'text'          => SimpleVPBot_Keyboards::glass_button_text( SimpleVPBot_Texts::get( 'btn.service.show_panel', '🖥 جزئیات سرویس' ) ),
-										'callback_data' => 'svc:p:' . (int) $svc->id,
-									),
-								),
-							),
-						),
-					);
-					self::notify_user_both_bots( $user, '👥 محدودیت کاربر هم‌زمان برای سرویس شما بیشتر شد.', $extra, $tx );
-				}
+				self::notify_user_after_purchase_approved( $user, $tx, $meta, 0 );
 			}
 			SimpleVPBot_Purchase_Side_Effects::on_paid_transaction( (int) $tx->id );
 			return array( 'ok' => true, 'tx' => $tx, 'meta' => $meta );
@@ -854,15 +935,120 @@ class SimpleVPBot_Receipt_Processor {
 		}
 		$user = SimpleVPBot_Model_User::find( (int) $tx->user_id );
 		if ( $user ) {
-			self::notify_user_both_bots( $user, '✅ پرداخت شما تایید شد. ممنون!', array(), $tx );
-			$tx2 = SimpleVPBot_Model_Transaction::find( (int) $tx->id );
-			$svc = $tx2 && $tx2->service_id ? SimpleVPBot_Model_Service::find( (int) $tx2->service_id ) : null;
-			if ( $svc ) {
-				self::notify_user_service_ready( $user, (int) $svc->id, $tx );
+			if ( ! self::user_gets_telegram_config_delivery( $user, $sid ) ) {
+				self::notify_user_both_bots( $user, '✅ پرداخت شما تایید شد. ممنون!', array(), $tx );
 			}
+			self::notify_user_after_purchase_approved( $user, $tx, $meta, 0 );
 		}
 		SimpleVPBot_Purchase_Side_Effects::on_paid_transaction( (int) $tx->id );
 		return array( 'ok' => true, 'tx' => $tx, 'meta' => $meta );
+	}
+
+	/**
+	 * Whether auto Telegram config delivery will run for a new service.
+	 *
+	 * @param object $user       svp_users row.
+	 * @param int    $service_id svp_services.id.
+	 * @return bool
+	 */
+	private static function user_gets_telegram_config_delivery( $user, $service_id ) {
+		$sid = (int) $service_id;
+		if ( $sid < 1 || ! is_object( $user ) ) {
+			return false;
+		}
+		if ( ! class_exists( 'SimpleVPBot_Handler_Service' ) ) {
+			return false;
+		}
+		$svc = SimpleVPBot_Model_Service::find( $sid );
+		if ( ! $svc || SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
+			return false;
+		}
+		return SimpleVPBot_Handler_Service::resolve_telegram_chat_id( $user ) > 0;
+	}
+
+	/**
+	 * Cron fallback: retry provisioning for approved receipt without service.
+	 *
+	 * @param int $rid Receipt id.
+	 */
+	public static function receipt_provision_retry_cron( $rid ) {
+		self::retry_provision_for_receipt( (int) $rid, 'auto_retry' );
+	}
+
+	/**
+	 * Post-thank-you user notifications for an approved purchase (intent msgs or config delivery).
+	 *
+	 * @param object               $user       svp_users row.
+	 * @param object               $tx         Transaction row.
+	 * @param array<string, mixed> $meta       Decoded meta_json.
+	 * @param int                  $receipt_id Receipt id (0 when no receipt row).
+	 */
+	private static function notify_user_after_purchase_approved( $user, $tx, array $meta, $receipt_id = 0 ) {
+		if ( ! is_object( $user ) || ! is_object( $tx ) ) {
+			return;
+		}
+		$tx2    = SimpleVPBot_Model_Transaction::find( (int) $tx->id );
+		$sid    = $tx2 && ! empty( $tx2->service_id ) ? (int) $tx2->service_id : 0;
+		$intent = isset( $meta['intent'] ) ? (string) $meta['intent'] : '';
+		$extra  = array();
+		if ( $sid > 0 ) {
+			$extra = array(
+				'reply_markup' => array(
+					'inline_keyboard' => array(
+						array(
+							array(
+								'text'          => SimpleVPBot_Keyboards::glass_button_text( SimpleVPBot_Texts::get( 'btn.service.show_panel', '🖥 جزئیات سرویس' ) ),
+								'callback_data' => 'svc:p:' . $sid,
+							),
+						),
+					),
+				),
+			);
+		}
+		if ( 'renew_same' === $intent && $sid > 0 ) {
+			self::notify_user_both_bots( $user, '♻️ تمدید سرویس شما اعمال شد.', $extra, $tx );
+			return;
+		}
+		if ( 'add_volume' === $intent && $sid > 0 ) {
+			self::notify_user_both_bots( $user, '➕ حجم سرویس شما افزایش یافت.', $extra, $tx );
+			return;
+		}
+		if ( 'add_user_slots' === $intent && $sid > 0 ) {
+			self::notify_user_both_bots( $user, '👥 محدودیت کاربر هم‌زمان برای سرویس شما بیشتر شد.', $extra, $tx );
+			return;
+		}
+		if ( $sid > 0 ) {
+			self::notify_user_service_ready( $user, $sid, $tx );
+			return;
+		}
+		if ( empty( $meta['plan_id'] ) ) {
+			return;
+		}
+		if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+			SimpleVPBot_Logger::error(
+				'receipt_notify_skipped_no_service',
+				array(
+					'tx_id'      => (int) $tx->id,
+					'receipt_id' => (int) $receipt_id,
+					'intent'     => $intent,
+					'plan_id'    => (int) ( $meta['plan_id'] ?? 0 ),
+				)
+			);
+		}
+		self::notify_user_both_bots(
+			$user,
+			'⏳ سرویس در حال آماده‌سازی است؛ به‌زودی جزئیات و کانفیگ برای شما ارسال می‌شود.',
+			array(),
+			$tx
+		);
+		$rid = (int) $receipt_id;
+		if ( $rid > 0 && class_exists( 'SimpleVPBot_Deferred_Work' ) ) {
+			SimpleVPBot_Deferred_Work::schedule_cron_retry(
+				SimpleVPBot_Deferred_Work::RECEIPT_PROVISION_RETRY_CRON_HOOK,
+				array( $rid ),
+				30
+			);
+		}
 	}
 
 	/**
@@ -1007,7 +1193,7 @@ class SimpleVPBot_Receipt_Processor {
 		}
 
 		if ( 'pending' === $old && 'approved' === $new_status ) {
-			return self::approve( $rid, $label );
+			return self::approve_async_start( $rid, $label );
 		}
 		if ( in_array( $old, array( 'pending', 'processing' ), true ) && 'rejected' === $new_status ) {
 			return self::reject( $rid, $label, $reject_reason );
@@ -1187,7 +1373,10 @@ class SimpleVPBot_Receipt_Processor {
 			if ( is_array( $res ) && ! empty( $res['ok'] ) ) {
 				return true;
 			}
-			usleep( 250000 );
+			$delay = class_exists( 'SimpleVPBot_Settings' ) ? SimpleVPBot_Settings::bot_admin_notify_usleep() : 80000;
+			if ( $delay > 0 ) {
+				usleep( min( 250000, $delay * 2 ) );
+			}
 		}
 		if ( class_exists( 'SimpleVPBot_Logger' ) ) {
 			SimpleVPBot_Logger::error(
@@ -1235,6 +1424,25 @@ class SimpleVPBot_Receipt_Processor {
 	 */
 	public static function finalize_clicked_admin_message( $platform, $chat_id, $msg_id, array $markup ) {
 		self::edit_reply_markup_with_retry( $platform, (int) $chat_id, (int) $msg_id, $markup, 'finalize_clicked' );
+	}
+
+	/**
+	 * Update the admin message that was clicked in a bot callback (when context is known).
+	 *
+	 * @param array<string, mixed>|null $clicked_message platform, chat_id, message_id.
+	 * @param array<string, mixed>      $markup          Reply markup.
+	 */
+	private static function finalize_clicked_if( $clicked_message, array $markup ) {
+		if ( ! is_array( $clicked_message ) ) {
+			return;
+		}
+		$plat = (string) ( $clicked_message['platform'] ?? '' );
+		$cid  = (int) ( $clicked_message['chat_id'] ?? 0 );
+		$mid  = (int) ( $clicked_message['message_id'] ?? 0 );
+		if ( '' === $plat || $cid < 1 || $mid < 1 ) {
+			return;
+		}
+		self::finalize_clicked_admin_message( $plat, $cid, $mid, $markup );
 	}
 
 	/**
@@ -1289,6 +1497,30 @@ class SimpleVPBot_Receipt_Processor {
 		if ( $sid < 1 || ! is_object( $user ) ) {
 			return;
 		}
+		$svc = SimpleVPBot_Model_Service::find( $sid );
+		if ( class_exists( 'SimpleVPBot_Handler_Service' ) ) {
+			SimpleVPBot_Handler_Service::warm_subscription_cache_for_service( $sid );
+			$tg_chat = SimpleVPBot_Handler_Service::resolve_telegram_chat_id( $user );
+			if ( $tg_chat > 0 && $svc && ! SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
+				$intro = SimpleVPBot_Handler_Service::build_purchase_delivery_intro_html( $svc, $context_tx );
+				SimpleVPBot_Handler_Service::set_config_delivery_intro( (int) $user->id, $sid, $intro );
+				SimpleVPBot_Handler_Service::enqueue_config_delivery_for_user( $user, $sid, $context_tx );
+				return;
+			}
+			if ( $tg_chat < 1 && class_exists( 'SimpleVPBot_Logger' ) ) {
+				SimpleVPBot_Logger::info(
+					'config_delivery_skipped_no_telegram',
+					array( 'user_id' => (int) $user->id, 'service_id' => $sid )
+				);
+			}
+		}
+		$summary = class_exists( 'SimpleVPBot_Handler_Service' )
+			? SimpleVPBot_Handler_Service::service_ready_summary_line( $svc, $context_tx )
+			: '';
+		$text    = '🎉 سرویس جدید شما آماده است.';
+		if ( '' !== $summary ) {
+			$text .= "\n" . $summary;
+		}
 		$extra = array(
 			'reply_markup' => array(
 				'inline_keyboard' => array(
@@ -1301,7 +1533,7 @@ class SimpleVPBot_Receipt_Processor {
 				),
 			),
 		);
-		self::notify_user_both_bots( $user, '🎉 سرویس جدید شما آماده است.', $extra, $context_tx );
+		self::notify_user_both_bots( $user, $text, $extra, $context_tx );
 	}
 
 	/**

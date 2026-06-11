@@ -103,16 +103,17 @@ class SimpleVPBot_Support_Contacts {
 			$lines[] = $info;
 		}
 
-		$plat = ( 'bale' === $platform ) ? 'bale' : ( ( 'telegram' === $platform ) ? 'telegram' : '' );
+		$plat    = ( 'bale' === $platform ) ? 'bale' : ( ( 'telegram' === $platform ) ? 'telegram' : '' );
 		$tg_line = self::username_line( '📱 تلگرام:', $tg );
 		$bl_line = self::username_line( '💬 بله:', $bl );
 
-		if ( 'bale' === $plat ) {
-			if ( '' !== $bl_line ) {
-				$lines[] = $bl_line;
-			}
+		if ( 'telegram' === $plat ) {
 			if ( '' !== $tg_line ) {
 				$lines[] = $tg_line;
+			}
+		} elseif ( 'bale' === $plat ) {
+			if ( '' !== $bl_line ) {
+				$lines[] = $bl_line;
 			}
 		} else {
 			if ( '' !== $tg_line ) {

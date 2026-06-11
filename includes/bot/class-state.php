@@ -79,6 +79,9 @@ class SimpleVPBot_State {
 		if ( 'buy_discount' === $st ) {
 			return true;
 		}
+		if ( 'wallet_topup' === $st ) {
+			return true;
+		}
 		if ( 0 === strpos( $st, 'buy_' ) ) {
 			return true;
 		}
@@ -154,6 +157,10 @@ class SimpleVPBot_State {
 			return false;
 		}
 		if ( (int) $user->admin_mode && SimpleVPBot_Router::is_platform_admin( $platform, (int) $from_id ) ) {
+			if ( class_exists( 'SimpleVPBot_Bot_Admin_Nav' ) && SimpleVPBot_Bot_Admin_Nav::is_admin_nav_text( $text_trim, $user ) ) {
+				self::clear( (int) $user->id );
+				return true;
+			}
 			return false;
 		}
 		$st = (string) $user->state;
@@ -179,6 +186,10 @@ class SimpleVPBot_State {
 			return false;
 		}
 		if ( (int) $user->admin_mode && SimpleVPBot_Router::is_platform_admin( $platform, (int) $from_id ) ) {
+			if ( class_exists( 'SimpleVPBot_Bot_Admin_Nav' ) && SimpleVPBot_Bot_Admin_Nav::is_admin_nav_text( $text_trim, $user ) ) {
+				self::clear( (int) $user->id );
+				return true;
+			}
 			return false;
 		}
 		$st = (string) $user->state;

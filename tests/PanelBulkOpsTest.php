@@ -68,6 +68,16 @@ class PanelBulkOpsTest extends TestCase {
 		$this->assertStringContainsString( 'apply_panel_extend_days', $renew );
 		$this->assertStringContainsString( 'panel_client_expiry_ts', $renew );
 		$this->assertStringContainsString( 'panel_update_fail_message', $renew );
+		$this->assertStringContainsString( 'clients_bulk_adjust_v3', $renew );
+	}
+
+	public function test_renew_v3_bulk_adjust_path(): void {
+		$renew = (string) file_get_contents( dirname( __DIR__ ) . '/includes/helpers/class-service-renew.php' );
+		$this->assertStringContainsString( 'is_v3_clients_api()', $renew );
+		$this->assertMatchesRegularExpression(
+			'/apply_after_payment[\\s\\S]*clients_bulk_adjust_v3/s',
+			$renew
+		);
 	}
 
 	public function test_receipt_provision_error_formatter(): void {
@@ -93,7 +103,7 @@ class PanelBulkOpsTest extends TestCase {
 
 	public function test_migration_231_bulk_panel_items(): void {
 		$act = (string) file_get_contents( dirname( __DIR__ ) . '/includes/class-activator.php' );
-		$this->assertStringContainsString( "DB_VERSION = '2.3.1'", $act );
+		$this->assertStringContainsString( "DB_VERSION = '2.4.4'", $act );
 		$this->assertStringContainsString( 'maybe_migrate_231_bulk_panel_items', $act );
 		$this->assertStringContainsString( 'client_email', $act );
 	}

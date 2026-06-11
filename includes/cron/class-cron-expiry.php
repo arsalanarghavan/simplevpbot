@@ -23,7 +23,6 @@ class SimpleVPBot_Cron_Expiry {
 		if ( ! SimpleVPBot_Settings::get( 'enabled', true ) ) {
 			return;
 		}
-		$sent = (array) get_option( self::OPTION_SENT_BUCKETS, array() );
 		$services = SimpleVPBot_Model_Service::all();
 		$cleaned_l2tp_expired = array();
 		foreach ( $services as $svc ) {
@@ -49,6 +48,9 @@ class SimpleVPBot_Cron_Expiry {
 				$svc = SimpleVPBot_Model_Service::find( (int) $svc->id ) ?: $svc;
 			}
 
+			$purge_covers = class_exists( 'SimpleVPBot_Cron_Purge_Expired' )
+				&& SimpleVPBot_Cron_Purge_Expired::covers_expired_service( $svc );
+
 			$total = (int) $svc->total_traffic;
 			$used  = (int) $svc->used_traffic;
 			$pct_th = SimpleVPBot_Service_Alerts::effective_low_traffic_pct( $svc );
@@ -56,15 +58,13 @@ class SimpleVPBot_Cron_Expiry {
 				$remaining_pct = (int) floor( ( ( $total - $used ) * 100 ) / $total );
 				if ( $remaining_pct <= $pct_th && $remaining_pct >= 0 ) {
 					$bucket_key = 'svc' . (int) $svc->id . ':low:' . $pct_th;
-					if ( empty( $sent[ $bucket_key ] ) ) {
-						self::notify_user(
-							$user,
-							"⚠️ حجم سرویس «" . (string) $svc->remark . "»\n"
-							. "🧒 یعنی از حجمت خیلی کم مانده.\n"
-							. "📊 حدود {$remaining_pct}٪ از حجم هنوز مانده."
-						);
-						$sent[ $bucket_key ] = time();
-						SimpleVPBot_Model_Service::update( (int) $svc->id, array( 'last_warn_sent_at' => current_time( 'mysql', 1 ) ) );
+					if ( self::claim_and_notify(
+						$bucket_key,
+						$user,
+						self::build_low_traffic_text( $user, $svc, $remaining_pct ),
+						(int) $svc->id
+					) ) {
+						// Sent.
 					}
 				}
 			}
@@ -83,23 +83,12 @@ class SimpleVPBot_Cron_Expiry {
 						$cd_ok = ! self::ip_alert_cooldown_active( (int) $svc->id );
 						if ( $h_ok && $cd_ok ) {
 							$bucket_key = 'svc' . (int) $svc->id . ':ip:' . $lim . ':' . $ip_th . ':m' . $min_d;
-							if ( empty( $sent[ $bucket_key ] ) ) {
-								$tpl = SimpleVPBot_Texts::get(
-									'msg.cron_ip_distinct_warn',
-									"⚠️ سرویس «{remark}»\n🧒 یعنی چی؟ تعداد آدرس/IP متفاوتی که پنل برای این اشتراک ثبت کرده بالا رفته است.\n📌 الان حدود {n_ip} IP متمایز ثبت شده است.\n📌 سقف اسلات این اشتراک {lim} است (آستانهٔ هشدار حداقل {need} IP).\n✋ اگر لازم دارید از منوی همان سرویس «افزایش کاربر» را بزنید."
-								);
-								$body = SimpleVPBot_Texts::format(
-									$tpl,
-									array(
-										'remark' => (string) $svc->remark,
-										'n_ip'   => (string) $n_ip,
-										'lim'    => (string) $lim,
-										'need'   => (string) $need_e,
-									)
-								);
-								self::notify_user( $user, $body );
-								$sent[ $bucket_key ] = time();
-								SimpleVPBot_Model_Service::update( (int) $svc->id, array( 'last_warn_sent_at' => current_time( 'mysql', 1 ) ) );
+							if ( self::claim_and_notify(
+								$bucket_key,
+								$user,
+								self::build_ip_distinct_text( $user, $svc, $n_ip, $lim, $need_e ),
+								(int) $svc->id
+							) ) {
 								self::ip_alert_cooldown_mark( (int) $svc->id );
 							}
 						}
@@ -114,67 +103,160 @@ class SimpleVPBot_Cron_Expiry {
 				if ( false !== $exp ) {
 					$days      = (int) floor( ( $exp - time() ) / DAY_IN_SECONDS );
 					$warn_days = SimpleVPBot_Service_Alerts::effective_expiry_days( $svc );
-					if ( in_array( $days, $warn_days, true ) ) {
+					if ( $days >= 0 && in_array( $days, $warn_days, true ) ) {
 						$bucket_key = 'svc' . (int) $svc->id . ':expd:' . $days;
-						if ( empty( $sent[ $bucket_key ] ) ) {
-							$when = $days > 0
-								? sprintf(
-									/* translators: %d: days until expiry */
-									__( '🧒 یعنی چی؟ تا تمام شدن وقتش %d روز دیگر مانده.', 'simplevpbot' ),
-									$days
-								)
-								: ( 0 === $days
-									? __( '🧒 یعنی چی؟ امروز آخرین روز اعتبار این سرویس است.', 'simplevpbot' )
-									: sprintf(
-										/* translators: %d: days after expiry (positive English count) */
-										__( '🧒 یعنی چی؟ از تاریخ انقضا %d روز گذشته است.', 'simplevpbot' ),
-										abs( $days )
-									)
-								);
-							self::notify_user(
-								$user,
-								"⏳ سرویس «" . (string) $svc->remark . "»\n"
-								. $when . "\n"
-								. __( '✋ اگر خواستی زودتر تمدید کن از منوی همان سرویس دکمه تمدید را بزن.', 'simplevpbot' )
-							);
-							$sent[ $bucket_key ] = time();
-							SimpleVPBot_Model_Service::update( (int) $svc->id, array( 'last_warn_sent_at' => current_time( 'mysql', 1 ) ) );
-						}
+						self::claim_and_notify(
+							$bucket_key,
+							$user,
+							self::build_expiry_text( $user, $svc, $days ),
+							(int) $svc->id
+						);
 					}
-					if ( $days < 0 && SimpleVPBot_Service_Alerts::global_notify_after_expire_on() ) {
+					if ( $days < 0 && ! $purge_covers && in_array( $days, $warn_days, true ) ) {
+						$bucket_key = 'svc' . (int) $svc->id . ':expd:' . $days;
+						self::claim_and_notify(
+							$bucket_key,
+							$user,
+							self::build_expiry_text( $user, $svc, $days ),
+							(int) $svc->id
+						);
+					}
+					if ( $days < 0 && ! $purge_covers && SimpleVPBot_Service_Alerts::global_notify_after_expire_on() ) {
 						$bucket_key = 'svc' . (int) $svc->id . ':expired:' . gmdate( 'Y-m-d', $exp );
-						if ( empty( $sent[ $bucket_key ] ) ) {
-							self::notify_user(
-								$user,
-								"⛔ سرویس «" . (string) $svc->remark . "»\n"
-								. "🧒 یعنی چی؟ وقت استفاده‌اش تمام شده.\n"
-								. "✋ برای ادامه از منوی خرید یا پشتیبانی کمک بگیر."
-							);
-							$sent[ $bucket_key ] = time();
-						}
+						self::claim_and_notify(
+							$bucket_key,
+							$user,
+							self::build_after_expired_text( $user, $svc ),
+							(int) $svc->id
+						);
 					}
 				}
 			}
 		}
-
-		$sent = self::prune_sent_buckets( $sent );
-		update_option( self::OPTION_SENT_BUCKETS, $sent, false );
 	}
 
 	/**
-	 * Remove bucket entries older than 45 days to keep option bounded.
+	 * Claim dedupe bucket and send when allowed.
 	 *
-	 * @param array<string, int> $sent Sent buckets.
-	 * @return array<string, int>
+	 * @param string $bucket_key Bucket id.
+	 * @param object $user       User row.
+	 * @param string $text       Message body.
+	 * @param int    $service_id Service id for last_warn_sent_at.
+	 * @return bool True when sent.
 	 */
-	private static function prune_sent_buckets( array $sent ) {
-		$cutoff = time() - 45 * DAY_IN_SECONDS;
-		foreach ( $sent as $k => $ts ) {
-			if ( (int) $ts < $cutoff ) {
-				unset( $sent[ $k ] );
+	private static function claim_and_notify( $bucket_key, $user, $text, $service_id ) {
+		if ( class_exists( 'SimpleVPBot_Notification_Dedup' ) ) {
+			if ( ! SimpleVPBot_Notification_Dedup::claim( 'expiry', (string) $bucket_key, 45 ) ) {
+				return false;
 			}
+		} else {
+			$sent = (array) get_option( self::OPTION_SENT_BUCKETS, array() );
+			if ( ! empty( $sent[ $bucket_key ] ) ) {
+				return false;
+			}
+			$sent[ $bucket_key ] = time();
+			update_option( self::OPTION_SENT_BUCKETS, $sent, false );
 		}
-		return $sent;
+		self::notify_user( $user, $text );
+		if ( $service_id > 0 ) {
+			SimpleVPBot_Model_Service::update( (int) $service_id, array( 'last_warn_sent_at' => current_time( 'mysql', 1 ) ) );
+		}
+		return true;
+	}
+
+	/**
+	 * @param object $user User.
+	 * @param object $svc  Service.
+	 * @param int    $remaining_pct Remaining percent.
+	 * @return string
+	 */
+	private static function build_low_traffic_text( $user, $svc, $remaining_pct ) {
+		$name = class_exists( 'SimpleVPBot_User_Display' ) ? SimpleVPBot_User_Display::name( $user ) : 'کاربر';
+		$def  = "{name} عزیز؛\n\nحجم باقی‌مانده سرویس «{remark}» کم شده است.\n\n📊 حدود {remaining_pct}٪ از حجم کل هنوز مانده است.\n📅 در صورت نیاز، از منوی همان سرویس «افزودن حجم» یا «تمدید» را انتخاب کنید.";
+		$tpl  = SimpleVPBot_Texts::get( 'msg.cron_low_traffic', $def );
+		return SimpleVPBot_Texts::format(
+			$tpl,
+			array(
+				'name'           => $name,
+				'remark'         => (string) ( $svc->remark ?? '' ),
+				'remaining_pct'  => (string) (int) $remaining_pct,
+			)
+		);
+	}
+
+	/**
+	 * @param object $user User.
+	 * @param object $svc  Service.
+	 * @param int    $n_ip IP count.
+	 * @param int    $lim  Limit.
+	 * @param int    $need Threshold.
+	 * @return string
+	 */
+	private static function build_ip_distinct_text( $user, $svc, $n_ip, $lim, $need ) {
+		$name = class_exists( 'SimpleVPBot_User_Display' ) ? SimpleVPBot_User_Display::name( $user ) : 'کاربر';
+		$tpl  = SimpleVPBot_Texts::get(
+			'msg.cron_ip_distinct_warn',
+			"⚠️ سرویس «{remark}»\n\n{name} عزیز؛\n\nتعداد آدرس/IP متفاوت ثبت‌شده برای این اشتراک از حد معمول بالاتر رفته است.\n\n📌 حدود {n_ip} IP متمایز ثبت شده\n📌 سقف اسلات: {lim} (آستانه هشدار: حداقل {need} IP)\n\n✋ در صورت نیاز از منوی همان سرویس «افزایش کاربر» را انتخاب کنید."
+		);
+		return SimpleVPBot_Texts::format(
+			$tpl,
+			array(
+				'name'   => $name,
+				'remark' => (string) ( $svc->remark ?? '' ),
+				'n_ip'   => (string) (int) $n_ip,
+				'lim'    => (string) (int) $lim,
+				'need'   => (string) (int) $need,
+			)
+		);
+	}
+
+	/**
+	 * @param object $user User.
+	 * @param object $svc  Service.
+	 * @param int    $days Day offset (negative = after expiry).
+	 * @return string
+	 */
+	private static function build_expiry_text( $user, $svc, $days ) {
+		$name = class_exists( 'SimpleVPBot_User_Display' ) ? SimpleVPBot_User_Display::name( $user ) : 'کاربر';
+		if ( $days > 0 ) {
+			$key = 'msg.cron_expiry_before';
+			$def = "{name} عزیز؛\n\nسرویس «{remark}» شما تا {days} روز دیگر منقضی می‌شود.\n\n📅 برای جلوگیری از قطع سرویس، از منوی همان سرویس «تمدید» را بزنید.";
+		} elseif ( 0 === $days ) {
+			$key = 'msg.cron_expiry_today';
+			$def = "{name} عزیز؛\n\nامروز آخرین روز اعتبار سرویس «{remark}» شماست.\n\n📅 برای ادامه بدون وقفه، همین الان «تمدید» را از منوی همان سرویس انتخاب کنید.";
+		} else {
+			$key = 'msg.cron_expiry_after';
+			$def = "{name} عزیز؛\n\nاعتبار سرویس «{remark}» شما {days} روز پیش به پایان رسیده است.\n\n📅 برای فعال‌سازی مجدد، از منوی همان سرویس «تمدید» را بزنید یا از بخش خرید اقدام کنید.";
+		}
+		$tpl = SimpleVPBot_Texts::get( $key, $def );
+		return SimpleVPBot_Texts::format(
+			$tpl,
+			array(
+				'name'   => $name,
+				'remark' => (string) ( $svc->remark ?? '' ),
+				'days'   => (string) abs( (int) $days ),
+			)
+		);
+	}
+
+	/**
+	 * @param object $user User.
+	 * @param object $svc  Service.
+	 * @return string
+	 */
+	private static function build_after_expired_text( $user, $svc ) {
+		$name = class_exists( 'SimpleVPBot_User_Display' ) ? SimpleVPBot_User_Display::name( $user ) : 'کاربر';
+		$tpl  = SimpleVPBot_Texts::get(
+			'msg.cron_after_expired',
+			"{name} عزیز؛\n\nسرویس «{remark}» منقضی شده و دیگر قابل استفاده نیست.\n\n📅 برای ادامه، از بخش خرید سرویس جدید بگیرید یا با پشتیبانی تماس بگیرید."
+		);
+		return SimpleVPBot_Texts::format(
+			$tpl,
+			array(
+				'name'   => $name,
+				'remark' => (string) ( $svc->remark ?? '' ),
+			)
+		);
 	}
 
 	/**

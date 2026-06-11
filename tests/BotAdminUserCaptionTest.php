@@ -40,6 +40,28 @@ class BotAdminUserCaptionTest extends TestCase {
 	}
 
 	/**
+	 * Wallet top-up receipts show «شارژ کیف پول» as selected service.
+	 */
+	public function test_selected_service_line_wallet_topup(): void {
+		$root = dirname( __DIR__ );
+		$code = (string) file_get_contents( $root . '/includes/helpers/class-bot-admin-user-caption.php' );
+		$this->assertStringContainsString( 'wallet_topup', $code );
+		$this->assertStringContainsString( 'dashboard_reseller_topup', $code );
+		$this->assertStringContainsString( 'msg.wallet.topup_bale_title', $code );
+		$this->assertStringContainsString( 'function transaction_selected_service_label', $code );
+	}
+
+	/**
+	 * Dashboard receipt payload exposes selected_service from transaction label helper.
+	 */
+	public function test_dashboard_receipt_includes_selected_service(): void {
+		$root = dirname( __DIR__ );
+		$api  = (string) file_get_contents( $root . '/includes/api/class-rest-dashboard.php' );
+		$this->assertStringContainsString( "'selected_service'", $api );
+		$this->assertStringContainsString( 'transaction_selected_service_label', $api );
+	}
+
+	/**
 	 * Per-GB plan captions append گیگ from meta volume_gb.
 	 */
 	public function test_selected_service_line_per_gb_volume(): void {

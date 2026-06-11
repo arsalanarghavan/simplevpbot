@@ -96,6 +96,26 @@ class SimpleVPBot_Model_Discount_Code {
 	}
 
 	/**
+	 * Ordered list scoped to owner (site admin: pass 0 for all rows).
+	 *
+	 * @param int|null $owner_svp_user_id Owner reseller id; null or 0 = all.
+	 * @return array<int, object>
+	 */
+	public static function all_ordered_for_owner( $owner_svp_user_id = null ) {
+		global $wpdb;
+		$owner = null === $owner_svp_user_id ? 0 : (int) $owner_svp_user_id;
+		if ( $owner < 1 ) {
+			return self::all_ordered();
+		}
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT * FROM ' . self::table() . ' WHERE owner_svp_user_id = %d ORDER BY id DESC',
+				$owner
+			)
+		); // phpcs:ignore
+	}
+
+	/**
 	 * @param array<string, mixed> $data Data.
 	 * @return int Insert id.
 	 */

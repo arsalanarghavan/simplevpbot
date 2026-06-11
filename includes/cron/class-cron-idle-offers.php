@@ -26,6 +26,10 @@ class SimpleVPBot_Cron_Idle_Offers {
 		if ( ! SimpleVPBot_Settings::get( 'enabled', true ) ) {
 			return;
 		}
+		// Re-engagement is handled by marketing lifecycle cron when available.
+		if ( class_exists( 'SimpleVPBot_Cron_Marketing' ) ) {
+			return;
+		}
 		if ( ! SimpleVPBot_Settings::get( 'notify_idle_enabled', false ) ) {
 			return;
 		}

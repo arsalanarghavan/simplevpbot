@@ -66,13 +66,30 @@ class SimpleVPBot_Card_Rotation {
 	}
 
 	/**
-	 * Whether a card is under its daily approved limit.
+	 * Whether used + amount fits within daily limit (pure helper for tests).
+	 *
+	 * @param float $used   Approved sum today (toman).
+	 * @param float $limit  Daily limit (toman); 0 = unlimited.
+	 * @param float $amount Transaction amount (toman).
+	 * @return bool
+	 */
+	public static function fits_daily_limit( $used, $limit, $amount ) {
+		$lim = (float) $limit;
+		if ( $lim <= 0 ) {
+			return true;
+		}
+		return (float) $used + (float) $amount <= $lim + 0.000001;
+	}
+
+	/**
+	 * Whether a card is under its daily approved limit for a given transaction amount.
 	 *
 	 * @param object $card Card row.
 	 * @param int    $transaction_id Pending transaction id (excluded from usage sum).
+	 * @param float  $amount_toman   Transaction amount in toman (0 = load from transaction).
 	 * @return bool
 	 */
-	public static function is_card_eligible( $card, $transaction_id = 0 ) {
+	public static function is_card_eligible( $card, $transaction_id = 0, $amount_toman = 0.0 ) {
 		$cid   = (int) ( is_object( $card ) ? ( $card->id ?? 0 ) : 0 );
 		$limit = (float) ( is_object( $card ) ? ( $card->daily_limit ?? 0 ) : 0 );
 		if ( $cid < 1 ) {
@@ -81,11 +98,18 @@ class SimpleVPBot_Card_Rotation {
 		if ( $limit <= 0 ) {
 			return true;
 		}
+		$amount = (float) $amount_toman;
+		if ( $amount <= 0 && (int) $transaction_id > 0 && class_exists( 'SimpleVPBot_Model_Transaction' ) ) {
+			$tx = SimpleVPBot_Model_Transaction::find( (int) $transaction_id );
+			if ( $tx ) {
+				$amount = (float) ( $tx->amount ?? 0 );
+			}
+		}
 		$used = 0.0;
 		if ( class_exists( 'SimpleVPBot_Model_Receipt' ) ) {
 			$used = (float) SimpleVPBot_Model_Receipt::approved_sum_for_card_today( $cid, (int) $transaction_id );
 		}
-		return $used + 0.000001 < $limit;
+		return self::fits_daily_limit( $used, $limit, $amount );
 	}
 
 	/**

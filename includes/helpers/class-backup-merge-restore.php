@@ -45,6 +45,8 @@ class SimpleVPBot_Backup_Merge_Restore {
 		'svp_reseller_parent_panel_floors',
 		'svp_reseller_bot_profiles',
 		'svp_reseller_closure',
+		'svp_marketing_rules',
+		'svp_marketing_offers',
 		'svp_discount_redemptions',
 		'svp_service_ip_log',
 		'svp_users_bulk_jobs',

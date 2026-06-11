@@ -16,7 +16,8 @@ import { useTranslation } from "react-i18next"
 
 import { Badge } from "@/components/ui/badge"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashboardWholesaleLinesAdmin } from "@/components/dashboard-wholesale-lines-admin"
+import { DashPage } from "@/components/dash-page"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -25,14 +26,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,16 +36,27 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Sheet,
-  SheetContent,
   SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { DashSheetContent } from "@/components/dash-sheet-content"
 import { DataPagination } from "@/components/data-pagination"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import type { PaginationMeta } from "@/lib/dash-pagination"
+import { DashSelect } from "@/components/dash-select"
 import { formatNumber } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
+import { useDashLocale } from "@/lib/dash-locale-context"
+import { DashDialogContent, DashDialogFooter, DashDialogHeader } from "@/components/dash-dialog-content"
+import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  type PlansView,
+  isPlansView,
+  readPlansViewFromUrl,
+  writePlansViewToUrl,
+} from "@/lib/plans-subview"
 
 type DashRecord = Record<string, unknown>
 
@@ -72,7 +76,9 @@ function panelLabel(panels: DashRecord[], panelId: number): string {
   return String(row?.label ?? row?.name ?? `#${panelId}`)
 }
 
-function formatClientCap(v: unknown, isFa: boolean, unlimited: string): string {
+function formatClientCap(v: unknown, unlimited: string): string {
+  const { isFa } = useDashLocale()
+
   const n = num(v)
   return n < 1 ? unlimited : formatNumber(n, isFa)
 }
@@ -116,6 +122,7 @@ type PlanFormState = {
   l2tp_server_id: number
   sort_order: number
   plan_active: boolean
+  wholesale_line_id: number
 }
 
 function emptyForm(defaultPanelId: number, defaultCategory: string, ownerId = 0): PlanFormState {
@@ -138,6 +145,7 @@ function emptyForm(defaultPanelId: number, defaultCategory: string, ownerId = 0)
     l2tp_server_id: 0,
     sort_order: 0,
     plan_active: true,
+    wholesale_line_id: 0,
   }
 }
 
@@ -161,6 +169,7 @@ function formFromPlan(p: DashRecord): PlanFormState {
     l2tp_server_id: num(p.l2tp_server_id),
     sort_order: num(p.sort_order),
     plan_active: p.active === true || p.active === 1 || p.active === "1",
+    wholesale_line_id: num(p.wholesale_line_id),
   }
 }
 
@@ -183,19 +192,22 @@ function formToPayload(f: PlanFormState): Record<string, unknown> {
     l2tp_server_id: f.l2tp_server_id,
     sort_order: f.sort_order,
     plan_active: f.plan_active ? 1 : 0,
+    ...(f.wholesale_line_id > 0 ? { wholesale_line_id: f.wholesale_line_id } : {}),
   }
 }
 
 function validateForm(
   f: PlanFormState,
   resellerMode: boolean,
-  formTarget: "site" | "reseller"
+  formTarget: "site" | "reseller",
+  wholesaleLinesOnPanel = 0
 ): string | null {
   if (!f.name.trim()) return "name"
   if (!f.category.trim()) return "category"
   if (!resellerMode && formTarget === "reseller" && f.owner_svp_user_id < 1) return "reseller"
   if (!resellerMode && formTarget === "site" && f.inbound_id <= 0) return "inbound"
   if (resellerMode && f.inbound_id <= 0 && f.service_type === "xray") return "inbound"
+  if (resellerMode && wholesaleLinesOnPanel > 1 && f.wholesale_line_id < 1) return "wholesale_line"
   if (f.plan_pricing_type === "fixed" && f.price <= 0) return "price"
   if (f.plan_pricing_type === "per_gb") {
     if (f.price_per_gb <= 0) return "price_per_gb"
@@ -213,12 +225,14 @@ const CLIENT_VALIDATION_LOCALE: Record<string, string> = {
   price: "validationPrice",
   price_per_gb: "validationPricePerGb",
   traffic_range: "validationTrafficRange",
+  wholesale_line: "validationWholesaleLine",
 }
 
 const SERVER_ERROR_LOCALE: Record<string, string> = {
   invalid: "errorCode_invalid",
   invalid_update: "errorCode_invalid",
   panel_not_allowed: "errorCode_panel_not_allowed",
+  wholesale_line_required: "errorCode_wholesale_line_required",
   wholesale_line_not_assigned: "errorCode_wholesale_line_not_assigned",
   wholesale_line_invalid: "errorCode_wholesale_line_invalid",
   wholesale_line_no_tiers: "errorCode_wholesale_line_no_tiers",
@@ -242,9 +256,6 @@ function formatPlanMutateError(
   return msg ? `${tp("mutateError")}: ${msg}` : tp("mutateError")
 }
 
-const selectClass =
-  "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
-
 /** Mirrors REST `resellerPanelAccessDiagnostics` when the reseller has zero visible panels. */
 export type ResellerPanelAccessDiagnostics = {
   stored_rows?: number
@@ -257,16 +268,18 @@ export function DashboardPlansAdmin({
   plans,
   panels,
   planCategories,
-  l2tpServers: _l2tpServers = [],
+  l2tpServers = [],
   resellerChoices = [],
   resellerPlanFloors = [],
+  wholesaleLinesCatalog = [],
+  wholesaleLines = [],
+  initialPlansView,
   resellerMode = false,
   actorSvpUserId = 0,
   panelAccessDiagnostics = null,
   pagination,
   settings,
   showCatalogDefaultsSave = true,
-  isFa,
   onMutateSuccess,
   onPageChange,
   onPerPageChange,
@@ -277,19 +290,25 @@ export function DashboardPlansAdmin({
   l2tpServers: DashRecord[]
   resellerChoices?: DashRecord[]
   resellerPlanFloors?: DashRecord[]
+  wholesaleLinesCatalog?: DashRecord[]
+  wholesaleLines?: DashRecord[]
+  initialPlansView?: PlansView
   resellerMode?: boolean
   actorSvpUserId?: number
   panelAccessDiagnostics?: ResellerPanelAccessDiagnostics | null
   pagination: PaginationMeta | null
   settings?: DashRecord
   showCatalogDefaultsSave?: boolean
-  isFa: boolean
-  onMutateSuccess?: () => void
+onMutateSuccess?: () => void
   onPageChange: (page: number) => void
   onPerPageChange: (perPage: number) => void
 }) {
+  const { isFa } = useDashLocale()
+
   const { t } = useTranslation()
   const tp = (k: string, opts?: Record<string, string | number>) => t(`plansAdmin.${k}`, opts)
+
+  const [plansView, setPlansView] = useState<PlansView>(() => initialPlansView ?? readPlansViewFromUrl())
 
   const [sitePanelFilter, setSitePanelFilter] = useState<string>("all")
   const [resellerPanelFilter, setResellerPanelFilter] = useState<string>("all")
@@ -415,14 +434,27 @@ export function DashboardPlansAdmin({
 
   const floorForPanel = useMemo(() => {
     const pid = form.plan_panel_id
-    return resellerPlanFloors.find((x) => num(x.panel_id) === pid)
-  }, [form.plan_panel_id, resellerPlanFloors])
+    const lid = form.wholesale_line_id
+    if (lid > 0) {
+      const byLine = resellerPlanFloors.find((x) => num(x.wholesale_line_id) === lid)
+      if (byLine) return byLine
+    }
+    return (
+      resellerPlanFloors.find((x) => num(x.panel_id) === pid && !num(x.wholesale_line_id)) ??
+      resellerPlanFloors.find((x) => num(x.panel_id) === pid)
+    )
+  }, [form.plan_panel_id, form.wholesale_line_id, resellerPlanFloors])
 
   const minPriceFloorPerGb = useMemo(() => num(floorForPanel?.min_price_per_gb_effective), [floorForPanel])
 
   const categoriesForFormPanel = useMemo(
     () => planCategories.filter((c) => num(c.panel_id) === form.plan_panel_id),
     [planCategories, form.plan_panel_id]
+  )
+
+  const wholesaleLinesForPanel = useMemo(
+    () => wholesaleLines.filter((ln) => num(ln.panel_id) === form.plan_panel_id),
+    [wholesaleLines, form.plan_panel_id]
   )
 
   useEffect(() => {
@@ -486,7 +518,7 @@ export function DashboardPlansAdmin({
   }
 
   const onSaveSheet = async () => {
-    const inv = validateForm(form, resellerMode, formTarget)
+    const inv = validateForm(form, resellerMode, formTarget, wholesaleLinesForPanel.length)
     if (inv) {
       const key = CLIENT_VALIDATION_LOCALE[inv]
       setError(key ? tp(key) : tp("mutateInvalid"))
@@ -513,13 +545,40 @@ export function DashboardPlansAdmin({
   }
 
   return (
-    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+    <DashPage>
       <DashboardPageHeader
         title={<h2 className="text-xl font-semibold tracking-tight">{tp("title")}</h2>}
         description={tp("subtitle")}
       />
 
-      {resellerMode && panels.length === 0 ? (
+      {!resellerMode ? (
+        <Tabs
+          value={plansView}
+          onValueChange={(v) => {
+            const next = isPlansView(v) ? v : "plans"
+            setPlansView(next)
+            writePlansViewToUrl(next)
+          }}
+        >
+          <TabsList>
+            <TabsTrigger value="plans">{tp("tabPlans")}</TabsTrigger>
+            <TabsTrigger value="wholesale">{tp("tabWholesaleLines")}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      ) : null}
+
+      {!resellerMode && plansView === "wholesale" ? (
+        <DashboardWholesaleLinesAdmin
+          catalog={wholesaleLinesCatalog}
+          panels={panels}
+          l2tpServers={l2tpServers}
+          onMutateSuccess={onMutateSuccess}
+        />
+      ) : null}
+
+      {resellerMode || plansView === "plans" ? (
+        <>
+      {resellerMode && panels.length === 0 && wholesaleLines.length === 0 ? (
         <div className="space-y-3">
           <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
             {tp("resellerNoPanels")}
@@ -578,6 +637,73 @@ export function DashboardPlansAdmin({
 
       {pagination ? <p className="text-xs text-muted-foreground">{tp("statsPageBreakdown")}</p> : null}
 
+      {resellerMode && wholesaleLines.length > 0 ? (
+        <div className="space-y-3">
+          <div>
+            <h3 className="text-sm font-medium">{tp("wholesaleLadderTitle")}</h3>
+            <p className="text-xs text-muted-foreground">{tp("wholesaleLadderRenewNote")}</p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {wholesaleLines.map((ln) => {
+              const ladder = (ln.ladder ?? {}) as Record<string, unknown>
+              const label = String(ln.label ?? ln.id ?? "")
+              const totalGb = Number(ladder.total_gb ?? 0)
+              const totalToman = Number(ladder.total_wholesale_toman ?? 0)
+              const curRate = ladder.current_price_per_gb
+              const nextRate = ladder.next_price_per_gb
+              const gbNeed = ladder.gb_to_next_tier
+              const tomanNeed = ladder.toman_to_next_tier
+              const tiers = Array.isArray(ladder.tiers) ? (ladder.tiers as Record<string, unknown>[]) : []
+              return (
+                <Card key={String(ln.id ?? label)}>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">{tp("wholesaleLadderLine", { label })}</CardTitle>
+                    <CardDescription>
+                      {tp("wholesaleLadderTotals", {
+                        gb: formatNumber(totalGb, isFa),
+                        toman: formatNumber(totalToman, isFa),
+                      })}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    {curRate != null && Number(curRate) > 0 ? (
+                      <p>{tp("wholesaleLadderCurrent", { rate: formatNumber(Number(curRate), isFa) })}</p>
+                    ) : null}
+                    {nextRate != null && Number(nextRate) > 0 ? (
+                      <p className="text-muted-foreground">
+                        {tp("wholesaleLadderNext", {
+                          rate: formatNumber(Number(nextRate), isFa),
+                          gb: formatNumber(Number(gbNeed ?? 0), isFa),
+                          toman: formatNumber(Number(tomanNeed ?? 0), isFa),
+                        })}
+                      </p>
+                    ) : (
+                      <p className="text-muted-foreground">{tp("wholesaleLadderMax")}</p>
+                    )}
+                    {tiers.length > 0 ? (
+                      <ul className="space-y-1 text-xs text-muted-foreground">
+                        {tiers.map((t) => (
+                          <li key={String(t.id ?? t.sort_order)}>
+                            {formatNumber(Number(t.price_per_gb ?? 0), isFa)}
+                            {tp("wholesaleLadderPerGb")}
+                            {Number(t.min_total_gb ?? 0) > 0
+                              ? ` · ${tp("wholesaleLadderTierMinGb", { gb: formatNumber(Number(t.min_total_gb), isFa) })}`
+                              : ""}
+                            {Number(t.min_total_toman ?? 0) > 0
+                              ? ` · ${tp("wholesaleLadderTierMinToman", { toman: formatNumber(Number(t.min_total_toman), isFa) })}`
+                              : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 xl:grid-cols-[1fr_260px]">
         <div className="min-w-0 space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
@@ -586,21 +712,21 @@ export function DashboardPlansAdmin({
                 {tp("filterPanel")}
               </Label>
               <span className="text-sm text-muted-foreground">{tp("filterPanel")}</span>
-              <select
+              <DashSelect
                 id="catalog-filter"
-                className={cn(selectClass, "w-full min-w-[10rem] sm:w-56")}
+                triggerClassName="w-full min-w-[10rem] sm:w-56"
                 value={resellerMode ? panelFilter : sitePanelFilter}
-                onChange={(e) =>
-                  resellerMode ? setPanelFilter(e.target.value) : setSitePanelFilter(e.target.value)
+                onValueChange={(v) =>
+                  resellerMode ? setPanelFilter(v) : setSitePanelFilter(v)
                 }
-              >
-                <option value="all">{tp("filterAll")}</option>
-                {panels.map((p) => (
-                  <option key={String(p.id)} value={String(p.id)}>
-                    {String(p.label ?? p.name ?? p.id)}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: "all", label: tp("filterAll") },
+                  ...panels.map((p) => ({
+                    value: String(p.id),
+                    label: String(p.label ?? p.name ?? p.id),
+                  })),
+                ]}
+              />
             </div>
             <div className={cn("flex flex-wrap items-center gap-2")}>
               {showCatalogDefaultsSave && !resellerMode ? (
@@ -636,18 +762,18 @@ export function DashboardPlansAdmin({
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-base font-semibold">{tp("resellerPlansSection")}</h3>
-                <select
-                  className={cn(selectClass, "w-full min-w-[10rem] sm:w-48")}
+                <DashSelect
+                  triggerClassName="w-full min-w-[10rem] sm:w-48"
                   value={resellerPanelFilter}
-                  onChange={(e) => setResellerPanelFilter(e.target.value)}
-                >
-                  <option value="all">{tp("filterAll")}</option>
-                  {panels.map((p) => (
-                    <option key={`rf-${String(p.id)}`} value={String(p.id)}>
-                      {String(p.label ?? p.name ?? p.id)}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={setResellerPanelFilter}
+                  options={[
+                    { value: "all", label: tp("filterAll") },
+                    ...panels.map((p) => ({
+                      value: String(p.id),
+                      label: String(p.label ?? p.name ?? p.id),
+                    })),
+                  ]}
+                />
               </div>
               {filteredResellerPlans.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{tp("rankEmpty")}</p>
@@ -797,7 +923,7 @@ export function DashboardPlansAdmin({
                       <PlanInfoRow
                         icon={Users}
                         label={tp("cardClients")}
-                        value={formatClientCap(p.clients_count, isFa, tp("clientsUnlimited"))}
+                        value={formatClientCap(p.clients_count, tp("clientsUnlimited"))}
                       />
                       <PlanInfoRow icon={BadgeDollarSign} label={tp("cardPrice")} value={priceLabel} />
                       {ptype === "fixed" ? (
@@ -821,8 +947,7 @@ export function DashboardPlansAdmin({
           )}
           <DataPagination
             meta={pagination}
-            isFa={isFa}
-            onPageChange={onPageChange}
+        onPageChange={onPageChange}
             onPerPageChange={onPerPageChange}
           />
         </div>
@@ -858,8 +983,7 @@ export function DashboardPlansAdmin({
       </div>
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent
-          side={isFa ? "left" : "right"}
+        <DashSheetContent
           className="w-full overflow-y-auto sm:max-w-md"
           showCloseButton
         >
@@ -883,72 +1007,88 @@ export function DashboardPlansAdmin({
             {!resellerMode && formTarget === "reseller" ? (
               <div className="space-y-2">
                 <Label>{tp("pickReseller")}</Label>
-                <select
-                  className={selectClass}
+                <DashSelect
                   value={String(form.owner_svp_user_id || 0)}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, owner_svp_user_id: num(e.target.value) }))
-                  }
-                >
-                  <option value="0">{isFa ? "—" : "—"}</option>
-                  {resellerChoices.map((r) => (
-                    <option key={String(r.id)} value={String(num(r.id))}>
-                      {String(r.first_name ?? "")} {String(r.last_name ?? "")} (#{num(r.id)})
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={(v) => setForm((f) => ({ ...f, owner_svp_user_id: num(v) }))}
+                  options={[
+                    { value: "0", label: "—" },
+                    ...resellerChoices.map((r) => ({
+                      value: String(num(r.id)),
+                      label: `${String(r.first_name ?? "")} ${String(r.last_name ?? "")} (#${num(r.id)})`.trim(),
+                    })),
+                  ]}
+                />
               </div>
             ) : null}
             <div className="space-y-2">
               <Label>{tp("filterPanel")}</Label>
-              <select
-                className={selectClass}
+              <DashSelect
                 value={String(form.plan_panel_id)}
-                onChange={(e) => {
-                  const pid = num(e.target.value)
-                  setForm((f) => ({
-                    ...f,
-                    plan_panel_id: pid,
-                    category: firstCategoryForPanel(pid) || f.category,
-                  }))
+                onValueChange={(v) => {
+                  const pid = num(v)
+                  setForm((f) => {
+                    const linesForPid = wholesaleLines.filter((ln) => num(ln.panel_id) === pid)
+                    const keepLine = linesForPid.some((ln) => num(ln.id) === f.wholesale_line_id)
+                    return {
+                      ...f,
+                      plan_panel_id: pid,
+                      category: firstCategoryForPanel(pid) || f.category,
+                      wholesale_line_id: keepLine
+                        ? f.wholesale_line_id
+                        : linesForPid.length === 1
+                          ? num(linesForPid[0]?.id)
+                          : 0,
+                    }
+                  })
                 }}
-              >
-                {(resellerMode ? sellablePanels : panels).map((p) => {
+                options={(resellerMode ? sellablePanels : panels).map((p) => {
                   const canSell = panelCanSellPlan(p, resellerMode)
                   const base = String(p.label ?? p.name ?? p.id)
-                  return (
-                    <option
-                      key={String(p.id)}
-                      value={String(p.id)}
-                      disabled={resellerMode && !canSell}
-                    >
-                      {base}
-                      {resellerMode && !canSell ? tp("panelNoAccessSuffix") : ""}
-                    </option>
-                  )
+                  return {
+                    value: String(p.id),
+                    label: `${base}${resellerMode && !canSell ? tp("panelNoAccessSuffix") : ""}`,
+                    disabled: resellerMode && !canSell,
+                  }
                 })}
-              </select>
+              />
             </div>
+            {resellerMode && wholesaleLinesForPanel.length > 0 ? (
+              <div className="space-y-2">
+                <Label>{tp("wholesaleLine")}</Label>
+                <DashSelect
+                  value={String(form.wholesale_line_id || 0)}
+                  onValueChange={(v) => setForm((f) => ({ ...f, wholesale_line_id: num(v) }))}
+                  allowEmpty
+                  placeholder="—"
+                  options={[
+                    { value: "0", label: "—" },
+                    ...wholesaleLinesForPanel.map((ln) => ({
+                      value: String(num(ln.id)),
+                      label: String(ln.label ?? ln.id ?? ""),
+                    })),
+                  ]}
+                />
+                <p className="text-xs text-muted-foreground">{tp("wholesaleLineHint")}</p>
+              </div>
+            ) : null}
             <div className="space-y-2">
               <Label>{tp("category")}</Label>
-              <select
-                className={selectClass}
+              <DashSelect
                 value={form.category}
-                onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-              >
-                <option value="">{isFa ? "—" : "—"}</option>
-                {categoriesForFormPanel.map((c) => (
-                  <option key={String(c.id)} value={String(c.slug ?? "")}>
-                    {String(c.label ?? c.slug)} ({String(c.slug)})
-                  </option>
-                ))}
-              </select>
+                onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}
+                allowEmpty
+                placeholder="—"
+                options={categoriesForFormPanel.map((c) => ({
+                  value: String(c.slug ?? ""),
+                  label: `${String(c.label ?? c.slug)} (${String(c.slug)})`,
+                }))}
+              />
               {categoriesForFormPanel.length === 0 ? (
                 <p className="text-xs text-amber-600 dark:text-amber-400">{tp("noCategories")}</p>
               ) : null}
             </div>
             {resellerMode && floorForPanel ? (
-              <div className={cn("space-y-2 rounded-md border bg-muted/40 p-3 text-sm", isFa && "text-right")}>
+              <div className={cn("space-y-2 rounded-md border bg-muted/40 p-3 text-sm")}>
                 <p className="font-medium text-foreground">{tp("connectionPresetTitle")}</p>
                 <p className="text-muted-foreground">{tp("connectionPresetHint")}</p>
                 <p className="tabular-nums">
@@ -990,19 +1130,19 @@ export function DashboardPlansAdmin({
             </div>
             <div className="space-y-2">
               <Label>{tp("pricingType")}</Label>
-              <select
-                className={selectClass}
+              <DashSelect
                 value={form.plan_pricing_type}
-                onChange={(e) =>
+                onValueChange={(v) =>
                   setForm((f) => ({
                     ...f,
-                    plan_pricing_type: e.target.value === "per_gb" ? "per_gb" : "fixed",
+                    plan_pricing_type: v === "per_gb" ? "per_gb" : "fixed",
                   }))
                 }
-              >
-                <option value="fixed">{tp("pricingFixed")}</option>
-                <option value="per_gb">{tp("pricingPerGb")}</option>
-              </select>
+                options={[
+                  { value: "fixed", label: tp("pricingFixed") },
+                  { value: "per_gb", label: tp("pricingPerGb") },
+                ]}
+              />
             </div>
             {form.plan_pricing_type === "fixed" ? (
               <>
@@ -1098,16 +1238,16 @@ export function DashboardPlansAdmin({
               {tp("save")}
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </DashSheetContent>
       </Sheet>
 
       {showCatalogDefaultsSave ? (
         <Dialog open={catalogDialogOpen} onOpenChange={setCatalogDialogOpen}>
-          <DialogContent className={cn("sm:max-w-md", isFa && "text-right [direction:rtl]")}>
-            <DialogHeader className={cn(isFa && "text-right sm:text-right")}>
+          <DashDialogContent className={cn("sm:max-w-md")}>
+            <DashDialogHeader className={cn("text-start")}>
               <DialogTitle>{tp("catalogDefaultsDialogTitle")}</DialogTitle>
               <DialogDescription>{tp("catalogCardDesc")}</DialogDescription>
-            </DialogHeader>
+            </DashDialogHeader>
             {catalogError ? (
               <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {catalogError}
@@ -1140,34 +1280,36 @@ export function DashboardPlansAdmin({
                 />
               </div>
             </div>
-            <DialogFooter className={cn("gap-2")}>
+            <DashDialogFooter className={cn("gap-2")}>
               <Button type="button" variant="outline" onClick={() => setCatalogDialogOpen(false)}>
                 {tp("cancel")}
               </Button>
               <Button type="button" disabled={catalogSaving} onClick={() => void onSaveCatalogDefaults()}>
                 {catalogSaving ? "…" : tp("catalogSave")}
               </Button>
-            </DialogFooter>
-          </DialogContent>
+            </DashDialogFooter>
+          </DashDialogContent>
         </Dialog>
       ) : null}
 
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <DialogContent className={cn(isFa && "text-right [direction:rtl]")}>
-          <DialogHeader className={cn(isFa && "text-right sm:text-right")}>
+        <DashDialogContent className={cn()}>
+          <DashDialogHeader className={cn("text-start")}>
             <DialogTitle>{tp("deleteTitle")}</DialogTitle>
             <DialogDescription>{tp("deleteDescription")}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter className={cn("gap-2 sm:justify-between")}>
+          </DashDialogHeader>
+          <DashDialogFooter className={cn("gap-2 sm:justify-between")}>
             <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
               {tp("deleteCancel")}
             </Button>
             <Button type="button" variant="destructive" disabled={saving} onClick={() => void onConfirmDelete()}>
               {tp("deleteConfirm")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
-    </div>
+        </>
+      ) : null}
+    </DashPage>
   )
 }

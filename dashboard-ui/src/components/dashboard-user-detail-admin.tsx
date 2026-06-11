@@ -27,8 +27,13 @@ import {
   ServiceActionDialog,
   type ServiceActionDlg,
 } from "@/components/dashboard-user-service-card"
+import { DashPage } from "@/components/dash-page"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
 
+import {
+  DashboardReceiptsList,
+  type ReceiptsListFilters,
+} from "@/components/dashboard-receipts-list"
 import { DataPagination } from "@/components/data-pagination"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -39,14 +44,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -56,17 +53,24 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { adminMutateErrorText, postAdminMutate } from "@/lib/dash-admin-mutate"
+import { buildDashboardTabUrl } from "@/lib/dash-tab"
 import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
-import { dashActionsClass, dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { dashActionsClass } from "@/lib/dash-locale"
 import {
   formatDateTime,
   formatDigits,
   formatNumber,
   formatPlainLatinInt,
 } from "@/lib/format-locale"
+import { DashSelect } from "@/components/dash-select"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { parsePaginationMeta } from "@/lib/dash-pagination"
 import { cn } from "@/lib/utils"
+import type { BotPlatformId } from "@/config/bot-platforms"
+import { BOT_PLATFORMS } from "@/config/bot-platforms"
+import { useDashLocale } from "@/lib/dash-locale-context"
+import { DashDialogContent, DashDialogFooter, DashDialogHeader } from "@/components/dash-dialog-content"
+import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 
 type DashRecord = Record<string, unknown>
 
@@ -197,6 +201,8 @@ function formatUserActivityLine(
       return t("userDetailAdmin.activity_service_panel_sync", { service: g("service_id") })
     case "service_regen_key":
       return t("userDetailAdmin.activity_service_regen_key", { service: g("service_id") })
+    case "service_regen_sub_id":
+      return t("userDetailAdmin.activity_service_regen_sub_id", { service: g("service_id") })
     case "service_panel_refresh":
       return t("userDetailAdmin.activity_service_panel_refresh", { service: g("service_id") })
     case "service_panel_delete_client":
@@ -218,6 +224,8 @@ function formatUserActivityLine(
       })
     case "service_alerts_patch":
       return t("userDetailAdmin.activity_service_alerts_patch", { service: g("service_id") })
+    case "service_set_note":
+      return t("userDetailAdmin.activity_service_set_note", { service: g("service_id") })
     case "user_role_change":
       return t("userDetailAdmin.activity_user_role_change", { role: g("role") })
     case "user_set_referrer":
@@ -243,34 +251,64 @@ export function DashboardUserDetailAdmin({
   plans,
   planCategories = [],
   settings,
-  isFa,
   isReseller = false,
+  readOnlyAdminActions = false,
+  actorPermissions,
   onBack,
   onMutateSuccess,
   onOpenUserDetail,
+  enabledPlatforms = BOT_PLATFORMS.map((p) => p.id),
+  canReviewReceipts = true,
 }: {
   userId: number
   plans: DashRecord[]
   planCategories?: DashRecord[]
   settings?: DashRecord
-  isFa: boolean
-  /** When true, «free» payment mode is hidden (reseller pays from wallet / invoice only). */
+/** When true, «free» payment mode is hidden (reseller pays from wallet / invoice only). */
   isReseller?: boolean
+  /** When true, hide mutation controls (defense-in-depth; REST remains authoritative). */
+  readOnlyAdminActions?: boolean
+  actorPermissions?: Record<string, boolean>
   onBack: () => void
   onMutateSuccess?: () => void
   onOpenUserDetail?: (id: number) => void
+  enabledPlatforms?: BotPlatformId[]
+  canReviewReceipts?: boolean
 }) {
+  const { isFa } = useDashLocale()
+
   const { t } = useTranslation()
   const tp = (k: string, opts?: Record<string, string | number>) => t(`userDetailAdmin.${k}`, opts)
+
+  const canManageUsers =
+    !readOnlyAdminActions && (!isReseller || actorPermissions?.["users.manage"] === true)
+  const canManageServices =
+    !readOnlyAdminActions && (!isReseller || actorPermissions?.["services.manage"] === true)
+  const canSiteAdminOnly = !readOnlyAdminActions && !isReseller
 
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [user, setUser] = useState<DashRecord | null>(null)
   const [services, setServices] = useState<DashRecord[]>([])
   const [referrals, setReferrals] = useState<DashRecord[]>([])
+  const [marketingOffers, setMarketingOffers] = useState<DashRecord[]>([])
   const [activity, setActivity] = useState<DashRecord[]>([])
   const [actPage, setActPage] = useState(1)
   const [actMeta, setActMeta] = useState<PaginationMeta | null>(null)
+  const [receipts, setReceipts] = useState<DashRecord[]>([])
+  const [receiptAggregates, setReceiptAggregates] = useState<unknown>([])
+  const [rcptPage, setRcptPage] = useState(1)
+  const [rcptPerPage, setRcptPerPage] = useState(20)
+  const [rcptMeta, setRcptMeta] = useState<PaginationMeta | null>(null)
+  const [rcptFilters, setRcptFilters] = useState<ReceiptsListFilters>({
+    q: "",
+    status: "all",
+    sort: "created_desc",
+    dateFrom: "",
+    dateTo: "",
+    amountMin: "",
+    amountMax: "",
+  })
   const [busy, setBusy] = useState(false)
   const [alertText, setAlertText] = useState<string | null>(null)
 
@@ -283,7 +321,10 @@ export function DashboardUserDetailAdmin({
   const [walletDialog, setWalletDialog] = useState<null | "add" | "sub">(null)
   const [walletAmount, setWalletAmount] = useState("")
   const [adminMsg, setAdminMsg] = useState("")
-  const [adminMsgChannel, setAdminMsgChannel] = useState<"both" | "telegram" | "bale">("both")
+  const showTgPlatform = enabledPlatforms.includes("telegram")
+  const showBalePlatform = enabledPlatforms.includes("bale")
+  const defaultMsgChannel = showTgPlatform && showBalePlatform ? "both" : showTgPlatform ? "telegram" : "bale"
+  const [adminMsgChannel, setAdminMsgChannel] = useState<"both" | "telegram" | "bale">(defaultMsgChannel as "both" | "telegram" | "bale")
   const [actionDlg, setActionDlg] = useState<ServiceActionDlg>(null)
   const [resellerChoices, setResellerChoices] = useState<Array<{ id: number; label: string }>>([])
   const [assignResellerOpen, setAssignResellerOpen] = useState(false)
@@ -315,6 +356,15 @@ export function DashboardUserDetailAdmin({
       const sp = new URLSearchParams()
       sp.set("activity_page", String(actPage))
       sp.set("activity_per_page", "20")
+      sp.set("receipts_page", String(rcptPage))
+      sp.set("receipts_per_page", String(rcptPerPage))
+      if (rcptFilters.q.trim()) sp.set("receipts_q", rcptFilters.q.trim())
+      if (rcptFilters.status && rcptFilters.status !== "all") sp.set("receipts_status", rcptFilters.status)
+      if (rcptFilters.sort) sp.set("receipts_sort", rcptFilters.sort)
+      if (rcptFilters.dateFrom.trim()) sp.set("receipts_date_from", rcptFilters.dateFrom.trim())
+      if (rcptFilters.dateTo.trim()) sp.set("receipts_date_to", rcptFilters.dateTo.trim())
+      if (rcptFilters.amountMin.trim()) sp.set("receipts_amount_min", rcptFilters.amountMin.trim())
+      if (rcptFilters.amountMax.trim()) sp.set("receipts_amount_max", rcptFilters.amountMax.trim())
       sp.set("lang", isFa ? "fa" : "en")
       const r = await fetch(`${restBase}/dashboard/admin/user/${userId}?${sp.toString()}`, {
         headers: { "X-WP-Nonce": nonce },
@@ -339,20 +389,36 @@ export function DashboardUserDetailAdmin({
       const apiCats = json.planCategories
       setLoadedPlanCats(Array.isArray(apiCats) ? (apiCats as DashRecord[]) : [])
       setReferrals(Array.isArray(json.referrals) ? (json.referrals as DashRecord[]) : [])
+      setMarketingOffers(
+        Array.isArray(json.marketingOffers) ? (json.marketingOffers as DashRecord[]) : []
+      )
       setActivity(Array.isArray(json.activity) ? (json.activity as DashRecord[]) : [])
       const pag = json.activityPagination
       setActMeta(parsePaginationMeta(pag))
+      setReceipts(Array.isArray(json.receipts) ? (json.receipts as DashRecord[]) : [])
+      setReceiptAggregates(json.receiptAggregates ?? [])
+      setRcptMeta(parsePaginationMeta(json.receiptsPagination))
     } catch {
       setErr(t("userDetailAdmin.loadError"))
       setUser(null)
     } finally {
       setLoading(false)
     }
-  }, [restBase, nonce, userId, actPage, isFa])
+  }, [restBase, nonce, userId, actPage, rcptPage, rcptPerPage, rcptFilters, isFa])
 
   useEffect(() => {
     void load()
-  }, [restBase, nonce, userId, actPage, load])
+  }, [restBase, nonce, userId, actPage, rcptPage, rcptPerPage, rcptFilters, load])
+
+  const onRcptFiltersChange = useCallback((patch: Partial<ReceiptsListFilters>) => {
+    setRcptFilters((f) => ({ ...f, ...patch }))
+    setRcptPage(1)
+  }, [])
+
+  const onReceiptMutateSuccess = useCallback(async () => {
+    await load()
+    onMutateSuccess?.()
+  }, [load, onMutateSuccess])
 
   useEffect(() => {
     if (!user) return
@@ -482,24 +548,24 @@ export function DashboardUserDetailAdmin({
   return (
     <TooltipProvider delayDuration={200}>
       <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
-        <DialogContent showCloseButton dir={dashDir(isFa)}>
-          <DialogHeader>
+        <DashDialogContent showCloseButton>
+          <DashDialogHeader>
             <DialogTitle>{tp("roleLabel")}</DialogTitle>
             <DialogDescription>{tp("roleApply")}</DialogDescription>
-          </DialogHeader>
+          </DashDialogHeader>
           <div className="space-y-3">
-            <select
-              className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+            <DashSelect
               value={rolePick || effectiveRole}
-              onChange={(e) => setRolePick(e.target.value)}
+              onValueChange={setRolePick}
               disabled={busy}
-            >
-              <option value="user">{tp("roleUser")}</option>
-              <option value="reseller">{tp("roleReseller")}</option>
-              <option value="admin">{tp("roleAdmin")}</option>
-            </select>
+              options={[
+                { value: "user", label: tp("roleUser") },
+                { value: "reseller", label: tp("roleReseller") },
+                { value: "admin", label: tp("roleAdmin") },
+              ]}
+            />
           </div>
-          <DialogFooter className="gap-2">
+          <DashDialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => setRoleDialogOpen(false)} disabled={busy}>
               {tp("walletDialogCancel")}
             </Button>
@@ -516,13 +582,13 @@ export function DashboardUserDetailAdmin({
             >
               {tp("roleApply")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog open={referrerDialogOpen} onOpenChange={setReferrerDialogOpen}>
-        <DialogContent showCloseButton dir={dashDir(isFa)}>
-          <DialogHeader>
+        <DashDialogContent showCloseButton>
+          <DashDialogHeader>
             <DialogTitle>{tp("referrerTitle")}</DialogTitle>
             <DialogDescription>
               {invitedBy > 0
@@ -532,7 +598,7 @@ export function DashboardUserDetailAdmin({
                   })
                 : tp("referrerNone")}
             </DialogDescription>
-          </DialogHeader>
+          </DashDialogHeader>
           <div className="space-y-3 text-sm">
             <Input
               dir="ltr"
@@ -542,22 +608,20 @@ export function DashboardUserDetailAdmin({
               disabled={busy}
             />
             {referrerHits.length > 0 ? (
-              <select
-                className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              <DashSelect
                 value={pickReferrerId}
-                onChange={(e) => setPickReferrerId(e.target.value)}
+                onValueChange={setPickReferrerId}
                 disabled={busy}
-              >
-                <option value="">{tp("referrerSearch")}…</option>
-                {referrerHits.map((hit) => (
-                  <option key={num(hit.id)} value={String(num(hit.id))}>
-                    {displayName(hit)} (#{formatPlainLatinInt(num(hit.id))})
-                  </option>
-                ))}
-              </select>
+                allowEmpty
+                placeholder={`${tp("referrerSearch")}…`}
+                options={referrerHits.map((hit) => ({
+                  value: String(num(hit.id)),
+                  label: `${displayName(hit)} (#${formatPlainLatinInt(num(hit.id))})`,
+                }))}
+              />
             ) : null}
           </div>
-          <DialogFooter className="gap-2">
+          <DashDialogFooter className="gap-2">
             {invitedBy > 0 ? (
               <Button
                 type="button"
@@ -587,16 +651,16 @@ export function DashboardUserDetailAdmin({
             >
               {tp("referrerSet")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog open={messageDialogOpen} onOpenChange={setMessageDialogOpen}>
-        <DialogContent showCloseButton dir={dashDir(isFa)}>
-          <DialogHeader>
+        <DashDialogContent showCloseButton>
+          <DashDialogHeader>
             <DialogTitle>{tp("adminMessageTitle")}</DialogTitle>
             <DialogDescription>{tp("adminMessagePlaceholder")}</DialogDescription>
-          </DialogHeader>
+          </DashDialogHeader>
           <div className="space-y-3">
             <textarea
               className="min-h-[5rem] w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
@@ -605,18 +669,18 @@ export function DashboardUserDetailAdmin({
               disabled={busy}
               placeholder={tp("adminMessagePlaceholder")}
             />
-            <select
-              className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+            <DashSelect
               value={adminMsgChannel}
-              onChange={(e) => setAdminMsgChannel(e.target.value as typeof adminMsgChannel)}
+              onValueChange={(v) => setAdminMsgChannel(v as typeof adminMsgChannel)}
               disabled={busy}
-            >
-              <option value="both">{tp("msgChannelBoth")}</option>
-              <option value="telegram">{tp("msgChannelTelegram")}</option>
-              <option value="bale">{tp("msgChannelBale")}</option>
-            </select>
+              options={[
+                ...(showTgPlatform && showBalePlatform ? [{ value: "both", label: tp("msgChannelBoth") }] : []),
+                ...(showTgPlatform ? [{ value: "telegram", label: tp("msgChannelTelegram") }] : []),
+                ...(showBalePlatform ? [{ value: "bale", label: tp("msgChannelBale") }] : []),
+              ]}
+            />
           </div>
-          <DialogFooter className="gap-2">
+          <DashDialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => setMessageDialogOpen(false)} disabled={busy}>
               {tp("walletDialogCancel")}
             </Button>
@@ -635,16 +699,16 @@ export function DashboardUserDetailAdmin({
             >
               {tp("adminMessageSend")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog open={assignResellerOpen} onOpenChange={setAssignResellerOpen}>
-        <DialogContent showCloseButton dir={dashDir(isFa)}>
-          <DialogHeader>
+        <DashDialogContent showCloseButton>
+          <DashDialogHeader>
             <DialogTitle>{tp("assignResellerTitle")}</DialogTitle>
             <DialogDescription>{tp("assignResellerHint")}</DialogDescription>
-          </DialogHeader>
+          </DashDialogHeader>
           <div className="space-y-3 text-sm">
             <p>
               <span className="text-muted-foreground">{tp("currentReseller")}: </span>
@@ -654,23 +718,21 @@ export function DashboardUserDetailAdmin({
             </p>
             <div className="space-y-2">
               <Label htmlFor="assign-reseller-pick">{tp("assignResellerPick")}</Label>
-              <select
+              <DashSelect
                 id="assign-reseller-pick"
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
                 value={pickResellerId}
-                onChange={(e) => setPickResellerId(e.target.value)}
+                onValueChange={setPickResellerId}
                 disabled={busy}
-              >
-                <option value="">{tp("assignResellerPick")}…</option>
-                {resellerChoices.map((r) => (
-                  <option key={r.id} value={String(r.id)}>
-                    {r.label} (#{formatPlainLatinInt(r.id)})
-                  </option>
-                ))}
-              </select>
+                allowEmpty
+                placeholder={`${tp("assignResellerPick")}…`}
+                options={resellerChoices.map((r) => ({
+                  value: String(r.id),
+                  label: `${r.label} (#${formatPlainLatinInt(r.id)})`,
+                }))}
+              />
             </div>
           </div>
-          <DialogFooter className={cn("gap-2")}>
+          <DashDialogFooter className={cn("gap-2")}>
             {invitedBy > 0 ? (
               <Button
                 type="button"
@@ -707,18 +769,18 @@ export function DashboardUserDetailAdmin({
             >
               {tp("assignResellerApply")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog open={walletDialog !== null} onOpenChange={(o) => !o && setWalletDialog(null)}>
-        <DialogContent showCloseButton dir={dashDir(isFa)}>
-          <DialogHeader>
+        <DashDialogContent showCloseButton>
+          <DashDialogHeader>
             <DialogTitle>
               {walletDialog === "add" ? tp("walletDialogAddTitle") : tp("walletDialogSubTitle")}
             </DialogTitle>
             <DialogDescription>{tp("walletDialogHint")}</DialogDescription>
-          </DialogHeader>
+          </DashDialogHeader>
           <div className="space-y-2">
             <Label htmlFor="w-amt">{tp("walletDialogAmount")}</Label>
             <Input
@@ -730,7 +792,7 @@ export function DashboardUserDetailAdmin({
               disabled={busy}
             />
           </div>
-          <DialogFooter>
+          <DashDialogFooter>
             <Button type="button" variant="outline" onClick={() => setWalletDialog(null)} disabled={busy}>
               {tp("walletDialogCancel")}
             </Button>
@@ -741,14 +803,13 @@ export function DashboardUserDetailAdmin({
             >
               {tp("walletDialogConfirm")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
 
       <ServiceActionDialog
         dlg={actionDlg}
         setDlg={setActionDlg}
-        isFa={isFa}
         isReseller={isReseller}
         busy={busy}
         plans={plans}
@@ -757,7 +818,7 @@ export function DashboardUserDetailAdmin({
         onConfirm={(op, payload) => void runMut(op, payload)}
       />
 
-      <div className={cn("mx-auto max-w-7xl", dashPageRootClass(isFa))} dir={dashDir(isFa)}>
+      <DashPage className="mx-auto w-full min-w-0 max-w-7xl">
         <DashboardPageHeader
           title={tp("title")}
           actions={
@@ -795,6 +856,8 @@ export function DashboardUserDetailAdmin({
                       <span className="text-muted-foreground" aria-hidden>
                         ·
                       </span>
+                      {showTgPlatform ? (
+                      <>
                       <span className="inline-flex items-center gap-1">
                         <Send className="size-3.5 shrink-0 opacity-70" aria-hidden />
                         <span>
@@ -804,9 +867,14 @@ export function DashboardUserDetailAdmin({
                           </span>
                         </span>
                       </span>
+                      {showBalePlatform ? (
                       <span className="text-muted-foreground" aria-hidden>
                         ·
                       </span>
+                      ) : null}
+                      </>
+                      ) : null}
+                      {showBalePlatform ? (
                       <span className="inline-flex items-center gap-1">
                         <Radio className="size-3.5 shrink-0 opacity-70" aria-hidden />
                         <span>
@@ -816,6 +884,7 @@ export function DashboardUserDetailAdmin({
                           </span>
                         </span>
                       </span>
+                      ) : null}
                     </div>
                 </div>
                 <Badge variant={statusVariant(st)}>{t(`usersAdmin.status_${st}`, { defaultValue: st })}</Badge>
@@ -831,6 +900,8 @@ export function DashboardUserDetailAdmin({
               </div>
 
               <div className={dashActionsClass()}>
+                {canManageUsers ? (
+                  <>
                 <Button
                   type="button"
                   size="sm"
@@ -859,16 +930,21 @@ export function DashboardUserDetailAdmin({
                   <Minus className="size-4" aria-hidden />
                   {tp("walletDecrease")}
                 </Button>
+                  </>
+                ) : null}
               </div>
+              {canManageUsers ? (
               <p className="text-xs text-muted-foreground">{tp("walletDeltaHint")}</p>
+              ) : null}
 
+              {canManageUsers || canSiteAdminOnly ? (
               <div>
                 <p className="mb-2 text-start text-xs font-medium text-muted-foreground">
                   {tp("adminActions")}
                 </p>
                 <div className={actionBar}>
                   <div className={dashActionsClass()}>
-                  {st === "pending" ? (
+                  {canManageUsers && st === "pending" ? (
                     <>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -916,7 +992,7 @@ export function DashboardUserDetailAdmin({
                       </Tooltip>
                     </>
                   ) : null}
-                  {st === "rejected" ? (
+                  {canManageUsers && st === "rejected" ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -940,7 +1016,7 @@ export function DashboardUserDetailAdmin({
                       </TooltipContent>
                     </Tooltip>
                   ) : null}
-                  {st !== "blocked" ? (
+                  {canManageUsers && st !== "blocked" ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -960,7 +1036,7 @@ export function DashboardUserDetailAdmin({
                         <p>{tp("tooltipBan")}</p>
                       </TooltipContent>
                     </Tooltip>
-                  ) : (
+                  ) : canManageUsers ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -980,7 +1056,7 @@ export function DashboardUserDetailAdmin({
                         <p>{tp("tooltipUnban")}</p>
                       </TooltipContent>
                     </Tooltip>
-                  )}
+                  ) : null}
                   {portalUserUrl ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -1023,7 +1099,7 @@ export function DashboardUserDetailAdmin({
                       </TooltipContent>
                     </Tooltip>
                   ) : null}
-                  {!isReseller ? (
+                  {!isReseller && canSiteAdminOnly ? (
                     <>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -1061,6 +1137,7 @@ export function DashboardUserDetailAdmin({
                       </Tooltip>
                     </>
                   ) : null}
+                  {canManageUsers ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -1078,12 +1155,15 @@ export function DashboardUserDetailAdmin({
                       <p>{tp("adminMessageTitle")}</p>
                     </TooltipContent>
                   </Tooltip>
+                  ) : null}
                   </div>
                 </div>
               </div>
+              ) : null}
             </CardContent>
           </Card>
 
+          {canManageServices ? (
           <Card>
             <CardHeader>
               <CardTitle className="text-base">{tp("createService")}</CardTitle>
@@ -1110,38 +1190,34 @@ export function DashboardUserDetailAdmin({
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label>{tp("category")}</Label>
-                  <select
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-start"
+                  <DashSelect
                     value={categorySlug}
-                    onChange={(e) => {
-                      setCategorySlug(e.target.value)
+                    onValueChange={(v) => {
+                      setCategorySlug(v)
                       setPlanId("")
                     }}
                     disabled={busy}
-                  >
-                    <option value="">{tp("selectCategory")}</option>
-                    {activeCategories.map((c) => (
-                      <option key={String(c.slug)} value={String(c.slug)}>
-                        {String(c.label ?? c.slug ?? "")}
-                      </option>
-                    ))}
-                  </select>
+                    allowEmpty
+                    placeholder={tp("selectCategory")}
+                    options={activeCategories.map((c) => ({
+                      value: String(c.slug),
+                      label: String(c.label ?? c.slug ?? ""),
+                    }))}
+                  />
                 </div>
                 <div className="space-y-1">
                   <Label>{tp("plan")}</Label>
-                  <select
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-start"
+                  <DashSelect
                     value={planId}
-                    onChange={(e) => setPlanId(e.target.value)}
+                    onValueChange={setPlanId}
                     disabled={busy || !categorySlug}
-                  >
-                    <option value="">{tp("selectPlan")}</option>
-                    {categoryPlans.map((p) => (
-                      <option key={num(p.id)} value={String(p.id)}>
-                        #{num(p.id)} — {String(p.label ?? p.name ?? "")}
-                      </option>
-                    ))}
-                  </select>
+                    allowEmpty
+                    placeholder={tp("selectPlan")}
+                    options={categoryPlans.map((p) => ({
+                      value: String(num(p.id)),
+                      label: `#${num(p.id)} — ${String(p.label ?? p.name ?? "")}`,
+                    }))}
+                  />
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
@@ -1157,16 +1233,16 @@ export function DashboardUserDetailAdmin({
                 </div>
                 <div className="space-y-1">
                   <Label>{tp("mode")}</Label>
-                  <select
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-start"
+                  <DashSelect
                     value={createMode}
-                    onChange={(e) => setCreateMode(e.target.value as typeof createMode)}
+                    onValueChange={(v) => setCreateMode(v as typeof createMode)}
                     disabled={busy}
-                  >
-                    {!isReseller ? <option value="free">{tp("modeFree")}</option> : null}
-                    <option value="wallet">{tp("modeWallet")}</option>
-                    <option value="invoice">{tp("modeInvoice")}</option>
-                  </select>
+                    options={[
+                      ...(!isReseller ? [{ value: "free", label: tp("modeFree") }] : []),
+                      { value: "wallet", label: tp("modeWallet") },
+                      { value: "invoice", label: tp("modeInvoice") },
+                    ]}
+                  />
                 </div>
                 <Button
                   type="button"
@@ -1200,7 +1276,77 @@ export function DashboardUserDetailAdmin({
               ) : null}
             </CardContent>
           </Card>
+          ) : null}
         </div>
+
+        <Card>
+          <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
+            <div>
+              <CardTitle className="text-base">{tp("marketingOffersTitle")}</CardTitle>
+              <CardDescription>
+                {marketingOffers.length > 0
+                  ? `${marketingOffers.length}`
+                  : tp("marketingOffersEmpty")}
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" variant="outline" asChild>
+                <a href={buildDashboardTabUrl(String((boot as { dashboardUrl?: string }).dashboardUrl || ""), "marketing_lifecycle")}>
+                  {tp("marketingOpenLifecycle")}
+                </a>
+              </Button>
+              {canSiteAdminOnly ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true)
+                  try {
+                    const res = await postAdminMutate("marketing_send_manual", {
+                      svp_user_id: userId,
+                      rule_id: 0,
+                    })
+                    if (!res.ok) {
+                      setAlertText(adminMutateErrorText(res, tp("mutateError")))
+                      return
+                    }
+                    onMutateSuccess?.()
+                    void load()
+                  } finally {
+                    setBusy(false)
+                  }
+                }}
+              >
+                {tp("marketingSendOffer")}
+              </Button>
+              ) : null}
+            </div>
+          </CardHeader>
+          {marketingOffers.length > 0 ? (
+            <CardContent>
+              <DashTableShell minWidth="32rem" colWidths={["40%", "30%", "30%"]}>
+                <thead>
+                  <tr>
+                    <DashTh>{tp("marketingColCode")}</DashTh>
+                    <DashTh>{tp("marketingColStatus")}</DashTh>
+                    <DashTh>{tp("marketingColSent")}</DashTh>
+                  </tr>
+                </thead>
+                <tbody>
+                  {marketingOffers.map((o) => (
+                    <tr key={num(o.id)}>
+                      <DashTd className="font-mono text-xs">{String(o.discount_code ?? "—")}</DashTd>
+                      <DashTd>{String(o.status ?? "—")}</DashTd>
+                      <DashTd>{String(o.sent_at ?? "—")}</DashTd>
+                    </tr>
+                  ))}
+                </tbody>
+              </DashTableShell>
+            </CardContent>
+          ) : null}
+        </Card>
 
         {referrals.length > 0 ? (
           <Card>
@@ -1250,17 +1396,28 @@ export function DashboardUserDetailAdmin({
                     key={sid}
                     svc={svc}
                     plans={plans}
-                    isFa={isFa}
                     isReseller={isReseller}
-                    busy={busy}
+                    busy={busy || !canManageServices}
                     tp={tp}
-                    onOpenAction={(kind, s) => setActionDlg({ kind, sid: num(s.id), svc: s })}
-                    onPatchAlert={patchAlert}
-                    onToggleEnable={(enabled) =>
-                      void runMut("user_service_toggle_enable", {
-                        service_id: sid,
-                        enable: enabled ? 1 : 0,
-                      })
+                    onOpenAction={
+                      canManageServices
+                        ? (kind, s) => setActionDlg({ kind, sid: num(s.id), svc: s })
+                        : () => {}
+                    }
+                    onPatchAlert={canManageServices ? patchAlert : () => {}}
+                    onToggleEnable={
+                      canManageServices
+                        ? (enabled) =>
+                            void runMut("user_service_toggle_enable", {
+                              service_id: sid,
+                              enable: enabled ? 1 : 0,
+                            })
+                        : () => {}
+                    }
+                    onSetServiceNote={
+                      canManageServices
+                        ? (note) => void runMut("service_set_note", { service_id: sid, service_note: note })
+                        : () => {}
                     }
                   />
                 )
@@ -1271,12 +1428,37 @@ export function DashboardUserDetailAdmin({
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">{tp("receiptsTitle")}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DashboardReceiptsList
+              variant="userEmbed"
+              receipts={receipts}
+              receiptAggregates={receiptAggregates}
+              settings={settings}
+              pagination={rcptMeta}
+              isReseller={isReseller}
+              canReviewReceipts={canReviewReceipts}
+              listFilters={rcptFilters}
+              onListFiltersChange={onRcptFiltersChange}
+              onMutateSuccess={() => void onReceiptMutateSuccess()}
+              onPageChange={setRcptPage}
+              onPerPageChange={(n) => {
+                setRcptPerPage(n)
+                setRcptPage(1)
+              }}
+              embedEmptyHint={tp("receiptsEmpty")}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">{tp("activity")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <DashTableShell
-              isFa={isFa}
-              minWidth="20rem"
+        minWidth="20rem"
               colWidths={isFa ? ["50%", "22%", "28%"] : ["28%", "22%", "50%"]}
             >
               <thead>
@@ -1324,15 +1506,14 @@ export function DashboardUserDetailAdmin({
             </DashTableShell>
             <DataPagination
               meta={actMeta}
-              isFa={isFa}
-              onPageChange={(p) => setActPage(p)}
+        onPageChange={(p) => setActPage(p)}
               onPerPageChange={() => {
                 /* fixed 20 via API */
               }}
             />
           </CardContent>
         </Card>
-      </div>
+      </DashPage>
     </TooltipProvider>
   )
 }

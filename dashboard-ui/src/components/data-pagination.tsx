@@ -3,27 +3,32 @@
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
-import { dashActionsClass, dashDir } from "@/lib/dash-locale"
+import { dashActionsClass } from "@/lib/dash-locale"
+import { useDashLocale } from "@/lib/dash-locale-context"
+import { DashSelect } from "@/components/dash-select"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { formatNumber } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
 
 export function DataPagination({
   meta,
-  isFa,
+  isFa: isFaProp,
   onPageChange,
   onPerPageChange,
   perPageOptions = [10, 20, 40, 50, 100],
   className,
 }: {
   meta: PaginationMeta | null | undefined
-  isFa: boolean
+  /** @deprecated Prefer context from DashLocaleProvider */
+  isFa?: boolean
   onPageChange: (page: number) => void
   onPerPageChange?: (perPage: number) => void
   perPageOptions?: number[]
   className?: string
 }) {
   const { t } = useTranslation()
+  const { isFa: isFaCtx } = useDashLocale()
+  const isFa = isFaProp ?? isFaCtx
   if (!meta || meta.total <= 0) return null
   const { page, perPage, total } = meta
   const totalPages = Math.max(1, Math.ceil(total / perPage))
@@ -34,7 +39,6 @@ export function DataPagination({
 
   return (
     <div
-      dir={dashDir(isFa)}
       className={cn(
         "flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-sm",
         className
@@ -51,17 +55,16 @@ export function DataPagination({
         {onPerPageChange ? (
           <label className="flex items-center gap-1 text-xs text-muted-foreground">
             <span>{t("pagination.perPage")}</span>
-            <select
-              className="h-8 rounded-md border border-input bg-background px-2 text-xs shadow-xs outline-none"
-              value={perPage}
-              onChange={(e) => onPerPageChange(Number(e.target.value))}
-            >
-              {perPageOptions.map((n) => (
-                <option key={n} value={n}>
-                  {formatNumber(n, isFa)}
-                </option>
-              ))}
-            </select>
+            <DashSelect
+              size="sm"
+              triggerClassName="w-auto"
+              value={String(perPage)}
+              onValueChange={(v) => onPerPageChange(Number(v))}
+              options={perPageOptions.map((n) => ({
+                value: String(n),
+                label: formatNumber(n, isFa),
+              }))}
+            />
           </label>
         ) : null}
         <div className="flex items-center gap-1">

@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next"
 
 import { BroadcastRichEditor } from "@/components/broadcast-rich-editor"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
 import {
   hasBaleUnsupportedFeatures,
   htmlForTelegramPreview,
@@ -21,22 +21,20 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { DataPagination } from "@/components/data-pagination"
 import { getAdminJson, postAdminMutate } from "@/lib/dash-admin-mutate"
 import { type PaginationMeta, parsePaginationMeta } from "@/lib/dash-pagination"
+import { DashSelect } from "@/components/dash-select"
 import { postDashboardMediaUpload } from "@/lib/dash-admin-upload"
 import { formatNumber, formatNumericString } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
+import type { BotPlatformId } from "@/config/bot-platforms"
+import { BOT_PLATFORMS } from "@/config/bot-platforms"
+import { useDashLocale } from "@/lib/dash-locale-context"
+import { DashDialogContent, DashDialogFooter, DashDialogHeader } from "@/components/dash-dialog-content"
+import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 
 type DashRecord = Record<string, unknown>
 
@@ -329,17 +327,15 @@ function channelRowAccent(row: QueueUserRow): string {
 function BroadcastHtmlPreview({
   html,
   urls,
-  isFa,
   className,
 }: {
   html: string
   urls: string[]
-  isFa: boolean
   className?: string
 }) {
   const previewHtml = htmlForTelegramPreview(html)
   return (
-    <div className={cn("space-y-3", className)} dir={dashDir(isFa)}>
+    <div className={cn("space-y-3", className)}>
       {urls.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {urls.map((u) => (
@@ -350,8 +346,7 @@ function BroadcastHtmlPreview({
       {html.trim() !== "" ? (
         <div
           className={cn(
-            "min-h-[4rem] whitespace-pre-wrap rounded-md border border-border/80 bg-muted/20 p-3 text-sm [&_a]:text-primary [&_a]:underline",
-            isFa && "text-right"
+            "min-h-[4rem] whitespace-pre-wrap rounded-md border border-border/80 bg-muted/20 p-3 text-sm [&_a]:text-primary [&_a]:underline"
           )}
           dangerouslySetInnerHTML={{ __html: previewHtml }}
         />
@@ -365,20 +360,18 @@ function BroadcastHtmlPreview({
 function BroadcastBalePreview({
   html,
   urls,
-  isFa,
   className,
   baleNote,
 }: {
   html: string
   urls: string[]
-  isFa: boolean
   className?: string
   baleNote: string
 }) {
   const md = htmlToBalePreviewMarkdown(html)
   const warn = hasBaleUnsupportedFeatures(html)
   return (
-    <div className={cn("space-y-3", className)} dir={dashDir(isFa)}>
+    <div className={cn("space-y-3", className)}>
       {urls.length > 0 ? (
         <p className="text-xs text-muted-foreground">{urls.length} image(s) — caption on first only</p>
       ) : null}
@@ -386,8 +379,7 @@ function BroadcastBalePreview({
       {md !== "" ? (
         <pre
           className={cn(
-            "min-h-[4rem] whitespace-pre-wrap rounded-md border border-border/80 bg-muted/20 p-3 font-sans text-sm",
-            isFa && "text-right")}
+            "min-h-[4rem] whitespace-pre-wrap rounded-md border border-border/80 bg-muted/20 p-3 font-sans text-sm")}
         >
           {md}
         </pre>
@@ -400,11 +392,10 @@ function BroadcastBalePreview({
 
 function BroadcastRecipientsBlock({
   broadcastId,
-  isFa,
 }: {
   broadcastId: number
-  isFa: boolean
 }) {
+  const { isFa } = useDashLocale()
   const { t } = useTranslation()
   const tp = (k: string) => t(`broadcastAdmin.${k}`)
   const [open, setOpen] = useState(false)
@@ -470,7 +461,7 @@ function BroadcastRecipientsBlock({
                       summary.barClass
                     )}
                   >
-                    <div className={cn("min-w-0 flex-1 space-y-1 px-2 py-2", isFa && "text-right")} dir={dashDir(isFa)}>
+                    <div className={cn("min-w-0 flex-1 space-y-1 px-2 py-2")}>
                       <div className="font-medium leading-snug">{u.displayName || `#${formatNumericString(String(u.userId), isFa)}`}</div>
                       <p className="text-sm font-medium text-foreground">{label}</p>
                       {u.rows.length > 1 ? (
@@ -480,8 +471,7 @@ function BroadcastRecipientsBlock({
                               key={row.id}
                               className={cn(
                                 "flex flex-wrap items-baseline gap-2 rounded-sm bg-background/50 py-1 ps-2",
-                                channelRowAccent(row),
-                                isFa && "text-right"
+                                channelRowAccent(row)
                               )}
                             >
                               <span className="shrink-0 font-medium text-muted-foreground">
@@ -516,8 +506,7 @@ function BroadcastRecipientsBlock({
           {meta && meta.total > perPage ? (
             <DataPagination
               meta={meta}
-              isFa={isFa}
-              onPageChange={(p) => setPage(p)}
+        onPageChange={(p) => setPage(p)}
               onPerPageChange={() => {}}
             />
           ) : null}
@@ -525,13 +514,13 @@ function BroadcastRecipientsBlock({
       )}
 
       <Dialog open={detailUser !== null} onOpenChange={(v) => !v && setDetailUser(null)}>
-        <DialogContent className={cn("max-h-[85vh] max-w-lg overflow-y-auto", isFa && "text-right")} dir={dashDir(isFa)}>
-          <DialogHeader>
+        <DashDialogContent className={cn("sm:max-w-lg")}>
+          <DashDialogHeader>
             <DialogTitle>{tp("statusDialogTitle")}</DialogTitle>
             <DialogDescription className="font-mono tabular-nums">
               {detailUser ? `#${formatNumericString(String(detailUser.userId), isFa)} · ${detailUser.displayName}` : ""}
             </DialogDescription>
-          </DialogHeader>
+          </DashDialogHeader>
           {detailUser ? (
             <ul className="space-y-3 text-sm">
               {detailUser.rows.map((row) => (
@@ -552,44 +541,48 @@ function BroadcastRecipientsBlock({
               ))}
             </ul>
           ) : null}
-          <DialogFooter>
+          <DashDialogFooter>
             <Button type="button" variant="secondary" onClick={() => setDetailUser(null)}>
               {tp("close")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
     </div>
   )
 }
 
-const selectClass =
-  "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
-
 export function DashboardBroadcastAdmin({
   broadcasts,
   broadcastQueueAggregates,
   pagination,
-  isFa,
   onMutateSuccess,
   onPageChange,
   onPerPageChange,
+  enabledPlatforms = BOT_PLATFORMS.map((p) => p.id),
+  isReseller = false,
 }: {
   broadcasts: DashRecord[]
   broadcastQueueAggregates?: unknown
   pagination: PaginationMeta | null
-  isFa: boolean
-  onMutateSuccess?: () => void
+onMutateSuccess?: () => void
   onPageChange: (page: number) => void
   onPerPageChange: (perPage: number) => void
+  enabledPlatforms?: BotPlatformId[]
+  isReseller?: boolean
 }) {
+  const { isFa } = useDashLocale()
+
   const { t } = useTranslation()
   const tp = (k: string) => t(`broadcastAdmin.${k}`)
 
   const aggs = useMemo(() => parseAggs(broadcastQueueAggregates), [broadcastQueueAggregates])
 
   const [html, setHtml] = useState("")
-  const [targets, setTargets] = useState<"both" | "telegram" | "bale">("both")
+  const showTg = enabledPlatforms.includes("telegram")
+  const showBale = enabledPlatforms.includes("bale")
+  const defaultTarget = showTg && showBale ? "both" : showTg ? "telegram" : "bale"
+  const [targets, setTargets] = useState<"both" | "telegram" | "bale">(defaultTarget as "both" | "telegram" | "bale")
   const [mediaUrls, setMediaUrls] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -691,7 +684,7 @@ export function DashboardBroadcastAdmin({
   }, [onMutateSuccess, t])
 
   return (
-    <div className={dashPageRootClass(isFa, "space-y-8")} dir={dashDir(isFa)}>
+    <DashPage className="w-full min-w-0 space-y-8">
       <DashboardPageHeader
         title={tp("title")}
         description={
@@ -702,14 +695,20 @@ export function DashboardBroadcastAdmin({
           </>
         }
         actions={
-          <>
-            <Button type="button" variant="secondary" size="sm" disabled={processLoading} onClick={() => void runProcessQueue()}>
-              {processLoading ? tp("processQueueRunning") : tp("processQueueNow")}
-            </Button>
-            {processNotice ? <span className="text-xs text-muted-foreground">{processNotice}</span> : null}
-          </>
+          isReseller ? null : (
+            <>
+              <Button type="button" variant="secondary" size="sm" disabled={processLoading} onClick={() => void runProcessQueue()}>
+                {processLoading ? tp("processQueueRunning") : tp("processQueueNow")}
+              </Button>
+              {processNotice ? <span className="text-xs text-muted-foreground">{processNotice}</span> : null}
+            </>
+          )
         }
       />
+
+      {isReseller ? (
+        <p className="text-sm text-muted-foreground">{tp("scopedResellerHint")}</p>
+      ) : null}
 
       {error ? (
         <div
@@ -726,14 +725,13 @@ export function DashboardBroadcastAdmin({
           <CardDescription>{tp("composeHint")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
-            <div className="space-y-4">
+          <div className="grid min-w-0 gap-6 lg:grid-cols-2 lg:items-start">
+            <div className="min-w-0 space-y-4">
           <div className="space-y-2">
             <Label>{tp("fieldText")}</Label>
             <BroadcastRichEditor
               value={html}
               onChange={setHtml}
-              isFa={isFa}
               disabled={saving}
               placeholder={tp("editorPlaceholder")}
             />
@@ -774,15 +772,15 @@ export function DashboardBroadcastAdmin({
           </div>
           <div className="space-y-2">
             <Label>{tp("fieldTargets")}</Label>
-            <select
-              className={selectClass}
+            <DashSelect
               value={targets}
-              onChange={(e) => setTargets(e.target.value as typeof targets)}
-            >
-              <option value="both">{tp("targetsBoth")}</option>
-              <option value="telegram">{tp("targetsTelegram")}</option>
-              <option value="bale">{tp("targetsBale")}</option>
-            </select>
+              onValueChange={(v) => setTargets(v as typeof targets)}
+              options={[
+                ...(showTg && showBale ? [{ value: "both", label: tp("targetsBoth") }] : []),
+                ...(showTg ? [{ value: "telegram", label: tp("targetsTelegram") }] : []),
+                ...(showBale ? [{ value: "bale", label: tp("targetsBale") }] : []),
+              ]}
+            />
           </div>
           <Button type="button" disabled={saving || uploading} onClick={() => void onSend()}>
             {tp("send")}
@@ -794,7 +792,7 @@ export function DashboardBroadcastAdmin({
                   <CardTitle className="text-base">{tp("previewTelegram")}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <BroadcastHtmlPreview html={html} urls={mediaUrls} isFa={isFa} />
+                  <BroadcastHtmlPreview html={html} urls={mediaUrls} />
                 </CardContent>
               </Card>
               <Card className="border-dashed">
@@ -802,7 +800,7 @@ export function DashboardBroadcastAdmin({
                   <CardTitle className="text-base">{tp("previewBale")}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <BroadcastBalePreview html={html} urls={mediaUrls} isFa={isFa} baleNote={tp("baleFormatNote")} />
+                  <BroadcastBalePreview html={html} urls={mediaUrls} baleNote={tp("baleFormatNote")} />
                 </CardContent>
               </Card>
             </div>
@@ -893,18 +891,26 @@ export function DashboardBroadcastAdmin({
                               q.total.blocked +
                               q.total.cancelled
                           }
-                          isFa={isFa}
-                        />
-                        <StatBox label={tp("statSent")} value={q.total.sent} isFa={isFa} />
-                        <StatBox label={tp("statPending")} value={q.total.pending} isFa={isFa} />
-                        <StatBox label={tp("statSending")} value={q.total.sending} isFa={isFa} />
-                        <StatBox label={tp("statFailed")} value={q.total.failed} isFa={isFa} />
-                        <StatBox label={tp("statBlocked")} value={q.total.blocked} isFa={isFa} />
-                        <StatBox label={tp("statCancelled")} value={q.total.cancelled} isFa={isFa} />
-                        <StatBox label={tp("statBlockedDb")} value={num(b.blocked_count)} isFa={isFa} />
-                        <StatBox label={tp("statFailedDb")} value={num(b.failed_count)} isFa={isFa} />
+        />
+                        <StatBox label={tp("statSent")} value={q.total.sent}
+        />
+                        <StatBox label={tp("statPending")} value={q.total.pending}
+        />
+                        <StatBox label={tp("statSending")} value={q.total.sending}
+        />
+                        <StatBox label={tp("statFailed")} value={q.total.failed}
+        />
+                        <StatBox label={tp("statBlocked")} value={q.total.blocked}
+        />
+                        <StatBox label={tp("statCancelled")} value={q.total.cancelled}
+        />
+                        <StatBox label={tp("statBlockedDb")} value={num(b.blocked_count)}
+        />
+                        <StatBox label={tp("statFailedDb")} value={num(b.failed_count)}
+        />
                       </div>
                       <div className="grid gap-2 border-t pt-2 text-xs sm:grid-cols-2">
+                        {showTg ? (
                         <div>
                           <p className="font-medium text-muted-foreground">{tp("platformTelegram")}</p>
                           <p className="text-muted-foreground">
@@ -919,6 +925,8 @@ export function DashboardBroadcastAdmin({
                             ) : null}
                           </p>
                         </div>
+                        ) : null}
+                        {showBale ? (
                         <div>
                           <p className="font-medium text-muted-foreground">{tp("platformBale")}</p>
                           <p className="text-muted-foreground">
@@ -933,8 +941,10 @@ export function DashboardBroadcastAdmin({
                             ) : null}
                           </p>
                         </div>
+                        ) : null}
                       </div>
-                      <BroadcastRecipientsBlock broadcastId={id} isFa={isFa} />
+                      <BroadcastRecipientsBlock broadcastId={id}
+        />
                     </CardContent>
                   </Card>
                 </li>
@@ -944,54 +954,54 @@ export function DashboardBroadcastAdmin({
         )}
         <DataPagination
           meta={pagination}
-          isFa={isFa}
-          onPageChange={onPageChange}
+        onPageChange={onPageChange}
           onPerPageChange={onPerPageChange}
         />
       </div>
 
       <Dialog open={fullMsgOpen} onOpenChange={setFullMsgOpen}>
-        <DialogContent className={cn("max-h-[90vh] max-w-2xl overflow-y-auto", isFa && "text-right")} dir={dashDir(isFa)}>
-          <DialogHeader>
+        <DashDialogContent className={cn("sm:max-w-2xl")}>
+          <DashDialogHeader>
             <DialogTitle>{tp("viewFullMessage")}</DialogTitle>
-          </DialogHeader>
+          </DashDialogHeader>
           {(() => {
             const parsed = parseBroadcastContentFromStored(fullMsgContent)
-            return <BroadcastHtmlPreview html={parsed.html} urls={parsed.urls} isFa={isFa} />
+            return <BroadcastHtmlPreview html={parsed.html} urls={parsed.urls} />
           })()}
-          <DialogFooter>
+          <DashDialogFooter>
             <Button type="button" variant="secondary" onClick={() => setFullMsgOpen(false)}>
               {tp("close")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
-        <DialogContent className={isFa ? "text-right" : undefined}>
-          <DialogHeader>
+        <DashDialogContent className="text-start">
+          <DashDialogHeader>
             <DialogTitle>{tp("cancelBroadcast")}</DialogTitle>
             <DialogDescription>{tp("cancelConfirm")}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter className={cn("gap-2 sm:space-x-0")} dir={dashDir(isFa)}>
+          </DashDialogHeader>
+          <DashDialogFooter className={cn("gap-2 sm:space-x-0")}>
             <Button type="button" variant="secondary" onClick={() => setCancelOpen(false)} disabled={cancelling}>
               {tp("cancelAction")}
             </Button>
             <Button type="button" variant="destructive" disabled={cancelling} onClick={() => void runCancel()}>
               {tp("cancelBroadcast")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
-    </div>
+    </DashPage>
   )
 }
 
-function StatBox({ label, value, isFa }: { label: string; value: number; isFa: boolean }) {
+function StatBox({ label, value }: { label: string; value: number }) {
+  const { isFa } = useDashLocale()
   return (
     <div className="rounded-md border border-border/80 bg-muted/30 px-2 py-1.5">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={cn("text-lg font-semibold tabular-nums", isFa && "text-right")} dir={dashDir(isFa)}>{formatNumber(value, isFa)}</div>
+      <div className={cn("text-lg font-semibold tabular-nums")}>{formatNumber(value, isFa)}</div>
     </div>
   )
 }

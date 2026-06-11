@@ -39,7 +39,7 @@ class SimpleVPBot_Cron_Autorenew {
 	}
 
 	/**
-	 * Attempt to renew a single service (paid-renew semantics: same cap, conditional +30d / reset).
+	 * Attempt to renew a single service (paid-renew semantics: same cap, +plan duration / reset when near expiry).
 	 *
 	 * @param object $svc Service row.
 	 */
@@ -102,7 +102,13 @@ class SimpleVPBot_Cron_Autorenew {
 				),
 			)
 		);
-		self::msg( $user, '✅ تمدید خودکار سرویس «' . (string) $svc->remark . '» انجام شد (همان سقف حجم؛ در صورت نزدیک بودن انقضا یا اتمام حجم، ۳۰ روز و ریست مصرف اعمال می‌شود).' );
+		$plan_days = max( 0, (int) ( $plan->duration_days ?? 0 ) );
+		self::msg(
+			$user,
+			'✅ تمدید خودکار سرویس «' . (string) $svc->remark . '» انجام شد (همان سقف حجم'
+			. ( $plan_days > 0 ? '؛ ' . $plan_days . ' روز به انقضا اضافه شد' : '' )
+			. ').'
+		);
 	}
 
 	/**

@@ -41,5 +41,8 @@ class SimpleVPBot_Purchase_Side_Effects {
 		if ( class_exists( 'SimpleVPBot_Service_Reseller_Wholesale_Pricing' ) ) {
 			SimpleVPBot_Service_Reseller_Wholesale_Pricing::maybe_record_accrual_from_transaction( $tx );
 		}
+		if ( class_exists( 'SimpleVPBot_Marketing_Automation' ) ) {
+			SimpleVPBot_Marketing_Automation::maybe_mark_converted_from_tx( $tx );
+		}
 	}
 }

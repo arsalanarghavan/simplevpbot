@@ -33,4 +33,20 @@ class SupportContactsTest extends TestCase {
 		}
 		$this->assertIsString( SimpleVPBot_Support_Contacts::contact_block( 'telegram' ) );
 	}
+
+	/**
+	 * Platform-specific contact_block shows only the current platform username.
+	 */
+	public function test_contact_block_platform_exclusive_contract(): void {
+		$src = (string) file_get_contents(
+			dirname( __DIR__ ) . '/includes/helpers/class-support-contacts.php'
+		);
+
+		$this->assertStringContainsString( "if ( 'telegram' === \$plat )", $src );
+		$this->assertStringContainsString( "elseif ( 'bale' === \$plat )", $src );
+		$this->assertStringNotContainsString(
+			"if ( 'bale' === \$plat ) {\n\t\t\tif ( '' !== \$bl_line ) {\n\t\t\t\t\$lines[] = \$bl_line;\n\t\t\t}\n\t\t\tif ( '' !== \$tg_line )",
+			$src
+		);
+	}
 }

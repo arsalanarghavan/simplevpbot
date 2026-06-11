@@ -15,6 +15,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 class SimpleVPBot_Model_Reseller_Wholesale_Line {
 
 	/**
+	 * Request-level memo for lines_for_reseller().
+	 *
+	 * @var array<int, array<int, object>>
+	 */
+	private static $lines_for_reseller_memo = array();
+
+	/**
 	 * Table name.
 	 *
 	 * @return string
@@ -102,10 +109,15 @@ class SimpleVPBot_Model_Reseller_Wholesale_Line {
 		if ( $r < 1 ) {
 			return array();
 		}
+		if ( isset( self::$lines_for_reseller_memo[ $r ] ) ) {
+			return self::$lines_for_reseller_memo[ $r ];
+		}
 		$t   = self::table();
 		$ta  = SimpleVPBot_Model_Reseller_Wholesale_Assignment::table();
 		$sql = "SELECT l.* FROM {$t} l INNER JOIN {$ta} a ON a.line_id = l.id AND a.reseller_svp_user_id = %d WHERE l.active = 1 ORDER BY l.sort_order ASC, l.id ASC";
-		return $wpdb->get_results( $wpdb->prepare( $sql, $r ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$rows = $wpdb->get_results( $wpdb->prepare( $sql, $r ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		self::$lines_for_reseller_memo[ $r ] = is_array( $rows ) ? $rows : array();
+		return self::$lines_for_reseller_memo[ $r ];
 	}
 
 	/**

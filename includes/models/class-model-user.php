@@ -20,6 +20,7 @@ class SimpleVPBot_Model_User {
 		'receipts.review',
 		'plans.manage',
 		'services.manage',
+		'marketing.lifecycle',
 	);
 
 	/**
@@ -155,7 +156,12 @@ class SimpleVPBot_Model_User {
 		$uid = (int) $id;
 		$prev = null;
 		if ( $uid > 0 && array_key_exists( 'invited_by', $data ) ) {
-			$prev = self::find( $uid );
+			$prev    = self::find( $uid );
+			$new_inv = isset( $data['invited_by'] ) ? (int) $data['invited_by'] : 0;
+			if ( $new_inv > 0 && class_exists( 'SimpleVPBot_Reseller_Closure' )
+				&& SimpleVPBot_Reseller_Closure::invited_by_would_cycle( $uid, $new_inv ) ) {
+				unset( $data['invited_by'] );
+			}
 		}
 		$wpdb->update( self::table(), $data, array( 'id' => $uid ) );
 		if ( $prev && array_key_exists( 'invited_by', $data ) ) {
@@ -384,6 +390,95 @@ class SimpleVPBot_Model_User {
 	}
 
 	/**
+	 * Dashboard user list filters and sort (alias `u`).
+	 *
+	 * @param array<string, mixed> $params users_status, users_role, users_platform, users_min_svc, users_max_svc, users_date_from, users_date_to, users_sort.
+	 * @param string               $alias  User table alias.
+	 * @return array{where_sql:string,where_values:array<int|float|string>,order_sql:string,needs_svc_join:bool}
+	 */
+	public static function admin_list_query_parts( array $params, $alias = 'u' ) {
+		$a = preg_replace( '/[^a-zA-Z0-9_]/', '', (string) $alias );
+		$a = '' !== $a ? $a : 'u';
+
+		$parts          = array();
+		$values         = array();
+		$needs_svc_join = false;
+		$skip_status    = ! empty( $params['skip_status'] );
+
+		$status = sanitize_key( (string) ( $params['users_status'] ?? 'all' ) );
+		if ( ! $skip_status && 'all' !== $status && in_array( $status, array( 'pending', 'approved', 'rejected', 'blocked' ), true ) ) {
+			$parts[]  = " AND {$a}.status = %s";
+			$values[] = $status;
+		}
+
+		$role = sanitize_key( (string) ( $params['users_role'] ?? 'all' ) );
+		if ( 'all' !== $role && in_array( $role, array( 'user', 'reseller', 'admin' ), true ) ) {
+			$parts[]  = " AND {$a}.role = %s";
+			$values[] = $role;
+		}
+
+		$platform = sanitize_key( (string) ( $params['users_platform'] ?? 'all' ) );
+		if ( 'telegram' === $platform ) {
+			$parts[] = " AND {$a}.tg_user_id > 0";
+		} elseif ( 'bale' === $platform ) {
+			$parts[] = " AND {$a}.bale_user_id > 0";
+		} elseif ( 'both' === $platform ) {
+			$parts[] = " AND {$a}.tg_user_id > 0 AND {$a}.bale_user_id > 0";
+		} elseif ( 'none' === $platform ) {
+			$parts[] = " AND COALESCE({$a}.tg_user_id, 0) = 0 AND COALESCE({$a}.bale_user_id, 0) = 0";
+		}
+
+		$df = trim( (string) ( $params['users_date_from'] ?? '' ) );
+		if ( '' !== $df && preg_match( '/^\d{4}-\d{2}-\d{2}/', $df ) ) {
+			$parts[]  = " AND {$a}.created_at >= %s";
+			$values[] = substr( $df, 0, 10 ) . ' 00:00:00';
+		}
+		$dt = trim( (string) ( $params['users_date_to'] ?? '' ) );
+		if ( '' !== $dt && preg_match( '/^\d{4}-\d{2}-\d{2}/', $dt ) ) {
+			$parts[]  = " AND {$a}.created_at <= %s";
+			$values[] = substr( $dt, 0, 10 ) . ' 23:59:59';
+		}
+
+		$min_svc = trim( (string) ( $params['users_min_svc'] ?? '' ) );
+		if ( '' !== $min_svc && is_numeric( $min_svc ) ) {
+			$needs_svc_join = true;
+			$parts[]        = ' AND COALESCE(s.svc_count, 0) >= %d';
+			$values[]       = max( 0, (int) $min_svc );
+		}
+		$max_svc = trim( (string) ( $params['users_max_svc'] ?? '' ) );
+		if ( '' !== $max_svc && is_numeric( $max_svc ) ) {
+			$needs_svc_join = true;
+			$parts[]        = ' AND COALESCE(s.svc_count, 0) <= %d';
+			$values[]       = max( 0, (int) $max_svc );
+		}
+
+		$sort = sanitize_key( (string) ( $params['users_sort'] ?? 'created_desc' ) );
+		if ( in_array( $sort, array( 'services_desc', 'services_asc' ), true ) ) {
+			$needs_svc_join = true;
+		}
+		$orders = array(
+			'created_desc'  => "{$a}.created_at DESC, {$a}.id DESC",
+			'created_asc'   => "{$a}.created_at ASC, {$a}.id ASC",
+			'id_desc'       => "{$a}.id DESC",
+			'id_asc'        => "{$a}.id ASC",
+			'services_desc' => 'COALESCE(s.svc_count, 0) DESC, ' . $a . '.id DESC',
+			'services_asc'  => 'COALESCE(s.svc_count, 0) ASC, ' . $a . '.id ASC',
+			'status_asc'    => "{$a}.status ASC, {$a}.id DESC",
+			'status_desc'   => "{$a}.status DESC, {$a}.id DESC",
+			'name_asc'      => "CONCAT(COALESCE({$a}.first_name,''), ' ', COALESCE({$a}.last_name,'')) ASC, {$a}.id DESC",
+			'name_desc'     => "CONCAT(COALESCE({$a}.first_name,''), ' ', COALESCE({$a}.last_name,'')) DESC, {$a}.id DESC",
+		);
+		$order_sql = isset( $orders[ $sort ] ) ? $orders[ $sort ] : $orders['created_desc'];
+
+		return array(
+			'where_sql'      => implode( '', $parts ),
+			'where_values'   => $values,
+			'order_sql'      => $order_sql,
+			'needs_svc_join' => $needs_svc_join,
+		);
+	}
+
+	/**
 	 * Count by status.
 	 *
 	 * @param string $status Status.
@@ -477,6 +572,153 @@ class SimpleVPBot_Model_User {
 				$off
 			)
 		); // phpcs:ignore
+	}
+
+	/**
+	 * Users by status limited to given ids (bot admin reseller scope).
+	 *
+	 * @param string       $status pending|approved|rejected|blocked.
+	 * @param int          $offset Offset.
+	 * @param int          $limit  Max 20.
+	 * @param array<int>   $user_ids Allowed svp_users.id values.
+	 * @return array<int, object>
+	 */
+	public static function list_by_status_paged_for_ids( $status, $offset, $limit, array $user_ids ) {
+		$ids = array_values(
+			array_filter(
+				array_map( 'intval', $user_ids ),
+				static function ( $v ) {
+					return $v > 0;
+				}
+			)
+		);
+		if ( empty( $ids ) ) {
+			return array();
+		}
+		global $wpdb;
+		$st = sanitize_key( (string) $status );
+		if ( ! in_array( $st, array( 'pending', 'approved', 'rejected', 'blocked' ), true ) ) {
+			return array();
+		}
+		$off = max( 0, (int) $offset );
+		$lim = max( 1, min( 20, (int) $limit ) );
+		$ph  = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT * FROM " . self::table() . " WHERE status = %s AND id IN ({$ph}) ORDER BY id DESC LIMIT %d OFFSET %d",
+				array_merge( array( $st ), $ids, array( $lim, $off ) )
+			)
+		);
+	}
+
+	/**
+	 * Count users by status within id set.
+	 *
+	 * @param string     $status Status.
+	 * @param array<int> $user_ids Ids.
+	 * @return int
+	 */
+	public static function count_by_status_for_ids( $status, array $user_ids ) {
+		$ids = array_values(
+			array_filter(
+				array_map( 'intval', $user_ids ),
+				static function ( $v ) {
+					return $v > 0;
+				}
+			)
+		);
+		if ( empty( $ids ) ) {
+			return 0;
+		}
+		global $wpdb;
+		$st = sanitize_key( (string) $status );
+		if ( ! in_array( $st, array( 'pending', 'approved', 'rejected', 'blocked' ), true ) ) {
+			return 0;
+		}
+		$ph = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
+		return (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM " . self::table() . " WHERE status = %s AND id IN ({$ph})",
+				array_merge( array( $st ), $ids )
+			)
+		);
+	}
+
+	/**
+	 * Display labels keyed by svp_users.id (batch).
+	 *
+	 * @param array<int> $user_ids User ids.
+	 * @return array<int, string>
+	 */
+	public static function labels_by_ids( array $user_ids ) {
+		$ids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', $user_ids ),
+					static function ( $v ) {
+						return $v > 0;
+					}
+				)
+			)
+		);
+		if ( empty( $ids ) ) {
+			return array();
+		}
+		global $wpdb;
+		$ph   = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
+		$rows = $wpdb->get_results(
+			$wpdb->prepare( "SELECT * FROM " . self::table() . " WHERE id IN ({$ph})", $ids )
+		);
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			if ( is_object( $row ) && isset( $row->id ) ) {
+				$out[ (int) $row->id ] = self::label( $row );
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Count direct invitees (invited_by) keyed by reseller svp_users.id.
+	 *
+	 * @param array<int> $reseller_ids Reseller ids.
+	 * @return array<int, int>
+	 */
+	public static function direct_children_count_map_for_ids( array $reseller_ids ) {
+		$ids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', $reseller_ids ),
+					static function ( $v ) {
+						return $v > 0;
+					}
+				)
+			)
+		);
+		if ( empty( $ids ) ) {
+			return array();
+		}
+		global $wpdb;
+		$ph   = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT invited_by AS rid, COUNT(*) AS cnt FROM " . self::table() . " WHERE invited_by IN ({$ph}) GROUP BY invited_by",
+				$ids
+			),
+			ARRAY_A
+		);
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$rid = (int) ( $row['rid'] ?? 0 );
+			if ( $rid > 0 ) {
+				$out[ $rid ] = (int) ( $row['cnt'] ?? 0 );
+			}
+		}
+		return $out;
 	}
 
 	/**
@@ -861,6 +1103,154 @@ class SimpleVPBot_Model_User {
 			'sql'    => " AND {$a}.id IN ({$ph}) ",
 			'values' => $ids,
 		);
+	}
+
+	/**
+	 * SQL fragment for users a reseller may moderate (downline + signup_reseller attribution).
+	 *
+	 * @param int    $reseller_id Reseller svp_users.id.
+	 * @param string $alias       SQL alias.
+	 * @return array{sql:string,values:array<int,int>}|null
+	 */
+	public static function reseller_moderation_scope_clause( $reseller_id, $alias = 'u' ) {
+		$rid = (int) $reseller_id;
+		if ( $rid < 1 ) {
+			return null;
+		}
+		$a = preg_replace( '/[^a-zA-Z0-9_]/', '', (string) $alias );
+		$a = '' !== $a ? $a : 'u';
+		$base = self::reseller_scope_clause( $rid, $alias );
+		if ( null === $base ) {
+			return array(
+				'sql'    => " AND ( {$a}.id = %d OR {$a}.signup_reseller_svp_id = %d ) ",
+				'values' => array( $rid, $rid ),
+			);
+		}
+		$inner = trim( preg_replace( '/^\s*AND\s+/i', '', $base['sql'] ) );
+		return array(
+			'sql'    => " AND ( {$inner} OR {$a}.signup_reseller_svp_id = %d ) ",
+			'values' => array_merge( $base['values'], array( $rid ) ),
+		);
+	}
+
+	/**
+	 * Batch-load reseller permission maps for admin tables.
+	 *
+	 * @param array<int, int> $reseller_ids Reseller svp_users.id list.
+	 * @return array<string, array<string, bool>>
+	 */
+	public static function reseller_permissions_map_for_ids( array $reseller_ids ) {
+		$ids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', $reseller_ids ),
+					static function ( $v ) {
+						return (int) $v > 0;
+					}
+				)
+			)
+		);
+		$out = array();
+		if ( empty( $ids ) ) {
+			return $out;
+		}
+		global $wpdb;
+		$option_by_rid = array();
+		foreach ( $ids as $rid ) {
+			$option_by_rid[ 'simplevpbot_reseller_perms_' . $rid ] = $rid;
+		}
+		$names        = array_keys( $option_by_rid );
+		$placeholders = implode( ', ', array_fill( 0, count( $names ), '%s' ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
+		$sql  = "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name IN ({$placeholders})";
+		$rows = $wpdb->get_results( $wpdb->prepare( $sql, $names ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$raw_by_rid = array();
+		foreach ( (array) $rows as $row ) {
+			$name = isset( $row['option_name'] ) ? (string) $row['option_name'] : '';
+			if ( '' === $name || ! isset( $option_by_rid[ $name ] ) ) {
+				continue;
+			}
+			$rid = (int) $option_by_rid[ $name ];
+			$val = isset( $row['option_value'] ) ? maybe_unserialize( $row['option_value'] ) : null;
+			if ( is_array( $val ) ) {
+				$raw_by_rid[ $rid ] = $val;
+			}
+		}
+		foreach ( $ids as $rid ) {
+			$raw = isset( $raw_by_rid[ $rid ] ) ? $raw_by_rid[ $rid ] : null;
+			if ( ! is_array( $raw ) ) {
+				$out[ (string) $rid ] = self::default_reseller_permissions();
+				continue;
+			}
+			$cur = self::default_reseller_permissions();
+			foreach ( self::RESELLER_PERMISSION_KEYS as $k ) {
+				if ( array_key_exists( $k, $raw ) ) {
+					$cur[ $k ] = (bool) $raw[ $k ];
+				}
+			}
+			$out[ (string) $rid ] = $cur;
+		}
+		return $out;
+	}
+
+	/**
+	 * Export all per-reseller permission options for backup zip.
+	 *
+	 * @return array<string, array<string, bool>> Map of reseller id string → permission map.
+	 */
+	public static function export_all_reseller_permissions() {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$rows = $wpdb->get_results(
+			"SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'simplevpbot_reseller_perms_%'",
+			ARRAY_A
+		);
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$name = isset( $row['option_name'] ) ? (string) $row['option_name'] : '';
+			if ( ! preg_match( '/^simplevpbot_reseller_perms_(\d+)$/', $name, $m ) ) {
+				continue;
+			}
+			$rid = (int) $m[1];
+			if ( $rid < 1 ) {
+				continue;
+			}
+			$raw = isset( $row['option_value'] ) ? maybe_unserialize( $row['option_value'] ) : null;
+			if ( ! is_array( $raw ) ) {
+				continue;
+			}
+			$cur = self::default_reseller_permissions();
+			foreach ( self::RESELLER_PERMISSION_KEYS as $k ) {
+				if ( array_key_exists( $k, $raw ) ) {
+					$cur[ $k ] = (bool) $raw[ $k ];
+				}
+			}
+			$out[ (string) $rid ] = $cur;
+		}
+		return $out;
+	}
+
+	/**
+	 * Restore per-reseller permissions from backup export map.
+	 *
+	 * @param array<string, mixed> $map reseller id string → permission map.
+	 * @return int Options written.
+	 */
+	public static function restore_reseller_permissions_from_export( array $map ) {
+		$written = 0;
+		foreach ( $map as $rid_key => $perms ) {
+			if ( ! is_array( $perms ) ) {
+				continue;
+			}
+			$rid = (int) $rid_key;
+			if ( $rid < 1 ) {
+				continue;
+			}
+			if ( self::set_reseller_permissions( $rid, $perms ) ) {
+				++$written;
+			}
+		}
+		return $written;
 	}
 
 	/**

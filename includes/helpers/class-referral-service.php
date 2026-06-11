@@ -134,6 +134,9 @@ class SimpleVPBot_Referral_Service {
 		}
 		$payload = 'ref_' . $uid;
 		$rid     = (int) $reseller_svp_user_id;
+		if ( class_exists( 'SimpleVPBot_Platforms' ) && ! SimpleVPBot_Platforms::is_enabled( $platform, $rid ) ) {
+			return '';
+		}
 		if ( $rid < 1 && class_exists( 'SimpleVPBot_Bot_Context' ) && SimpleVPBot_Bot_Context::is_reseller_bot() ) {
 			$rid = (int) SimpleVPBot_Bot_Context::reseller_svp_user_id();
 		}
@@ -196,13 +199,10 @@ class SimpleVPBot_Referral_Service {
 			$rf = trim( (string) ( $referrer->username ?? '' ), "@ \t\n\r\0\x0B" );
 		}
 		if ( '' === $rf ) {
-			$rf = __( 'کاربر گرامی', 'simplevpbot' );
+			$rf = SimpleVPBot_Texts::get( 'msg.referral.dear_user' );
 		}
 		$amt_str = (string) (int) round( $commission );
-		$tpl     = SimpleVPBot_Texts::get(
-			'msg.referral_bonus_wallet',
-			"💰 {amount_toman} تومان از خرید {buyer_label}\n{referrer_first}"
-		);
+		$tpl     = SimpleVPBot_Texts::get( 'msg.referral_bonus_wallet' );
 		$body = SimpleVPBot_Texts::format(
 			$tpl,
 			array(

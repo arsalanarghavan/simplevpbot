@@ -2,7 +2,10 @@ export const SITE_SETTINGS_SUBTABS = [
   "whitelabel",
   "service_naming",
   "proxy",
+  "relay",
   "notifications",
+  "purge_expired",
+  "finance",
   "logs",
   "resellers",
 ] as const

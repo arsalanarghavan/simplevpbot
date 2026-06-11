@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/sidebar"
 import { formatPlainLatinInt } from "@/lib/format-locale"
 import { menuBtnCollapsedIcon } from "@/lib/sidebar-menu-classes"
+import { useDashLocale } from "@/lib/dash-locale-context"
 import { cn } from "@/lib/utils"
 
 function IconTelegram({ className }: { className?: string }) {
@@ -43,20 +44,21 @@ function IconTelegram({ className }: { className?: string }) {
 function MessengerIds({
   tgUserId,
   baleUserId,
-  rtl,
+  showTelegram = true,
+  showBale = true,
 }: {
   tgUserId: number
   baleUserId: number
-  rtl: boolean
+  showTelegram?: boolean
+  showBale?: boolean
 }) {
-  const showTg = tgUserId > 0
-  const showBl = baleUserId > 0
+  const showTg = showTelegram && tgUserId > 0
+  const showBl = showBale && baleUserId > 0
   if (!showTg && !showBl) return null
   return (
     <div
       className={cn(
-        "flex flex-col gap-0.5 text-xs text-muted-foreground",
-        rtl ? "items-end" : "items-start"
+        "flex flex-col items-start gap-0.5 text-xs text-muted-foreground"
       )}
     >
       {showTg ? (
@@ -94,7 +96,8 @@ function MessengerIds({
 
 export function NavUser({
   user,
-  rtl = false,
+  showTelegram = true,
+  showBale = true,
 }: {
   user: {
     name: string
@@ -103,8 +106,10 @@ export function NavUser({
     avatar: string
     logoutUrl?: string
   }
-  rtl?: boolean
+  showTelegram?: boolean
+  showBale?: boolean
 }) {
+  const { isFa, dir } = useDashLocale()
   const { isMobile } = useSidebar()
   const { t } = useTranslation()
 
@@ -114,7 +119,7 @@ export function NavUser({
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
-              dir={rtl ? "rtl" : undefined}
+              dir={dir}
               size="lg"
               className={cn(
                 menuBtnCollapsedIcon,
@@ -133,13 +138,14 @@ export function NavUser({
                 <MessengerIds
                   tgUserId={user.tgUserId}
                   baleUserId={user.baleUserId}
-                  rtl={rtl}
+                  showTelegram={showTelegram}
+                  showBale={showBale}
                 />
               </div>
               <ChevronsUpDown
                 className={cn(
                   "size-4 shrink-0 opacity-70 group-data-[collapsible=icon]:hidden",
-                  rtl ? "me-auto ms-0 rotate-180" : "ms-auto"
+                  isFa ? "me-auto ms-0 rotate-180" : "ms-auto"
                 )}
               />
             </SidebarMenuButton>
@@ -147,9 +153,9 @@ export function NavUser({
           <DropdownMenuContent
             className={cn(
               "w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg",
-              rtl && "text-right"
+              "text-start"
             )}
-            style={{ direction: rtl ? "rtl" : "ltr" }}
+            style={{ direction: dir }}
             side={isMobile ? "bottom" : "right"}
             align="end"
             sideOffset={4}
@@ -165,7 +171,6 @@ export function NavUser({
                   <MessengerIds
                     tgUserId={user.tgUserId}
                     baleUserId={user.baleUserId}
-                    rtl={rtl}
                   />
                 </div>
               </div>
@@ -174,7 +179,7 @@ export function NavUser({
             <DropdownMenuItem asChild>
               <a
                 href={user.logoutUrl || "#"}
-                className={cn("gap-2", rtl && "justify-end")}
+                className="gap-2"
               >
                 <LogOut />
                 {t("sidebar.user.logout")}

@@ -14,6 +14,33 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class SimpleVPBot_Jalali_Date {
 
+	/** IANA zone for backup filenames and Telegram captions (Iran). */
+	const BACKUP_TIMEZONE = 'Asia/Tehran';
+
+	/**
+	 * Timezone used for backup-related Jalali formatting.
+	 *
+	 * @return DateTimeZone
+	 */
+	public static function backup_timezone() {
+		try {
+			return new DateTimeZone( self::BACKUP_TIMEZONE );
+		} catch ( Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
+			return wp_timezone();
+		}
+	}
+
+	/**
+	 * wp_date in backup display timezone.
+	 *
+	 * @param string $format Format.
+	 * @param int    $timestamp Unix seconds.
+	 * @return string
+	 */
+	private static function wp_date_backup( $format, $timestamp ) {
+		return wp_date( $format, (int) $timestamp, self::backup_timezone() );
+	}
+
 	/**
 	 * Convert Gregorian date to Jalali (j_y, j_m, j_d).
 	 *
@@ -72,10 +99,10 @@ class SimpleVPBot_Jalali_Date {
 		if ( $ts <= 0 ) {
 			return '—';
 		}
-		$gy = (int) wp_date( 'Y', $ts );
-		$gm = (int) wp_date( 'n', $ts );
-		$gd = (int) wp_date( 'j', $ts );
-		$t  = wp_date( 'H:i', $ts );
+		$gy = (int) self::wp_date_backup( 'Y', $ts );
+		$gm = (int) self::wp_date_backup( 'n', $ts );
+		$gd = (int) self::wp_date_backup( 'j', $ts );
+		$t  = self::wp_date_backup( 'H:i', $ts );
 		list( $jy, $jm, $jd ) = self::gregorian_to_jalali( $gy, $gm, $gd );
 		return sprintf( '%d/%02d/%02d - %s', $jy, $jm, $jd, $t );
 	}
@@ -91,10 +118,10 @@ class SimpleVPBot_Jalali_Date {
 		if ( $ts <= 0 ) {
 			return '—';
 		}
-		$gy = (int) wp_date( 'Y', $ts );
-		$gm = (int) wp_date( 'n', $ts );
-		$gd = (int) wp_date( 'j', $ts );
-		$t  = wp_date( 'H:i:s', $ts );
+		$gy = (int) self::wp_date_backup( 'Y', $ts );
+		$gm = (int) self::wp_date_backup( 'n', $ts );
+		$gd = (int) self::wp_date_backup( 'j', $ts );
+		$t  = self::wp_date_backup( 'H:i:s', $ts );
 		list( $jy, $jm, $jd ) = self::gregorian_to_jalali( $gy, $gm, $gd );
 		return sprintf( '%d/%02d/%02d %s', $jy, $jm, $jd, $t );
 	}
@@ -110,10 +137,10 @@ class SimpleVPBot_Jalali_Date {
 		if ( $ts <= 0 ) {
 			return 'unknown';
 		}
-		$gy = (int) wp_date( 'Y', $ts );
-		$gm = (int) wp_date( 'n', $ts );
-		$gd = (int) wp_date( 'j', $ts );
-		$t  = wp_date( 'H-i-s', $ts );
+		$gy = (int) self::wp_date_backup( 'Y', $ts );
+		$gm = (int) self::wp_date_backup( 'n', $ts );
+		$gd = (int) self::wp_date_backup( 'j', $ts );
+		$t  = self::wp_date_backup( 'H-i-s', $ts );
 		list( $jy, $jm, $jd ) = self::gregorian_to_jalali( $gy, $gm, $gd );
 		return sprintf( '%d-%02d-%02d_%s', $jy, $jm, $jd, $t );
 	}

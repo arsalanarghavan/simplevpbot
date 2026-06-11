@@ -22,18 +22,42 @@ import { GripVertical } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { DashSelect } from "@/components/dash-select"
 import { Switch } from "@/components/ui/switch"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import { cn } from "@/lib/utils"
+import { useDashLocale } from "@/lib/dash-locale-context"
 
 const ITEM_PREFIX = "item:"
+
+export type UiButtonStyle = "" | "primary" | "success" | "danger"
 
 export type UiStudioCell = {
   id: string
   enabled?: boolean
   glass?: boolean
+  style?: UiButtonStyle
+  iconCustomEmojiId?: string
+}
+
+function normalizeButtonStyle(raw: unknown): UiButtonStyle {
+  const s = String(raw ?? "").toLowerCase()
+  if (s === "primary" || s === "success" || s === "danger") return s
+  return ""
+}
+
+function normalizeEmojiId(raw: unknown): string {
+  const id = String(raw ?? "").trim()
+  return /^\d+$/.test(id) ? id : ""
+}
+
+const STYLE_BADGE_CLASS: Record<Exclude<UiButtonStyle, "">, string> = {
+  primary: "bg-blue-600/15 text-blue-700 dark:text-blue-300",
+  success: "bg-green-600/15 text-green-700 dark:text-green-300",
+  danger: "bg-red-600/15 text-red-700 dark:text-red-300",
 }
 
 export type UiSurfacePack = {
@@ -62,6 +86,8 @@ function cloneRows(raw: unknown): UiStudioCell[][] {
         id: String(o.id ?? ""),
         enabled: o.enabled !== false,
         glass: Boolean(o.glass),
+        style: normalizeButtonStyle(o.style),
+        iconCustomEmojiId: normalizeEmojiId(o.icon_custom_emoji_id ?? o.iconCustomEmojiId),
       }
     })
   })
@@ -70,7 +96,8 @@ function cloneRows(raw: unknown): UiStudioCell[][] {
 function pickLabelPreview(
   textKey: string,
   textDefaults: Record<string, unknown> | undefined,
-  isFa: boolean): string {
+  isFa: boolean,
+): string {
   if (!textDefaults || !textKey) return textKey
   const row = textDefaults[textKey]
   if (row && typeof row === "object" && row !== null && ("fa" in row || "en" in row)) {
@@ -123,12 +150,10 @@ function findDuplicateActionId(rows: UiStudioCell[][]): string | null {
 function EmptyRowDropZone({
   surface,
   rowIndex,
-  isFa,
   label,
 }: {
   surface: string
   rowIndex: number
-  isFa: boolean
   label: string
 }) {
   const id = emptyDropId(surface, rowIndex)
@@ -138,8 +163,7 @@ function EmptyRowDropZone({
       ref={setNodeRef}
       className={cn(
         "flex min-h-14 items-center justify-center rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground",
-        isOver && "border-primary bg-primary/10 text-foreground",
-        isFa && "text-right")}
+        isOver && "border-primary bg-primary/10 text-foreground")}
     >
       {label}
     </div>
@@ -155,9 +179,18 @@ function SortableChip({
   textKeyLine,
   onToggleEnabled,
   onToggleGlass,
+  onStyleChange,
+  onEmojiIdChange,
   enabledLabel,
   glassLabel,
-  isFa,
+  styleLabel,
+  styleDefaultLabel,
+  stylePrimaryLabel,
+  styleSuccessLabel,
+  styleDangerLabel,
+  customEmojiIdLabel,
+  customEmojiHint,
+  premiumRequiredHint,
 }: {
   cell: UiStudioCell
   disabled: boolean
@@ -167,10 +200,23 @@ function SortableChip({
   textKeyLine: string
   onToggleEnabled: (v: boolean) => void
   onToggleGlass: (v: boolean) => void
+  onStyleChange: (v: UiButtonStyle) => void
+  onEmojiIdChange: (v: string) => void
   enabledLabel: string
   glassLabel: string
-  isFa: boolean
+  styleLabel: string
+  styleDefaultLabel: string
+  stylePrimaryLabel: string
+  styleSuccessLabel: string
+  styleDangerLabel: string
+  customEmojiIdLabel: string
+  customEmojiHint: string
+  premiumRequiredHint: string
 }) {
+  const { isFa } = useDashLocale()
+  const btnStyle = cell.style ?? ""
+  const emojiId = cell.iconCustomEmojiId ?? ""
+
   const sortId = `${ITEM_PREFIX}${cell.id}`
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: sortId,
@@ -189,7 +235,7 @@ function SortableChip({
         isDragging && "opacity-70",
         disabled && "opacity-50")}
     >
-      <div className={cn("flex items-start gap-2")} dir={dashDir(isFa)}>
+      <div className={cn("flex items-start gap-2")}>
         <button
           type="button"
           className="mt-0.5 cursor-grab touch-none text-muted-foreground hover:text-foreground"
@@ -198,17 +244,67 @@ function SortableChip({
         >
           <GripVertical className="size-4" />
         </button>
-        <div className={cn("min-w-0 flex-1 space-y-1", isFa && "text-right")} dir={dashDir(isFa)}>
+        <div className={cn("min-w-0 flex-1 space-y-1")}>
           <div className="break-words font-medium leading-snug">{studioTitle}</div>
           <div className="break-all font-mono text-xs text-muted-foreground">{cell.id}</div>
           {textKeyLine ? (
             <div className="break-all font-mono text-[10px] text-muted-foreground/90">{textKeyLine}</div>
           ) : null}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {btnStyle ? (
+              <span
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[10px] font-medium",
+                  STYLE_BADGE_CLASS[btnStyle],
+                )}
+              >
+                {btnStyle}
+              </span>
+            ) : null}
+            {emojiId ? (
+              <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                emoji:{emojiId}
+              </span>
+            ) : null}
+          </div>
           <div className="break-words text-xs leading-snug text-muted-foreground">{glassPreview || labelPreview}</div>
         </div>
       </div>
-      <div className={cn("flex flex-wrap items-center gap-3", isFa && "justify-end")} dir={dashDir(isFa)}>
-        <div className={cn("flex items-center gap-2")} dir={dashDir(isFa)}>
+      <div className={cn("grid gap-2 sm:grid-cols-2")}>
+        <div className="space-y-1">
+          <Label className="text-xs">{styleLabel}</Label>
+          <DashSelect
+            size="sm"
+            triggerClassName="h-8 w-full text-xs"
+            value={btnStyle || "_default"}
+            onValueChange={(v) => onStyleChange(v === "_default" ? "" : (v as UiButtonStyle))}
+            options={[
+              { value: "_default", label: styleDefaultLabel },
+              { value: "primary", label: stylePrimaryLabel },
+              { value: "success", label: styleSuccessLabel },
+              { value: "danger", label: styleDangerLabel },
+            ]}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor={`${sortId}-emoji`} className="text-xs">
+            {customEmojiIdLabel}
+          </Label>
+          <Input
+            id={`${sortId}-emoji`}
+            className="h-8 font-mono text-xs"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={emojiId}
+            onChange={(e) => onEmojiIdChange(normalizeEmojiId(e.target.value))}
+            placeholder="123456789"
+          />
+          <p className="text-[10px] leading-snug text-muted-foreground">{customEmojiHint}</p>
+          <p className="text-[10px] leading-snug text-muted-foreground/80">{premiumRequiredHint}</p>
+        </div>
+      </div>
+      <div className={cn("flex flex-wrap items-center gap-3", isFa && "justify-end")}>
+        <div className={cn("flex items-center gap-2")}>
           <Switch
             id={`${sortId}-en`}
             checked={cell.enabled !== false}
@@ -218,7 +314,7 @@ function SortableChip({
             {enabledLabel}
           </Label>
         </div>
-        <div className={cn("flex items-center gap-2")} dir={dashDir(isFa)}>
+        <div className={cn("flex items-center gap-2")}>
           <Switch id={`${sortId}-gl`} checked={Boolean(cell.glass)} onCheckedChange={onToggleGlass} />
           <Label htmlFor={`${sortId}-gl`} className="text-xs">
             {glassLabel}
@@ -234,7 +330,6 @@ export function DashboardBotUiStudio({
   uiRegistry,
   textDefaults,
   layoutReadOnly = false,
-  isFa,
   onMutateSuccess,
 }: {
   uiLayout?: Record<string, unknown>
@@ -242,13 +337,22 @@ export function DashboardBotUiStudio({
   textDefaults?: Record<string, unknown>
   /** View layouts only (global Bot UI is admin-owned). */
   layoutReadOnly?: boolean
-  isFa: boolean
-  onMutateSuccess?: () => void
+onMutateSuccess?: () => void
 }) {
+  const { isFa } = useDashLocale()
+
   const { t } = useTranslation()
   const tp = (k: string, o?: Record<string, string | number>) => t(`botUiStudio.${k}`, o)
   const enabledLbl = tp("enabled")
   const glassLbl = tp("glass")
+  const styleLbl = tp("style")
+  const styleDefaultLbl = tp("styleDefault")
+  const stylePrimaryLbl = tp("stylePrimary")
+  const styleSuccessLbl = tp("styleSuccess")
+  const styleDangerLbl = tp("styleDanger")
+  const customEmojiIdLbl = tp("customEmojiId")
+  const customEmojiHintLbl = tp("customEmojiHint")
+  const premiumRequiredHintLbl = tp("premiumRequiredHint")
 
   const surfacesReg = useMemo(() => {
     const reg = uiRegistry as { surfaces?: Record<string, UiSurfacePack> } | undefined
@@ -395,11 +499,18 @@ export function DashboardBotUiStudio({
       }
       const surfacesPayload: Record<string, unknown> = {}
       surfacesPayload[surface] = rows.map((r) =>
-        r.map((c) => ({
-          id: c.id,
-          enabled: c.enabled !== false,
-          glass: Boolean(c.glass),
-        })))
+        r.map((c) => {
+          const out: Record<string, unknown> = {
+            id: c.id,
+            enabled: c.enabled !== false,
+            glass: Boolean(c.glass),
+          }
+          if (c.style) out.style = c.style
+          const em = normalizeEmojiId(c.iconCustomEmojiId)
+          if (em) out.icon_custom_emoji_id = em
+          return out
+        }),
+      )
       const res = await postAdminMutate("bot_ui_layout_save", { surfaces: surfacesPayload })
       if (!res.ok) {
         const data = res.data as { errors?: string[] } | undefined
@@ -435,7 +546,7 @@ export function DashboardBotUiStudio({
   }, [onMutateSuccess, tp])
 
   return (
-    <div className={dashPageRootClass(isFa, "mx-auto w-full max-w-7xl")} dir={dashDir(isFa)}>
+    <DashPage className={"w-full space-y-6"}>
       <DashboardPageHeader
         title={tp("title")}
         description={
@@ -454,22 +565,17 @@ export function DashboardBotUiStudio({
       <div className="flex flex-wrap items-end gap-4">
         <div className="space-y-2">
           <Label htmlFor="svp-ui-surface">{tp("surface")}</Label>
-          <select
+          <DashSelect
             id="svp-ui-surface"
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            triggerClassName="w-fit"
             value={surface}
-            onChange={(e) => setSurface(e.target.value)}
-          >
-            {surfaceIds.map((id) => {
+            onValueChange={setSurface}
+            options={surfaceIds.map((id) => {
               const p = surfacesReg[id]
               const lab = isFa ? (p?.labelFa ?? id) : (p?.labelEn ?? id)
-              return (
-                <option key={id} value={id}>
-                  {lab} ({id})
-                </option>
-              )
+              return { value: id, label: `${lab} (${id})` }
             })}
-          </select>
+          />
         </div>
         {!layoutReadOnly ? (
           <>
@@ -494,9 +600,9 @@ export function DashboardBotUiStudio({
           collisionDetection={closestCorners}
           onDragEnd={layoutReadOnly ? () => {} : handleDragEnd}
         >
-          <div className={cn("space-y-4", layoutReadOnly && "pointer-events-none opacity-90")} dir={dashDir(isFa)}>
+          <div className={cn("space-y-4", layoutReadOnly && "pointer-events-none opacity-90")}>
             {!layoutReadOnly ? (
-              <div className={cn("flex flex-wrap gap-2")} dir={dashDir(isFa)}>
+              <div className={cn("flex flex-wrap gap-2")}>
                 <Button type="button" variant="secondary" size="sm" onClick={addRow}>
                   {tp("addRow")}
                 </Button>
@@ -513,7 +619,7 @@ export function DashboardBotUiStudio({
                 const sortIds = row.map((c) => `${ITEM_PREFIX}${c.id}`)
                 return (
                   <div key={`row-${ri}-${row.map((c) => c.id).join(",")}`} className="space-y-2">
-                    <div className={cn("flex flex-wrap items-center gap-2")} dir={dashDir(isFa)}>
+                    <div className={cn("flex flex-wrap items-center gap-2")}>
                       <span className="text-xs font-medium text-muted-foreground">
                         {tp("row", { n: ri + 1 })}
                       </span>
@@ -525,7 +631,6 @@ export function DashboardBotUiStudio({
                       <EmptyRowDropZone
                         surface={surface}
                         rowIndex={ri}
-                        isFa={isFa}
                         label={tp("dropZoneEmpty")}
                       />
                     ) : (
@@ -572,9 +677,30 @@ export function DashboardBotUiStudio({
                                   cp[ri]![ix] = { ...cell, glass: v }
                                   setRows(cp)
                                 }}
+                                onStyleChange={(v) => {
+                                  const cp = rows.map((r) => r.map((c) => ({ ...c })))
+                                  const ix = cp[ri]?.findIndex((c) => c.id === cell.id)
+                                  if (ix === undefined || ix < 0) return
+                                  cp[ri]![ix] = { ...cell, style: v }
+                                  setRows(cp)
+                                }}
+                                onEmojiIdChange={(v) => {
+                                  const cp = rows.map((r) => r.map((c) => ({ ...c })))
+                                  const ix = cp[ri]?.findIndex((c) => c.id === cell.id)
+                                  if (ix === undefined || ix < 0) return
+                                  cp[ri]![ix] = { ...cell, iconCustomEmojiId: v }
+                                  setRows(cp)
+                                }}
                                 enabledLabel={enabledLbl}
                                 glassLabel={glassLbl}
-                                isFa={isFa}
+                                styleLabel={styleLbl}
+                                styleDefaultLabel={styleDefaultLbl}
+                                stylePrimaryLabel={stylePrimaryLbl}
+                                styleSuccessLabel={styleSuccessLbl}
+                                styleDangerLabel={styleDangerLbl}
+                                customEmojiIdLabel={customEmojiIdLbl}
+                                customEmojiHint={customEmojiHintLbl}
+                                premiumRequiredHint={premiumRequiredHintLbl}
                               />
                             )
                           })}
@@ -588,6 +714,6 @@ export function DashboardBotUiStudio({
           </div>
         </DndContext>
       )}
-    </div>
+    </DashPage>
   )
 }

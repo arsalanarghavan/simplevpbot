@@ -4,6 +4,7 @@ import { useId, useMemo, useState } from "react"
 import { CalendarIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
+import { useDashDatePicker } from "@/components/dashboard-date-picker/use-dash-date-picker"
 import { PersianCalendar } from "@/components/dashboard-date-picker/persian-calendar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,7 +17,9 @@ import {
   msToApiDatetime,
   msToTimeValue,
 } from "@/lib/datetime-api"
-import { cn } from "@/lib/utils"
+
+const triggerClass =
+  "w-full justify-start text-start font-normal data-[empty=true]:text-muted-foreground"
 
 function formatJalaliDisplay(ms: number): string {
   if (!Number.isFinite(ms) || ms < 1) return ""
@@ -43,6 +46,7 @@ export function JalaliDateTimePicker({
 }) {
   const { t } = useTranslation()
   const tl = (k: string) => t(`discountsAdmin.${k}`)
+  const { dir, rootClass } = useDashDatePicker(className)
   const timeId = useId()
   const ms = apiDatetimeToMs(value)
   const [open, setOpen] = useState(false)
@@ -55,7 +59,7 @@ export function JalaliDateTimePicker({
   }
 
   return (
-    <div className={cn("space-y-2", className)} dir="rtl">
+    <div className={rootClass} dir={dir}>
       {label ? <Label>{label}</Label> : null}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
@@ -63,15 +67,13 @@ export function JalaliDateTimePicker({
             type="button"
             variant="outline"
             data-empty={!selected}
-            className={cn(
-              "w-full justify-start font-normal data-[empty=true]:text-muted-foreground",
-            )}
+            className={triggerClass}
           >
             <CalendarIcon className="size-4 shrink-0 opacity-70" />
             <span className="truncate">{display}</span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="z-[120] w-auto p-0" align="start">
+        <PopoverContent className="z-[120] w-auto p-0" align="start" dir={dir}>
           <PersianCalendar
             mode="single"
             selected={selected}

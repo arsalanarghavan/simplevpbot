@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { postAdminMutate } from "@/lib/dash-admin-mutate"
+import { useSiteSettingsSave } from "@/lib/use-site-settings-save"
+import { SiteSettingsSaveFeedback } from "@/components/site-settings/site-settings-save-feedback"
+import { useDashLocale } from "@/lib/dash-locale-context"
 import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
@@ -30,16 +32,16 @@ function daysToString(raw: unknown): string {
 
 export function SiteSettingsNotificationsTab({
   settings,
-  isFa,
   onMutateSuccess,
 }: {
   settings: DashRecord | undefined
-  isFa: boolean
   onMutateSuccess?: () => void
 }) {
   const { t } = useTranslation()
+  const { iconGapClass, ltrCell } = useDashLocale()
   const tp = (k: string) => t(`siteSettings.notifications.${k}`)
-  const tn = (k: string) => t(`notificationsAdmin.${k}`)
+  const tn = (k: string, opts?: Record<string, string | number>) =>
+    t(`notificationsAdmin.${k}`, opts)
   const s = settings ?? {}
 
   const initial = useMemo(
@@ -55,19 +57,20 @@ export function SiteSettingsNotificationsTab({
       notify_idle_cooldown_days: String(Math.max(7, num(s.notify_idle_cooldown_days) || 90)),
       notify_admin_panel_down: bool(s.notify_admin_panel_down ?? true),
       notify_admin_panel_down_cooldown: String(Math.max(5, num(s.notify_admin_panel_down_cooldown) || 30)),
+      notify_panel_cost_expiry: bool(s.notify_panel_cost_expiry ?? true),
       alert_ip_warn_min_distinct: String(Math.max(1, num(s.alert_ip_warn_min_distinct) || 3)),
       alert_ip_warn_hysteresis: bool(s.alert_ip_warn_hysteresis ?? true),
       alert_ip_warn_cooldown_minutes: String(Math.max(0, num(s.alert_ip_warn_cooldown_minutes) || 0)),
     }),
-    [s])
+    [s]
+  )
 
   const [form, setForm] = useState(initial)
   useEffect(() => setForm(initial), [initial])
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { saving, error, okMsg, saveSettingsTab } = useSiteSettingsSave(onMutateSuccess)
 
   const chk = (key: keyof typeof form, labelKey: string) => (
-    <label className={cn("flex items-center gap-2 text-sm")}>
+    <label className={iconGapClass("text-sm")}>
       <input
         type="checkbox"
         className="size-4 rounded border-input"
@@ -79,11 +82,7 @@ export function SiteSettingsNotificationsTab({
   )
 
   const onSave = useCallback(async () => {
-    setSaving(true)
-    setError(null)
-    try {
-      const res = await postAdminMutate("settings_tab", {
-        tab: "notifications",
+    await saveSettingsTab("notifications", {
         notify_low_traffic_percent: num(form.notify_low_traffic_percent),
         notify_expiry_days: form.notify_expiry_days.trim(),
         notify_user_volume: form.notify_user_volume ? 1 : 0,
@@ -95,22 +94,16 @@ export function SiteSettingsNotificationsTab({
         notify_idle_cooldown_days: Math.max(7, num(form.notify_idle_cooldown_days)),
         notify_admin_panel_down: form.notify_admin_panel_down ? 1 : 0,
         notify_admin_panel_down_cooldown: Math.max(5, num(form.notify_admin_panel_down_cooldown)),
+        notify_panel_cost_expiry: form.notify_panel_cost_expiry ? 1 : 0,
         alert_ip_warn_min_distinct: Math.max(1, num(form.alert_ip_warn_min_distinct)),
         alert_ip_warn_hysteresis: form.alert_ip_warn_hysteresis ? 1 : 0,
         alert_ip_warn_cooldown_minutes: Math.max(0, num(form.alert_ip_warn_cooldown_minutes)),
       })
-      if (!res.ok) {
-        setError(res.message || tn("saveError"))
-        return
-      }
-      onMutateSuccess?.()
-    } finally {
-      setSaving(false)
-    }
-  }, [form, onMutateSuccess, tn])
+  }, [form, saveSettingsTab])
 
   return (
-    <div className={cn("mx-auto max-w-2xl space-y-6", isFa && "text-right")}>
+    <div className={cn("w-full space-y-6 text-start")}>
+      <div className="grid gap-6 lg:grid-cols-2">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{tn("cardTitle")}</CardTitle>
@@ -134,6 +127,8 @@ export function SiteSettingsNotificationsTab({
               value={form.notify_expiry_days}
               onChange={(e) => setForm((f) => ({ ...f, notify_expiry_days: e.target.value }))}
               placeholder={tn("expiryDaysPlaceholder")}
+              dir="ltr"
+              className={ltrCell("font-mono")}
             />
             <p className="text-xs text-muted-foreground">{tn("expiryDaysHint")}</p>
           </div>
@@ -190,6 +185,7 @@ export function SiteSettingsNotificationsTab({
         </CardHeader>
         <CardContent className="space-y-4">
           {chk("notify_admin_panel_down", "adminPanelDown")}
+          {chk("notify_panel_cost_expiry", "adminPanelCostExpiry")}
           <div className="space-y-2">
             <Label htmlFor="adm_cool">{tn("adminCooldown")}</Label>
             <Input
@@ -203,7 +199,7 @@ export function SiteSettingsNotificationsTab({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="lg:col-span-2">
         <CardHeader>
           <CardTitle className="text-base">{tp("ipTitle")}</CardTitle>
           <CardDescription>{tp("ipDesc")}</CardDescription>
@@ -219,7 +215,7 @@ export function SiteSettingsNotificationsTab({
               onChange={(e) => setForm((f) => ({ ...f, alert_ip_warn_min_distinct: e.target.value }))}
             />
           </div>
-          <label className={cn("flex items-center gap-2 text-sm")}>
+          <label className={iconGapClass("text-sm")}>
             <input
               type="checkbox"
               className="size-4 rounded border-input"
@@ -240,12 +236,9 @@ export function SiteSettingsNotificationsTab({
           </div>
         </CardContent>
       </Card>
+      </div>
 
-      {error ? (
-        <div role="alert" className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
+      <SiteSettingsSaveFeedback error={error} okMsg={okMsg} />
       <Button type="button" disabled={saving} onClick={() => void onSave()}>
         {tn("save")}
       </Button>

@@ -10,12 +10,11 @@ import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import { cn } from "@/lib/utils"
 
 export function DashboardUserMergeAdmin({
-  isFa: _isFa,
   onMutateSuccess,
 }: {
-  isFa: boolean
   onMutateSuccess?: () => void
 }) {
+
   const { t } = useTranslation()
   const tp = (k: string) => t(`userMergeAdmin.${k}`)
   const [keepId, setKeepId] = useState("")

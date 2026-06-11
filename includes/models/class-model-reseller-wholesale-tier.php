@@ -43,6 +43,51 @@ class SimpleVPBot_Model_Reseller_Wholesale_Tier {
 	}
 
 	/**
+	 * Batch-load tiers grouped by line id.
+	 *
+	 * @param array<int, int> $line_ids Line ids.
+	 * @return array<int, array<int, object>>
+	 */
+	public static function by_line_ids( array $line_ids ) {
+		global $wpdb;
+		$ids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', $line_ids ),
+					static function ( $v ) {
+						return (int) $v > 0;
+					}
+				)
+			)
+		);
+		if ( empty( $ids ) ) {
+			return array();
+		}
+		$ph   = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT * FROM " . self::table() . " WHERE line_id IN ({$ph}) ORDER BY line_id ASC, sort_order ASC, id ASC", // phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
+				$ids
+			)
+		); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			if ( ! is_object( $row ) ) {
+				continue;
+			}
+			$lid = (int) ( $row->line_id ?? 0 );
+			if ( $lid < 1 ) {
+				continue;
+			}
+			if ( ! isset( $out[ $lid ] ) ) {
+				$out[ $lid ] = array();
+			}
+			$out[ $lid ][] = $row;
+		}
+		return $out;
+	}
+
+	/**
 	 * Replace all tiers for a line (transactional).
 	 *
 	 * @param int                                $line_id Line id.

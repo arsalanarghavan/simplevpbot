@@ -36,6 +36,43 @@ class SimpleVPBot_Model_Plan {
 	}
 
 	/**
+	 * Display labels keyed by plan id (batch).
+	 *
+	 * @param array<int> $plan_ids Plan ids.
+	 * @return array<int, string>
+	 */
+	public static function labels_by_ids( array $plan_ids ) {
+		$ids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', $plan_ids ),
+					static function ( $v ) {
+						return $v > 0;
+					}
+				)
+			)
+		);
+		if ( empty( $ids ) ) {
+			return array();
+		}
+		global $wpdb;
+		$ph   = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
+		$rows = $wpdb->get_results(
+			$wpdb->prepare( "SELECT id, name, label FROM " . self::table() . " WHERE id IN ({$ph})", $ids )
+		);
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			if ( ! is_object( $row ) || empty( $row->id ) ) {
+				continue;
+			}
+			$pid = (int) $row->id;
+			$out[ $pid ] = (string) ( $row->name ?? $row->label ?? ( '#' . $pid ) );
+		}
+		return $out;
+	}
+
+	/**
 	 * By category.
 	 *
 	 * @param string $category Category.
@@ -114,6 +151,28 @@ class SimpleVPBot_Model_Plan {
 	public static function all_active() {
 		global $wpdb;
 		return $wpdb->get_results( 'SELECT * FROM ' . self::table() . ' WHERE active = 1 ORDER BY sort_order ASC, id ASC' ); // phpcs:ignore
+	}
+
+	/**
+	 * All active plans, optionally restricted to owner_svp_user_id values.
+	 *
+	 * @param array<int> $owner_ids Owner ids (empty = no owner filter).
+	 * @return array<int, object>
+	 */
+	public static function all_active_for_owners( array $owner_ids = array() ) {
+		global $wpdb;
+		$owners = array_values( array_unique( array_map( 'intval', $owner_ids ) ) );
+		if ( empty( $owners ) ) {
+			return self::all_active();
+		}
+		$ph   = implode( ',', array_fill( 0, count( $owners ), '%d' ) );
+		$args = $owners;
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT * FROM ' . self::table() . " WHERE active = 1 AND owner_svp_user_id IN ({$ph}) ORDER BY sort_order ASC, id ASC",
+				$args
+			)
+		); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
 	}
 
 	/**

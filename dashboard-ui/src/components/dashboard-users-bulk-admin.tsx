@@ -4,17 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Badge } from "@/components/ui/badge"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
@@ -24,9 +16,11 @@ import { getAdminJson, postAdminMutate } from "@/lib/dash-admin-mutate"
 import { type PaginationMeta, parsePaginationMeta } from "@/lib/dash-pagination"
 import { formatNumber, formatNumericString } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
+import { useDashLocale } from "@/lib/dash-locale-context"
+import { DashDialogContent, DashDialogFooter, DashDialogHeader } from "@/components/dash-dialog-content"
+import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 
-const selectClass =
-  "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
+import { DashSelect } from "@/components/dash-select"
 
 type BulkOp = "wallet" | "volume" | "extend" | "slots" | "alerts"
 type JobRow = Record<string, unknown>
@@ -107,16 +101,22 @@ function itemStatusLabel(st: string, t: (k: string, opts?: { defaultValue?: stri
   return t(k, { defaultValue: st })
 }
 
-function StatBox({ label, value, isFa }: { label: string; value: number; isFa: boolean }) {
+function StatBox({
+ label, value }: { label: string; value: number; }) {
+  const { isFa } = useDashLocale()
+
   return (
     <div className="rounded-md border border-border/80 bg-muted/30 px-2 py-1.5">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={cn("text-lg font-semibold tabular-nums", isFa && "text-right")} dir={dashDir(isFa)}>{formatNumber(value, isFa)}</div>
+      <div className={cn("text-lg font-semibold tabular-nums")}>{formatNumber(value, isFa)}</div>
     </div>
   )
 }
 
-function BulkJobItemsBlock({ jobId, isFa }: { jobId: number; isFa: boolean }) {
+function BulkJobItemsBlock({
+ jobId }: { jobId: number; }) {
+  const { isFa } = useDashLocale()
+
   const { t } = useTranslation()
   const tp = (k: string, opts?: Record<string, string | number>) => t(`usersBulkAdmin.${k}`, opts)
   const [open, setOpen] = useState(false)
@@ -215,19 +215,20 @@ function BulkJobItemsBlock({ jobId, isFa }: { jobId: number; isFa: boolean }) {
             </div>
           )}
           {meta && meta.total > perPage ? (
-            <DataPagination meta={meta} isFa={isFa} onPageChange={(p) => setPage(p)} onPerPageChange={() => {}} />
+            <DataPagination meta={meta}
+        onPageChange={(p) => setPage(p)} onPerPageChange={() => {}} />
           ) : null}
         </div>
       )}
 
       <Dialog open={detailItem !== null} onOpenChange={(v) => !v && setDetailItem(null)}>
-        <DialogContent className={cn("max-h-[85vh] max-w-lg overflow-y-auto", isFa && "text-right")} dir={dashDir(isFa)}>
-          <DialogHeader>
+        <DashDialogContent className={cn("sm:max-w-lg")}>
+          <DashDialogHeader>
             <DialogTitle>{tp("jobDetailTitle")}</DialogTitle>
             <DialogDescription className="font-mono tabular-nums">
               {detailItem ? `#${formatNumericString(String(detailItem.id ?? ""), isFa)}` : ""}
             </DialogDescription>
-          </DialogHeader>
+          </DashDialogHeader>
           {detailItem ? (
             <ul className="space-y-2 text-sm">
               <li>
@@ -257,12 +258,12 @@ function BulkJobItemsBlock({ jobId, isFa }: { jobId: number; isFa: boolean }) {
               ) : null}
             </ul>
           ) : null}
-          <DialogFooter>
+          <DashDialogFooter>
             <Button type="button" variant="secondary" onClick={() => setDetailItem(null)}>
               {tp("close")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
     </div>
   )
@@ -270,15 +271,15 @@ function BulkJobItemsBlock({ jobId, isFa }: { jobId: number; isFa: boolean }) {
 
 export function DashboardUsersBulkAdmin({
   panels = [],
-  isFa,
   onMutateSuccess,
   canRunBulkWorker = true,
 }: {
   panels?: DashRecord[]
-  isFa: boolean
-  onMutateSuccess?: () => void
+onMutateSuccess?: () => void
   canRunBulkWorker?: boolean
 }) {
+  const { isFa } = useDashLocale()
+
   const { t } = useTranslation()
   const tp = (k: string, opts?: Record<string, string | number>) => t(`usersBulkAdmin.${k}`, opts)
   const isResellerActor = Boolean(window.__SIMPLEVPBOT_DASH__?.isReseller)
@@ -493,7 +494,7 @@ export function DashboardUsersBulkAdmin({
   }, [op, tp])
 
   return (
-    <div className={dashPageRootClass(isFa, "mx-auto max-w-5xl space-y-8")} dir={dashDir(isFa)}>
+    <DashPage className={"w-full space-y-8"}>
       <DashboardPageHeader
         title={tp("title")}
         description={
@@ -535,7 +536,7 @@ export function DashboardUsersBulkAdmin({
           <CardDescription>{tp("composeHint")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+          <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
             <div className="space-y-4">
               <div className="space-y-3 rounded-md border border-border/60 p-3">
                 <p className="text-sm font-medium">{tp("scope")}</p>
@@ -545,17 +546,17 @@ export function DashboardUsersBulkAdmin({
                 ) : null}
                 <div className="space-y-2">
                   <Label>{tp("scopeLabel")}</Label>
-                  <select
-                    className={selectClass}
+                  <DashSelect
                     value={scope}
-                    onChange={(e) => setScope(e.target.value)}
+                    onValueChange={setScope}
                     disabled={busy}
-                  >
-                    <option value="all_approved">{tp("scopeAllApproved")}</option>
-                    <option value="approved_with_active_service">{tp("scopeActiveSvc")}</option>
-                    <option value="panel_active_clients">{tp("scopePanelActive")}</option>
-                    <option value="custom_ids">{tp("scopeCustom")}</option>
-                  </select>
+                    options={[
+                      { value: "all_approved", label: tp("scopeAllApproved") },
+                      { value: "approved_with_active_service", label: tp("scopeActiveSvc") },
+                      { value: "panel_active_clients", label: tp("scopePanelActive") },
+                      { value: "custom_ids", label: tp("scopeCustom") },
+                    ]}
+                  />
                   {(op === "volume" || op === "extend") &&
                   (scope === "approved_with_active_service" || scope === "panel_active_clients") ? (
                     <p className="text-xs text-muted-foreground">{tp("scopePanelVolumeHint")}</p>
@@ -581,57 +582,55 @@ export function DashboardUsersBulkAdmin({
                 <p className="text-xs text-muted-foreground">{tp("filterServerHint")}</p>
                 <div className="space-y-2">
                   <Label>{tp("filterPanel")}</Label>
-                  <select
-                    className={selectClass}
-                    value={panelId}
-                    onChange={(e) => setPanelId(parseInt(e.target.value, 10) || 0)}
+                  <DashSelect
+                    value={String(panelId)}
+                    onValueChange={(v) => setPanelId(parseInt(v, 10) || 0)}
                     disabled={busy}
-                  >
-                    <option value={0}>{tp("filterAllPanels")}</option>
-                    {activePanels.map((p) => (
-                      <option key={num(p.id)} value={num(p.id)}>
-                        {panelLabel(p)}
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      { value: "0", label: tp("filterAllPanels") },
+                      ...activePanels.map((p) => ({
+                        value: String(num(p.id)),
+                        label: panelLabel(p),
+                      })),
+                    ]}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>{tp("filterInbound")}</Label>
-                  <select
-                    className={selectClass}
-                    value={inboundId}
-                    onChange={(e) => setInboundId(parseInt(e.target.value, 10) || 0)}
+                  <DashSelect
+                    value={String(inboundId)}
+                    onValueChange={(v) => setInboundId(parseInt(v, 10) || 0)}
                     disabled={busy || panelId < 1 || inboundsBusy}
-                  >
-                    <option value={0}>{tp("filterAllInbounds")}</option>
-                    {inbounds.map((ib) => (
-                      <option key={ib.id} value={ib.id}>
-                        #{ib.id} {ib.remark ? `— ${ib.remark}` : ""} ({ib.protocol}:{ib.port})
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      { value: "0", label: tp("filterAllInbounds") },
+                      ...inbounds.map((ib) => ({
+                        value: String(ib.id),
+                        label: `#${ib.id} ${ib.remark ? `— ${ib.remark}` : ""} (${ib.protocol}:${ib.port})`,
+                      })),
+                    ]}
+                  />
                 </div>
               </div>
 
               <div className="space-y-3">
                 <div className="space-y-2">
                   <Label>{tp("operation")}</Label>
-                  <select
-                    className={selectClass}
+                  <DashSelect
                     value={op}
-                    onChange={(e) => setOp(e.target.value as BulkOp)}
+                    onValueChange={(v) => setOp(v as BulkOp)}
                     disabled={busy}
-                  >
-                    <option value="wallet">{tp("opWallet")}</option>
-                    <option value="volume">{tp("opVolume")}</option>
-                    <option value="extend">{tp("opExtend")}</option>
-                    <option value="slots">{tp("opSlots")}</option>
-                    <option value="alerts">{tp("opAlerts")}</option>
-                  </select>
+                    options={[
+                      { value: "wallet", label: tp("opWallet") },
+                      { value: "volume", label: tp("opVolume") },
+                      { value: "extend", label: tp("opExtend") },
+                      { value: "slots", label: tp("opSlots") },
+                      { value: "alerts", label: tp("opAlerts") },
+                    ]}
+                  />
                 </div>
 
                 {showReduce ? (
-                  <div className={cn("flex flex-wrap gap-2")} dir={dashDir(isFa)}>
+                  <div className={cn("flex flex-wrap gap-2")}>
                     <Button
                       type="button"
                       size="sm"
@@ -725,7 +724,7 @@ export function DashboardUsersBulkAdmin({
                 ) : null}
 
                 {op === "wallet" ? (
-                  <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
+                  <label className={cn("flex items-center gap-2 text-sm")}>
                     <input
                       type="checkbox"
                       className="size-4 rounded border-input accent-primary"
@@ -740,7 +739,7 @@ export function DashboardUsersBulkAdmin({
                 {showServiceNotify ? (
                   <div className="space-y-3 rounded-md border border-border/60 bg-muted/20 p-3">
                     <p className="text-sm font-medium">{tp("notifySection")}</p>
-                    <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
+                    <label className={cn("flex items-center gap-2 text-sm")}>
                       <input
                         type="checkbox"
                         className="size-4 rounded border-input accent-primary"
@@ -760,7 +759,7 @@ export function DashboardUsersBulkAdmin({
                           onChange={(e) => setNotifyMessage(e.target.value)}
                           placeholder={notifyMessagePlaceholder}
                           disabled={busy}
-                          className={isFa ? "text-right" : undefined}
+                          className="text-start"
                         />
                         <p className="text-xs text-muted-foreground">{tp("notifyMessageHint")}</p>
                       </div>
@@ -788,7 +787,7 @@ export function DashboardUsersBulkAdmin({
 
           <Separator />
 
-          <div className={cn("flex flex-wrap gap-2")} dir={dashDir(isFa)}>
+          <div className={cn("flex flex-wrap gap-2")}>
             <Button type="button" variant="secondary" disabled={busy} onClick={() => void runMutation(true)}>
               {tp("dryRun")}
             </Button>
@@ -870,14 +869,21 @@ export function DashboardUsersBulkAdmin({
                     </CardHeader>
                     <CardContent className="space-y-3 text-sm">
                       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                        <StatBox label={tp("statTotal")} value={q.total} isFa={isFa} />
-                        <StatBox label={tp("statPending")} value={q.pending} isFa={isFa} />
-                        <StatBox label={tp("statProcessing")} value={q.processing} isFa={isFa} />
-                        <StatBox label={tp("statDone")} value={q.done} isFa={isFa} />
-                        <StatBox label={tp("statFailed")} value={q.failed} isFa={isFa} />
-                        <StatBox label={tp("statSkipped")} value={q.skipped} isFa={isFa} />
+                        <StatBox label={tp("statTotal")} value={q.total}
+        />
+                        <StatBox label={tp("statPending")} value={q.pending}
+        />
+                        <StatBox label={tp("statProcessing")} value={q.processing}
+        />
+                        <StatBox label={tp("statDone")} value={q.done}
+        />
+                        <StatBox label={tp("statFailed")} value={q.failed}
+        />
+                        <StatBox label={tp("statSkipped")} value={q.skipped}
+        />
                       </div>
-                      <BulkJobItemsBlock jobId={jid} isFa={isFa} />
+                      <BulkJobItemsBlock jobId={jid}
+        />
                     </CardContent>
                   </Card>
                 </li>
@@ -887,14 +893,13 @@ export function DashboardUsersBulkAdmin({
         )}
         <DataPagination
           meta={jobsMeta}
-          isFa={isFa}
-          onPageChange={(p) => setJobsPage(p)}
+        onPageChange={(p) => setJobsPage(p)}
           onPerPageChange={(n) => {
             setJobsPerPage(n)
             setJobsPage(1)
           }}
         />
       </div>
-    </div>
+    </DashPage>
   )
 }

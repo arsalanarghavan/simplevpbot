@@ -12,7 +12,7 @@ export type ParseDashOpts = {
 /** Map URL slugs (incl. hyphenated) to internal tab keys used by the SPA. */
 const TAB_SLUG_ALIASES: Record<string, string> = {
   wallet: "receipts",
-  reseller_finance: "receipts",
+  reseller_finance: "reseller_charge",
   "reseller-charge": "reseller_charge",
   reseller_charge: "reseller_charge",
   charge: "reseller_charge",
@@ -26,6 +26,8 @@ const TAB_SLUG_ALIASES: Record<string, string> = {
   referral_reports: "referral_reports",
   "reseller-reports": "reseller_reports",
   reseller_reports: "reseller_reports",
+  "marketing-lifecycle": "marketing_lifecycle",
+  marketing_lifecycle: "marketing_lifecycle",
   "l2tp-servers": "l2tp_servers",
   "wholesale-lines": "plans",
   "reseller-xui-panels": "reseller_xui_panels",

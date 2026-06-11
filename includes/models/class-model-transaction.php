@@ -32,8 +32,73 @@ class SimpleVPBot_Model_Transaction {
 	 */
 	public static function insert( array $data ) {
 		global $wpdb;
+		$data = self::normalize_billing_reseller_column( $data );
 		$wpdb->insert( self::table(), $data );
 		return (int) $wpdb->insert_id;
+	}
+
+	/**
+	 * Whether billing_reseller_svp_id column exists (cached per request).
+	 *
+	 * @return bool
+	 */
+	public static function has_billing_reseller_column() {
+		static $cached = null;
+		if ( null !== $cached ) {
+			return $cached;
+		}
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$cached = (bool) $wpdb->get_var( 'SHOW COLUMNS FROM ' . self::table() . " LIKE 'billing_reseller_svp_id'" );
+		return $cached;
+	}
+
+	/**
+	 * SQL expression for billing reseller id (column + meta_json fallback).
+	 *
+	 * @param string $alias Table alias.
+	 * @return string
+	 */
+	public static function billing_reseller_id_sql_expr( $alias = 't' ) {
+		if ( self::has_billing_reseller_column() ) {
+			return "{$alias}.billing_reseller_svp_id";
+		}
+		return "CAST(JSON_UNQUOTE(JSON_EXTRACT({$alias}.meta_json, '$.billing_reseller_svp_id')) AS UNSIGNED)";
+	}
+
+	/**
+	 * SQL predicate: row has a billing reseller attribution.
+	 *
+	 * @param string $alias Table alias.
+	 * @return string
+	 */
+	public static function billing_reseller_present_sql( $alias = 't' ) {
+		if ( self::has_billing_reseller_column() ) {
+			return "({$alias}.billing_reseller_svp_id IS NOT NULL AND {$alias}.billing_reseller_svp_id > 0)";
+		}
+		return "(JSON_EXTRACT({$alias}.meta_json, '$.billing_reseller_svp_id') IS NOT NULL AND JSON_EXTRACT({$alias}.meta_json, '$.billing_reseller_svp_id') != 'null')";
+	}
+
+	/**
+	 * Sync billing_reseller_svp_id column from meta_json when inserting.
+	 *
+	 * @param array<string, mixed> $data Insert row.
+	 * @return array<string, mixed>
+	 */
+	public static function normalize_billing_reseller_column( array $data ) {
+		if ( ! self::has_billing_reseller_column() ) {
+			return $data;
+		}
+		if ( ! isset( $data['billing_reseller_svp_id'] ) && ! empty( $data['meta_json'] ) ) {
+			$meta = $data['meta_json'];
+			if ( is_string( $meta ) ) {
+				$meta = json_decode( $meta, true );
+			}
+			if ( is_array( $meta ) && ! empty( $meta['billing_reseller_svp_id'] ) ) {
+				$data['billing_reseller_svp_id'] = (int) $meta['billing_reseller_svp_id'];
+			}
+		}
+		return $data;
 	}
 
 	/**
@@ -60,7 +125,7 @@ class SimpleVPBot_Model_Transaction {
 		if ( $tid < 1 ) {
 			return false;
 		}
-		$allowed = array( 'service_id', 'meta_json' );
+		$allowed = array( 'service_id', 'meta_json', 'billing_reseller_svp_id' );
 		$data    = array( 'status' => 'approved' );
 		foreach ( $extra as $col => $val ) {
 			if ( in_array( (string) $col, $allowed, true ) ) {

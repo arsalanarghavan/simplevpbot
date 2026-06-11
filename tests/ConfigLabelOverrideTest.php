@@ -27,12 +27,17 @@ class ConfigLabelOverrideTest extends TestCase {
 	}
 
 	/**
-	 * Multi-uri labels use -N suffix when override is active.
+	 * Config line labels prefer subscription URI #fragment (External Proxy remark).
 	 */
-	public function test_config_labels_from_uris_multi_suffix_contract(): void {
+	public function test_config_labels_from_uris_fragment_remark_contract(): void {
 		$root = dirname( __DIR__ );
 		$sn   = (string) file_get_contents( $root . '/includes/helpers/class-service-naming.php' );
-		$this->assertStringContainsString( '$override . \'-\' . $idx', $sn );
+		$this->assertStringContainsString( 'config_line_remark_for_uri', $sn );
+		$this->assertStringContainsString( 'uri_fragment_label', $sn );
+		$this->assertMatchesRegularExpression(
+			'/function config_line_remark_for_uri[\s\S]*uri_fragment_label[\s\S]*panel_inbound_remark/',
+			$sn
+		);
 	}
 
 	/**

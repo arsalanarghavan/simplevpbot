@@ -171,6 +171,17 @@ class SimpleVPBot_Reseller_Closure {
 	}
 
 	/**
+	 * Whether assigning invited_by would create a referral cycle.
+	 *
+	 * @param int $user_id     User id.
+	 * @param int $new_parent  Proposed invited_by.
+	 * @return bool
+	 */
+	public static function invited_by_would_cycle( $user_id, $new_parent ) {
+		return self::would_create_cycle( (int) $user_id, (int) $new_parent );
+	}
+
+	/**
 	 * @param int $user_id User id.
 	 * @param int $new_parent Proposed invited_by.
 	 * @return bool True if assigning new_parent would create a cycle.

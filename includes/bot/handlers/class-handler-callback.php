@@ -45,7 +45,15 @@ class SimpleVPBot_Handler_Callback {
 			return;
 		}
 
-		$defer_cb_answer = 0 === strpos( $data, 'rc:' );
+		$defer_cb_answer = 0 === strpos( $data, 'rc:' )
+			|| 0 === strpos( $data, 'buy:cf:' )
+			|| 0 === strpos( $data, 'buy:pm:' )
+			|| 0 === strpos( $data, 'buy:sw:' )
+			|| 0 === strpos( $data, 'buy:swy:' )
+			|| 0 === strpos( $data, 'buy:bw:' )
+			|| 0 === strpos( $data, 'svc:p:' )
+			|| 0 === strpos( $data, 'svc:l:' )
+			|| 0 === strpos( $data, 'svc:w:' );
 		if ( ! $defer_cb_answer ) {
 			SimpleVPBot_Bot_Runtime::answer_callback_query(
 				$platform,
@@ -58,10 +66,14 @@ class SimpleVPBot_Handler_Callback {
 		if ( $user && 'noop' !== $data ) {
 			$is_adm = SimpleVPBot_Router::is_platform_admin( $platform, $from_id );
 			$skip_clear = ( (int) $user->admin_mode && $is_adm )
-				|| 0 === strpos( $data, 'adm:' )
+				|| 0 === strpos( $data, 'pnl:' )
 				|| 0 === strpos( $data, 'reg:' )
 				|| 0 === strpos( $data, 'rc:' )
 				|| 0 === strpos( $data, 'chjoin:' )
+				|| 0 === strpos( $data, 'buy:pm:' )
+				|| 0 === strpos( $data, 'buy:bw:' )
+				|| 0 === strpos( $data, 'buy:sw:' )
+				|| 0 === strpos( $data, 'buy:cd:' )
 				|| ( 'buy_discount' === (string) $user->state && 0 === strpos( $data, 'buy:' ) );
 			if ( ! $skip_clear && SimpleVPBot_State::clear_blocking_state_on_callback( $platform, $from_id, $user, $chat_id, $data ) ) {
 				$user = SimpleVPBot_Model_User::find( (int) $user->id );
@@ -69,8 +81,18 @@ class SimpleVPBot_Handler_Callback {
 		}
 
 		$is_admin_side = SimpleVPBot_Router::is_platform_admin( $platform, $from_id );
+		if ( $is_admin_side && class_exists( 'SimpleVPBot_Bot_Admin_Guard' ) ) {
+			SimpleVPBot_Bot_Admin_Guard::bootstrap_acting_admin_from_ctx(
+				array(
+					'platform' => $platform,
+					'from'     => $from,
+					'user'     => $user,
+					'chat_id'  => $chat_id,
+				)
+			);
+		}
 		if ( ! $is_admin_side ) {
-			if ( 0 === strpos( $data, 'reg:' ) || 0 === strpos( $data, 'rc:' ) || 0 === strpos( $data, 'adm:' ) ) {
+			if ( 0 === strpos( $data, 'reg:' ) || 0 === strpos( $data, 'rc:' ) || 0 === strpos( $data, 'pnl:' ) ) {
 				if ( $defer_cb_answer ) {
 					SimpleVPBot_Bot_Runtime::answer_callback_query(
 						$platform,
@@ -91,12 +113,11 @@ class SimpleVPBot_Handler_Callback {
 		$parts = explode( ':', $data );
 		$head0 = $parts[0] ?? '';
 		if ( 'wal' === $head0 && isset( $parts[1] ) && 'h' === $parts[1] && $user ) {
-			$hist = SimpleVPBot_Model_Transaction::history( (int) $user->id, 10 );
-			$t    = "📜 تاریخچه\n➖➖➖➖➖➖➖➖\n";
-			foreach ( $hist as $h ) {
-				$t .= '📌 ' . (string) $h->type . ' · ' . number_format( (float) $h->amount ) . ' · ' . (string) $h->status . "\n";
-			}
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $t );
+			SimpleVPBot_Handler_Wallet::show_history( $platform, $chat_id, $user );
+			return;
+		}
+		if ( 'wal' === $head0 && isset( $parts[1] ) && 'tu' === $parts[1] && $user ) {
+			SimpleVPBot_Handler_Wallet::begin_topup( $platform, $chat_id, $user );
 			return;
 		}
 		if ( 'sup' === $head0 && isset( $parts[1] ) ) {
@@ -120,7 +141,7 @@ class SimpleVPBot_Handler_Callback {
 				SimpleVPBot_Handler_Sync::generate_code( $platform, $chat_id, $user );
 			} elseif ( 'i' === $parts[1] ) {
 				SimpleVPBot_Handler_Sync::prompt_code( $user );
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, '🔑 کد ۶ رقمی را که در ربات دیگر ساخته‌اید ارسال کنید.' );
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.sync.prompt_code', $user ) );
 			}
 			return;
 		}
@@ -128,11 +149,26 @@ class SimpleVPBot_Handler_Callback {
 		$head  = $parts[0] ?? '';
 
 		if ( 'reg' === $head && isset( $parts[1], $parts[2] ) ) {
-			self::handle_registration( $platform, $parts[1], (int) $parts[2], $from, $chat_id, $msg_id );
+			self::handle_registration( $platform, $parts[1], (int) $parts[2], $from, $chat_id, $msg_id, $cb_id );
 			return;
 		}
 		if ( 'rc' === $head && isset( $parts[1], $parts[2] ) ) {
 			self::handle_receipt_callback( $platform, $parts, $from, $chat_id, $msg_id, $cb_id );
+			return;
+		}
+		if ( 0 === strpos( $data, 'mkt_offer_apply:' ) ) {
+			if ( ! $user || ! class_exists( 'SimpleVPBot_Marketing_Automation' ) ) {
+				return;
+			}
+			$oid = (int) substr( $data, strlen( 'mkt_offer_apply:' ) );
+			SimpleVPBot_Marketing_Automation::handle_callback_apply(
+				array(
+					'platform' => $platform,
+					'chat_id'  => $chat_id,
+					'user'     => $user,
+				),
+				$oid
+			);
 			return;
 		}
 		if ( 'buy' === $head ) {
@@ -146,6 +182,7 @@ class SimpleVPBot_Handler_Callback {
 					'parts'    => $parts,
 					'chat_id'  => $chat_id,
 					'msg_id'   => $msg_id,
+					'cb_id'    => $cb_id,
 				)
 			);
 			return;
@@ -163,6 +200,7 @@ class SimpleVPBot_Handler_Callback {
 						'uri_idx'  => (int) $parts[3],
 						'chat_id'  => $chat_id,
 						'from_id'  => $from_id,
+						'cb_id'    => $cb_id,
 					)
 				);
 				return;
@@ -176,22 +214,48 @@ class SimpleVPBot_Handler_Callback {
 					'chat_id'  => $chat_id,
 					'msg_id'   => $msg_id,
 					'from_id'  => $from_id,
+					'cb_id'    => $cb_id,
 				)
 			);
 			return;
 		}
-		// Legacy inline hub (adm:*). Admin UI prefers Reply routing via Handler_Admin::route_text.
-		if ( 'adm' === $head && SimpleVPBot_Router::is_platform_admin( $platform, $from_id ) ) {
-			SimpleVPBot_Handler_Admin_Hub::handle(
-				array(
-					'platform' => $platform,
-					'chat_id'  => $chat_id,
-					'parts'    => $parts,
-					'user'     => $user,
-					'msg_id'   => $msg_id,
-				)
-			);
-			return;
+		if ( 'pnl' === $head && SimpleVPBot_Router::is_platform_admin( $platform, $from_id ) ) {
+			if ( isset( $parts[1] ) && 'pick' === $parts[1] && class_exists( 'SimpleVPBot_Bot_Admin_Plan_Picker' ) ) {
+				SimpleVPBot_Bot_Admin_Plan_Picker::handle_callback(
+					array(
+						'platform' => $platform,
+						'chat_id'  => $chat_id,
+						'parts'    => $parts,
+						'user'     => $user,
+					)
+				);
+				return;
+			}
+			if ( isset( $parts[1] ) && 'cat' === $parts[1] && class_exists( 'SimpleVPBot_Handler_Admin_Catalog' ) ) {
+				SimpleVPBot_Handler_Admin_Catalog::handle_callback(
+					array(
+						'platform' => $platform,
+						'chat_id'  => $chat_id,
+						'parts'    => $parts,
+						'user'     => $user,
+						'msg_id'   => $msg_id,
+					)
+				);
+				return;
+			}
+			if ( class_exists( 'SimpleVPBot_Handler_Admin_Pnl' ) ) {
+				SimpleVPBot_Handler_Admin_Pnl::handle(
+					array(
+						'platform' => $platform,
+						'chat_id'  => $chat_id,
+						'parts'    => $parts,
+						'user'     => $user,
+						'msg_id'   => $msg_id,
+						'from_id'  => $from_id,
+					)
+				);
+				return;
+			}
 		}
 	}
 
@@ -234,12 +298,47 @@ class SimpleVPBot_Handler_Callback {
 		);
 	}
 
-	private static function handle_registration( $platform, $action, $uid, array $from, $admin_chat, $admin_msg_id ) {
-		$uname = (string) ( $from['username'] ?? '' );
-		$label = $uname ? '@' . $uname : (string) ( $from['first_name'] ?? '' );
+	private static function handle_registration( $platform, $action, $uid, array $from, $admin_chat, $admin_msg_id, $cb_id = '' ) {
+		$uname   = (string) ( $from['username'] ?? '' );
+		$label   = $uname ? '@' . $uname : (string) ( $from['first_name'] ?? '' );
+		$from_id = (int) ( $from['id'] ?? 0 );
+		$admin_u = class_exists( 'SimpleVPBot_Bot_Admin_Guard' )
+			? SimpleVPBot_Bot_Admin_Guard::resolve_admin_by_platform_id( $platform, $from_id > 0 ? $from_id : (int) $admin_chat )
+			: null;
+		if ( $admin_u && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			SimpleVPBot_Bot_Reseller_Scope::set_acting_admin_user( (int) $admin_u->id );
+		}
+		$deny_alert = function () use ( $platform, $cb_id, $admin_u ) {
+			if ( '' === (string) $cb_id ) {
+				return;
+			}
+			$txt = class_exists( 'SimpleVPBot_Bot_Admin_Guard' )
+				? SimpleVPBot_Bot_Admin_Guard::denied_message( $admin_u )
+				: '⛔ دسترسی مجاز نیست.';
+			SimpleVPBot_Bot_Runtime::answer_callback_query(
+				$platform,
+				array(
+					'callback_query_id' => (string) $cb_id,
+					'text'              => $txt,
+					'show_alert'        => true,
+				)
+			);
+		};
+		$op = 'a' === $action ? 'user_approve' : 'user_reject';
+		if ( $admin_u && class_exists( 'SimpleVPBot_Bot_Admin_Guard' )
+			&& ! SimpleVPBot_Bot_Admin_Guard::may_call_op( $admin_u, $op ) ) {
+			$deny_alert();
+			return;
+		}
 		$user  = SimpleVPBot_Model_User::find( $uid );
 		if ( ! $user ) {
 			return;
+		}
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			if ( ! SimpleVPBot_Bot_Reseller_Scope::bot_admin_may_moderate_user( (int) $uid ) ) {
+				$deny_alert();
+				return;
+			}
 		}
 		$pending = SimpleVPBot_Model_Pending::find_open_for_user( $uid );
 		if ( ! $pending || 'pending' !== $pending->status ) {
@@ -368,7 +467,7 @@ class SimpleVPBot_Handler_Callback {
 			SimpleVPBot_Bot_Runtime::send_message(
 				$platform,
 				(int) $admin_chat,
-				SimpleVPBot_Texts::get( 'msg.receipt.reject_pick_reason', 'دلیل رد رسید را انتخاب کنید:' ),
+				SimpleVPBot_Texts::get( 'msg.receipt.reject_pick_reason' ),
 				array( 'reply_markup' => $markup )
 			);
 		}
@@ -377,7 +476,7 @@ class SimpleVPBot_Handler_Callback {
 				$platform,
 				array(
 					'callback_query_id' => (string) $cb_id,
-					'text'              => SimpleVPBot_Texts::get( 'msg.receipt.reject_pick_reason', 'دلیل را انتخاب کنید' ),
+					'text'              => SimpleVPBot_Texts::get( 'msg.receipt.reject_pick_reason' ),
 				)
 			);
 		}
@@ -398,6 +497,47 @@ class SimpleVPBot_Handler_Callback {
 		$rid = (int) ( $parts[2] ?? 0 );
 		if ( $rid < 1 ) {
 			return;
+		}
+
+		$from_id = (int) ( $from['id'] ?? 0 );
+		$admin_u = class_exists( 'SimpleVPBot_Bot_Admin_Guard' )
+			? SimpleVPBot_Bot_Admin_Guard::resolve_admin_by_platform_id( $platform, $from_id > 0 ? $from_id : (int) $admin_chat )
+			: null;
+		if ( $admin_u && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			SimpleVPBot_Bot_Reseller_Scope::set_acting_admin_user( (int) $admin_u->id );
+		}
+		if ( 'rb' !== $act && $admin_u && class_exists( 'SimpleVPBot_Bot_Admin_Guard' ) ) {
+			$op = 'a' === $act ? 'receipt_approve' : 'receipt_reject';
+			if ( ! SimpleVPBot_Bot_Admin_Guard::may_call_op( $admin_u, $op ) ) {
+				if ( '' !== (string) $cb_id ) {
+					SimpleVPBot_Bot_Runtime::answer_callback_query(
+						$platform,
+						array(
+							'callback_query_id' => (string) $cb_id,
+							'text'              => '⛔ دسترسی مجاز نیست.',
+							'show_alert'        => true,
+						)
+					);
+				}
+				return;
+			}
+		}
+
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			$scope_ok = 'rb' === $act || SimpleVPBot_Bot_Reseller_Scope::bot_admin_may_access_receipt( $rid );
+			if ( ! $scope_ok ) {
+				if ( '' !== (string) $cb_id ) {
+					SimpleVPBot_Bot_Runtime::answer_callback_query(
+						$platform,
+						array(
+							'callback_query_id' => (string) $cb_id,
+							'text'              => '⛔ دسترسی مجاز نیست.',
+							'show_alert'        => true,
+						)
+					);
+				}
+				return;
+			}
 		}
 
 		if ( 'rb' === $act ) {
@@ -424,7 +564,72 @@ class SimpleVPBot_Handler_Callback {
 		$res   = null;
 
 		if ( 'a' === $act ) {
-			$res = SimpleVPBot_Receipt_Processor::approve( $rid, $label );
+			$rec_claim = SimpleVPBot_Model_Receipt::find( $rid );
+			if ( ! $rec_claim ) {
+				if ( '' !== (string) $cb_id ) {
+					SimpleVPBot_Bot_Runtime::answer_callback_query(
+						$platform,
+						array(
+							'callback_query_id' => (string) $cb_id,
+							'text'              => 'رسید یافت نشد.',
+							'show_alert'        => true,
+						)
+					);
+				}
+				return;
+			}
+			if ( 'approved' === (string) $rec_claim->status ) {
+				$res = array( 'ok' => true, 'reason' => 'already_approved' );
+			} elseif ( 'processing' === (string) $rec_claim->status ) {
+				if ( '' !== (string) $cb_id ) {
+					SimpleVPBot_Bot_Runtime::answer_callback_query(
+						$platform,
+						array(
+							'callback_query_id' => (string) $cb_id,
+							'text'              => '⏳ در حال پردازش…',
+						)
+					);
+				}
+				return;
+			} elseif ( 'pending' !== (string) $rec_claim->status ) {
+				if ( '' !== (string) $cb_id ) {
+					SimpleVPBot_Bot_Runtime::answer_callback_query(
+						$platform,
+						array(
+							'callback_query_id' => (string) $cb_id,
+							'text'              => 'این رسید قابل تایید نیست.',
+							'show_alert'        => true,
+						)
+					);
+				}
+				return;
+			} elseif ( ! SimpleVPBot_Model_Receipt::claim_pending( $rid ) ) {
+				$rec_race = SimpleVPBot_Model_Receipt::find( $rid );
+				if ( $rec_race && 'approved' === (string) $rec_race->status ) {
+					$res = array( 'ok' => true, 'reason' => 'already_approved' );
+				} else {
+					if ( '' !== (string) $cb_id ) {
+						SimpleVPBot_Bot_Runtime::answer_callback_query(
+							$platform,
+							array(
+								'callback_query_id' => (string) $cb_id,
+								'text'              => '⏳ در حال پردازش…',
+							)
+						);
+					}
+					return;
+				}
+			} else {
+				$clicked = null;
+				if ( (int) $admin_msg_id > 0 ) {
+					$clicked = array(
+						'platform'   => (string) $platform,
+						'chat_id'    => (int) $admin_chat,
+						'message_id' => (int) $admin_msg_id,
+					);
+				}
+				$res = SimpleVPBot_Receipt_Processor::approve_continue( $rid, $label, $clicked );
+			}
 		} elseif ( 'rr' === $act ) {
 			$reason = SimpleVPBot_Receipt_Processor::reject_reason_by_index( (int) ( $parts[3] ?? -1 ) );
 			$res      = SimpleVPBot_Receipt_Processor::reject( $rid, $label, $reason );
@@ -488,7 +693,11 @@ class SimpleVPBot_Handler_Callback {
 		if ( ! class_exists( 'SimpleVPBot_Required_Channel' ) ) {
 			return;
 		}
-		$ok = SimpleVPBot_Required_Channel::user_passes( $platform, $from_id );
+		$ok = SimpleVPBot_Required_Channel::user_passes( $platform, $from_id, true );
+		if ( ! $ok ) {
+			usleep( 300000 );
+			$ok = SimpleVPBot_Required_Channel::user_passes( $platform, $from_id, true );
+		}
 		if ( '' !== $cb_id ) {
 			SimpleVPBot_Bot_Runtime::answer_callback_query(
 				$platform,

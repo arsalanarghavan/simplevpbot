@@ -19,6 +19,7 @@ import {
   menuBtnCollapsedIcon,
   menuChevronCollapsedHidden,
 } from "@/lib/sidebar-menu-classes"
+import { useDashLocale } from "@/lib/dash-locale-context"
 import { cn } from "@/lib/utils"
 
 export function NavMain({
@@ -27,7 +28,6 @@ export function NavMain({
   activeTabKey,
   onSubItemClick,
   subItemUrl,
-  rtl = false,
 }: {
   items: {
     title: string
@@ -46,11 +46,10 @@ export function NavMain({
   onSubItemClick?: (tabKey: string) => void
   /** Build href for sub-items (e.g. open in new tab). */
   subItemUrl?: (tabKey: string) => string
-  /** Persian / right sidebar: RTL alignment for labels and items. */
-  rtl?: boolean
 }) {
+  const { isFa, dir } = useDashLocale()
   return (
-    <SidebarGroup className={cn(rtl && "text-right")} dir={rtl ? "rtl" : undefined}>
+    <SidebarGroup className="text-start" dir={dir}>
       <SidebarGroupLabel>{groupLabel}</SidebarGroupLabel>
       <SidebarMenu>
         {items.map((item) => (
@@ -69,7 +68,7 @@ export function NavMain({
                     className={cn(
                       "ms-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90",
                       menuChevronCollapsedHidden,
-                      rtl && "-scale-x-100"
+                      isFa && "-scale-x-100"
                     )}
                   />
                 </SidebarMenuButton>
@@ -77,7 +76,7 @@ export function NavMain({
               <CollapsibleContent>
                 <SidebarMenuSub
                   className={cn(
-                    rtl &&
+                    isFa &&
                       "me-3.5 ms-0 translate-x-0 border-r border-l-0 pe-2.5 ps-0"
                   )}
                 >

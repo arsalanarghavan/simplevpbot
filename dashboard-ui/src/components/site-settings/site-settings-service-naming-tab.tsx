@@ -8,14 +8,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { getAdminJson, postAdminMutate } from "@/lib/dash-admin-mutate"
+import { DashSelect } from "@/components/dash-select"
+import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
+import { getAdminJson } from "@/lib/dash-admin-mutate"
+import { useSiteSettingsSave } from "@/lib/use-site-settings-save"
+import { SiteSettingsSaveFeedback } from "@/components/site-settings/site-settings-save-feedback"
+import { useDashLocale } from "@/lib/dash-locale-context"
 import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
@@ -39,15 +37,14 @@ function parseInboundMap(raw: unknown): Record<string, string> {
 export function SiteSettingsServiceNamingTab({
   settings,
   panels,
-  isFa,
   onMutateSuccess,
 }: {
   settings: DashRecord | undefined
   panels: PanelRow[]
-  isFa: boolean
   onMutateSuccess?: () => void
 }) {
   const { t } = useTranslation()
+  const { ltrCell } = useDashLocale()
   const tp = (k: string) => t(`siteSettings.serviceNaming.${k}`)
   const s = settings ?? {}
 
@@ -70,8 +67,7 @@ export function SiteSettingsServiceNamingTab({
   const [inbounds, setInbounds] = useState<InboundRow[]>([])
   const [loadBusy, setLoadBusy] = useState(false)
   const [catalogErr, setCatalogErr] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { saving, error, okMsg, saveSettingsTab } = useSiteSettingsSave(onMutateSuccess)
 
   const prefixNumberedMode = form.service_naming_mode === "prefix_numbered"
   const numberedMode = form.service_naming_mode === "numbered"
@@ -134,11 +130,7 @@ export function SiteSettingsServiceNamingTab({
   }
 
   const onSave = useCallback(async () => {
-    setSaving(true)
-    setError(null)
-    try {
-      const res = await postAdminMutate("settings_tab", {
-        tab: "service_naming",
+    await saveSettingsTab("service_naming", {
         service_naming_mode: form.service_naming_mode,
         subscription_config_label_override: form.subscription_config_label_override.trim(),
         config_label_prefix: form.config_label_prefix.trim(),
@@ -146,18 +138,10 @@ export function SiteSettingsServiceNamingTab({
         config_label_prepend_inbound: form.config_label_prepend_inbound ? 1 : 0,
         inbound_display_names: form.inbound_display_names,
       })
-      if (!res.ok) {
-        setError(res.message || tp("saveError"))
-        return
-      }
-      onMutateSuccess?.()
-    } finally {
-      setSaving(false)
-    }
-  }, [form, onMutateSuccess, tp])
+  }, [form, saveSettingsTab])
 
   return (
-    <div dir={isFa ? "rtl" : "ltr"} className={cn("mx-auto max-w-6xl space-y-6", isFa && "text-right")}>
+    <div className={cn("w-full space-y-6 text-start")}>
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{tp("modeTitle")}</CardTitle>
@@ -166,20 +150,16 @@ export function SiteSettingsServiceNamingTab({
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label>{tp("serviceNamingMode")}</Label>
-            <Select
+            <DashSelect
               value={form.service_naming_mode}
               onValueChange={(v) => setForm((f) => ({ ...f, service_naming_mode: v }))}
-            >
-              <SelectTrigger className="w-full" dir={isFa ? "rtl" : "ltr"}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent dir={isFa ? "rtl" : "ltr"}>
-                <SelectItem value="legacy">{tp("serviceNamingLegacy")}</SelectItem>
-                <SelectItem value="platform_slug">{tp("serviceNamingPlatformSlug")}</SelectItem>
-                <SelectItem value="prefix_numbered">{tp("serviceNamingPrefixNumbered")}</SelectItem>
-                <SelectItem value="numbered">{tp("serviceNamingNumbered")}</SelectItem>
-              </SelectContent>
-            </Select>
+              options={[
+                { value: "legacy", label: tp("serviceNamingLegacy") },
+                { value: "platform_slug", label: tp("serviceNamingPlatformSlug") },
+                { value: "prefix_numbered", label: tp("serviceNamingPrefixNumbered") },
+                { value: "numbered", label: tp("serviceNamingNumbered") },
+              ]}
+            />
           </div>
           {(prefixNumberedMode || numberedMode) && (
             <div className="space-y-1.5">
@@ -194,7 +174,7 @@ export function SiteSettingsServiceNamingTab({
                   setForm((f) => ({ ...f, config_label_number_start: e.target.value }))
                 }
                 disabled={saving}
-                className="h-9 max-w-xs"
+                className={ltrCell("h-9 max-w-xs tabular-nums")}
               />
               <p className="text-xs text-muted-foreground">{tp("configLabelNumberStartHint")}</p>
             </div>
@@ -245,7 +225,7 @@ export function SiteSettingsServiceNamingTab({
                 : tp("configLabelOverrideHint")}
             </p>
           </div>
-          <p className="rounded-md border bg-muted/40 px-3 py-2 font-mono text-xs" dir="ltr">
+          <p className={ltrCell("rounded-md border bg-muted/40 px-3 py-2 font-mono text-xs")} dir="ltr">
             {tp("previewLabel")}: {previewLabel}
           </p>
         </CardContent>
@@ -260,21 +240,16 @@ export function SiteSettingsServiceNamingTab({
           <div className="flex flex-wrap items-end gap-3">
             <div className="min-w-[12rem] flex-1 space-y-1">
               <Label>{tp("panel")}</Label>
-              <Select
+              <DashSelect
                 value={panelId > 0 ? String(panelId) : ""}
                 onValueChange={(v) => setPanelId(Number(v) || 0)}
-              >
-                <SelectTrigger dir={isFa ? "rtl" : "ltr"}>
-                  <SelectValue placeholder={tp("panelPlaceholder")} />
-                </SelectTrigger>
-                <SelectContent dir={isFa ? "rtl" : "ltr"}>
-                  {panels.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.name || `#${p.id}`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                allowEmpty
+                placeholder={tp("panelPlaceholder")}
+                options={panels.map((p) => ({
+                  value: String(p.id),
+                  label: p.name || `#${p.id}`,
+                }))}
+              />
             </div>
             <Button type="button" variant="outline" size="sm" disabled={loadBusy} onClick={() => void loadCatalog()}>
               {loadBusy ? tp("loading") : tp("loadInbounds")}
@@ -282,40 +257,38 @@ export function SiteSettingsServiceNamingTab({
           </div>
           {catalogErr ? <p className="text-sm text-destructive">{catalogErr}</p> : null}
           {inbounds.length > 0 ? (
-            <div className="overflow-x-auto rounded-md border">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/50 text-muted-foreground">
-                    <th className="px-3 py-2 text-start">ID</th>
-                    <th className="px-3 py-2 text-start">{tp("panelRemark")}</th>
-                    <th className="px-3 py-2 text-start">{tp("displayAlias")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {inbounds.map((row) => {
-                    const key = `${panelId}:${row.id}`
-                    return (
-                      <tr key={key} className="border-b last:border-0">
-                        <td className="px-3 py-2 font-mono text-xs" dir="ltr">
-                          {row.id}
-                          {row.port > 0 ? ` :${row.port}` : ""}
-                        </td>
-                        <td className="px-3 py-2 text-muted-foreground">{row.remark || "—"}</td>
-                        <td className="px-3 py-2">
-                          <Input
-                            value={form.inbound_display_names[key] ?? ""}
-                            onChange={(e) => setAlias(key, e.target.value)}
-                            disabled={saving}
-                            className="h-8"
-                            placeholder={row.remark || tp("aliasPlaceholder")}
-                          />
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <DashTableShell minWidth="32rem" colWidths={["18%", "32%", "50%"]}>
+              <thead>
+                <tr className="bg-muted/40 text-muted-foreground">
+                  <DashTh>ID</DashTh>
+                  <DashTh>{tp("panelRemark")}</DashTh>
+                  <DashTh>{tp("displayAlias")}</DashTh>
+                </tr>
+              </thead>
+              <tbody>
+                {inbounds.map((row) => {
+                  const key = `${panelId}:${row.id}`
+                  return (
+                    <tr key={key}>
+                      <DashTd dir="ltr" className={ltrCell("font-mono text-xs")}>
+                        {row.id}
+                        {row.port > 0 ? ` :${row.port}` : ""}
+                      </DashTd>
+                      <DashTd className="text-muted-foreground">{row.remark || "—"}</DashTd>
+                      <DashTd>
+                        <Input
+                          value={form.inbound_display_names[key] ?? ""}
+                          onChange={(e) => setAlias(key, e.target.value)}
+                          disabled={saving}
+                          className="h-8"
+                          placeholder={row.remark || tp("aliasPlaceholder")}
+                        />
+                      </DashTd>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </DashTableShell>
           ) : (
             <p className="text-xs text-muted-foreground">{tp("inboundEmpty")}</p>
           )}
@@ -326,7 +299,7 @@ export function SiteSettingsServiceNamingTab({
         <Button type="button" disabled={saving} onClick={() => void onSave()}>
           {tp("save")}
         </Button>
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        <SiteSettingsSaveFeedback error={error} okMsg={okMsg} />
       </div>
     </div>
   )

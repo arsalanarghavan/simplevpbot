@@ -71,6 +71,54 @@ class SimpleVPBot_Model_Reseller_Parent_Panel_Floor {
 	}
 
 	/**
+	 * Batch-load parent floor rows for many direct child resellers.
+	 *
+	 * @param int           $parent_svp_user_id Parent reseller id.
+	 * @param array<int,int> $child_ids         Child reseller ids.
+	 * @return array<string, array<int, object>> Keyed by child id string.
+	 */
+	public static function map_for_parent_children( $parent_svp_user_id, array $child_ids ) {
+		global $wpdb;
+		$a = (int) $parent_svp_user_id;
+		$ids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', $child_ids ),
+					static function ( $v ) {
+						return (int) $v > 0;
+					}
+				)
+			)
+		);
+		$out = array();
+		if ( $a < 1 || empty( $ids ) ) {
+			return $out;
+		}
+		$ph = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPlaceholder
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT * FROM ' . self::table() . " WHERE parent_svp_user_id = %d AND child_svp_user_id IN ({$ph}) ORDER BY child_svp_user_id ASC, panel_id ASC",
+				array_merge( array( $a ), $ids )
+			)
+		);
+		foreach ( (array) $rows as $row ) {
+			if ( ! is_object( $row ) ) {
+				continue;
+			}
+			$key = (string) (int) ( $row->child_svp_user_id ?? 0 );
+			if ( $key === '0' ) {
+				continue;
+			}
+			if ( ! isset( $out[ $key ] ) ) {
+				$out[ $key ] = array();
+			}
+			$out[ $key ][] = $row;
+		}
+		return $out;
+	}
+
+	/**
 	 * All parent-imposed floors where child is the given reseller (for admin overview).
 	 *
 	 * @param int $child_svp_user_id Child reseller id.

@@ -7,15 +7,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { DashSelect } from "@/components/dash-select"
 import { Switch } from "@/components/ui/switch"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
+import { useSiteSettingsSave } from "@/lib/use-site-settings-save"
+import { SiteSettingsSaveFeedback } from "@/components/site-settings/site-settings-save-feedback"
+import { useDashLocale } from "@/lib/dash-locale-context"
 import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
@@ -26,14 +23,13 @@ function bool(v: unknown): boolean {
 
 export function SiteSettingsProxyTab({
   settings,
-  isFa,
   onMutateSuccess,
 }: {
   settings: DashRecord | undefined
-  isFa: boolean
   onMutateSuccess?: () => void
 }) {
   const { t } = useTranslation()
+  const { ltrCell } = useDashLocale()
   const tp = (k: string) => t(`siteSettings.proxy.${k}`)
   const s = settings ?? {}
 
@@ -51,38 +47,25 @@ export function SiteSettingsProxyTab({
 
   const [form, setForm] = useState(initial)
   useEffect(() => setForm(initial), [initial])
-  const [saving, setSaving] = useState(false)
+  const { saving, error, okMsg, saveSettingsTab, setError } = useSiteSettingsSave(onMutateSuccess)
   const [testing, setTesting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [testMsg, setTestMsg] = useState<string | null>(null)
   const passwordSet = bool(s.telegram_proxy_password_set)
 
   const onSave = useCallback(async () => {
-    setSaving(true)
-    setError(null)
-    try {
-      const payload: Record<string, unknown> = {
-        tab: "proxy",
-        telegram_proxy_enabled: form.telegram_proxy_enabled ? 1 : 0,
-        telegram_proxy_type: form.telegram_proxy_type,
-        telegram_proxy_host: form.telegram_proxy_host,
-        telegram_proxy_port: Number(form.telegram_proxy_port) || 0,
-        telegram_proxy_username: form.telegram_proxy_username,
-        telegram_api_base_url: form.telegram_api_base_url,
-      }
-      if (form.telegram_proxy_password.trim() !== "") {
-        payload.telegram_proxy_password = form.telegram_proxy_password
-      }
-      const res = await postAdminMutate("settings_tab", payload)
-      if (!res.ok) {
-        setError(res.message || tp("saveError"))
-        return
-      }
-      onMutateSuccess?.()
-    } finally {
-      setSaving(false)
+    const payload: Record<string, unknown> = {
+      telegram_proxy_enabled: form.telegram_proxy_enabled ? 1 : 0,
+      telegram_proxy_type: form.telegram_proxy_type,
+      telegram_proxy_host: form.telegram_proxy_host,
+      telegram_proxy_port: Number(form.telegram_proxy_port) || 0,
+      telegram_proxy_username: form.telegram_proxy_username,
+      telegram_api_base_url: form.telegram_api_base_url,
     }
-  }, [form, onMutateSuccess, tp])
+    if (form.telegram_proxy_password.trim() !== "") {
+      payload.telegram_proxy_password = form.telegram_proxy_password
+    }
+    await saveSettingsTab("proxy", payload)
+  }, [form, saveSettingsTab])
 
   const onTest = useCallback(async () => {
     setTesting(true)
@@ -105,7 +88,7 @@ export function SiteSettingsProxyTab({
   const row = cn("flex items-center justify-between gap-3")
 
   return (
-    <div className={cn("mx-auto max-w-2xl space-y-6", isFa && "text-right")}>
+    <div className={cn("w-full space-y-6 text-start")}>
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{tp("title")}</CardTitle>
@@ -121,18 +104,14 @@ export function SiteSettingsProxyTab({
           </div>
           <div className="space-y-2">
             <Label>{tp("type")}</Label>
-            <Select
+            <DashSelect
               value={form.telegram_proxy_type}
               onValueChange={(v) => setForm((f) => ({ ...f, telegram_proxy_type: v }))}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="http">HTTP</SelectItem>
-                <SelectItem value="socks5">SOCKS5</SelectItem>
-              </SelectContent>
-            </Select>
+              options={[
+                { value: "http", label: "HTTP" },
+                { value: "socks5", label: "SOCKS5" },
+              ]}
+            />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
@@ -142,6 +121,7 @@ export function SiteSettingsProxyTab({
                 value={form.telegram_proxy_host}
                 onChange={(e) => setForm((f) => ({ ...f, telegram_proxy_host: e.target.value }))}
                 dir="ltr"
+                className={ltrCell("font-mono")}
               />
             </div>
             <div className="space-y-2">
@@ -154,6 +134,7 @@ export function SiteSettingsProxyTab({
                 value={form.telegram_proxy_port}
                 onChange={(e) => setForm((f) => ({ ...f, telegram_proxy_port: e.target.value }))}
                 dir="ltr"
+                className={ltrCell("tabular-nums")}
               />
             </div>
           </div>
@@ -165,6 +146,7 @@ export function SiteSettingsProxyTab({
                 value={form.telegram_proxy_username}
                 onChange={(e) => setForm((f) => ({ ...f, telegram_proxy_username: e.target.value }))}
                 dir="ltr"
+                className={ltrCell("font-mono")}
               />
             </div>
             <div className="space-y-2">
@@ -176,6 +158,7 @@ export function SiteSettingsProxyTab({
                 onChange={(e) => setForm((f) => ({ ...f, telegram_proxy_password: e.target.value }))}
                 placeholder={passwordSet ? "••••••••" : ""}
                 dir="ltr"
+                className={ltrCell("font-mono")}
               />
             </div>
           </div>
@@ -187,17 +170,14 @@ export function SiteSettingsProxyTab({
               onChange={(e) => setForm((f) => ({ ...f, telegram_api_base_url: e.target.value }))}
               placeholder={tp("apiBasePlaceholder")}
               dir="ltr"
+              className={ltrCell("font-mono")}
             />
             <p className="text-xs text-muted-foreground">{tp("apiBaseHint")}</p>
           </div>
         </CardContent>
       </Card>
 
-      {error ? (
-        <div role="alert" className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
+      <SiteSettingsSaveFeedback error={error} okMsg={okMsg} />
       {testMsg ? <p className="text-sm text-muted-foreground">{testMsg}</p> : null}
       <div className={cn("flex flex-wrap gap-2")}>
         <Button type="button" disabled={saving} onClick={() => void onSave()}>

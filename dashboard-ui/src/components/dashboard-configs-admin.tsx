@@ -25,13 +25,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -49,10 +42,15 @@ import {
   msToApiDatetime,
 } from "@/components/dashboard-datetime-picker"
 import { getAdminJson, postAdminJson, postAdminMutate } from "@/lib/dash-admin-mutate"
-import { dashContentClass, dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
+import { dashPageRootClass } from "@/lib/dash-locale"
 import type { PaginationMeta } from "@/lib/dash-pagination"
+import { DashSelect } from "@/components/dash-select"
 import { formatBytes, formatDateTime, formatNumber } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
+import { useDashLocale } from "@/lib/dash-locale-context"
+import { DashDialogContent, DashDialogFooter, DashDialogHeader } from "@/components/dash-dialog-content"
+import { Dialog, DialogTitle } from "@/components/ui/dialog"
 import {
   Bar,
   BarChart,
@@ -375,16 +373,16 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 export function DashboardConfigsAdmin({
   panels,
   plans,
-  isFa,
   configsActive = true,
   onMutateSuccess,
 }: {
   panels: DashRecord[]
   plans: DashRecord[]
-  isFa: boolean
-  configsActive?: boolean
+configsActive?: boolean
   onMutateSuccess?: () => void
 }) {
+  const { isFa, dir: dialogDir } = useDashLocale()
+
   const { t } = useTranslation()
   const tl = useCallback(
     (k: string, opts?: Record<string, string | number>) => t(`configsAdmin.${k}`, opts),
@@ -439,10 +437,6 @@ export function DashboardConfigsAdmin({
   const [quickOpen, setQuickOpen] = useState(false)
   const [quickPlanId, setQuickPlanId] = useState(0)
   const [quickTarget, setQuickTarget] = useState("")
-
-  const [expConfirm, setExpConfirm] = useState("")
-  const [expDeleteAck, setExpDeleteAck] = useState(false)
-  const [expBusy, setExpBusy] = useState(false)
 
   const [bulkSel, setBulkSel] = useState<Record<string, { panel_id: number; inbound_id: number; email: string }>>({})
   const [planPages, setPlanPages] = useState<Record<string, number>>({})
@@ -587,8 +581,6 @@ export function DashboardConfigsAdmin({
       if (gen !== refreshGen.current) return
       blocks.sort((a, b) => a.panel_id - b.panel_id)
       setMerged({ panels: blocks, default_svp_user_id: defaultUid, syncWarnings: warnings })
-      setExpConfirm("")
-      setExpDeleteAck(false)
       setBulkSel({})
       if (warnings.length) {
         setMsg(tl("partialSyncNotice"))
@@ -928,43 +920,12 @@ export function DashboardConfigsAdmin({
     }
   }, [afterMutate, merged?.default_svp_user_id, quickPlanId, quickTarget, t, tl])
 
-  const runDeleteExpired = useCallback(async () => {
-    if (!singlePanelMode || typeof panelScope !== "number") return
-    const block = merged?.panels.find((p) => p.panel_id === panelScope)
-    const n = block?.expired_linked_batch_count ?? 0
-    if (n < 1) return
-    if (!expDeleteAck) {
-      setErr(tl("deleteExpiredAckError"))
-      return
-    }
-    const typed = parseInt(expConfirm.trim(), 10)
-    if (typed !== n) {
-      setErr(tl("confirmMismatch"))
-      return
-    }
-    setExpBusy(true)
-    setErr(null)
-    try {
-      const res = await postAdminMutate("configs_delete_expired_linked", {
-        panel_id: panelScope,
-        confirm_count: n,
-      })
-      if (!res.ok) {
-        if (res.message === "confirm_mismatch") {
-          const exp = (res.data as { expected_count?: number } | undefined)?.expected_count
-          setErr(tl("confirmMismatch") + (exp != null ? ` (${exp})` : ""))
-        } else {
-          setErr(res.message ?? tl("mutateError"))
-        }
-        return
-      }
-      setExpConfirm("")
-      setExpDeleteAck(false)
-      await afterMutate()
-    } finally {
-      setExpBusy(false)
-    }
-  }, [afterMutate, expConfirm, expDeleteAck, merged?.panels, panelScope, singlePanelMode, tl])
+  const purgeSettingsUrl = useMemo(() => {
+    if (typeof window === "undefined") return "#"
+    const boot = window.__SIMPLEVPBOT_DASH__ || {}
+    const base = String(boot.dashboardUrl || `${window.location.origin}/dashboard/`).replace(/\/$/, "")
+    return `${base}/site_settings/?site_subtab=purge_expired`
+  }, [])
 
   const toggleBulkRow = useCallback(
     (rk: string, panel_id: number, inboundId: number, email: string, checked: boolean) => {
@@ -1351,17 +1312,10 @@ export function DashboardConfigsAdmin({
   const anyStale = merged?.panels.some((p) => p.cache_stale)
   const anyNeeds = merged?.panels.some((p) => p.needs_sync)
 
-  const contentClass = dashContentClass(isFa)
-    const dialogDir = isFa ? ("rtl" as const) : ("ltr" as const)
-  const dialogHeaderClass = cn(
-    "flex flex-col gap-2",
-    isFa ? "text-right sm:text-right" : "text-center sm:text-left"
-  )
-  const dialogContentCn = (extra: string) => cn(extra, contentClass, isFa && "text-right")
-  const selectClass = cn(
-    "flex h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-sm shadow-sm",
-    isFa && "text-right"
-  )
+  const contentClass = dashPageRootClass("w-full")
+  const dialogHeaderClass = cn("flex flex-col gap-2 text-start")
+  const dialogContentCn = (extra: string) => cn(extra, contentClass)
+  const selectTriggerClass = "px-2 shadow-sm"
 
   function renderConfigClientRow(block: SnapshotPanelBlock, iid: number, row: ClientRow) {
     const pid = num(row.panel_id) || block.panel_id
@@ -1450,7 +1404,7 @@ export function DashboardConfigsAdmin({
             </div>
           )}
         </div>
-        <div className={cn("mt-3 flex flex-wrap items-center gap-1 sm:mt-0")} dir={dashDir(isFa)}>
+        <div className={cn("mt-3 flex flex-wrap items-center gap-1 sm:mt-0")}>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -1613,7 +1567,7 @@ export function DashboardConfigsAdmin({
   }
 
   return (
-    <div className={dashPageRootClass(isFa, contentClass)} dir={dashDir(isFa)}>
+    <DashPage className={contentClass}>
       <DashboardPageHeader
         title={tl("title")}
         description={
@@ -1627,14 +1581,10 @@ export function DashboardConfigsAdmin({
       <div className="flex flex-col gap-4 rounded-lg border border-border/60 p-4 sm:flex-row sm:flex-wrap sm:items-end">
         <div className="grid gap-2">
           <Label>{tl("fieldPanel")}</Label>
-          <select
-            className={cn(
-              "flex h-9 w-full max-w-md rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm",
-              isFa && "text-right"
-            )}
+          <DashSelect
+            triggerClassName="max-w-md shadow-sm"
             value={panelScope === ALL_PANELS ? "all" : String(panelScope)}
-            onChange={(e) => {
-              const v = e.target.value
+            onValueChange={(v) => {
               if (v === "all") setPanelScope(ALL_PANELS)
               else {
                 const n = parseInt(v, 10)
@@ -1647,24 +1597,22 @@ export function DashboardConfigsAdmin({
               setErr(null)
               setMsg(null)
             }}
-          >
-            <option value="all">{tl("allPanels")}</option>
-            {panelOptions.length === 0 ? (
-              <option value="">{tl("noPanels")}</option>
-            ) : (
-              panelOptions.map((p) => (
-                <option key={p.id} value={p.id}>
-                  #{p.id} — {p.label}
-                </option>
-              ))
-            )}
-          </select>
+            options={[
+              { value: "all", label: tl("allPanels") },
+              ...(panelOptions.length === 0
+                ? [{ value: "__no_panels", label: tl("noPanels"), disabled: true }]
+                : panelOptions.map((p) => ({
+                    value: String(p.id),
+                    label: `#${p.id} — ${p.label}`,
+                  }))),
+            ]}
+          />
         </div>
         <div className="text-sm text-muted-foreground">
           {refreshing ? <span className="text-foreground">{tl("syncBusy")}</span> : <span>{tl("idleReady")}</span>}
         </div>
         {singlePanelMode ? (
-          <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
+          <label className={cn("flex items-center gap-2 text-sm")}>
             <input
               type="checkbox"
               className="size-4"
@@ -1774,33 +1722,13 @@ export function DashboardConfigsAdmin({
       ) : null}
 
       {expiredBlock && expiredBlock.expired_linked_batch_count > 0 ? (
-        <div className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
-          <p className="text-sm font-medium">{tl("deleteExpired")}</p>
-          <p className="text-xs text-muted-foreground">{tl("deleteExpiredHint")}</p>
-          <label className={cn("flex items-start gap-2 text-xs text-muted-foreground")} dir={dashDir(isFa)}>
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={expDeleteAck}
-              onChange={(e) => setExpDeleteAck(e.target.checked)}
-            />
-            <span>{tl("deleteExpiredAck")}</span>
-          </label>
-          <div className={cn("flex flex-wrap items-end gap-2")} dir={dashDir(isFa)}>
-            <div className="grid gap-1">
-              <Label className="text-xs">{tl("confirmCount")}</Label>
-              <Input
-                className="w-40"
-                inputMode="numeric"
-                value={expConfirm}
-                onChange={(e) => setExpConfirm(e.target.value)}
-                placeholder={String(expiredBlock.expired_linked_batch_count)}
-              />
-            </div>
-            <Button type="button" variant="destructive" disabled={expBusy} onClick={() => void runDeleteExpired()}>
-              {expBusy ? tl("loading") : tl("runDeleteExpired")}
-            </Button>
-          </div>
+        <div className="space-y-2 rounded-lg border border-border/60 bg-muted/30 p-4">
+          <p className="text-sm text-muted-foreground">
+            {tl("purgeMovedHint", { count: expiredBlock.expired_linked_batch_count })}
+          </p>
+          <Button type="button" variant="outline" size="sm" asChild>
+            <a href={purgeSettingsUrl}>{tl("purgeMovedLink")}</a>
+          </Button>
         </div>
       ) : null}
 
@@ -1814,7 +1742,7 @@ export function DashboardConfigsAdmin({
           )}
         >
           <span className="text-sm font-medium">{tl("batchBar", { n: bulkCount, max: CONFIGS_BATCH_MAX })}</span>
-          <div className={cn("flex flex-wrap gap-2")} dir={dashDir(isFa)}>
+          <div className={cn("flex flex-wrap gap-2")}>
             <Button
               type="button"
               variant="outline"
@@ -1879,7 +1807,7 @@ export function DashboardConfigsAdmin({
 
       {merged?.panels.map((block) => (
         <div key={block.panel_id} className="space-y-3 rounded-xl border border-border/60 bg-card/30 p-3 sm:p-4">
-          <div className={cn("flex flex-wrap items-baseline justify-between gap-2 border-b border-border/50 pb-2")} dir={dashDir(isFa)}>
+          <div className={cn("flex flex-wrap items-baseline justify-between gap-2 border-b border-border/50 pb-2")}>
             <div>
               <h3 className="text-base font-semibold">
                 {tl("panelHeading", { id: block.panel_id, label: block.panel_label })}
@@ -1919,8 +1847,7 @@ export function DashboardConfigsAdmin({
                     <button
                       type="button"
                       className={cn(
-                        "flex min-w-0 flex-1 items-center gap-2 p-3 text-start hover:bg-muted/40",
-                        isFa && "text-right"
+                        "flex min-w-0 flex-1 items-center gap-2 p-3 text-start hover:bg-muted/40"
                       )}
                     >
                       <ChevronDown className="size-4 shrink-0 transition-transform group-data-[state=open]/collapsible:rotate-180" />
@@ -1982,8 +1909,7 @@ export function DashboardConfigsAdmin({
                         <div className="px-3 pb-3">
                           <DataPagination
                             meta={planPaginationMeta}
-                            isFa={isFa}
-                            onPageChange={(page) => setPlanPage(planPk, page)}
+        onPageChange={(page) => setPlanPage(planPk, page)}
                             onPerPageChange={(pp) => {
                               setClientsPerPage(pp)
                               setPlanPages({})
@@ -2022,8 +1948,7 @@ export function DashboardConfigsAdmin({
                   <button
                     type="button"
                     className={cn(
-                      "flex w-full items-center gap-2 border-b border-amber-500/30 bg-amber-500/5 p-3 text-start hover:bg-amber-500/10",
-                      isFa && "text-right"
+                      "flex w-full items-center gap-2 border-b border-amber-500/30 bg-amber-500/5 p-3 text-start hover:bg-amber-500/10"
                     )}
                   >
                     <ChevronDown className="size-4 shrink-0 transition-transform group-data-[state=open]/orphan:rotate-180" />
@@ -2055,7 +1980,7 @@ export function DashboardConfigsAdmin({
                           <div
                             className={cn(
                               "border-b border-amber-500/15 bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground",
-                              isFa ? "text-right" : "text-start"
+                              "text-start"
                             )}
                           >
                             <span className="font-medium text-foreground">{item.planName}</span>
@@ -2075,8 +2000,7 @@ export function DashboardConfigsAdmin({
                     <div className="px-3 py-3">
                       <DataPagination
                         meta={orphanMeta}
-                        isFa={isFa}
-                        onPageChange={(page) => setOrphanPage(block.panel_id, page)}
+        onPageChange={(page) => setOrphanPage(block.panel_id, page)}
                         onPerPageChange={(pp) => {
                           setClientsPerPage(pp)
                           setPlanPages({})
@@ -2103,10 +2027,10 @@ export function DashboardConfigsAdmin({
           }
         }}
       >
-        <DialogContent dir={dialogDir} className={dialogContentCn("max-w-lg")}>
-          <DialogHeader className={dialogHeaderClass}>
+        <DashDialogContent dir={dialogDir} className={dialogContentCn("max-w-lg")}>
+          <DashDialogHeader className={dialogHeaderClass}>
             <DialogTitle>{tl("infoTitle")}</DialogTitle>
-          </DialogHeader>
+          </DashDialogHeader>
           {infoRow ? (
             <div className="max-h-[70vh] space-y-4 overflow-y-auto pe-1">
               <div>
@@ -2233,7 +2157,7 @@ export function DashboardConfigsAdmin({
               </div>
             </div>
           ) : null}
-        </DialogContent>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog
@@ -2242,10 +2166,10 @@ export function DashboardConfigsAdmin({
           if (!open) setIpsTarget(null)
         }}
       >
-        <DialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
-          <DialogHeader className={dialogHeaderClass}>
+        <DashDialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
+          <DashDialogHeader className={dialogHeaderClass}>
             <DialogTitle>{tl("ipsTitle")}</DialogTitle>
-          </DialogHeader>
+          </DashDialogHeader>
           {ipsTarget ? (
             <div className="space-y-2">
               <p className="break-all font-mono text-xs text-muted-foreground">{String(ipsTarget.row.email ?? "")}</p>
@@ -2265,7 +2189,7 @@ export function DashboardConfigsAdmin({
               })()}
             </div>
           ) : null}
-        </DialogContent>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog
@@ -2280,10 +2204,10 @@ export function DashboardConfigsAdmin({
           }
         }}
       >
-        <DialogContent dir={dialogDir} className={dialogContentCn("max-w-lg")}>
-          <DialogHeader className={dialogHeaderClass}>
+        <DashDialogContent dir={dialogDir} className={dialogContentCn("max-w-lg")}>
+          <DashDialogHeader className={dialogHeaderClass}>
             <DialogTitle>{tl("qrTitle")}</DialogTitle>
-          </DialogHeader>
+          </DashDialogHeader>
           <p className="text-xs text-muted-foreground">{tl("qrClickCopyHint")}</p>
           {qrPortalLoading ? <p className="text-xs text-muted-foreground">{tl("syncBusy")}</p> : null}
           {qrCopyHint ? (
@@ -2382,14 +2306,14 @@ export function DashboardConfigsAdmin({
               </div>
             </div>
           ) : null}
-        </DialogContent>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent dir={dialogDir} className={dialogContentCn("max-w-lg")}>
-          <DialogHeader className={dialogHeaderClass}>
+        <DashDialogContent dir={dialogDir} className={dialogContentCn("max-w-lg")}>
+          <DashDialogHeader className={dialogHeaderClass}>
             <DialogTitle>{tl("editTitle")}</DialogTitle>
-          </DialogHeader>
+          </DashDialogHeader>
           <div className="grid max-h-[70vh] gap-3 overflow-y-auto py-2 pe-1">
             <div className="grid gap-1">
               <Label>{tl("fieldRemark")}</Label>
@@ -2403,7 +2327,7 @@ export function DashboardConfigsAdmin({
               <Label>{tl("fieldLimitIp")}</Label>
               <Input inputMode="numeric" value={editLimitIp} onChange={(e) => setEditLimitIp(e.target.value)} />
             </div>
-            <div className={cn("flex items-center justify-between gap-3 rounded-md border border-border/50 px-3 py-2")} dir={dashDir(isFa)}>
+            <div className={cn("flex items-center justify-between gap-3 rounded-md border border-border/50 px-3 py-2")}>
               <Label htmlFor="cfg-safu" className="cursor-pointer text-sm">
                 {tl("fieldStartAfterFirstUse")}
               </Label>
@@ -2420,12 +2344,11 @@ export function DashboardConfigsAdmin({
             </div>
             <DashboardDateTimePicker
               label={isFa ? tl("fieldExpiryShamsi") : tl("fieldExpiry")}
-              isFa={isFa}
-              value={editExpiryMs > 0 ? msToApiDatetime(editExpiryMs) : ""}
+        value={editExpiryMs > 0 ? msToApiDatetime(editExpiryMs) : ""}
               onChange={(v) => setEditExpiryMs(apiDatetimeToMs(v))}
             />
           </div>
-          <DialogFooter className={cn("")} dir={dashDir(isFa)}>
+          <DashDialogFooter className={cn("")}>
             <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
               {tl("cancel")}
             </Button>
@@ -2436,50 +2359,50 @@ export function DashboardConfigsAdmin({
             >
               {tl("save")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog open={delOpen} onOpenChange={setDelOpen}>
-        <DialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
-          <DialogHeader className={dialogHeaderClass}>
+        <DashDialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
+          <DashDialogHeader className={dialogHeaderClass}>
             <DialogTitle>{tl("deleteOneTitle")}</DialogTitle>
-          </DialogHeader>
+          </DashDialogHeader>
           <p className="text-sm text-muted-foreground">
             {delRow && num(delRow.linked_service_id) > 0 ? tl("deleteOneLinked") : tl("deleteOneOrphan")}
           </p>
-          <DialogFooter className={cn("")} dir={dashDir(isFa)}>
+          <DashDialogFooter className={cn("")}>
             <Button type="button" variant="outline" onClick={() => setDelOpen(false)}>
               {tl("cancel")}
             </Button>
             <Button type="button" variant="destructive" onClick={() => void onDelete()}>
               {tl("delete")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog open={resetOpen} onOpenChange={setResetOpen}>
-        <DialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
-          <DialogHeader className={dialogHeaderClass}>
+        <DashDialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
+          <DashDialogHeader className={dialogHeaderClass}>
             <DialogTitle>{tl("resetTrafficTitle")}</DialogTitle>
-          </DialogHeader>
-          <DialogFooter className={cn("")} dir={dashDir(isFa)}>
+          </DashDialogHeader>
+          <DashDialogFooter className={cn("")}>
             <Button type="button" variant="outline" onClick={() => setResetOpen(false)}>
               {tl("cancel")}
             </Button>
             <Button type="button" onClick={() => void onResetTraffic()}>
               {tl("resetTraffic")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog open={quickOpen} onOpenChange={setQuickOpen}>
-        <DialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
-          <DialogHeader className={dialogHeaderClass}>
+        <DashDialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
+          <DashDialogHeader className={dialogHeaderClass}>
             <DialogTitle>{tl("quickAdd")}</DialogTitle>
-          </DialogHeader>
+          </DashDialogHeader>
           <p className="text-sm text-muted-foreground">{tl("quickAddHint")}</p>
           {merged && merged.default_svp_user_id < 1 ? (
             <p className="text-xs text-amber-600 dark:text-amber-400">{tl("defaultUserHint")}</p>
@@ -2492,24 +2415,24 @@ export function DashboardConfigsAdmin({
               onChange={(e) => setQuickTarget(e.target.value)}
             />
           </div>
-          <DialogFooter className={cn("")} dir={dashDir(isFa)}>
+          <DashDialogFooter className={cn("")}>
             <Button type="button" variant="outline" onClick={() => setQuickOpen(false)}>
               {tl("cancel")}
             </Button>
             <Button type="button" disabled={busyRow === `quick:${quickPlanId}`} onClick={() => void runQuickAdd()}>
               {tl("createService")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog open={linkOpen} onOpenChange={setLinkOpen}>
-        <DialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
-          <DialogHeader className={dialogHeaderClass}>
+        <DashDialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
+          <DashDialogHeader className={dialogHeaderClass}>
             <DialogTitle>
               {linkCtx && num(linkCtx.row.is_linked) !== 0 ? tl("linkUserEdit") : tl("linkUserAdd")}
             </DialogTitle>
-          </DialogHeader>
+          </DashDialogHeader>
           {linkCtx ? (
             <div className="space-y-3">
               <p className="break-all font-mono text-xs text-muted-foreground">{String(linkCtx.row.email ?? "")}</p>
@@ -2556,7 +2479,7 @@ export function DashboardConfigsAdmin({
               ) : null}
             </div>
           ) : null}
-          <DialogFooter className={cn("")} dir={dashDir(isFa)}>
+          <DashDialogFooter className={cn("")}>
             <Button type="button" variant="outline" onClick={() => setLinkOpen(false)}>
               {tl("cancel")}
             </Button>
@@ -2568,85 +2491,93 @@ export function DashboardConfigsAdmin({
             >
               {tl("link")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog open={assignPlanOpen} onOpenChange={setAssignPlanOpen}>
-        <DialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
-          <DialogHeader className={dialogHeaderClass}>
+        <DashDialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
+          <DashDialogHeader className={dialogHeaderClass}>
             <DialogTitle>{tl("assignPlanTitle")}</DialogTitle>
-          </DialogHeader>
+          </DashDialogHeader>
           <p className="text-sm text-muted-foreground">{tl("assignPlanHint")}</p>
           <div className="grid gap-1">
             <Label>{tl("pickPlan")}</Label>
-            <select className={selectClass} value={assignPlanId} onChange={(e) => setAssignPlanId(parseInt(e.target.value || "0", 10) || 0)}>
-              <option value={0}>{tl("pickPlan")}</option>
-              {scopedActivePlans.map((p) => (
-                <option key={num(p.id)} value={num(p.id)}>
-                  {String(p.name ?? `#${num(p.id)}`)}
-                </option>
-              ))}
-            </select>
+            <DashSelect
+              triggerClassName={selectTriggerClass}
+              value={String(assignPlanId)}
+              onValueChange={(v) => setAssignPlanId(parseInt(v || "0", 10) || 0)}
+              options={[
+                { value: "0", label: tl("pickPlan") },
+                ...scopedActivePlans.map((p) => ({
+                  value: String(num(p.id)),
+                  label: String(p.name ?? `#${num(p.id)}`),
+                })),
+              ]}
+            />
           </div>
-          <DialogFooter className={cn("")} dir={dashDir(isFa)}>
+          <DashDialogFooter className={cn("")}>
             <Button type="button" variant="outline" onClick={() => setAssignPlanOpen(false)}>
               {tl("cancel")}
             </Button>
             <Button type="button" onClick={() => void runAssignPlan()}>
               {tl("assignPlan")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
-        <DialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
-          <DialogHeader className={dialogHeaderClass}>
+        <DashDialogContent dir={dialogDir} className={dialogContentCn("max-w-md")}>
+          <DashDialogHeader className={dialogHeaderClass}>
             <DialogTitle>{tl("transferPanelTitle")}</DialogTitle>
-          </DialogHeader>
+          </DashDialogHeader>
           <div className="grid gap-3">
             <div className="grid gap-1">
               <Label>{tl("pickTargetPanel")}</Label>
-              <select
-                className={selectClass}
-                value={transferPanelId}
-                onChange={(e) => {
-                  const n = parseInt(e.target.value || "0", 10) || 0
+              <DashSelect
+                triggerClassName={selectTriggerClass}
+                value={String(transferPanelId)}
+                onValueChange={(v) => {
+                  const n = parseInt(v || "0", 10) || 0
                   setTransferPanelId(n)
                   setTransferPlanId(0)
                 }}
-              >
-                <option value={0}>{tl("pickTargetPanel")}</option>
-                {panelOptions.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    #{p.id} — {p.label}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: "0", label: tl("pickTargetPanel") },
+                  ...panelOptions.map((p) => ({
+                    value: String(p.id),
+                    label: `#${p.id} — ${p.label}`,
+                  })),
+                ]}
+              />
             </div>
             <div className="grid gap-1">
               <Label>{tl("pickTargetPlan")}</Label>
-              <select className={selectClass} value={transferPlanId} onChange={(e) => setTransferPlanId(parseInt(e.target.value || "0", 10) || 0)}>
-                <option value={0}>{tl("transferKeepRemaining")}</option>
-                {transferPanelPlans.map((p) => (
-                  <option key={num(p.id)} value={num(p.id)}>
-                    {String(p.name ?? `#${num(p.id)}`)}
-                  </option>
-                ))}
-              </select>
+              <DashSelect
+                triggerClassName={selectTriggerClass}
+                value={String(transferPlanId)}
+                onValueChange={(v) => setTransferPlanId(parseInt(v || "0", 10) || 0)}
+                options={[
+                  { value: "0", label: tl("transferKeepRemaining") },
+                  ...transferPanelPlans.map((p) => ({
+                    value: String(num(p.id)),
+                    label: String(p.name ?? `#${num(p.id)}`),
+                  })),
+                ]}
+              />
             </div>
           </div>
-          <DialogFooter className={cn("")} dir={dashDir(isFa)}>
+          <DashDialogFooter className={cn("")}>
             <Button type="button" variant="outline" onClick={() => setTransferOpen(false)}>
               {tl("cancel")}
             </Button>
             <Button type="button" onClick={() => void runTransferPanel()}>
               {tl("transferConfirm")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
-    </div>
+    </DashPage>
   )
 }

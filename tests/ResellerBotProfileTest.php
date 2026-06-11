@@ -25,11 +25,27 @@ class ResellerBotProfileTest extends TestCase {
 	}
 
 	/**
-	 * Dashboard mutate handler calls upsert_tokens.
+	 * Dashboard mutate handlers share patch_reseller_bot_profile_tokens helper.
 	 */
-	public function test_bot_reseller_save_calls_upsert_tokens(): void {
+	public function test_bot_reseller_save_uses_shared_token_helper(): void {
 		$root = dirname( __DIR__ );
 		$mut  = (string) file_get_contents( $root . '/includes/admin/class-dashboard-admin-mutations.php' );
-		$this->assertStringContainsString( 'SimpleVPBot_Model_Reseller_Bot_Profile::upsert_tokens', $mut );
+		$this->assertStringContainsString( 'patch_reseller_bot_profile_tokens', $mut );
+		$this->assertGreaterThanOrEqual( 2, substr_count( $mut, 'patch_reseller_bot_profile_tokens' ) );
+	}
+
+	/**
+	 * Legacy plaintext bot tokens are migrated to encrypted storage on upgrade.
+	 */
+	public function test_plaintext_token_migration_contract(): void {
+		$root      = dirname( __DIR__ );
+		$model     = (string) file_get_contents( $root . '/includes/models/class-model-reseller-bot-profile.php' );
+		$activator = (string) file_get_contents( $root . '/includes/class-activator.php' );
+		$this->assertStringContainsString( 'migrate_plaintext_tokens_to_encrypted', $model );
+		$this->assertStringContainsString( 'maybe_migrate_244_reseller_bot_token_encryption', $activator );
+		$this->assertStringContainsString( "'2.4.4'", $activator );
+		$this->assertStringContainsString( 'migrate_plaintext_webhook_secrets_to_encrypted', $model );
+		$this->assertStringContainsString( 'maybe_migrate_245_reseller_webhook_secret_encryption', $activator );
+		$this->assertStringContainsString( "'2.4.5'", $activator );
 	}
 }

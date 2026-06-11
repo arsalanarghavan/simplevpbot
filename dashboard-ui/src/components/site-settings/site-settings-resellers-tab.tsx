@@ -6,15 +6,11 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { DashSelect } from "@/components/dash-select"
 import { Switch } from "@/components/ui/switch"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
+import { formatAdminSaveError, useSiteSettingsSave } from "@/lib/use-site-settings-save"
+import { SiteSettingsSaveFeedback } from "@/components/site-settings/site-settings-save-feedback"
 import { cn } from "@/lib/utils"
 
 type DashRecord = Record<string, unknown>
@@ -26,6 +22,7 @@ const PERM_KEYS = [
   "receipts.review",
   "plans.manage",
   "services.manage",
+  "marketing.lifecycle",
 ] as const
 
 function bool(v: unknown): boolean {
@@ -47,18 +44,18 @@ export function SiteSettingsResellersTab({
   settings,
   resellers,
   resellerPermissionsMap,
-  isFa,
   onMutateSuccess,
 }: {
   settings: DashRecord | undefined
   resellers: DashRecord[]
   resellerPermissionsMap: Record<string, Record<string, boolean>>
-  isFa: boolean
   onMutateSuccess?: () => void
 }) {
   const { t } = useTranslation()
   const tp = (k: string) => t(`siteSettings.resellers.${k}`)
   const tr = (k: string) => t(`resellersAdmin.${k}`)
+  const { saving: savingDefaults, error, okMsg, saveSettingsTab, setError, setOkMsg } =
+    useSiteSettingsSave(onMutateSuccess)
 
   const permLabels: Record<string, string> = useMemo(
     () => ({
@@ -68,6 +65,7 @@ export function SiteSettingsResellersTab({
       "receipts.review": tr("perm_receipts_review"),
       "plans.manage": tr("perm_plans_manage"),
       "services.manage": tr("perm_services_manage"),
+      "marketing.lifecycle": tr("perm_marketing_lifecycle"),
     }),
     [tr])
 
@@ -89,9 +87,7 @@ export function SiteSettingsResellersTab({
 
   const [selectedId, setSelectedId] = useState<string>("")
   const [editPerms, setEditPerms] = useState<Record<string, boolean>>({})
-  const [savingDefaults, setSavingDefaults] = useState(false)
   const [savingReseller, setSavingReseller] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const id = Number(selectedId)
@@ -110,42 +106,34 @@ export function SiteSettingsResellersTab({
   const row = cn("flex items-center justify-between gap-3")
 
   const saveDefaults = useCallback(async () => {
-    setSavingDefaults(true)
-    setError(null)
-    try {
-      const res = await postAdminMutate("settings_tab", {
-        tab: "resellers_defaults",
-        default_reseller_permissions: defaults,
-      })
-      if (!res.ok) {
-        setError(res.message || tp("saveError"))
-        return
-      }
-      onMutateSuccess?.()
-    } finally {
-      setSavingDefaults(false)
-    }
-  }, [defaults, onMutateSuccess, tp])
+    await saveSettingsTab("resellers_defaults", {
+      default_reseller_permissions: defaults,
+    })
+  }, [defaults, saveSettingsTab])
 
   const saveReseller = useCallback(async () => {
     const id = Number(selectedId)
     if (!Number.isFinite(id) || id < 1) return
     setSavingReseller(true)
     setError(null)
+    setOkMsg(null)
     try {
       const res = await postAdminMutate("reseller_permissions_save", {
         reseller_svp_user_id: id,
         permissions: editPerms,
       })
       if (!res.ok) {
-        setError(res.message || tp("saveError"))
+        setError(formatAdminSaveError(res, t))
         return
       }
+      setOkMsg(t("siteSettings.common.saved"))
       onMutateSuccess?.()
+    } catch {
+      setError(t("siteSettings.common.saveNetworkError"))
     } finally {
       setSavingReseller(false)
     }
-  }, [selectedId, editPerms, onMutateSuccess, tp])
+  }, [selectedId, editPerms, onMutateSuccess, setError, setOkMsg, t])
 
   const permSwitches = (perms: Record<string, boolean>, setPerms: (p: Record<string, boolean>) => void) =>
     PERM_KEYS.map((k) => (
@@ -159,13 +147,13 @@ export function SiteSettingsResellersTab({
     ))
 
   return (
-    <div className={cn("mx-auto max-w-2xl space-y-6", isFa && "text-right")}>
+    <div className={cn("w-full space-y-6 text-start xl:grid xl:grid-cols-2 xl:gap-6 xl:space-y-0")}>
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{tp("defaultsTitle")}</CardTitle>
           <CardDescription>{tp("defaultsDesc")}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 text-start">
           {permSwitches(defaults, setDefaults)}
           <Button type="button" disabled={savingDefaults} onClick={() => void saveDefaults()}>
             {tp("saveDefaults")}
@@ -178,26 +166,22 @@ export function SiteSettingsResellersTab({
           <CardTitle className="text-base">{tp("editTitle")}</CardTitle>
           <CardDescription>{tp("editDesc")}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 text-start">
           <div className="space-y-2">
             <Label>{tp("pickReseller")}</Label>
-            <Select value={selectedId || "none"} onValueChange={(v) => setSelectedId(v === "none" ? "" : v)}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={tp("pickPlaceholder")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">{tp("pickPlaceholder")}</SelectItem>
-                {resellers.map((r) => {
+            <DashSelect
+              value={selectedId || "none"}
+              onValueChange={(v) => setSelectedId(v === "none" ? "" : v)}
+              placeholder={tp("pickPlaceholder")}
+              options={[
+                { value: "none", label: tp("pickPlaceholder") },
+                ...resellers.flatMap((r) => {
                   const id = Number(r.svp_user_id ?? r.id)
-                  if (!Number.isFinite(id) || id < 1) return null
-                  return (
-                    <SelectItem key={id} value={String(id)}>
-                      {labelForReseller(r)}
-                    </SelectItem>
-                  )
-                })}
-              </SelectContent>
-            </Select>
+                  if (!Number.isFinite(id) || id < 1) return []
+                  return [{ value: String(id), label: labelForReseller(r) }]
+                }),
+              ]}
+            />
           </div>
           {selectedId ? (
             <>
@@ -210,11 +194,7 @@ export function SiteSettingsResellersTab({
         </CardContent>
       </Card>
 
-      {error ? (
-        <div role="alert" className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
+      <SiteSettingsSaveFeedback error={error} okMsg={okMsg} />
     </div>
   )
 }

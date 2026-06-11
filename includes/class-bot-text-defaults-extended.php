@@ -47,6 +47,12 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::append_msg_admin_hub_extra( $r );
 		self::append_msg_admin_wiz( $r );
 		self::append_msg_common( $r );
+		self::append_msg_cron( $r );
+		self::append_msg_cron_admin( $r );
+		self::append_msg_alerts( $r );
+		self::append_msg_marketing( $r );
+		self::append_msg_membership( $r );
+		self::append_msg_admin_panel( $r );
 	}
 
 	/**
@@ -124,6 +130,8 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::pair( $r, 'msg.admin.admin_panel_unset', 'messages', '⛔ لینک پنل ادمین وب در دسترس نیست.', '⛔ Web admin panel link unavailable.' );
 		self::pair( $r, 'msg.admin.link_empty', 'messages', '⛔ لینک خالی است.', '⛔ Link is empty.' );
 		self::pair( $r, 'msg.admin.panel_inactive', 'messages', '⛔ پنل فعالی نیست.', '⛔ No active panel.' );
+		self::pair( $r, 'msg.reseller.global_settings_denied', 'messages', '⛔ تنظیمات سراسری سایت فقط از ربات اصلی یا داشبورد مدیریت قابل تغییر است. برای ربات نماینده از داشبورد «ربات نماینده» استفاده کنید.', '⛔ Site-wide settings can only be changed from the main bot or admin dashboard. Use the reseller bot section in the dashboard for your reseller bot.' );
+		self::pair( $r, 'msg.reseller.site_bulk_denied', 'messages', '⛔ عملیات گروهی سراسری فقط از ربات اصلی یا داشبورد نماینده (کاربران زیرمجموعه) قابل انجام است.', '⛔ Site-wide bulk operations are only available from the main bot or the reseller dashboard (downline users).' );
 		self::pair( $r, 'msg.admin.ipn_saved', 'messages', '✅ مسیر IPN جدید ذخیره شد.', '✅ New IPN path saved.' );
 		self::pair( $r, 'msg.admin.inbound_list_empty', 'messages', '⛔ {message}', '⛔ {message}' );
 		self::pair( $r, 'msg.admin.inbound_none', 'messages', '⛔ Inboundی نیست.', '⛔ No inbound.' );
@@ -151,6 +159,7 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::pair( $r, 'msg.admin.prompt_broadcast', 'messages', '📣 متن پیام همگانی را ارسال کنید:', '📣 Send broadcast message text:' );
 		self::pair( $r, 'msg.admin.cancelled', 'messages', 'ℹ️ لغو شد.', 'ℹ️ Cancelled.' );
 		self::pair( $r, 'msg.admin.transfer_prompt', 'messages', "🎁 انتقال سرویس #{id} (مالک فعلی: {owner})\nشناسه مقصد را ارسال کنید:\n- svp_users.id\n- یا @username\n- یا عدد chat id (تلگرام/بله)", "🎁 Transfer service #{id} (owner: {owner})\nSend target:\n- svp_users.id\n- or @username\n- or chat id (Telegram/Bale)" );
+		self::pair( $r, 'msg.admin.transfer_service_simple', 'messages', "🎁 انتقال سرویس #{id}\nشناسه مقصد را ارسال کنید:\n- svp_users.id\n- یا @username\n- یا عدد chat id (تلگرام/بله)", "🎁 Transfer service #{id}\nSend target:\n- svp_users.id\n- or @username\n- or chat id (Telegram/Bale)" );
 		self::pair( $r, 'msg.admin.dm_body_prefix', 'messages', "📩 پیام از پشتیبانی\n➖➖➖➖➖➖➖➖\n{body}", "📩 Message from support\n➖➖➖➖➖➖➖➖\n{body}" );
 		self::pair( $r, 'msg.admin.target_invalid', 'messages', '⛔ کاربر مقصد نامعتبر بود.', '⛔ Invalid target user.' );
 		self::pair( $r, 'msg.admin.user_no_chat', 'messages', '⛔ کاربر چت تلگرام/بله ندارد.', '⛔ User has no Telegram/Bale chat.' );
@@ -200,6 +209,43 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::pair( $r, 'msg.admin.catalog.card_added', 'messages', '✅ کارت اضافه شد.', '✅ Card added.' );
 		self::pair( $r, 'msg.admin.catalog.l2tp_lines', 'messages', '⛔ ۷ بخش با | لازم است.', '⛔ 7 pipe-separated fields required.' );
 		self::pair( $r, 'msg.admin.catalog.l2tp_added', 'messages', '✅ سرور L2TP اضافه شد.', '✅ L2TP server added.' );
+		self::pair( $r, 'msg.admin.fallback.error', 'messages', 'خطا', 'Error' );
+		self::pair( $r, 'msg.admin.fallback.rejected', 'messages', 'رد', 'Rejected' );
+		self::pair( $r, 'msg.admin.fallback.link_ok', 'messages', 'لینک انجام شد.', 'Link done.' );
+		self::pair( $r, 'msg.admin.fallback.failed', 'messages', 'ناموفق', 'Failed' );
+		self::pair( $r, 'msg.admin.fallback.inbound_list_empty', 'messages', 'لیست inbounds خالی', 'Inbound list empty' );
+		self::pair( $r, 'msg.admin.fallback.no_clients', 'messages', 'کلاینتی نیست', 'No clients' );
+		self::pair( $r, 'msg.admin.user_actions', 'messages', '💬 اقدام برای کاربر #{id}', '💬 Actions for user #{id}' );
+		self::pair( $r, 'msg.admin.user_services', 'messages', '📡 سرویس‌های کاربر #{id}', '📡 Services for user #{id}' );
+		self::pair( $r, 'msg.admin.receipt_review_busy', 'messages', '⏳ ارسال رسیدهای معلق در حال انجام است. چند ثانیه صبر کنید.', '⏳ Sending pending receipts. Wait a few seconds.' );
+		self::pair( $r, 'msg.admin.receipt_none', 'messages', '🧾 رسید معلقی نیست.', '🧾 No pending receipts.' );
+		self::pair( $r, 'msg.admin.receipt_page_empty', 'messages', '🧾 رسید دیگری در این صفحه نیست.', '🧾 No more receipts on this page.' );
+		self::pair( $r, 'msg.admin.receipt_sending', 'messages', '🧾 در حال ارسال {n} رسید معلق…', '🧾 Sending {n} pending receipt(s)…' );
+		self::pair( $r, 'msg.admin.receipt_incomplete', 'messages', '🧾 رسید #{id} (داده ناقص)', '🧾 Receipt #{id} (incomplete data)' );
+		self::pair( $r, 'msg.admin.service_soft_deleted_ok', 'messages', '✅ سرویس #{id} از لیست فعال کاربر حذف شد (غیرفعال‌سازی نرم). کلاینت روی پنل دست‌نخورده مانده است.', '✅ Service #{id} removed from active list (soft delete). Panel client unchanged.' );
+		self::pair( $r, 'msg.admin.bulk_days_done', 'messages', "📊 +روز {days} (Xray)\n✅ موفق: {done}\n⛔ خطا: {errors}", "📊 +days {days} (Xray)\n✅ done: {done}\n⛔ errors: {errors}" );
+		self::pair( $r, 'msg.admin.bulk_gb_done', 'messages', "📊 +{gb} GB (Xray)\n✅ موفق: {done}\n⛔ خطا: {errors}", "📊 +{gb} GB (Xray)\n✅ done: {done}\n⛔ errors: {errors}" );
+		self::pair( $r, 'msg.admin.ipn_link_line', 'messages', "\n🔗 {url}", "\n🔗 {url}" );
+		self::pair( $r, 'msg.admin.user_requeued', 'messages', '✅ کاربر #{id} به صف برگردانده شد.', '✅ User #{id} requeued.' );
+		self::pair( $r, 'msg.admin.requeue_failed', 'messages', '⛔ نشد: {reason}', '⛔ Failed: {reason}' );
+		self::pair( $r, 'msg.admin.prompt_dm', 'messages', "✉️ پیام خود را برای کاربر #{id} بفرستید.\n/cancel برای لغو.", "✉️ Send your message for user #{id}.\n/cancel to abort." );
+		self::pair( $r, 'msg.admin.button_unknown', 'messages', 'ℹ️ این دکمه شناخته نشد.', 'ℹ️ Unknown button.' );
+		self::pair( $r, 'msg.admin.catalog.categories_hint', 'messages', '📂 دسته‌های پلن — ➕ جدید؛ ردیف اول فعال/غیر، 🗑 حذف', '📂 Plan categories — ➕ new; toggle row; 🗑 delete' );
+		self::pair( $r, 'msg.admin.catalog.plans_hint', 'messages', '📋 پلن‌ها (حداکثر ۲۰) — ➕ جدید؛ ردیف فعال/غیر؛ 🗑 حذف', '📋 Plans (max 20) — ➕ new; toggle; 🗑 delete' );
+		self::pair( $r, 'msg.admin.catalog.cards_hint', 'messages', '💳 کارت‌ها — ➕ جدید؛ ردیف فعال/غیر؛ 🗑 حذف', '💳 Cards — ➕ new; toggle; 🗑 delete' );
+		self::pair( $r, 'msg.admin.inbound_pick_panel', 'messages', '📡 ابتدا پنل را برای لیست Inbound انتخاب کنید:', '📡 Pick a panel for the inbound list:' );
+		self::pair( $r, 'msg.admin.inbound_pick_one', 'messages', '📡 Inboundها — یکی را انتخاب کنید', '📡 Inbounds — pick one' );
+		self::pair( $r, 'msg.admin.backup.interval_prompt', 'messages', '⏱ تعداد دقیقه (حداقل ۵) را عدد ارسال کنید. /cancel', '⏱ Send interval in minutes (min 5). /cancel' );
+		self::pair(
+			$r,
+			'msg.admin.backup.restore_warning',
+			'messages',
+			"⚠️ ریستور، جداول پلاگین svp_* و گزینه‌های پلاگین SimpleVPBot را از فایل زیپ جایگزین می‌کند.\nفقط اگر بکاپ معتبر و آگاهانه است ادامه دهید.",
+			"⚠️ Restore replaces svp_* tables and SimpleVPBot options from the zip.\nContinue only with a valid backup."
+		);
+		self::pair( $r, 'msg.admin.backup.restore_zip_prompt', 'messages', '📎 فقط فایل .zip بکاپ SimpleVPBot را بفرستید. /cancel', '📎 Send only a SimpleVPBot .zip backup. /cancel' );
+		self::pair( $r, 'msg.admin.portal_link_prefix', 'messages', '🌐 {url}', '🌐 {url}' );
+		self::pair( $r, 'msg.admin.admin_portal_link_prefix', 'messages', '🖥 {url}', '🖥 {url}' );
 		self::pair( $r, 'btn.pay.card_label', 'buttons', '💳 {suffix} · {holder}', '💳 {suffix} · {holder}' );
 		self::pair( $r, 'btn.svc.list_item', 'buttons', '📡 {remark}', '📡 {remark}' );
 	}
@@ -295,7 +341,7 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::pair( $r, 'btn.common.web_panel_cfg', 'buttons', '🌐 پنل وب (کانفیگ)', '🌐 Web panel (config)' );
 		self::pair( $r, 'btn.common.web_panel_cfg_qr', 'buttons', '🌐 پنل وب (کانفیگ و QR)', '🌐 Web panel (config & QR)' );
 		self::pair( $r, 'btn.common.copy_card', 'buttons', '📋 کپی کارت', '📋 Copy card' );
-		self::pair( $r, 'btn.common.copy_amount', 'buttons', '💵 کپی مبلغ', '💵 Copy amount' );
+		self::pair( $r, 'btn.common.copy_amount', 'buttons', '💵 کپی مبلغ (ریال)', '💵 Copy amount (Rial)' );
 		self::pair( $r, 'btn.common.copy_card_number', 'buttons', '📋 کپی شماره کارت', '📋 Copy card number' );
 		self::pair( $r, 'btn.common.copy_amount_toman', 'buttons', '💵 کپی مبلغ (تومان)', '💵 Copy amount (Toman)' );
 		self::pair( $r, 'btn.common.copy_wallet', 'buttons', '📋 کپی آدرس ولت', '📋 Copy wallet address' );
@@ -308,8 +354,19 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::pair( $r, 'btn.pay.confirm_pay', 'buttons', '✅ تایید و پرداخت', '✅ Confirm & pay' );
 		self::pair( $r, 'btn.pay.bale_wallet', 'buttons', '💰 پرداخت با کیف پول بله', '💰 Pay with Bale wallet' );
 		self::pair( $r, 'btn.pay.site_wallet', 'buttons', '💼 پرداخت با کیف پول', '💼 Pay with wallet balance' );
+		self::pair( $r, 'btn.pay.wallet_partial_yes', 'buttons', '✅ بله', '✅ Yes' );
+		self::pair( $r, 'btn.pay.wallet_partial_no', 'buttons', '❌ خیر', '❌ No' );
 		self::pair( $r, 'btn.pay.approve_receipt', 'buttons', '✅ تایید رسید', '✅ Approve receipt' );
 		self::pair( $r, 'btn.pay.reject_receipt', 'buttons', '❌ رد رسید', '❌ Reject receipt' );
+		self::pair( $r, 'btn.admin.user_approve', 'buttons', '✅ کاربر {id}', '✅ User {id}' );
+		self::pair( $r, 'btn.admin.user_reject', 'buttons', '❌ کاربر {id}', '❌ User {id}' );
+		self::pair( $r, 'btn.admin.users_approved_list', 'buttons', '✅ لیست تأییدشده‌ها', '✅ Approved list' );
+		self::pair( $r, 'btn.admin.users_approved_next', 'buttons', 'تأییدشده بعدی ▶', 'Approved next ▶' );
+		self::pair( $r, 'btn.admin.users_approved_prev', 'buttons', '◀ تأییدشده قبلی', '◀ Approved prev' );
+		self::pair( $r, 'btn.admin.users_pending_next', 'buttons', 'انتظار بعدی ▶', 'Pending next ▶' );
+		self::pair( $r, 'btn.admin.users_pending_prev', 'buttons', '◀ انتظار قبلی', '◀ Pending prev' );
+		self::pair( $r, 'btn.admin.bulk_days', 'buttons', '+{n} روز', '+{n} days' );
+		self::pair( $r, 'btn.admin.bulk_gb', 'buttons', '+{n} GB', '+{n} GB' );
 		self::pair( $r, 'btn.admin.reg_approve', 'buttons', '✅ ثبت‌نام #{id}', '✅ Approve signup #{id}' );
 		self::pair( $r, 'btn.admin.reg_reject', 'buttons', '❌ رد ثبت‌نام #{id}', '❌ Reject signup #{id}' );
 		self::pair( $r, 'btn.admin.receipt_approve', 'buttons', '✅ رسید {id}', '✅ Receipt {id}' );
@@ -361,6 +418,8 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::pair( $r, 'msg.svc.client_not_found', 'messages', '⛔ کلاینت این سرویس روی پنل پیدا نشد.', '⛔ This service client was not found on the panel.' );
 		self::pair( $r, 'msg.svc.panel_update_fail', 'messages', '⛔ بروزرسانی روی پنل انجام نشد.', '⛔ Panel update failed.' );
 		self::pair( $r, 'msg.svc.uuid_regenerated', 'messages', '🔑 کلید (UUID) جدید ساخته شد و روی سرویس ثبت گردید.', '🔑 New key (UUID) created and saved on the service.' );
+		self::pair( $r, 'btn.svc.regenerate_sub_id', 'buttons', '🔗 بازسازی لینک اشتراک', '🔗 Regenerate subscription' );
+		self::pair( $r, 'msg.svc.sub_id_regenerated', 'messages', '🔗 شناسه اشتراک (subId) جدید ساخته شد. لینک اشتراک قبلی دیگر کار نمی‌کند.', '🔗 New subscription id (subId) created. The old subscription link will stop working.' );
 		self::pair( $r, 'msg.svc.servers_refreshed', 'messages', '🔄 اطلاعات سرور به‌روز شد.', '🔄 Server info updated.' );
 		self::pair( $r, 'msg.svc.auto_renew_on', 'messages', '🔁 تمدید خودکار: ✅ روشن', '🔁 Auto-renew: ✅ On' );
 		self::pair( $r, 'msg.svc.auto_renew_off', 'messages', '🔁 تمدید خودکار: ❌ خاموش', '🔁 Auto-renew: ❌ Off' );
@@ -369,6 +428,20 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::pair( $r, 'msg.svc.default_plan_missing', 'messages', '⛔ پلن سرویس برای صدور فاکتور تنظیم نشده. در تنظیمات عمومی، «پلن پیش‌فرض سرویس‌های بدون پلن» را روی یک پلن Xray فعال بگذارید.', '⛔ No service plan for invoicing. In general settings, set “Default plan for services without a plan” to an active Xray plan.' );
 		self::pair( $r, 'msg.svc.internal_button_error', 'messages', '⛔ خطای داخلی دکمه‌ها.', '⛔ Internal button error.' );
 		self::pair( $r, 'msg.svc.volume_xray_only', 'messages', '⛔ افزایش حجم از این مسیر فقط برای Xray است.', '⛔ Volume add via this path is only for Xray.' );
+		self::pair(
+			$r,
+			'msg.svc.renew_too_early_use_volume',
+			'messages',
+			'⛔ بیش از ۵ روز تا پایان سرویس مانده است. برای افزودن حجم از دکمه «افزایش حجم» استفاده کنید.',
+			'⛔ More than 5 days remain on this service. Use “Add volume” to top up traffic.'
+		);
+		self::pair(
+			$r,
+			'msg.svc.volume_too_late_use_renew',
+			'messages',
+			'⛔ ۵ روز یا کمتر تا پایان سرویس مانده است. برای ادامه از دکمه «تمدید» استفاده کنید.',
+			'⛔ 5 days or less remain on this service. Use “Renew” to extend it.'
+		);
 		self::pair( $r, 'msg.svc.prompt_add_volume_gb', 'messages', '➕ چند گیگابایت به سقف حجم اضافه شود؟ فقط عدد (گیگ) بفرستید؛ مثلاً 10', '➕ How many GB to add? Send a number only (e.g. 10).' );
 		self::pair( $r, 'msg.svc.option_wrong_type', 'messages', '⛔ این گزینه برای این نوع سرویس نیست.', '⛔ This option is not for this service type.' );
 		self::pair( $r, 'msg.svc.transfer_code_fail', 'messages', '⛔ امکان تولید کد انتقال نیست.', '⛔ Could not generate transfer code.' );
@@ -413,6 +486,15 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::pair( $r, 'msg.svc.support_contact_admin', 'messages', '🆘 با ادمین تماس بگیرید یا از بخش پشتیبانی تیکت بفرستید.', '🆘 Contact an admin or open a support ticket.' );
 		self::pair( $r, 'msg.svc.renew_xray_only', 'messages', '⛔ تمدید با پرداخت از این مسیر فقط برای سرویس‌های Xray است؛ برای L2TP با پشتیبانی تماس بگیرید.', '⛔ Paid renew via this path is Xray only; contact support for L2TP.' );
 		self::pair( $r, 'msg.svc.connection_info_missing', 'messages', '⛔ اطلاعات اتصال یافت نشد. با پشتیبانی تماس بگیرید.', '⛔ Connection info not found. Contact support.' );
+		self::pair( $r, 'msg.svc.pergb_plan_missing', 'messages', '⛔ پلن سرویس برای قیمت‌گذاری حجم مشخص نیست. از ادمین بخواهید در تنظیمات عمومی، «پلن پیش‌فرض سرویس‌های بدون پلن» را روی یک پلن Xray فعال بگذارد.', '⛔ No plan for volume pricing. Ask admin to set default Xray plan in general settings.' );
+		self::pair( $r, 'msg.svc.extra_user_price_unset', 'messages', "👥 افزایش کاربر\n{sep}🧒 هنوز قیمتش توسط ادمین تنظیم نشده.\n✋ بعداً دوباره امتحان کن یا از پشتیبانی بپرس.", "👥 Add users\n{sep}🧒 Price not set by admin yet.\n✋ Try again later or ask support." );
+		self::pair( $r, 'msg.svc.plan_missing_for_section', 'messages', '⛔ پلن سرویس برای این بخش ثبت نشده. از ادمین بخواهید در تنظیمات عمومی، «پلن پیش‌فرض سرویس‌های بدون پلن» را روی یک پلن Xray فعال بگذارد (برای هم‌خوانی با پنل).', '⛔ No plan for this section. Ask admin to set default Xray plan in general settings (panel sync).' );
+		self::pair( $r, 'msg.alerts.threshold_cancel_hint', 'messages', '🔙 برای ول کردن از منوی پایین یک دکمه بزن یا از پیام قبلی «بازگشت به هشدارها» را بزن.', '🔙 Tap a bottom menu button or «Back to alerts» on the previous message to cancel.' );
+		self::pair( $r, 'msg.svc.alert_threshold_saved', 'messages', "✅ ذخیره شد.\n{sep}📋 الان:\n{summary}", "✅ Saved.\n{sep}📋 Current:\n{summary}" );
+		self::pair( $r, 'msg.svc.subscription_not_ready', 'messages', "⚠️ لینک اشتراک هنوز آماده نیست.\n🧒 از ادمین بخواه اشتراک را روی سرور روشن کند و آدرس عمومی اشتراک در تنظیمات سایت درست شود.", "⚠️ Subscription link not ready yet.\n🧒 Ask admin to enable subscription on the server and fix the public subscription URL in site settings." );
+		self::pair( $r, 'msg.svc.subscription_link_title', 'messages', '🔗 لینک اشتراک', '🔗 Subscription link' );
+		self::pair( $r, 'msg.svc.subscription_qr_caption', 'messages', '📷 QR لینک اشتراک', '📷 Subscription QR' );
+		self::pair( $r, 'msg.svc.telegram_config_send_fail', 'messages', '⛔ ارسال کانفیگ/QR در تلگرام انجام نشد. دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.', '⛔ Could not send config/QR on Telegram. Retry or contact support.' );
 	}
 
 	/**
@@ -427,6 +509,11 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::pair( $r, 'msg.buy.before_discount', 'messages', 'قبل از تخفیف: {subtotal} تومان', 'Before discount: {subtotal} Toman' );
 		self::pair( $r, 'msg.buy.payable', 'messages', '💵 قابل پرداخت: {amount} تومان', '💵 Payable: {amount} Toman' );
 		self::pair( $r, 'msg.buy.wallet_balance', 'messages', '💼 موجودی کیف پول شما: {balance} تومان', '💼 Your wallet balance: {balance} Toman' );
+		self::pair( $r, 'msg.buy.wallet_applied_line', 'messages', '💼 از کیف پول: {applied} تومان', '💼 From wallet: {applied} Toman' );
+		self::pair( $r, 'msg.buy.wallet_remaining_line', 'messages', '💵 باقی‌مانده: {remaining} تومان', '💵 Remaining: {remaining} Toman' );
+		self::pair( $r, 'msg.buy.wallet_full_confirm', 'messages', 'آیا {amount} تومان از کیف پول شما (موجودی: {balance} تومان) پرداخت شود؟', 'Pay {amount} Toman from your wallet (balance: {balance} Toman)?' );
+		self::pair( $r, 'msg.buy.wallet_partial_confirm', 'messages', 'موجودی کیف پول ({balance} تومان) برای پرداخت کامل ({need} تومان) کافی نیست.\nآیا می‌خواهید {balance} تومان از کیف پول کسر شود و {remaining} تومان با کارت یا کیف پول بله پرداخت کنید؟', 'Wallet balance ({balance} Toman) is not enough for the full amount ({need} Toman).\nUse {balance} Toman from wallet and pay {remaining} Toman by card or Bale wallet?' );
+		self::pair( $r, 'msg.buy.wallet_insufficient', 'messages', '⛔ موجودی کیف پول شما برای این پرداخت کافی نیست. ابتدا حساب را شارژ کنید یا روش دیگری انتخاب کنید.', '⛔ Wallet balance is insufficient. Top up your wallet or choose another payment method.' );
 		self::pair( $r, 'msg.buy.pick_payment', 'messages', 'روش پرداخت را انتخاب کنید:', 'Choose a payment method:' );
 		self::pair( $r, 'msg.buy.order_failed', 'messages', '⛔ ثبت سفارش ناموفق بود.', '⛔ Could not create order.' );
 		self::pair( $r, 'msg.buy.no_cards', 'messages', '⛔ کارتی ثبت نشده. ادمین را مطلع کنید.', '⛔ No card on file. Notify an admin.' );
@@ -460,10 +547,25 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::pair( $r, 'btn.pay.receipt_reject_back', 'buttons', '◀️ بازگشت', '◀️ Back' );
 		self::pair( $r, 'msg.buy.no_plans_in_category', 'messages', '⛔ پلنی در این دسته نیست.', '⛔ No plans in this category.' );
 		self::pair( $r, 'msg.buy.no_categories', 'messages', '⛔ دستهٔ معتبری برای نمایش نیست.', '⛔ No valid category to show.' );
-		self::pair( $r, 'msg.buy.plan_confirm', 'messages', "📦 {name}\n💰 قیمت: {price} تومان\n⏳ مدت: {days} روز · 📊 حجم: {volume}\nتایید می‌کنید؟", "📦 {name}\n💰 Price: {price} Toman\n⏳ Duration: {days} days · 📊 Volume: {volume}\nConfirm?" );
+		self::pair( $r, 'msg.buy.plan_confirm', 'messages', "📦 {name}\n💰 قیمت: {price} تومان\n⏳ مدت: {days} روز · 📊 حجم: {volume} گیگابایت\nتایید می‌کنید؟", "📦 {name}\n💰 Price: {price} Toman\n⏳ Duration: {days} days · 📊 Volume: {volume} GB\nConfirm?" );
 		self::pair( $r, 'msg.buy.payment_error', 'messages', '⛔ {message}', '⛔ {message}' );
 		self::pair( $r, 'msg.buy.invoice_renew', 'messages', 'تمدید: {name}', 'Renew: {name}' );
 		self::pair( $r, 'msg.buy.invoice_purchase', 'messages', 'خرید: {name}', 'Purchase: {name}' );
+		self::pair( $r, 'msg.buy.fulfill_failed_refunded', 'messages', '⛔ تکمیل سفارش ناموفق بود. مبلغ به کیف پول شما بازگردانده شد. با پشتیبانی تماس بگیرید.', '⛔ Order fulfillment failed. Amount refunded to your wallet. Contact support.' );
+		self::pair( $r, 'msg.buy.admin_self_checkout_ok', 'messages', '✅ به‌عنوان مدیر، این خرید برای خودتان بدون پرداخت ثبت و اعمال شد.', '✅ As admin, this purchase was applied without payment.' );
+		self::pair( $r, 'msg.buy.fulfill_failed_bale', 'messages', '⛔ تکمیل سفارش ناموفق بود. مبلغ از کیف پول بله کسر شده است؛ لطفاً با پشتیبانی تماس بگیرید و شماره سفارش را ارسال کنید: #{id}', '⛔ Fulfillment failed. Bale wallet was charged; contact support with order #{id}.' );
+		self::pair( $r, 'msg.buy.deprecated_plan_button', 'messages', 'ℹ️ این دکمه دیگر استفاده نمی‌شود. از 🛒 خرید سرویس دوباره شروع کنید؛ همهٔ دسته‌ها در یک لیست نمایش داده می‌شوند.', 'ℹ️ This button is deprecated. Start again from 🛒 Buy service; all categories are in one list.' );
+		self::pair( $r, 'msg.buy.no_active_categories', 'messages', '⛔ دستهٔ فعالی با پلن برای خرید وجود ندارد. بعداً مراجعه کنید یا با پشتیبانی تماس بگیرید.', '⛔ No active category with plans for purchase. Try later or contact support.' );
+		self::pair( $r, 'msg.buy.pick_category', 'messages', '🛒 دستهٔ سرویس را انتخاب کنید:', '🛒 Pick a service category:' );
+		self::pair( $r, 'msg.buy.panel_not_for_sale', 'messages', '⛔ این پنل برای فروش از طریق این ربات در دسترس نیست.', '⛔ This panel is not available for sale via this bot.' );
+		self::pair( $r, 'msg.buy.no_categories_for_panel', 'messages', '⛔ برای این پنل دستهٔ فعالی با پلن برای خرید وجود ندارد. لطفاً بعداً مراجعه کنید یا با پشتیبانی تماس بگیرید.', '⛔ No active category with plans for this panel. Try later or contact support.' );
+		self::pair( $r, 'msg.buy.payment_create_failed', 'messages', 'خطا در ساخت پرداخت.', 'Payment creation failed.' );
+		self::pair( $r, 'msg.buy.crypto_pending_hint', 'messages', '⏳ بعد از تأیید پرداخت در NOWPayments، سفارش خودکار تکمیل می‌شود. اگر چیزی گیر کرد با پشتیبانی تماس بگیرید.', '⏳ After NOWPayments confirms payment, the order completes automatically. Contact support if stuck.' );
+		self::pair( $r, 'msg.buy.pergb_confirm', 'messages', "📦 {name}\n📊 حجم: {gb} گیگابایت\n⏳ مدت: {days} روز\n💰 مبلغ قابل پرداخت: {amount} تومان\n\n➖➖➖➖➖➖➖➖\nتایید می‌کنید؟", "📦 {name}\n📊 Volume: {gb} GB\n⏳ Duration: {days} days\n💰 Payable: {amount} Toman\n\n➖➖➖➖➖➖➖➖\nConfirm?" );
+		self::pair( $r, 'msg.buy.plan_checkout_summary', 'messages', "📦 {name}\n📊 حجم: {gb} گیگابایت\n⏳ مدت: {days} روز\n💰 مبلغ قابل پرداخت: {amount} تومان", "📦 {name}\n📊 Volume: {gb} GB\n⏳ Duration: {days} days\n💰 Payable: {amount} Toman" );
+		self::pair( $r, 'msg.buy.plan_confirm_footer', 'messages', "➖➖➖➖➖➖➖➖\nتایید می‌کنید؟", "➖➖➖➖➖➖➖➖\nConfirm?" );
+		self::pair( $r, 'msg.buy.preparing_checkout', 'messages', '⏳ در حال آماده‌سازی سفارش…', '⏳ Preparing your order…' );
+		self::pair( $r, 'msg.buy.preparing_invoice', 'messages', '⏳ در حال آماده‌سازی فاکتور…', '⏳ Preparing invoice…' );
 	}
 
 	/**
@@ -489,6 +591,21 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::pair( $r, 'msg.admin.bulk_confirm_days', 'messages', '✅ تأیید +{n} روز', '✅ Confirm +{n} days' );
 		self::pair( $r, 'msg.admin.bulk_confirm_gb', 'messages', '✅ تأیید +{n} GB', '✅ Confirm +{n} GB' );
 		self::pair( $r, 'msg.admin.bulk_cancel', 'messages', '❌ لغو گروهی', '❌ Cancel bulk' );
+		self::pair( $r, 'msg.admin.tutorial.bulk', 'messages', "➕ عملیات گروهی (Xray)\n⚠️ بار زیاد روی پنل؛ حداکثر ۲۰۰ سرویس در هر اجرا.\n➖\n۱) از «🔎 جستجوی کاربر» در منوی مدیریت کاربران یک کاربر را باز کنید.\n۲) دکمهٔ سریع → یک مرحلهٔ تأیید با دکمهٔ بعدی؛ یا «📝 تأیید متنی گروهی».", "➕ Bulk operations (Xray)\n⚠️ Heavy panel load; max 200 services per run.\n➖\n1) Open a user from user search.\n2) Quick button → confirm step, or text bulk confirm." );
+		self::pair( $r, 'msg.admin.bulk_confirm_days_prompt', 'messages', '⚠️ تأیید عملیات گروهی\n➖\nافزودن «{days}» روز به سرویس‌های Xray (حداکثر ۲۰۰ سرویس).\nادامه؟', '⚠️ Confirm bulk\n➖\nAdd {days} days to Xray services (max 200).\nContinue?' );
+		self::pair( $r, 'msg.admin.bulk_confirm_gb_prompt', 'messages', '⚠️ تأیید عملیات گروهی\n➖\nافزودن «{gb}» گیگ به هر سرویس Xray (حداکثر ۲۰۰ سرویس).\nادامه؟', '⚠️ Confirm bulk\n➖\nAdd {gb} GB to each Xray service (max 200).\nContinue?' );
+		self::pair( $r, 'msg.admin.backup.header', 'messages', '💾 بکاپ و ریستور\n➖➖➖➖', '💾 Backup & restore\n➖➖➖➖' );
+		self::pair( $r, 'msg.admin.backup.interval', 'messages', '⏱ فاصله: {minutes} دقیقه', '⏱ Interval: {minutes} min' );
+		self::pair( $r, 'msg.admin.backup.tg_chat', 'messages', '📢 TG chat id: {id}', '📢 TG chat id: {id}' );
+		self::pair( $r, 'msg.admin.backup.bale_chat', 'messages', '💬 Bale chat id: {id}', '💬 Bale chat id: {id}' );
+		self::pair( $r, 'msg.admin.backup.targets', 'messages', 'ارسال: TG ادمین {tg_admin} · Bale ادمین {bale_admin} · TG کانال {tg_channel} · Bale کانال {bale_channel}', 'Send: TG admin {tg_admin} · Bale admin {bale_admin} · TG channel {tg_channel} · Bale channel {bale_channel}' );
+		self::pair( $r, 'msg.admin.backup.last_sent', 'messages', 'آخرین ارسال موفق: {ts}', 'Last successful send: {ts}' );
+		self::pair( $r, 'msg.admin.backup.last_built', 'messages', 'آخرین ساخت زیپ: {ts}', 'Last zip build: {ts}' );
+		self::pair( $r, 'msg.admin.backup.footer', 'messages', '➖\nدکمه‌ها: بکاپ الان، تیک‌ها، ویرایش مقدار، ریستور (۲ مرحله).', '➖\nButtons: backup now, toggles, edit values, restore (2 steps).' );
+		self::pair( $r, 'msg.admin.logs.header', 'messages', '📜 لاگ ({from}–{to})', '📜 Logs ({from}–{to})' );
+		self::pair( $r, 'msg.admin.logs.empty', 'messages', 'رکوردی نیست.', 'No records.' );
+		self::pair( $r, 'btn.admin.logs_prev', 'buttons', '◀ لاگ قبلی', '◀ Logs prev' );
+		self::pair( $r, 'btn.admin.logs_next', 'buttons', 'لاگ بعدی ▶', 'Logs next ▶' );
 		self::pair( $r, 'msg.admin.pay_wallet', 'messages', '💳 کیف پول', '💳 Wallet' );
 		self::pair( $r, 'msg.admin.pay_free', 'messages', '🎁 رایگان', '🎁 Free' );
 		self::pair( $r, 'msg.admin.pay_invoice', 'messages', '🧾 فاکتور', '🧾 Invoice' );
@@ -500,6 +617,7 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::pair( $r, 'btn.admin.catalog.delete_category', 'buttons', '🗑 دسته', '🗑 Category' );
 		self::pair( $r, 'btn.admin.catalog.new_plan', 'buttons', '➕ پلن جدید (Xray)', '➕ New plan (Xray)' );
 		self::pair( $r, 'btn.admin.catalog.new_card', 'buttons', '➕ کارت جدید', '➕ New card' );
+		self::pair( $r, 'btn.admin.catalog.new_l2tp', 'buttons', '➕ سرور جدید (خطی)', '➕ New L2TP server' );
 		self::pair( $r, 'btn.admin.text_prev', 'buttons', '◀ متن قبلی', '◀ Previous text' );
 		self::pair( $r, 'btn.admin.text_next', 'buttons', 'متن بعدی ▶', 'Next text ▶' );
 		self::pair( $r, 'btn.admin.text_reset_all', 'buttons', '🔄 همه به پیش‌فرض', '🔄 Reset all to default' );
@@ -521,6 +639,288 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::pair( $r, 'msg.admin.receipt_new', 'messages', '🧾 رسید جدید', '🧾 New receipt' );
 		self::pair( $r, 'msg.admin.signup_request', 'messages', '🔔 درخواست ثبت‌نام', '🔔 Signup request' );
 		self::pair( $r, 'msg.admin.confirm_question', 'messages', 'آیا تایید می‌کنید؟', 'Do you approve?' );
+	}
+
+	/**
+	 * Bot admin panel (5 sections) — labels, intros, tutorials.
+	 *
+	 * @param array<int, array<string, string>> $r Rows.
+	 */
+	private static function append_msg_admin_panel( array &$r ) {
+		self::pair( $r, 'btn.admin.section.users', 'buttons', 'کاربران', 'Users' );
+		self::pair( $r, 'btn.admin.section.resellers', 'buttons', 'نمایندگان', 'Resellers' );
+		self::pair( $r, 'btn.admin.section.marketing', 'buttons', 'بازاریابی', 'Marketing' );
+		self::pair( $r, 'btn.admin.section.finance', 'buttons', 'مالی', 'Finance' );
+		self::pair( $r, 'btn.admin.section.settings', 'buttons', 'تنظیمات', 'Settings' );
+		self::pair( $r, 'btn.admin.back_panel', 'buttons', '⬅️ پنل مدیریت', '⬅️ Admin panel' );
+		self::pair( $r, 'btn.admin.back_section', 'buttons', '⬅️ بازگشت به بخش', '⬅️ Back to section' );
+		self::pair( $r, 'btn.admin.tab.plans', 'buttons', '📦 پلن‌ها', '📦 Plans' );
+		self::pair( $r, 'btn.admin.tab.plan_cats', 'buttons', '🗂 دسته‌های خرید', '🗂 Plan categories' );
+		self::pair( $r, 'btn.admin.tab.cards', 'buttons', '💳 کارت‌ها', '💳 Cards' );
+		self::pair( $r, 'btn.admin.tab.referral', 'buttons', '🔗 ریفرال', '🔗 Referral' );
+		self::pair( $r, 'btn.admin.tab.marketing_lifecycle', 'buttons', '🔁 بازگشت مشتری', '🔁 Lifecycle' );
+		self::pair( $r, 'btn.admin.tab.discounts', 'buttons', '🏷 کدهای تخفیف', '🏷 Discounts' );
+		self::pair( $r, 'btn.admin.tab.resellers', 'buttons', '🏪 نمایندگان', '🏪 Resellers' );
+		self::pair( $r, 'btn.admin.tab.reseller_reports', 'buttons', '📊 گزارش نمایندگان', '📊 Reseller reports' );
+		self::pair( $r, 'btn.admin.tab.reseller_bots', 'buttons', '🤖 ربات نماینده', '🤖 Reseller bots' );
+		self::pair( $r, 'btn.admin.tab.reseller_xui_panels', 'buttons', '🖥 پنل XUI نمایندگان', '🖥 Reseller XUI' );
+		self::pair( $r, 'btn.admin.tab.referral_reports', 'buttons', '📈 گزارش رفرال', '📈 Referral reports' );
+		self::pair( $r, 'btn.admin.tab.reseller_charge', 'buttons', '💰 شارژ حساب', '💰 Account charge' );
+		self::pair( $r, 'btn.admin.tab.unit_economics', 'buttons', '📐 اقتصاد واحد', '📐 Unit economics' );
+		self::pair( $r, 'btn.admin.tab.monitoring', 'buttons', '📡 مانیتورینگ', '📡 Monitoring' );
+		self::pair( $r, 'btn.admin.tab.bot_ui', 'buttons', '🎨 صفحه‌ساز', '🎨 Bot UI' );
+		self::pair( $r, 'btn.admin.tab.site_settings', 'buttons', '⚙️ تنظیمات سایت', '⚙️ Site settings' );
+		self::pair( $r, 'btn.admin.tab.notifications', 'buttons', '🔔 اعلان‌ها', '🔔 Notifications' );
+		self::pair( $r, 'btn.admin.tab.audit', 'buttons', '📋 ممیزی', '📋 Audit' );
+		self::pair( $r, 'btn.admin.tab.logs', 'buttons', '📜 لاگ‌ها', '📜 Logs' );
+		self::pair( $r, 'btn.admin.tab.reseller_settings', 'buttons', '⚙️ تنظیمات نماینده', '⚙️ Reseller settings' );
+		self::pair( $r, 'btn.admin.discount_new', 'buttons', '➕ کد تخفیف جدید', '➕ New discount' );
+		self::pair( $r, 'btn.admin.discount_edit', 'buttons', '✏️ ویرایش درصد', '✏️ Edit percent' );
+		self::pair( $r, 'btn.admin.discount_toggle', 'buttons', '🔄 فعال/غیرفعال کد', '🔄 Toggle code' );
+		self::pair( $r, 'btn.admin.discount_delete', 'buttons', '🗑 حذف کد تخفیف', '🗑 Delete discount' );
+		self::pair( $r, 'btn.admin.lifecycle_toggle', 'buttons', '🔄 فعال/غیرفعال قانون', '🔄 Toggle rule' );
+		self::pair( $r, 'btn.admin.lifecycle_new', 'buttons', '➕ قانون جدید', '➕ New rule' );
+		self::pair( $r, 'btn.admin.lifecycle_edit', 'buttons', '✏️ ویرایش قانون', '✏️ Edit rule' );
+		self::pair( $r, 'btn.admin.lifecycle_delete', 'buttons', '🗑 حذف قانون', '🗑 Delete rule' );
+		self::pair( $r, 'btn.admin.lifecycle_run', 'buttons', '▶️ اجرای فوری', '▶️ Run now' );
+		self::pair( $r, 'btn.admin.xui_panels_prev', 'buttons', '◀ قبلی', '◀ Prev' );
+		self::pair( $r, 'btn.admin.xui_panels_next', 'buttons', 'بعدی ▶', 'Next ▶' );
+		self::pair( $r, 'btn.admin.xui_panel_assign', 'buttons', '➕ تخصیص پنل', '➕ Assign panel' );
+		self::pair( $r, 'btn.admin.catalog_prev', 'buttons', '◀ قبلی', '◀ Prev' );
+		self::pair( $r, 'btn.admin.catalog_next', 'buttons', 'بعدی ▶', 'Next ▶' );
+		self::pair( $r, 'btn.admin.reseller_topup', 'buttons', '💳 شارژ حساب', '💳 Top up wallet' );
+		self::pair( $r, 'btn.admin.charges_filter_all', 'buttons', '📋 همه', '📋 All' );
+		self::pair( $r, 'btn.admin.charges_filter_purchase', 'buttons', '🛒 خرید', '🛒 Purchase' );
+		self::pair( $r, 'btn.admin.charges_filter_renew', 'buttons', '♻️ تمدید', '♻️ Renew' );
+		self::pair( $r, 'btn.admin.charges_filter_topup', 'buttons', '💰 شارژ', '💰 Top-up' );
+		self::pair( $r, 'btn.admin.referral_toggle', 'buttons', '🔄 فعال/غیرفعال ریفرال', '🔄 Toggle referral' );
+		self::pair( $r, 'btn.admin.referral_percent', 'buttons', '📊 درصد ریفرال', '📊 Referral percent' );
+
+		self::pair(
+			$r,
+			'msg.admin.panel_welcome',
+			'messages',
+			"🎛 پنل مدیریت\n➖➖➖➖➖➖➖➖\nبه پنل ادمین خوش آمدید.\nاز دکمه‌های پایین یک بخش را انتخاب کنید.\n➖\n↩️ بازگشت به منوی کاربر: /start\n🎛 بازگشت به پنل مدیریت: /panel\n➖\n• کاربران — جستجو، صف عضویت، عملیات گروهی\n• نمایندگان — لیست و گزارش\n• بازاریابی — ریفرال، بازگشت مشتری، تخفیف\n• مالی — پلن، کارت، رسید\n• تنظیمات — سرورها و تنظیمات سیستم",
+			"🎛 Admin panel\n➖➖➖➖➖➖➖➖\nWelcome.\nUser menu: /start · Admin panel: /panel"
+		);
+		self::pair( $r, 'msg.admin.panel_denied', 'messages', '⛔ دسترسی به پنل مدیریت برای شما فعال نیست.', '⛔ You do not have access to the admin panel.' );
+		self::pair( $r, 'msg.admin.panel.role_reseller', 'messages', '👤 نقش: نماینده — فقط دسترسی‌های مجاز شما فعال است.', '👤 Role: Reseller — only your allowed permissions are enabled.' );
+		self::pair( $r, 'msg.admin.panel.role_site_admin', 'messages', '👤 نقش: مدیر سایت — دسترسی کامل (به‌جز بخش‌های مخصوص نماینده).', '👤 Role: Site admin — full access except reseller-only areas.' );
+		self::pair( $r, 'msg.admin.denied_permission', 'messages', '⛔ این عملیات برای سطح دسترسی شما مجاز نیست.', '⛔ This action is not allowed for your permission level.' );
+		self::pair( $r, 'msg.admin.denied_tab', 'messages', '⛔ این بخش برای شما نمایش داده نمی‌شود.', '⛔ This section is not available for you.' );
+
+		self::pair( $r, 'msg.admin.section.users.intro', 'messages', "👥 بخش کاربران\n➖➖➖➖➖➖➖➖\n۱. «کاربران» — جستجو با شناسه یا @username\n۲. «عملیات گروهی» — تمدید/حجم گروهی (حداکثر ۲۰۰ سرویس)\n۳. «پیام همگانی» — ارسال به کاربران مجاز (نماینده: فقط downline)\n➖\n⚠️ نماینده فقط زیرمجموعه خود را می‌بیند.\n↩️ /start · 🎛 /panel", "👥 Users section\n1. Search 2. Bulk 3. Broadcast\n/start · /panel" );
+		self::pair( $r, 'msg.admin.section.resellers.intro', 'messages', "🏪 بخش نمایندگان\n➖➖➖➖➖➖➖➖\n۱. لیست نمایندگان و موجودی\n۲. گزارش فروش ۳۰ روز\n۳. وضعیت ربات سفیدبرچسب\n۴. پنل XUI نمایندگان (فقط مدیر سایت)\n➖\n↩️ /start · 🎛 /panel", "🏪 Resellers section.\n/start · /panel" );
+		self::pair( $r, 'msg.admin.section.marketing.intro', 'messages', "📣 بخش بازاریابی\n➖➖➖➖➖➖➖➖\n۱. ریفرال — لینک دعوت و درصد\n۲. بازگشت مشتری — قوانین lifecycle\n۳. کدهای تخفیف — ساخت، ویرایش، فعال/غیرفعال\n➖\n↩️ /start · 🎛 /panel", "📣 Marketing section.\n/start · /panel" );
+		self::pair( $r, 'msg.admin.section.finance.intro', 'messages', "💰 بخش مالی\n➖➖➖➖➖➖➖➖\n۱. پلن‌ها و دسته‌های خرید\n۲. کارت‌های بانکی\n۳. رسیدهای pending\n۴. گزارش رفرال و شارژ نماینده\n➖\n↩️ /start · 🎛 /panel", "💰 Finance section.\n/start · /panel" );
+		self::pair( $r, 'msg.admin.section.settings.intro', 'messages', "⚙️ بخش تنظیمات\n➖➖➖➖➖➖➖➖\n۱. مانیتورینگ و پنل 3x-ui\n۲. کانفیگ، بکاپ، متن‌ها\n۳. اعلان‌ها و ممیزی (مدیر سایت)\n➖\nصفحه‌ساز ربات فقط از پنل وب.\n↩️ /start · 🎛 /panel", "⚙️ Settings section.\n/start · /panel" );
+
+		self::pair( $r, 'msg.admin.tutorial.users', 'messages', "👤 کاربران\n➖\n۱. «جستجوی کاربر» — شناسه یا @username\n۲. «صف ثبت‌نام» — تأیید/رد عضویت\n۳. از کارت کاربر: بلاک، سرویس، کیف پول\n↩️ /start · 🎛 /panel", "👤 Users: search, signup queue, user card." );
+		self::pair( $r, 'msg.admin.tutorial.plans', 'messages', "📦 پلن‌ها\n➖\nمدیریت پلن‌های فروش: قیمت، حجم، مدت.\nاز دکمه‌های زیرمنو پلن جدید یا ویرایش کنید.", "📦 Plans tutorial." );
+		self::pair( $r, 'msg.admin.tutorial.cards', 'messages', "💳 کارت‌ها\n➖\nکارت‌های بانکی برای پرداخت دستی.\nافزودن/حذف از همین بخش.", "💳 Cards tutorial." );
+		self::pair( $r, 'msg.admin.tutorial.plan_cats', 'messages', "🗂 دسته‌های خرید\n➖\nدسته‌بندی پلن‌ها در منوی خرید کاربر.", "🗂 Plan categories." );
+		self::pair( $r, 'msg.admin.tutorial.site_settings', 'messages', "⚙️ تنظیمات سایت\n➖\nتنظیمات عمومی افزونه (فقط مدیر سایت).", "⚙️ Site settings." );
+		self::pair( $r, 'msg.admin.tutorial.backup', 'messages', "💾 بکاپ\n➖\nپشتیبان‌گیری و بازیابی دیتابیس.", "💾 Backup." );
+		self::pair( $r, 'msg.admin.tutorial.bots', 'messages', "🤖 ربات‌ها\n➖\nتنظیم توکن و webhook ربات اصلی.", "🤖 Bots." );
+		self::pair( $r, 'msg.admin.tutorial.xui_panels', 'messages', "🖥 پنل XUI\n➖\nاتصال به پنل 3x-ui و اینباندها.", "🖥 XUI panels." );
+		self::pair( $r, 'msg.admin.tutorial.configs', 'messages', "📋 کانفیگ‌ها\n➖\nهمگام‌سازی و انتشار کانفیگ.", "📋 Configs." );
+		self::pair( $r, 'msg.admin.tutorial.l2tp_servers', 'messages', "🔐 سرور L2TP\n➖\nمدیریت سرورهای L2TP.", "🔐 L2TP servers." );
+		self::pair( $r, 'msg.admin.tutorial.notifications', 'messages', "🔔 اعلان‌ها\n➖\nتنظیم کانال/چت اعلان‌های سیستم.", "🔔 Notifications." );
+		self::pair( $r, 'msg.admin.tutorial.receipts', 'messages', "🧾 رسیدها\n➖\nرسیدهای pending با عکس ارسال می‌شوند.\nتأیید = فعال‌سازی خرید · رد = اطلاع به کاربر", "🧾 Receipts tutorial." );
+		self::pair( $r, 'msg.admin.tutorial.referral', 'messages', "🔗 ریفرال\n➖\nوضعیت و درصد ریفرال + لینک دعوت.\nمدیر سایت: دکمه‌های فعال/غیرفعال و درصد.", "🔗 Referral tutorial." );
+		self::pair( $r, 'msg.admin.tutorial.marketing_lifecycle', 'messages', "🔁 بازگشت مشتری\n➖\nلیست قوانین فعال/غیرفعال.\nمدیر سایت: قانون جدید، ویرایش، حذف، اجرای فوری.\n«فعال/غیرفعال قانون» → شماره قانون (#id).", "🔁 Lifecycle rules.\nSite admin: new, edit, delete, run now." );
+		self::pair( $r, 'msg.admin.tutorial.discounts', 'messages', "🏷 تخفیف\n➖\n«کد جدید» → نوع → مقدار → سقف استفاده → تاریخ انقضا → پلن‌ها.\n«ویرایش» / «فعال/غیرفعال» / «حذف» → نام کد.", "🏷 Discounts: full wizard via dashboard validation." );
+		self::pair( $r, 'msg.admin.tutorial.bot_ui_web_only', 'messages', "🎨 صفحه‌ساز ربات\n➖\nویرایش چیدمان دکمه‌ها در پنل وب (لینک زیر).", "🎨 Bot UI is web-only." );
+		self::pair( $r, 'msg.admin.tutorial.reseller_settings', 'messages', "⚙️ تنظیمات نماینده\n➖\nخلاصه دسترسی‌ها و پروفایل ربات.", "⚙️ Reseller settings." );
+		self::pair( $r, 'msg.admin.tutorial.reseller_reports', 'messages', "📊 گزارش نمایندگان\n➖\nخلاصه ۳۰ روز: فروش، عمده، حاشیه، کاربران.", "📊 Reseller reports." );
+		self::pair( $r, 'msg.admin.tutorial.reseller_bots', 'messages', "🤖 ربات نماینده\n➖\nوضعیت webhook و username.", "🤖 Reseller bot." );
+		self::pair( $r, 'msg.admin.tutorial.reseller_xui_panels', 'messages', "🖥 پنل XUI نمایندگان\n➖\nلیست پنل‌ها با تعداد نماینده دارای دسترسی.\nفقط مدیر سایت.", "🖥 Reseller XUI panels list (site admin)." );
+		self::pair( $r, 'msg.admin.tutorial.reseller_charge', 'messages', "💰 شارژ حساب\n➖\nموجودی فعلی: {balance} تومان\n«شارژ حساب» → مبلغ → checkout.\nفیلتر تراکنش‌های مشتریان از دکمه‌های زیر.", "💰 Balance: {balance}. Top-up + charge filters." );
+		self::pair( $r, 'msg.admin.tutorial.unit_economics', 'messages', "📐 اقتصاد واحد\n➖\nخلاصه سودآوری پنل‌ها.", "📐 Unit economics." );
+		self::pair( $r, 'msg.admin.report.sales_toman', 'messages', 'فروش (تومان)', 'Sales (Toman)' );
+		self::pair( $r, 'msg.admin.report.wholesale_toman', 'messages', 'عمده (تومان)', 'Wholesale (Toman)' );
+		self::pair( $r, 'msg.admin.report.margin_est', 'messages', 'حاشیه تخمینی', 'Est. margin' );
+		self::pair( $r, 'msg.admin.report.downline_users', 'messages', 'کاربران زیرمجموعه', 'Downline users' );
+		self::pair( $r, 'msg.admin.tutorial.audit', 'messages', "📋 ممیزی\n➖\nآخرین رویدادهای امنیتی/ادمین:", "📋 Audit log." );
+
+		self::pair( $r, 'msg.admin.monitoring_summary', 'messages', "📡 مانیتورینگ\nفعال: {active} · منقضی: {expired}", "📡 Active: {active} · Expired: {expired}" );
+		self::pair( $r, 'msg.admin.referral_reports_summary', 'messages', "📈 رفرال ۳۰ روز\nرویداد: {count} · پورسانت: {commission} تومان", "📈 Referral 30d: {count} events" );
+		self::pair( $r, 'msg.admin.resellers_list_header', 'messages', "🏪 نمایندگان ({total})", "🏪 Resellers ({total})" );
+		self::pair( $r, 'msg.admin.resellers_empty', 'messages', 'لیست خالی است.', 'List is empty.' );
+		self::pair( $r, 'msg.admin.marketing_rules_empty', 'messages', 'قانونی ثبت نشده.', 'No rules yet.' );
+		self::pair( $r, 'msg.admin.discounts_empty', 'messages', 'کد تخفیفی نیست — «کد جدید» بزنید.', 'No discount codes.' );
+		self::pair( $r, 'msg.admin.prompt_discount_code', 'messages', '✋ کد تخفیف را بفرستید (حروف/عدد):', '✋ Send discount code:' );
+		self::pair( $r, 'msg.admin.prompt_discount_value', 'messages', '✋ درصد تخفیف (۱–۱۰۰):', '✋ Discount percent:' );
+		self::pair( $r, 'msg.admin.discount_code_invalid', 'messages', '⛔ کد کوتاه است.', '⛔ Code too short.' );
+		self::pair( $r, 'msg.admin.discount_value_invalid', 'messages', '⛔ درصد نامعتبر.', '⛔ Invalid percent.' );
+		self::pair( $r, 'msg.admin.discount_created', 'messages', '✅ کد «{code}» ساخته شد.', '✅ Code «{code}» created.' );
+		self::pair( $r, 'msg.admin.prompt_discount_delete', 'messages', '✋ کد تخفیف برای حذف:', '✋ Discount code to delete:' );
+		self::pair( $r, 'msg.admin.prompt_discount_toggle', 'messages', '✋ کد تخفیف برای فعال/غیرفعال:', '✋ Discount code to toggle:' );
+		self::pair( $r, 'msg.admin.prompt_discount_edit_code', 'messages', '✋ کد تخفیف برای ویرایش درصد:', '✋ Discount code to edit:' );
+		self::pair( $r, 'msg.admin.discount_not_found', 'messages', '⛔ کد یافت نشد.', '⛔ Code not found.' );
+		self::pair( $r, 'msg.admin.discount_deleted', 'messages', '✅ کد «{code}» حذف شد.', '✅ Code «{code}» deleted.' );
+		self::pair( $r, 'msg.admin.discount_toggled', 'messages', '✅ کد «{code}» → {state}', '✅ Code «{code}» → {state}' );
+		self::pair( $r, 'msg.admin.discount_updated', 'messages', '✅ کد «{code}» → {percent}%', '✅ Code «{code}» → {percent}%' );
+		self::pair( $r, 'msg.admin.reseller_xui_panels_header', 'messages', "🖥 پنل XUI نمایندگان ({total})\nنمایش {offset}–{end}", "🖥 Reseller XUI panels ({total})\nShowing {offset}–{end}" );
+		self::pair( $r, 'msg.admin.reseller_xui_panels_empty', 'messages', 'پنلی ثبت نشده.', 'No panels registered.' );
+		self::pair( $r, 'msg.admin.reseller_xui_panel_resellers', 'messages', 'نمایندگان: {count}', 'Resellers: {count}' );
+		self::pair( $r, 'msg.admin.prompt_lifecycle_rule_id', 'messages', '✋ شماره قانون (#id) را بفرستید:', '✋ Send rule id (#id):' );
+		self::pair( $r, 'msg.admin.lifecycle_rule_invalid', 'messages', '⛔ شماره قانون نامعتبر.', '⛔ Invalid rule id.' );
+		self::pair( $r, 'msg.admin.lifecycle_rule_not_found', 'messages', '⛔ قانون یافت نشد.', '⛔ Rule not found.' );
+		self::pair( $r, 'msg.admin.lifecycle_toggled', 'messages', '✅ قانون #{id} → {state}', '✅ Rule #{id} → {state}' );
+		self::pair( $r, 'msg.admin.prompt_referral_percent', 'messages', '✋ درصد ریفرال (۰–۱۰۰):', '✋ Referral percent (0–100):' );
+		self::pair( $r, 'msg.admin.referral_toggled', 'messages', '✅ ریفرال: {state}', '✅ Referral: {state}' );
+		self::pair( $r, 'msg.admin.referral_percent_saved', 'messages', '✅ درصد ریفرال: {percent}%', '✅ Referral percent: {percent}%' );
+
+		self::pair( $r, 'msg.admin.mutate_ok', 'messages', '✅ انجام شد.', '✅ Done.' );
+		self::pair( $r, 'msg.admin.mutate.plan_overlap', 'messages', '⛔ تداخل کد فعال روی همان پلن.', '⛔ Active code overlaps on same plan(s).' );
+		self::pair( $r, 'msg.admin.mutate.empty_code', 'messages', '⛔ کد خالی است.', '⛔ Empty code.' );
+		self::pair( $r, 'msg.admin.mutate.not_found', 'messages', '⛔ یافت نشد.', '⛔ Not found.' );
+		self::pair( $r, 'msg.admin.prompt_discount_type', 'messages', '✋ نوع: percent یا fixed', '✋ Type: percent or fixed' );
+		self::pair( $r, 'msg.admin.discount_type_invalid', 'messages', '⛔ نوع نامعتبر (percent/fixed).', '⛔ Invalid type (percent/fixed).' );
+		self::pair( $r, 'msg.admin.prompt_discount_max_uses', 'messages', '✋ حداکثر استفاده (۰ یا - = نامحدود):', '✋ Max uses (0 or - = unlimited):' );
+		self::pair( $r, 'msg.admin.prompt_discount_valid_until', 'messages', '✋ تاریخ انقضا YYYY-MM-DD یا - :', '✋ Expiry YYYY-MM-DD or -:' );
+		self::pair( $r, 'msg.admin.prompt_discount_plan_ids', 'messages', '✋ شناسه پلن‌ها با کاما یا - برای همه:', '✋ Plan ids comma-separated or - for all:' );
+		self::pair( $r, 'msg.admin.prompt_discount_allow_flags', 'messages', '✋ مجوزها: new,renew,vol,users (با کاما؛ - = همه فعال):', '✋ Allow flags: new,renew,vol,users (comma; - = all on):' );
+		self::pair( $r, 'msg.admin.prompt_discount_min_max', 'messages', '✋ حداقل/حداکثر سفارش (min,max یا -):', '✋ Min/max order (min,max or -):' );
+		self::pair( $r, 'msg.admin.discount_allow_invalid', 'messages', '⛔ مجوز نامعتبر. مثال: new,renew', '⛔ Invalid allow flags. Example: new,renew' );
+		self::pair( $r, 'msg.admin.discount_min_max_invalid', 'messages', '⛔ حداقل/حداکثر نامعتبر.', '⛔ Invalid min/max order.' );
+		self::pair( $r, 'msg.admin.discount_date_invalid', 'messages', '⛔ تاریخ نامعتبر (YYYY-MM-DD).', '⛔ Invalid date (YYYY-MM-DD).' );
+		self::pair( $r, 'msg.admin.prompt_lifecycle_segment', 'messages', "✋ segment_key:\nchurned · never_purchased · abandoned_checkout · stale_buy_funnel · expiring_renew", "✋ segment_key:\nchurned · never_purchased · abandoned_checkout · stale_buy_funnel · expiring_renew" );
+		self::pair( $r, 'msg.admin.lifecycle_segment_invalid', 'messages', '⛔ segment نامعتبر.', '⛔ Invalid segment.' );
+		self::pair( $r, 'msg.admin.prompt_lifecycle_seg_param', 'messages', '✋ مقدار {field}:', '✋ Value for {field}:' );
+		self::pair( $r, 'msg.admin.prompt_lifecycle_cooldown', 'messages', '✋ cooldown_days (حداقل ۱):', '✋ cooldown_days (min 1):' );
+		self::pair( $r, 'msg.admin.prompt_lifecycle_discount', 'messages', '✋ درصد تخفیف (۰–۱۰۰):', '✋ Discount percent (0–100):' );
+		self::pair( $r, 'msg.admin.prompt_lifecycle_message', 'messages', '✋ متن پیام (- برای پیش‌فرض):', '✋ Message body (- for default):' );
+		self::pair( $r, 'msg.admin.prompt_lifecycle_delete', 'messages', '✋ شماره قانون برای حذف:', '✋ Rule id to delete:' );
+		self::pair( $r, 'msg.admin.prompt_lifecycle_run', 'messages', '✋ شماره قانون برای اجرای فوری:', '✋ Rule id to run now:' );
+		self::pair( $r, 'msg.admin.lifecycle_rule_line', 'messages', '• #{id} {segment} — {enabled} · cd:{cooldown} · after:{after}', '• #{id} {segment} — {enabled} · cd:{cooldown} · after:{after}' );
+		self::pair( $r, 'msg.admin.lifecycle_created', 'messages', '✅ قانون #{id} ساخته شد.', '✅ Rule #{id} created.' );
+		self::pair( $r, 'msg.admin.lifecycle_updated', 'messages', '✅ قانون #{id} به‌روز شد.', '✅ Rule #{id} updated.' );
+		self::pair( $r, 'msg.admin.lifecycle_deleted', 'messages', '✅ قانون #{id} حذف شد.', '✅ Rule #{id} deleted.' );
+		self::pair( $r, 'msg.admin.lifecycle_run_ok', 'messages', '✅ قانون #{id} اجرا شد · ارسال: {sent}', '✅ Rule #{id} ran · sent: {sent}' );
+		self::pair( $r, 'msg.admin.prompt_xui_assign_reseller', 'messages', '✋ شناسه نماینده (svp_users.id):', '✋ Reseller id (svp_users.id):' );
+		self::pair( $r, 'msg.admin.prompt_xui_assign_panel', 'messages', '✋ شناسه پنل (panel_id):', '✋ Panel id:' );
+		self::pair( $r, 'msg.admin.prompt_xui_assign_price', 'messages', '✋ price_per_gb (تومان):', '✋ price_per_gb (Toman):' );
+		self::pair( $r, 'msg.admin.reseller_id_invalid', 'messages', '⛔ شناسه نماینده نامعتبر.', '⛔ Invalid reseller id.' );
+		self::pair( $r, 'msg.admin.reseller_not_found', 'messages', '⛔ نماینده یافت نشد.', '⛔ Reseller not found.' );
+		self::pair( $r, 'msg.admin.panel_id_invalid', 'messages', '⛔ پنل نامعتبر.', '⛔ Invalid panel.' );
+		self::pair( $r, 'msg.admin.prompt_reseller_topup', 'messages', '✋ مبلغ شارژ (تومان):', '✋ Top-up amount (Toman):' );
+		self::pair( $r, 'msg.admin.reseller_topup_invalid', 'messages', '⛔ مبلغ نامعتبر.', '⛔ Invalid amount.' );
+		self::pair( $r, 'msg.admin.reseller_topup_sent', 'messages', '💳 لینک/دستور پرداخت ارسال شد.', '💳 Payment link/instructions sent.' );
+		self::pair( $r, 'msg.admin.reseller_charges_header', 'messages', '📋 تراکنش‌های مشتریان:', '📋 Customer charges:' );
+		self::pair( $r, 'msg.admin.catalog.plans_header', 'messages', '📦 پلن‌ها', '📦 Plans' );
+		self::pair( $r, 'msg.admin.catalog.cards_header', 'messages', '💳 کارت‌ها', '💳 Cards' );
+		self::pair( $r, 'msg.admin.catalog.plan_cats_header', 'messages', '🗂 دسته‌های خرید', '🗂 Plan categories' );
+		self::pair( $r, 'msg.admin.catalog.empty', 'messages', 'لیست خالی است.', 'List is empty.' );
+		self::pair( $r, 'msg.admin.catalog.delete_confirm', 'messages', '🗑 حذف #{id}؟', '🗑 Delete #{id}?' );
+		self::pair( $r, 'msg.admin.catalog.actions_hint', 'messages', '⬇️ دکمه‌های زیر', '⬇️ Actions below' );
+		self::pair( $r, 'msg.admin.discount_plan_pick_header', 'messages', '📦 انتخاب پلن', '📦 Pick plan' );
+		self::pair( $r, 'msg.admin.prompt_economics_volume_gb', 'messages', '✋ حجم فروش GB:', '✋ Sold volume GB:' );
+		self::pair( $r, 'msg.admin.prompt_economics_price_gb', 'messages', '✋ قیمت هر GB (تومان):', '✋ Price per GB (Toman):' );
+		self::pair( $r, 'msg.admin.prompt_economics_panel_id', 'messages', '✋ شناسه پنل (panel_id):', '✋ Panel id:' );
+		self::pair( $r, 'msg.admin.prompt_economics_line_label', 'messages', '✋ عنوان هزینه:', '✋ Cost label:' );
+		self::pair( $r, 'msg.admin.prompt_economics_line_category', 'messages', '✋ دسته (external_server/internal_server/cdn/outbound/support):', '✋ Category (external_server/internal_server/cdn/outbound/support):' );
+		self::pair( $r, 'msg.admin.prompt_economics_line_cost', 'messages', '✋ مبلغ هزینه (تومان):', '✋ Cost amount (Toman):' );
+		self::pair( $r, 'msg.admin.prompt_economics_line_cycle', 'messages', '✋ دوره (monthly/daily/hourly/per_gb):', '✋ Billing cycle (monthly/daily/hourly/per_gb):' );
+		self::pair( $r, 'msg.admin.prompt_economics_line_id', 'messages', '✋ شناسه خط هزینه (line_id):', '✋ Cost line id:' );
+		self::pair( $r, 'msg.admin.prompt_economics_volume_mode', 'messages', '✋ volume_mode: manual یا auto_sales', '✋ volume_mode: manual or auto_sales' );
+		self::pair( $r, 'msg.admin.prompt_economics_volume_window', 'messages', '✋ volume_window_days (۱–۳۶۵):', '✋ volume_window_days (1–365):' );
+		self::pair( $r, 'msg.admin.economics_volume_mode_invalid', 'messages', '⛔ volume_mode نامعتبر (manual/auto_sales).', '⛔ Invalid volume_mode (manual/auto_sales).' );
+		self::pair( $r, 'btn.admin.economics_delete_line', 'buttons', '🗑 حذف خط هزینه', '🗑 Delete cost line' );
+		self::pair( $r, 'btn.admin.economics_edit_line', 'buttons', '✏️ ویرایش خط هزینه', '✏️ Edit cost line' );
+		self::pair( $r, 'btn.admin.economics_deactivate_line', 'buttons', '⏸ غیرفعال خط', '⏸ Deactivate line' );
+		self::pair( $r, 'msg.admin.prompt_economics_line_id_invalid', 'messages', '⛔ شناسه خط هزینه نامعتبر است.', '⛔ Invalid cost line id.' );
+		self::pair( $r, 'msg.admin.prompt_economics_line_fields', 'messages', '✋ label|category|cost|cycle|active|provider|payment_method|paid_at|expires_at|host_ip|tunnel_mode|notes|sort_order:', '✋ label|category|cost|cycle|active|provider|payment_method|paid_at|expires_at|host_ip|tunnel_mode|notes|sort_order:' );
+		self::pair( $r, 'msg.admin.submenu.gen', 'messages', "⚙️ عمومی\nفعال: {enabled} · تست: {test}\nادمین TG: {tg_n} · ادمین Bale: {bl_n} · صفحه: {portal_page} · پلن پیش‌فرض سرویس: {default_plan}\n➖", "⚙️ General\nEnabled: {enabled} · Test: {test}\nTG admins: {tg_n} · Bale admins: {bl_n} · Page: {portal_page} · Default service plan: {default_plan}\n➖" );
+		self::pair( $r, 'msg.admin.submenu.set', 'messages', "⚙️ تنظیمات\n{body}\n➖", "⚙️ Settings\n{body}\n➖" );
+		self::pair( $r, 'msg.admin.submenu.adv', 'messages', "🔧 تنظیمات پیشرفته\nعمومی، نوتیف، متن‌ها، لاگ، گزارش همگانی.\n➖", "🔧 Advanced settings\nGeneral, notifications, texts, logs, broadcast.\n➖" );
+		self::pair( $r, 'msg.admin.submenu.bot', 'messages', "🤖 ربات‌ها\nطول token TG: {tg_len} · Bale: {bale_len}\n➖", "🤖 Bots\nTG token length: {tg_len} · Bale: {bale_len}\n➖" );
+		self::pair( $r, 'msg.admin.submenu.pan', 'messages', "🖥 پنل 3x-ui\n{url_state}\n➖", "🖥 3x-ui panel\n{url_state}\n➖" );
+		self::pair( $r, 'msg.admin.submenu.pan_has_url', 'messages', 'URL: دارد', 'URL: set' );
+		self::pair( $r, 'msg.admin.submenu.pan_no_url', 'messages', 'URL: خالی', 'URL: empty' );
+		self::pair( $r, 'msg.admin.submenu.not', 'messages', "🔔 نوتیف\n٪ کم: {low_pct} · هم‌زمان: {concurrent}\nهشدار روز: {expiry_days}", "🔔 Notifications\nLow %: {low_pct} · Concurrent: {concurrent}\nExpiry days: {expiry_days}" );
+		self::pair( $r, 'msg.admin.submenu.inl', 'messages', "🔗 Inbound (پنل ۳x-ui)\nلیست → کلاینت‌ها → لینک به کاربر svp", "🔗 Inbound (3x-ui panel)\nList → clients → link to svp user" );
+		self::pair( $r, 'msg.admin.submenu.brd', 'messages', "📣 آخرین همگانی\n➖\n{list}", "📣 Recent broadcasts\n➖\n{list}" );
+		self::pair( $r, 'msg.admin.submenu.brd_empty', 'messages', 'رکوردی نیست. از دکمه «پیام همگانی» متن ارسال کنید.', 'No records. Send text via the broadcast button.' );
+		self::pair( $r, 'msg.admin.submenu.bulk', 'messages', "➕ عملیات گروهی (Xray)\n⚠️ بار زیاد روی پنل؛ حداکثر ۲۰۰ سرویس در هر اجرا.\n➖\n۱) از «🔎 جستجوی کاربر» در منوی مدیریت کاربران یک کاربر را باز کنید.\n۲) دکمهٔ سریع → یک مرحلهٔ تأیید با دکمهٔ بعدی؛ یا «📝 تأیید متنی گروهی».", "➕ Bulk ops (Xray)\n⚠️ Heavy panel load; max 200 services per run.\n➖\n1) Open a user from user search.\n2) Quick button → confirm step, or group text confirm." );
+		self::pair( $r, 'msg.admin.submenu.set_body', 'messages', 'پلن، کارت، پنل ۳x-ui{extra}، کانفیگ، کریپتو، ربات.', 'Plans, cards, 3x-ui panel{extra}, config, crypto, bot.' );
+		self::pair( $r, 'msg.admin.submenu.set_l2tp', 'messages', '، L2TP', ', L2TP' );
+		self::pair( $r, 'msg.admin.referral_status', 'messages', 'فعال: {state}', 'Enabled: {state}' );
+		self::pair( $r, 'msg.admin.referral_percent', 'messages', 'درصد: {percent}', 'Percent: {percent}' );
+		self::pair( $r, 'msg.admin.referral_invite_link', 'messages', "🔗 لینک دعوت:\n{url}", "🔗 Invite link:\n{url}" );
+		self::pair( $r, 'msg.admin.prompt_keep_suffix', 'messages', ' (- برای نگه‌داشتن)', ' (- to keep)' );
+		self::pair( $r, 'msg.admin.user_card_status', 'messages', 'وضعیت: {status}', 'Status: {status}' );
+		self::pair( $r, 'msg.admin.user_card_balance', 'messages', 'موجودی: {balance}', 'Balance: {balance}' );
+		self::pair( $r, 'msg.admin.user_card_services', 'messages', 'سرویس‌ها: {count}', 'Services: {count}' );
+		self::pair( $r, 'msg.admin.user_card_manage_hint', 'messages', '🧰 برای مدیریت کامل (مثل کاربر)، یک سرویس را از دکمه‌های اینلاین زیر انتخاب کنید:', '🧰 To manage fully (like the user), pick a service from the inline buttons below:' );
+		self::pair( $r, 'btn.admin.user_portal_link', 'buttons', '🌐 لینک پورتال کاربر #{id}', '🌐 User portal link #{id}' );
+		self::pair( $r, 'btn.admin.user_block', 'buttons', '⛔ بلاک #{id}', '⛔ Block #{id}' );
+		self::pair( $r, 'btn.admin.user_unblock', 'buttons', '✅ آنبلاک #{id}', '✅ Unblock #{id}' );
+		self::pair( $r, 'btn.admin.user_create_service', 'buttons', '➕ ساخت سرویس برای #{id}', '➕ Create service for #{id}' );
+		self::pair( $r, 'btn.admin.logs_next', 'buttons', 'لاگ بعدی ▶', 'Next logs ▶' );
+		self::pair( $r, 'btn.admin.logs_prev', 'buttons', '◀ لاگ قبلی', '◀ Prev logs' );
+		self::pair( $r, 'btn.admin.texts_next', 'buttons', 'متن بعدی ▶', 'Next texts ▶' );
+		self::pair( $r, 'btn.admin.texts_prev', 'buttons', '◀ متن قبلی', '◀ Prev texts' );
+		self::pair( $r, 'btn.admin.texts_reset_all', 'buttons', '🔄 همه به پیش‌فرض', '🔄 Reset all to default' );
+		self::pair( $r, 'btn.admin.inbound_panel', 'buttons', '📡 پنل #{id}', '📡 Panel #{id}' );
+		self::pair( $r, 'btn.admin.inbound_pick', 'buttons', '📌 Inbound #{id}', '📌 Inbound #{id}' );
+		self::pair( $r, 'btn.admin.inbound_back_list', 'buttons', '↩ لیست Inbound', '↩ Inbound list' );
+		self::pair( $r, 'msg.admin.inbound_clients_prompt', 'messages', '📎 Inbound #{id} — لینک: svp user id بفرستید (بعد از انتخاب ایمیل)\n', '📎 Inbound #{id} — send svp user id after picking email\n' );
+		self::pair( $r, 'btn.admin.inbound_autolink', 'buttons', '⚡ autolink #{id}', '⚡ autolink #{id}' );
+		self::pair( $r, 'btn.admin.l2_test', 'buttons', 'L2 تست {id}', 'L2 test {id}' );
+		self::pair( $r, 'btn.admin.l2_toggle', 'buttons', 'L2 سوییچ {id}', 'L2 toggle {id}' );
+		self::pair( $r, 'btn.admin.l2_delete', 'buttons', 'L2 حذف {id}', 'L2 delete {id}' );
+		self::pair( $r, 'btn.admin.service_renew', 'buttons', '♻️ تمدید سرویس #{id}', '♻️ Renew service #{id}' );
+		self::pair( $r, 'btn.admin.service_add_volume', 'buttons', '➕ حجم سرویس #{id}', '➕ Add volume #{id}' );
+		self::pair( $r, 'btn.admin.service_details', 'buttons', '🖥 جزئیات #{id}', '🖥 Details #{id}' );
+		self::pair( $r, 'btn.admin.service_usage', 'buttons', '📊 مصرف #{id}', '📊 Usage #{id}' );
+		self::pair( $r, 'btn.admin.service_config', 'buttons', '🔗 کانفیگ #{id}', '🔗 Config #{id}' );
+		self::pair( $r, 'btn.admin.service_key', 'buttons', '🔑 کلید #{id}', '🔑 Key #{id}' );
+		self::pair( $r, 'btn.admin.service_servers', 'buttons', '🔄 سرورها #{id}', '🔄 Servers #{id}' );
+		self::pair( $r, 'btn.admin.service_rename', 'buttons', '✏️ نام #{id}', '✏️ Rename #{id}' );
+		self::pair( $r, 'btn.admin.service_note', 'buttons', '📝 یادداشت #{id}', '📝 Note #{id}' );
+		self::pair( $r, 'btn.admin.service_alerts', 'buttons', '🔔 هشدار #{id}', '🔔 Alerts #{id}' );
+		self::pair( $r, 'btn.admin.service_transfer', 'buttons', '🎁 انتقال سرویس #{id}', '🎁 Transfer service #{id}' );
+		self::pair( $r, 'btn.admin.service_pick', 'buttons', '📡 سرویس #{id}', '📡 Service #{id}' );
+		self::pair( $r, 'msg.admin.users_queue_empty', 'messages', '👥 کاربری در انتظار تایید نیست.', '👥 No users pending approval.' );
+		self::pair( $r, 'msg.admin.users_pending_header', 'messages', "👥 در انتظار تایید: {total}\n🔎 «{search}»\nصفحه offset {offset}\n➖", "👥 Pending approval: {total}\n🔎 «{search}»\nPage offset {offset}\n➖" );
+		self::pair( $r, 'msg.admin.users_approved_header', 'messages', "✅ کاربران تأییدشده ({total})\nصفحه offset {offset}\n➖", "✅ Approved users ({total})\nPage offset {offset}\n➖" );
+		self::pair( $r, 'msg.admin.users_rejected_header', 'messages', "❌ کاربران رد شده ({total})\noffset {offset}\n➖", "❌ Rejected users ({total})\noffset {offset}\n➖" );
+		self::pair( $r, 'msg.admin.prompt_catalog_card_edit', 'messages', "✏️ ویرایش کارت #{id}\ncard_number|holder|bank|method|daily_limit|priority|note|active\n\nفعلی:\n{card_number}|{holder_name}|{bank_name}|{method_key}|{daily_limit}|{priority}|{note}|{active}", "✏️ Edit card #{id}\ncard_number|holder|bank|method|daily_limit|priority|note|active\n\nCurrent:\n{card_number}|{holder_name}|{bank_name}|{method_key}|{daily_limit}|{priority}|{note}|{active}" );
+		self::pair( $r, 'msg.admin.prompt_catalog_category_edit', 'messages', "✏️ ویرایش دسته #{id}\nlabel\nsort_order\nactive(0|1)\n\nفعلی:\n{label}\n{sort_order}\n{active}", "✏️ Edit category #{id}\nlabel\nsort_order\nactive(0|1)\n\nCurrent:\n{label}\n{sort_order}\n{active}" );
+		self::pair( $r, 'btn.admin.backup.restore_confirm', 'buttons', '✅ ادامهٔ ریستور', '✅ Continue restore' );
+		self::pair( $r, 'btn.admin.backup.restore_cancel', 'buttons', '❌ لغو ریستور', '❌ Cancel restore' );
+		self::pair( $r, 'msg.admin.economics_site_header', 'messages', '📊 سایت', '📊 Site' );
+		self::pair( $r, 'msg.admin.economics_panels_header', 'messages', '📦 پنل‌ها', '📦 Panels' );
+		self::pair( $r, 'msg.admin.economics_sales_gb', 'messages', 'فروش GB: {value}', 'Sales GB: {value}' );
+		self::pair( $r, 'msg.admin.economics_revenue', 'messages', 'درآمد: {value}', 'Revenue: {value}' );
+		self::pair( $r, 'msg.admin.economics_cost', 'messages', 'هزینه: {value}', 'Cost: {value}' );
+		self::pair( $r, 'msg.admin.economics_profit', 'messages', 'سود: {value}', 'Profit: {value}' );
+		self::pair( $r, 'msg.admin.economics_panel_profit', 'messages', 'سود {value}', 'Profit {value}' );
+		self::pair( $r, 'msg.admin.prompt_charges_date_from', 'messages', '✋ از تاریخ (YYYY-MM-DD یا -):', '✋ From date (YYYY-MM-DD or -):' );
+		self::pair( $r, 'msg.admin.prompt_charges_date_to', 'messages', '✋ تا تاریخ (YYYY-MM-DD یا -):', '✋ To date (YYYY-MM-DD or -):' );
+		self::pair( $r, 'msg.admin.prompt_catalog_plan_edit', 'messages', "✏️ ویرایش پلن #{id}\nهر خط یک فیلد:\nname\ncategory\nduration_days\ntraffic_gb\nprice\ninbound_id\nclients_count\nactive(0|1)\n\nفعلی:\n{name}\n{category}\n{duration_days}\n{traffic_gb}\n{price}\n{inbound_id}\n{clients_count}\n{active}", "✏️ Edit plan #{id}\nOne field per line:\nname\ncategory\nduration_days\ntraffic_gb\nprice\ninbound_id\nclients_count\nactive(0|1)\n\nCurrent:\n{name}\n{category}\n{duration_days}\n{traffic_gb}\n{price}\n{inbound_id}\n{clients_count}\n{active}" );
+		self::pair( $r, 'msg.admin.prompt_lifecycle_priority', 'messages', '✋ اولویت (عدد):', '✋ Priority (number):' );
+		self::pair( $r, 'msg.admin.prompt_lifecycle_channels', 'messages', '✋ کانال‌ها (telegram,bale):', '✋ Channels (telegram,bale):' );
+		self::pair( $r, 'msg.admin.prompt_lifecycle_max_discount', 'messages', '✋ حداکثر تخفیف (۰–۱۰۰):', '✋ Max discount (0–100):' );
+		self::pair( $r, 'msg.admin.prompt_lifecycle_code_days', 'messages', '✋ اعتبار کد (روز، - برای نگه‌داشتن):', '✋ Code valid days (- to keep):' );
+		self::pair( $r, 'msg.admin.prompt_lifecycle_max_uses', 'messages', '✋ حداکثر استفاده (- برای نگه‌داشتن):', '✋ Max uses per user (- to keep):' );
+		self::pair( $r, 'msg.admin.prompt_lifecycle_enabled', 'messages', '✋ فعال (1/0، - برای نگه‌داشتن):', '✋ Enabled (1/0, - to keep):' );
+		self::pair( $r, 'btn.admin.charges_filter_volume', 'buttons', '📊 حجم', '📊 Volume' );
+		self::pair( $r, 'btn.admin.charges_filter_dates', 'buttons', '📅 تاریخ', '📅 Dates' );
+		self::pair( $r, 'btn.admin.charges_prev', 'buttons', '◀ قبلی', '◀ Prev' );
+		self::pair( $r, 'btn.admin.charges_next', 'buttons', 'بعدی ▶', 'Next ▶' );
+		self::pair( $r, 'btn.admin.economics_config', 'buttons', '⚙️ تنظیمات کلی', '⚙️ Global config' );
+		self::pair( $r, 'btn.admin.economics_refresh', 'buttons', '🔄 بروز', '🔄 Refresh' );
+		self::pair( $r, 'btn.admin.economics_panel_lines', 'buttons', '📦 هزینه پنل', '📦 Panel costs' );
+		self::pair( $r, 'btn.admin.economics_shared_lines', 'buttons', '🌐 هزینه مشترک', '🌐 Shared costs' );
+		self::pair( $r, 'btn.admin.economics_mark_paid', 'buttons', '✅ پرداخت خط', '✅ Mark paid' );
+		self::pair( $r, 'btn.admin.catalog_add_plan', 'buttons', '➕ پلن', '➕ Plan' );
+		self::pair( $r, 'btn.admin.catalog_add_card', 'buttons', '➕ کارت', '➕ Card' );
+		self::pair( $r, 'btn.admin.catalog_add_category', 'buttons', '➕ دسته', '➕ Category' );
+		self::pair( $r, 'btn.admin.confirm_yes', 'buttons', '✅ بله', '✅ Yes' );
+		self::pair( $r, 'btn.admin.confirm_no', 'buttons', '❌ خیر', '❌ No' );
 	}
 
 	/**
@@ -549,6 +949,8 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::pair( $r, 'msg.sync.transfer_ok', 'messages', '✅ سرویس با موفقیت به شما منتقل شد.', '✅ Service transferred to you successfully.' );
 		self::pair( $r, 'msg.sync.transfer_fail', 'messages', '⛔ انتقال سرویس انجام نشد: {reason}', '⛔ Service transfer failed: {reason}' );
 		self::pair( $r, 'msg.sync.expired', 'messages', '⛔ کد منقضی یا اشتباه است.', '⛔ Code expired or wrong.' );
+		self::pair( $r, 'msg.sync.prompt_code', 'messages', '🔑 کد ۶ رقمی را که در ربات دیگر ساخته‌اید ارسال کنید.', '🔑 Send the 6-digit code you generated in the other bot.' );
+		self::pair( $r, 'msg.referral.dear_user', 'messages', 'کاربر گرامی', 'Dear user' );
 		self::pair( $r, 'msg.apps.pick', 'messages', "📱 دانلود اپلیکیشن‌ها\n➖➖➖➖➖➖➖➖\nیکی را انتخاب کنید:", "📱 Download apps\n➖➖➖➖➖➖➖➖\nPick one:" );
 		self::pair(
 			$r,
@@ -559,6 +961,30 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		);
 		self::pair( $r, 'btn.account.enter_code', 'buttons', '🔑 ورود کد', '🔑 Enter code' );
 		self::pair( $r, 'msg.wallet.balance', 'messages', '💰 موجودی کیف پول: {balance} تومان', '💰 Wallet balance: {balance} Toman' );
+		self::pair( $r, 'msg.wallet.title', 'messages', '💰 کیف پول شما', '💰 Your wallet' );
+		self::pair( $r, 'msg.wallet.topup_hint', 'messages', 'برای شارژ موجودی از دکمه زیر استفاده کنید.', 'Use the button below to top up your balance.' );
+		self::pair( $r, 'msg.wallet.topup_disabled_hint', 'messages', 'شارژ آنلاین کیف پول در حال حاضر غیرفعال است.', 'Online wallet top-up is currently disabled.' );
+		self::pair( $r, 'msg.wallet.topup_prompt', 'messages', '💳 مبلغ شارژ را به تومان وارد کنید (یا «لغو»):', '💳 Enter top-up amount in Toman (or type cancel):' );
+		self::pair( $r, 'msg.wallet.topup_invalid', 'messages', '⛔ مبلغ نامعتبر است. عدد مثبت به تومان وارد کنید.', '⛔ Invalid amount. Enter a positive number in Toman.' );
+		self::pair( $r, 'msg.wallet.topup_disabled', 'messages', '⛔ شارژ کیف پول در حال حاضر غیرفعال است.', '⛔ Wallet top-up is currently disabled.' );
+		self::pair( $r, 'msg.wallet.topup_order', 'messages', '🧾 شارژ کیف پول · شناسه {id}', '🧾 Wallet top-up · ID {id}' );
+		self::pair( $r, 'msg.wallet.topup_checkout_title', 'messages', '🧾 شارژ کیف پول', '🧾 Wallet top-up' );
+		self::pair( $r, 'msg.wallet.topup_done', 'messages', '✅ کیف پول شما با موفقیت شارژ شد.', '✅ Your wallet was topped up successfully.' );
+		self::pair( $r, 'msg.wallet.topup_bale_title', 'messages', 'شارژ کیف پول', 'Wallet top-up' );
+		self::pair( $r, 'msg.wallet.topup_bale_desc', 'messages', 'شارژ کیف پول · شناسه {id}', 'Wallet top-up · ID {id}' );
+		self::pair( $r, 'msg.wallet.history_title', 'messages', '📜 تاریخچه', '📜 History' );
+		self::pair( $r, 'msg.wallet.history_empty', 'messages', 'تراکنشی ثبت نشده است.', 'No transactions yet.' );
+		self::pair( $r, 'msg.wallet.history_line', 'messages', '📌 {type} · {amount} تومان · {status} · #{id}', '📌 {type} · {amount} Toman · {status} · #{id}' );
+		self::pair( $r, 'msg.tx.type.purchase', 'messages', 'خرید', 'Purchase' );
+		self::pair( $r, 'msg.tx.type.topup', 'messages', 'شارژ کیف', 'Wallet top-up' );
+		self::pair( $r, 'msg.tx.type.renew', 'messages', 'تمدید', 'Renewal' );
+		self::pair( $r, 'msg.tx.type.other', 'messages', 'تراکنش', 'Transaction' );
+		self::pair( $r, 'msg.tx.status.pending', 'messages', 'در انتظار', 'Pending' );
+		self::pair( $r, 'msg.tx.status.approved', 'messages', 'تأیید شده', 'Approved' );
+		self::pair( $r, 'msg.tx.status.rejected', 'messages', 'رد شده', 'Rejected' );
+		self::pair( $r, 'msg.tx.status.cancelled', 'messages', 'لغو شده', 'Cancelled' );
+		self::pair( $r, 'msg.tx.status.processing', 'messages', 'در حال پردازش', 'Processing' );
+		self::pair( $r, 'msg.buy.no_payment_methods', 'messages', '⛔ روش پرداختی فعال نیست. با پشتیبانی تماس بگیرید.', '⛔ No payment method is enabled. Contact support.' );
 		self::pair(
 			$r,
 			'msg.force_join.prompt',
@@ -592,5 +1018,176 @@ class SimpleVPBot_Bot_Text_Defaults_Extended {
 		self::pair( $r, 'msg.referral.tg_fallback', 'messages', "تلگرام: نام کاربری ربات در تنظیمات (telegram_bot_username) را تنظیم کنید؛ فعلاً:\n/start ref_{id}\n\n", "Telegram: set telegram_bot_username in settings; for now:\n/start ref_{id}\n\n" );
 		self::pair( $r, 'msg.referral.bl_link', 'messages', "بله:\n{link}\n", "Bale:\n{link}\n" );
 		self::pair( $r, 'msg.referral.bl_fallback', 'messages', "بله: bale_bot_username را در تنظیمات وارد کنید؛ فعلاً:\n/start ref_{id}\n", "Bale: set bale_bot_username in settings; for now:\n/start ref_{id}\n" );
+	}
+
+	/**
+	 * Cron / system notification templates.
+	 *
+	 * @param array<int, array<string, string>> $r Rows.
+	 */
+	private static function append_msg_cron( array &$r ) {
+		self::pair(
+			$r,
+			'msg.cron_purge_warn',
+			'messages',
+			"{name} عزیز؛\n\nسرویس «{remark}» شما تا {days} روز دیگر به‌طور خودکار از ربات و پنل حذف می‌شود.\n\n⏳ مهلت پس از انقضا: {grace_days} روز\n📅 برای ادامه استفاده، از منوی همان سرویس گزینه «تمدید» را انتخاب کنید.",
+			"Dear {name},\n\nYour service «{remark}» will be automatically removed from the bot and panel in {days} days.\n\n⏳ Grace period after expiry: {grace_days} days\n📅 To keep using it, open that service and tap Renew."
+		);
+		self::pair(
+			$r,
+			'msg.cron_purge_warn_tomorrow',
+			'messages',
+			"{name} عزیز؛\n\nسرویس «{remark}» شما فردا به‌طور خودکار از ربات و پنل حذف می‌شود.\n\n⏳ مهلت پس از انقضا: {grace_days} روز\n📅 برای ادامه استفاده، همین امروز از منوی همان سرویس «تمدید» را بزنید.",
+			"Dear {name},\n\nYour service «{remark}» will be automatically removed from the bot and panel tomorrow.\n\n⏳ Grace period after expiry: {grace_days} days\n📅 To keep using it, renew from that service menu today."
+		);
+		self::pair(
+			$r,
+			'msg.cron_purge_warn_today',
+			'messages',
+			"{name} عزیز؛\n\nسرویس «{remark}» شما امروز به‌طور خودکار از ربات و پنل حذف می‌شود (پایان مهلت پس از انقضا).\n\n⏳ مهلت پس از انقضا: {grace_days} روز\n📅 اگر هنوز به این سرویس نیاز دارید، فوراً از منوی همان سرویس «تمدید» را بزنید.",
+			"Dear {name},\n\nYour service «{remark}» will be automatically removed from the bot and panel today (end of the post-expiry grace period).\n\n⏳ Grace period after expiry: {grace_days} days\n📅 If you still need this service, renew from its menu right away."
+		);
+		self::pair(
+			$r,
+			'msg.cron_expiry_before',
+			'messages',
+			"{name} عزیز؛\n\nسرویس «{remark}» شما تا {days} روز دیگر منقضی می‌شود.\n\n📅 برای جلوگیری از قطع سرویس، از منوی همان سرویس «تمدید» را بزنید.",
+			"Dear {name},\n\nYour service «{remark}» expires in {days} days.\n\n📅 To avoid interruption, renew from that service menu."
+		);
+		self::pair(
+			$r,
+			'msg.cron_expiry_today',
+			'messages',
+			"{name} عزیز؛\n\nامروز آخرین روز اعتبار سرویس «{remark}» شماست.\n\n📅 برای ادامه بدون وقفه، همین الان «تمدید» را از منوی همان سرویس انتخاب کنید.",
+			"Dear {name},\n\nToday is the last day of service «{remark}».\n\n📅 Renew from that service menu now to avoid interruption."
+		);
+		self::pair(
+			$r,
+			'msg.cron_expiry_after',
+			'messages',
+			"{name} عزیز؛\n\nاعتبار سرویس «{remark}» شما {days} روز پیش به پایان رسیده است.\n\n📅 برای فعال‌سازی مجدد، از منوی همان سرویس «تمدید» را بزنید یا از بخش خرید اقدام کنید.",
+			"Dear {name},\n\nYour service «{remark}» expired {days} days ago.\n\n📅 Renew from that service menu or buy again to reactivate."
+		);
+		self::pair(
+			$r,
+			'msg.cron_low_traffic',
+			'messages',
+			"{name} عزیز؛\n\nحجم باقی‌مانده سرویس «{remark}» کم شده است.\n\n📊 حدود {remaining_pct}٪ از حجم کل هنوز مانده است.\n📅 در صورت نیاز، از منوی همان سرویس «افزودن حجم» یا «تمدید» را انتخاب کنید.",
+			"Dear {name},\n\nRemaining traffic for service «{remark}» is low.\n\n📊 About {remaining_pct}% of total volume remains.\n📅 If needed, add volume or renew from that service menu."
+		);
+		self::pair(
+			$r,
+			'msg.cron_after_expired',
+			'messages',
+			"{name} عزیز؛\n\nسرویس «{remark}» منقضی شده و دیگر قابل استفاده نیست.\n\n📅 برای ادامه، از بخش خرید سرویس جدید بگیرید یا با پشتیبانی تماس بگیرید.",
+			"Dear {name},\n\nService «{remark}» has expired and is no longer usable.\n\n📅 Buy a new service or contact support to continue."
+		);
+	}
+
+	/**
+	 * Admin cron / system alert templates (panel health, economics).
+	 *
+	 * @param array<int, array<string, string>> $r Rows.
+	 */
+	private static function append_msg_cron_admin( array &$r ) {
+		self::pair( $r, 'msg.cron.admin.panel_legacy_label', 'admin', 'پنل ذخیره‌شده در «تنظیمات افزونه → پنل X-UI» (جدول «پنل‌ها» خالی است)', 'Panel saved in Plugin settings → X-UI panel (panels table empty)' );
+		self::pair( $r, 'msg.cron.admin.panel_login_failed', 'admin', 'ورود ۳x-ui از طرف سرور وردپرس/ربات برقرار نشد.', '3x-ui login from WordPress/bot server failed.' );
+		self::pair( $r, 'msg.cron.admin.panel_label', 'admin', 'پنل:', 'Panel:' );
+		self::pair( $r, 'msg.cron.admin.panel_db_id', 'admin', 'شناسهٔ رکورد در دیتابیس (svp_panels.id):', 'Database record id (svp_panels.id):' );
+		self::pair(
+			$r,
+			'msg.cron.admin.panel_troubleshoot',
+			'admin',
+			'اگر در مرورگر پنل باز است: مسیر webBasePath در Panel URL، Secret ورود، فایروال یا TLS بین هاست وردپرس و پنل را بررسی کنید. برای غیرفعال‌کردن این هشدار: تنظیمات ربات → اعلان قطع پنل.',
+			'If the panel opens in a browser: check webBasePath in Panel URL, login secret, firewall, or TLS between WordPress host and panel. To disable: bot settings → panel down alert.'
+		);
+		self::pair( $r, 'msg.cron.admin.panel_cost_renewal_title', 'admin', 'یادآور تمدید هزینهٔ زیرساخت پنل', 'Panel infrastructure cost renewal reminder' );
+		self::pair( $r, 'msg.cron.admin.expires_today', 'admin', 'امروز منقضی می‌شود.', 'Expires today.' );
+		self::pair( $r, 'msg.cron.admin.expires_tomorrow', 'admin', 'فردا منقضی می‌شود.', 'Expires tomorrow.' );
+		self::pair( $r, 'msg.cron.admin.expires_in_days', 'admin', '{days} روز تا انقضا.', '{days} days until expiry.' );
+		self::pair( $r, 'msg.cron.admin.category_label', 'admin', 'دسته:', 'Category:' );
+		self::pair( $r, 'msg.cron.admin.title_label', 'admin', 'عنوان:', 'Title:' );
+		self::pair( $r, 'msg.cron.admin.expiry_date_label', 'admin', 'تاریخ انقضا:', 'Expiry date:' );
+	}
+
+	/**
+	 * Marketing automation messages.
+	 *
+	 * @param array<int, array<string, string>> $r Rows.
+	 */
+	private static function append_msg_marketing( array &$r ) {
+		self::pair( $r, 'msg.marketing.template.churned', 'marketing', 'سلام! مدتی است خریدی ثبت نشده. کد تخفیف اختصاصی شما: {code}', 'Hi! No purchase in a while. Your personal discount code: {code}' );
+		self::pair( $r, 'msg.marketing.template.never_purchased', 'marketing', 'اولین خریدت را با کد {code} شروع کن — از منوی ربات «خرید سرویس».', 'Start your first purchase with code {code} — from «Buy service» in the bot menu.' );
+		self::pair( $r, 'msg.marketing.template.abandoned_checkout', 'marketing', 'سبد خریدت منتظر است! کد {code} را در مرحله تخفیف وارد کن.', 'Your cart is waiting! Enter code {code} at the discount step.' );
+		self::pair( $r, 'msg.marketing.template.stale_buy_funnel', 'marketing', 'خریدت نیمه‌کاره مانده — کد {code} برای تکمیل خرید.', 'Purchase incomplete — code {code} to finish checkout.' );
+		self::pair( $r, 'msg.marketing.template.expiring_renew', 'marketing', 'سرویست به‌زودی منقضی می‌شود. برای تمدید از کد {code} استفاده کن.', 'Your service expires soon. Use code {code} to renew.' );
+		self::pair( $r, 'msg.marketing.template.default', 'marketing', 'پیشنهاد ویژه: کد {code}', 'Special offer: code {code}' );
+		self::pair( $r, 'msg.marketing.apply_button_hint', 'marketing', 'برای اعمال خودکار روی خرید در انتظار، دکمه زیر را بزنید.', 'Tap the button below to apply automatically to a pending purchase.' );
+		self::pair( $r, 'msg.marketing.offer_invalid', 'marketing', 'کد پیشنهاد معتبر نیست یا مربوط به حساب دیگری است.', 'Offer code invalid or belongs to another account.' );
+		self::pair( $r, 'msg.marketing.code_active', 'marketing', 'کد شما فعال است:', 'Your code is active:' );
+		self::pair( $r, 'btn.marketing.apply_purchase', 'buttons', 'اعمال روی خرید', 'Apply to purchase' );
+		self::pair( $r, 'msg.marketing.offer_not_found', 'marketing', 'پیشنهاد یافت نشد.', 'Offer not found.' );
+		self::pair( $r, 'msg.marketing.no_pending_purchase', 'marketing', 'خرید در انتظاری نیست. از منو «خرید سرویس» شروع کن و کد را در مرحله تخفیف وارد کن.', 'No pending purchase. Start from «Buy service» and enter the code at the discount step.' );
+		self::pair( $r, 'msg.marketing.apply_failed', 'marketing', 'اعمال کد ناموفق بود.', 'Could not apply code.' );
+		self::pair( $r, 'msg.marketing.apply_ok', 'marketing', 'کد تخفیف اعمال شد. پرداخت را تکمیل کن.', 'Discount applied. Complete payment.' );
+	}
+
+	/**
+	 * Membership approval / rejection notifications.
+	 *
+	 * @param array<int, array<string, string>> $r Rows.
+	 */
+	private static function append_msg_membership( array &$r ) {
+		self::pair( $r, 'msg.membership.requeued', 'notifications', '⏳ درخواست شما دوباره در صف بررسی ادمین قرار گرفت.', '⏳ Your request was requeued for admin review.' );
+	}
+
+	/**
+	 * In-bot service alert help copy.
+	 *
+	 * @param array<int, array<string, string>> $r Rows.
+	 */
+	private static function append_msg_alerts( array &$r ) {
+		self::pair(
+			$r,
+			'msg.alerts.panel_intro',
+			'messages',
+			"🔔 هشدارهای سرویس\n📣 ربات برای همین سرویس در تلگرام یا بله پیام کوتاه می‌فرستد.\n➖➖➖➖➖➖➖➖\n📊 حجم — وقتی حجم باقی‌مانده به آستانه‌ای که تعیین کردید برسد.\n➖➖➖➖➖➖➖➖\n⏰ زمان — در روزهای مشخص قبل از انقضا (یک‌بار برای هر روز).\n➖➖➖➖➖➖➖➖\n👥 محدودیت کاربر — وقتی استفاده هم‌زمان به سقف نزدیک شود (فقط Xray).\n➖➖➖➖➖➖➖➖\n✋ هر ردیف را روشن یا خاموش کنید؛ «آستانه‌ها» محل تنظیم اعداد است.",
+			"🔔 Service alerts\n📣 The bot sends short messages on Telegram or Bale for this service.\n➖➖➖➖➖➖➖➖\n📊 Volume — when remaining traffic hits your threshold.\n➖➖➖➖➖➖➖➖\n⏰ Time — on chosen days before expiry (once per day).\n➖➖➖➖➖➖➖➖\n👥 User cap — when concurrent use nears the limit (Xray only).\n➖➖➖➖➖➖➖➖\n✋ Toggle each row; Thresholds is where you set the numbers."
+		);
+		self::pair(
+			$r,
+			'msg.alerts.thresholds_intro',
+			'messages',
+			"⚙️ آستانه‌های هشدار\n📉 حجم — عدد ۱ تا ۹۹ (درصد باقی‌مانده).\n➖➖➖➖➖➖➖➖\n📅 انقضا — اعداد با کاما مثل ۳,۱,۰ (روز قبل از انقضا؛ منفی = بعد از انقضا).\n➖➖➖➖➖➖➖➖\n👥 محدودیت کاربر — عدد ۵۰ تا ۱۰۰ (درصد پر شدن سقف).\n➖➖➖➖➖➖➖➖\n✋ دکمه را بزنید و فقط همان عدد یا اعداد را در چت بفرستید.",
+			"⚙️ Alert thresholds\n📉 Volume — 1–99 (remaining percent).\n➖➖➖➖➖➖➖➖\n📅 Expiry — comma-separated days like 3,1,0 (before expiry; negative = after).\n➖➖➖➖➖➖➖➖\n👥 User cap — 50–100 (fill percent of slot limit).\n➖➖➖➖➖➖➖➖\n✋ Tap a button, then send only that number or list in chat."
+		);
+		self::pair(
+			$r,
+			'msg.alerts.add_users_prompt',
+			'messages',
+			"👥 افزایش کاربر هم‌زمان\n➖➖➖➖➖➖➖➖\nبا این گزینه می‌توانید تعداد افرادی که هم‌زمان از سرویس استفاده می‌کنند را افزایش دهید.\n➖➖➖➖➖➖➖➖\n✋ فقط یک عدد بفرستید: چند نفر اضافه شود؟ (مثلاً ۱ تا ۵۰).",
+			"👥 Add concurrent users\n➖➖➖➖➖➖➖➖\nIncrease how many people can use this service at the same time.\n➖➖➖➖➖➖➖➖\n✋ Send one number: how many to add (e.g. 1–50)."
+		);
+		self::pair(
+			$r,
+			'msg.alerts.threshold_volume_prompt',
+			'messages',
+			"📉 آستانهٔ حجم\n➖➖➖➖➖➖➖➖\nوقتی درصد حجم باقی‌مانده به این عدد برسد، ربات یک‌بار به شما پیام می‌دهد.\n➖➖➖➖➖➖➖➖\n📋 الان: {pct}٪\n➖➖➖➖➖➖➖➖\n✋ یک عدد ۱ تا ۹۹ بفرستید (مثلاً ۲۰).",
+			"📉 Volume threshold\n➖➖➖➖➖➖➖➖\nWhen remaining volume percent reaches this value, the bot notifies you once.\n➖➖➖➖➖➖➖➖\n📋 Current: {pct}%\n➖➖➖➖➖➖➖➖\n✋ Send a number from 1 to 99 (e.g. 20)."
+		);
+		self::pair(
+			$r,
+			'msg.alerts.threshold_expiry_prompt',
+			'messages',
+			"📅 روزهای هشدار قبل از انقضا\n➖➖➖➖➖➖➖➖\nدر هر یک از این روزها (نسبت به تاریخ انقضا) ربات یک‌بار خبر می‌دهد. عدد ۰ یعنی همان روز انقضا.\n➖➖➖➖➖➖➖➖\n📋 الان: {days}\n➖➖➖➖➖➖➖➖\n✋ چند عدد با کامای انگلیسی بفرستید مثل ۳,۱,۰ .",
+			"📅 Expiry warning days\n➖➖➖➖➖➖➖➖\nOn each of these day offsets (relative to expiry) the bot notifies once. 0 = expiry day.\n➖➖➖➖➖➖➖➖\n📋 Current: {days}\n➖➖➖➖➖➖➖➖\n✋ Send comma-separated numbers like 3,1,0 ."
+		);
+		self::pair(
+			$r,
+			'msg.alerts.threshold_ip_prompt',
+			'messages',
+			"👥 آستانهٔ محدودیت کاربر\n➖➖➖➖➖➖➖➖\nوقتی تعداد استفاده‌کنندگان هم‌زمان به این درصد از سقف ثبت‌شده برسد، ربات هشدار می‌دهد.\n➖➖➖➖➖➖➖➖\n📋 الان: {pct}٪\n➖➖➖➖➖➖➖➖\n✋ یک عدد ۵۰ تا ۱۰۰ بفرستید (مثلاً ۸۵).",
+			"👥 Concurrent user threshold\n➖➖➖➖➖➖➖➖\nWhen simultaneous use reaches this percent of your slot limit, the bot warns you.\n➖➖➖➖➖➖➖➖\n📋 Current: {pct}%\n➖➖➖➖➖➖➖➖\n✋ Send a number from 50 to 100 (e.g. 85)."
+		);
 	}
 }

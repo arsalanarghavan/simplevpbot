@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class SimpleVPBot_Activator {
 
-	const DB_VERSION = '2.3.7';
+	const DB_VERSION = '2.4.8';
 
 	/**
 	 * Activate plugin.
@@ -100,12 +100,14 @@ class SimpleVPBot_Activator {
 			type varchar(32) NOT NULL,
 			status varchar(20) NOT NULL DEFAULT 'pending',
 			meta_json longtext NULL,
+			billing_reseller_svp_id bigint(20) unsigned DEFAULT NULL,
 			referral_amount decimal(15,2) NOT NULL DEFAULT 0,
 			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (id),
 			KEY user_id (user_id),
 			KEY status (status),
-			KEY type (type)
+			KEY type (type),
+			KEY billing_reseller_svp_id (billing_reseller_svp_id)
 		) $charset_collate;";
 
 		$sql_receipts = "CREATE TABLE {$p}svp_receipts (
@@ -255,6 +257,21 @@ class SimpleVPBot_Activator {
 		dbDelta( $sql_texts );
 		dbDelta( $sql_broadcasts );
 		dbDelta( $sql_queue );
+		dbDelta(
+			"CREATE TABLE {$p}svp_inbound_queue (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			platform varchar(8) NOT NULL,
+			reseller_svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			update_json longtext NOT NULL,
+			status varchar(16) NOT NULL DEFAULT 'pending',
+			tries int NOT NULL DEFAULT 0,
+			last_error text NULL,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			processed_at datetime DEFAULT NULL,
+			PRIMARY KEY (id),
+			KEY status_created (status, created_at)
+		) $charset_collate;"
+		);
 		dbDelta( $sql_logs );
 		dbDelta( $sql_users_bulk_jobs );
 		dbDelta( $sql_users_bulk_items );
@@ -265,6 +282,8 @@ class SimpleVPBot_Activator {
 		dbDelta( self::sql_monitor_hosts( $p, $charset_collate ) );
 		dbDelta( self::sql_discount_codes( $p, $charset_collate ) );
 		dbDelta( self::sql_discount_redemptions( $p, $charset_collate ) );
+		dbDelta( self::sql_marketing_rules( $p, $charset_collate ) );
+		dbDelta( self::sql_marketing_offers( $p, $charset_collate ) );
 		dbDelta( self::sql_panel_inbound_clients( $p, $charset_collate ) );
 		dbDelta( self::sql_panel_inbound_api( $p, $charset_collate ) );
 		dbDelta( self::sql_reseller_panel_prices( $p, $charset_collate ) );
@@ -273,9 +292,78 @@ class SimpleVPBot_Activator {
 		dbDelta( self::sql_reseller_inbound_display_names( $p, $charset_collate ) );
 		dbDelta( self::sql_reseller_closure( $p, $charset_collate ) );
 		dbDelta( self::sql_audit_log( $p, $charset_collate ) );
+		dbDelta( self::sql_unit_economics_config( $p, $charset_collate ) );
+		dbDelta( self::sql_unit_economics_servers( $p, $charset_collate ) );
+		dbDelta( self::sql_panel_economics_lines( $p, $charset_collate ) );
+		if ( class_exists( 'SimpleVPBot_Model_Unit_Economics_Config' ) ) {
+			SimpleVPBot_Model_Unit_Economics_Config::ensure_default_row();
+		}
 		if ( class_exists( 'SimpleVPBot_Service_Transfer' ) ) {
 			SimpleVPBot_Service_Transfer::ensure_table();
 		}
+		if ( class_exists( 'SimpleVPBot_Model_Marketing_Rule' ) ) {
+			SimpleVPBot_Model_Marketing_Rule::seed_defaults_if_empty();
+		}
+	}
+
+	/**
+	 * Marketing automation rules.
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 * @return string
+	 */
+	public static function sql_marketing_rules( $p, $charset_collate ) {
+		return "CREATE TABLE {$p}svp_marketing_rules (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			owner_svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			segment_key varchar(32) NOT NULL DEFAULT '',
+			enabled tinyint(1) NOT NULL DEFAULT 0,
+			priority int NOT NULL DEFAULT 100,
+			cooldown_days int NOT NULL DEFAULT 90,
+			after_days int NOT NULL DEFAULT 0,
+			pending_hours int NOT NULL DEFAULT 0,
+			funnel_idle_hours int NOT NULL DEFAULT 0,
+			expires_within_days int NOT NULL DEFAULT 0,
+			discount_type varchar(16) NOT NULL DEFAULT 'percent',
+			discount_value decimal(15,2) NOT NULL DEFAULT 0,
+			max_discount_toman decimal(15,2) DEFAULT NULL,
+			code_valid_days int NOT NULL DEFAULT 7,
+			max_uses_per_user int NOT NULL DEFAULT 1,
+			message_body text NULL,
+			channel_telegram tinyint(1) NOT NULL DEFAULT 1,
+			channel_bale tinyint(1) NOT NULL DEFAULT 1,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY owner_enabled (owner_svp_user_id, enabled),
+			KEY segment (segment_key)
+		) $charset_collate;";
+	}
+
+	/**
+	 * Marketing offers issued to users.
+	 *
+	 * @param string $p Prefix.
+	 * @param string $charset_collate Collation.
+	 * @return string
+	 */
+	public static function sql_marketing_offers( $p, $charset_collate ) {
+		return "CREATE TABLE {$p}svp_marketing_offers (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			rule_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			discount_code_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			status varchar(16) NOT NULL DEFAULT 'issued',
+			sent_at datetime DEFAULT NULL,
+			converted_transaction_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			meta_json longtext NULL,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			UNIQUE KEY rule_user (rule_id, svp_user_id),
+			KEY user_status (svp_user_id, status),
+			KEY discount_code_id (discount_code_id)
+		) $charset_collate;";
 	}
 
 	/**
@@ -542,6 +630,7 @@ class SimpleVPBot_Activator {
 			panel_api_base varchar(191) NOT NULL DEFAULT 'panel/api',
 			panel_login_secret varchar(255) NOT NULL DEFAULT '',
 			panel_api_token text NULL,
+			panel_api_flavor varchar(32) NOT NULL DEFAULT 'unknown',
 			subscription_public_base text NULL,
 			sort_order int NOT NULL DEFAULT 0,
 			active tinyint(1) NOT NULL DEFAULT 1,
@@ -763,6 +852,39 @@ class SimpleVPBot_Activator {
 		if ( version_compare( (string) $current, '2.3.7', '<' ) ) {
 			self::maybe_migrate_237_service_display_label( $p );
 		}
+		if ( version_compare( (string) $current, '2.3.8', '<' ) ) {
+			self::maybe_migrate_238_unit_economics( $p, $charset_collate );
+		}
+		if ( version_compare( (string) $current, '2.3.9', '<' ) ) {
+			self::maybe_migrate_239_panel_economics_lines( $p, $charset_collate );
+		}
+		if ( version_compare( (string) $current, '2.4.0', '<' ) ) {
+			self::maybe_migrate_240_unit_economics_volume_mode( $p );
+		}
+		if ( version_compare( (string) $current, '2.4.1', '<' ) ) {
+			self::maybe_migrate_241_payment_methods_json( $p );
+		}
+		if ( version_compare( (string) $current, '2.4.2', '<' ) ) {
+			self::maybe_migrate_242_platform_enabled( $p );
+		}
+		if ( version_compare( (string) $current, '2.4.3', '<' ) ) {
+			self::maybe_migrate_243_billing_reseller_svp_id( $p );
+		}
+		if ( version_compare( (string) $current, '2.4.4', '<' ) ) {
+			self::maybe_migrate_244_reseller_bot_token_encryption( $p );
+		}
+		if ( version_compare( (string) $current, '2.4.5', '<' ) ) {
+			self::maybe_migrate_245_reseller_webhook_secret_encryption( $p );
+		}
+		if ( version_compare( (string) $current, '2.4.6', '<' ) ) {
+			self::maybe_migrate_246_panel_api_flavor( $p );
+		}
+		if ( version_compare( (string) $current, '2.4.7', '<' ) ) {
+			self::maybe_migrate_247_inbound_queue( $p, $charset_collate );
+		}
+		if ( version_compare( (string) $current, '2.4.8', '<' ) ) {
+			self::maybe_migrate_248_reseller_relay_public_url( $p );
+		}
 		update_option( 'simplevpbot_db_version', self::DB_VERSION );
 	}
 
@@ -861,6 +983,346 @@ class SimpleVPBot_Activator {
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN display_label varchar(255) NOT NULL DEFAULT '' AFTER remark" );
 		}
+	}
+
+	/**
+	 * Unit economics calculator tables + default config row.
+	 *
+	 * @param string $p               Prefix.
+	 * @param string $charset_collate Collation.
+	 */
+	public static function maybe_migrate_238_unit_economics( $p, $charset_collate ) {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		dbDelta( self::sql_unit_economics_config( $p, $charset_collate ) );
+		dbDelta( self::sql_unit_economics_servers( $p, $charset_collate ) );
+		if ( class_exists( 'SimpleVPBot_Model_Unit_Economics_Config' ) ) {
+			SimpleVPBot_Model_Unit_Economics_Config::ensure_default_row();
+		}
+	}
+
+	/**
+	 * Unit economics singleton config DDL.
+	 *
+	 * @param string $p               Prefix.
+	 * @param string $charset_collate Collation.
+	 * @return string
+	 */
+	public static function sql_unit_economics_config( $p, $charset_collate ) {
+		return "CREATE TABLE {$p}svp_unit_economics_config (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			dev_ops_costs decimal(15,4) NOT NULL DEFAULT 0,
+			outbound_cost_per_gb decimal(15,4) NOT NULL DEFAULT 0,
+			cdn_cost_per_gb decimal(15,4) NOT NULL DEFAULT 0,
+			total_sold_volume_gb decimal(15,4) NOT NULL DEFAULT 0,
+			selling_price_per_gb decimal(15,4) NOT NULL DEFAULT 0,
+			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id)
+		) {$charset_collate};";
+	}
+
+	/**
+	 * Unit economics infrastructure server rows DDL.
+	 *
+	 * @param string $p               Prefix.
+	 * @param string $charset_collate Collation.
+	 * @return string
+	 */
+	public static function sql_unit_economics_servers( $p, $charset_collate ) {
+		return "CREATE TABLE {$p}svp_unit_economics_servers (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			name varchar(128) NOT NULL DEFAULT '',
+			cost_amount decimal(15,4) NOT NULL DEFAULT 0,
+			billing_cycle varchar(16) NOT NULL DEFAULT 'monthly',
+			sort_order int NOT NULL DEFAULT 0,
+			PRIMARY KEY (id),
+			KEY sort_order (sort_order)
+		) {$charset_collate};";
+	}
+
+	/**
+	 * Per-panel infrastructure cost lines (CDN, servers, outbound, support).
+	 *
+	 * @param string $p               Prefix.
+	 * @param string $charset_collate Collation.
+	 * @return string
+	 */
+	public static function sql_panel_economics_lines( $p, $charset_collate ) {
+		return "CREATE TABLE {$p}svp_panel_economics_lines (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			panel_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			category varchar(32) NOT NULL DEFAULT 'external_server',
+			label varchar(128) NOT NULL DEFAULT '',
+			provider varchar(128) NOT NULL DEFAULT '',
+			cost_amount decimal(15,4) NOT NULL DEFAULT 0,
+			billing_cycle varchar(16) NOT NULL DEFAULT 'monthly',
+			payment_method varchar(64) NOT NULL DEFAULT '',
+			paid_at date DEFAULT NULL,
+			expires_at date DEFAULT NULL,
+			host_ip varchar(64) NOT NULL DEFAULT '',
+			tunnel_mode varchar(64) NOT NULL DEFAULT '',
+			notes text NULL,
+			sort_order int NOT NULL DEFAULT 0,
+			active tinyint(1) NOT NULL DEFAULT 1,
+			PRIMARY KEY (id),
+			KEY panel_category (panel_id, category),
+			KEY panel_sort (panel_id, sort_order)
+		) {$charset_collate};";
+	}
+
+	/**
+	 * Panel economics lines table + one-time v1 data import.
+	 *
+	 * @param string $p               Prefix.
+	 * @param string $charset_collate Collation.
+	 */
+	public static function maybe_migrate_239_panel_economics_lines( $p, $charset_collate ) {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		dbDelta( self::sql_panel_economics_lines( $p, $charset_collate ) );
+
+		if ( get_option( 'simplevpbot_panel_economics_v1_imported' ) ) {
+			return;
+		}
+
+		global $wpdb;
+		$panels_t = $p . 'svp_panels';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$first_panel_id = (int) $wpdb->get_var( "SELECT id FROM {$panels_t} ORDER BY sort_order ASC, id ASC LIMIT 1" );
+		if ( $first_panel_id < 1 ) {
+			update_option( 'simplevpbot_panel_economics_v1_imported', 1 );
+			return;
+		}
+
+		$lines_t = $p . 'svp_panel_economics_lines';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$existing = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$lines_t}" );
+		if ( $existing > 0 ) {
+			update_option( 'simplevpbot_panel_economics_v1_imported', 1 );
+			return;
+		}
+
+		$order = 0;
+		if ( class_exists( 'SimpleVPBot_Model_Unit_Economics_Server' ) ) {
+			foreach ( SimpleVPBot_Model_Unit_Economics_Server::all_ordered() as $srv ) {
+				$name = (string) ( $srv->name ?? '' );
+				if ( '' === $name ) {
+					continue;
+				}
+				$wpdb->insert(
+					$lines_t,
+					array(
+						'panel_id'      => $first_panel_id,
+						'category'      => 'external_server',
+						'label'         => $name,
+						'provider'      => '',
+						'cost_amount'   => (float) ( $srv->cost_amount ?? 0 ),
+						'billing_cycle' => (string) ( $srv->billing_cycle ?? 'monthly' ),
+						'sort_order'    => $order++,
+						'active'        => 1,
+					)
+				);
+			}
+		}
+
+		if ( class_exists( 'SimpleVPBot_Model_Unit_Economics_Config' ) ) {
+			$cfg = SimpleVPBot_Model_Unit_Economics_Config::to_array();
+			if ( (float) ( $cfg['dev_ops_costs'] ?? 0 ) > 0 ) {
+				$wpdb->insert(
+					$lines_t,
+					array(
+						'panel_id'      => $first_panel_id,
+						'category'      => 'support',
+						'label'         => 'Legacy DevOps',
+						'cost_amount'   => (float) $cfg['dev_ops_costs'],
+						'billing_cycle' => 'monthly',
+						'sort_order'    => $order++,
+						'active'        => 1,
+					)
+				);
+			}
+			if ( (float) ( $cfg['outbound_cost_per_gb'] ?? 0 ) > 0 ) {
+				$wpdb->insert(
+					$lines_t,
+					array(
+						'panel_id'      => $first_panel_id,
+						'category'      => 'outbound',
+						'label'         => 'Legacy outbound',
+						'cost_amount'   => (float) $cfg['outbound_cost_per_gb'],
+						'billing_cycle' => 'per_gb',
+						'sort_order'    => $order++,
+						'active'        => 1,
+					)
+				);
+			}
+			if ( (float) ( $cfg['cdn_cost_per_gb'] ?? 0 ) > 0 ) {
+				$wpdb->insert(
+					$lines_t,
+					array(
+						'panel_id'      => $first_panel_id,
+						'category'      => 'cdn',
+						'label'         => 'Legacy CDN',
+						'cost_amount'   => (float) $cfg['cdn_cost_per_gb'],
+						'billing_cycle' => 'per_gb',
+						'sort_order'    => $order++,
+						'active'        => 1,
+					)
+				);
+			}
+		}
+
+		update_option( 'simplevpbot_panel_economics_v1_imported', 1 );
+	}
+
+	/**
+	 * Unit economics: volume source mode (auto from sales vs manual).
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_240_unit_economics_volume_mode( $p ) {
+		global $wpdb;
+		$t = $p . 'svp_unit_economics_config';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$col_mode = $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'volume_mode'" );
+		if ( ! $col_mode ) {
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN volume_mode varchar(16) NOT NULL DEFAULT 'auto_sales' AFTER selling_price_per_gb" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$col_days = $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'volume_window_days'" );
+		if ( ! $col_days ) {
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN volume_window_days int NOT NULL DEFAULT 30 AFTER volume_mode" );
+		}
+	}
+
+	/**
+	 * Reseller bot profile: per-reseller payment method overrides.
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_241_payment_methods_json( $p ) {
+		global $wpdb;
+		$t = $p . 'svp_reseller_bot_profiles';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'payment_methods_json'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN payment_methods_json longtext NULL AFTER text_overrides_json" );
+		}
+	}
+
+	/**
+	 * Reseller bot profiles: per-platform enable flags.
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_242_platform_enabled( $p ) {
+		global $wpdb;
+		$t = $p . 'svp_reseller_bot_profiles';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'telegram_enabled'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN telegram_enabled tinyint(1) NOT NULL DEFAULT 1 AFTER enabled" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'bale_enabled'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN bale_enabled tinyint(1) NOT NULL DEFAULT 1 AFTER telegram_enabled" );
+		}
+	}
+
+	/**
+	 * Reseller bot profiles: encrypt legacy plaintext Telegram/Bale tokens.
+	 *
+	 * @param string $p Table prefix (unused; kept for migration signature consistency).
+	 */
+	public static function maybe_migrate_244_reseller_bot_token_encryption( $p ) {
+		unset( $p );
+		if ( class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			SimpleVPBot_Model_Reseller_Bot_Profile::migrate_plaintext_tokens_to_encrypted();
+		}
+	}
+
+	/**
+	 * Reseller bot profiles: encrypt plaintext webhook_secret at rest.
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_245_reseller_webhook_secret_encryption( $p ) {
+		unset( $p );
+		if ( class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			SimpleVPBot_Model_Reseller_Bot_Profile::migrate_plaintext_webhook_secrets_to_encrypted();
+		}
+	}
+
+	/**
+	 * Panels: cached 3x-ui API flavor (legacy_inbound | v3_clients | unknown).
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_246_panel_api_flavor( $p ) {
+		global $wpdb;
+		$panels_t = $p . 'svp_panels';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$col = $wpdb->get_var( "SHOW COLUMNS FROM {$panels_t} LIKE 'panel_api_flavor'" );
+		if ( ! $col ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$panels_t} ADD COLUMN panel_api_flavor varchar(32) NOT NULL DEFAULT 'unknown' AFTER panel_api_token" );
+		}
+	}
+
+	/**
+	 * Inbound webhook async queue table.
+	 *
+	 * @param string $p               Table prefix.
+	 * @param string $charset_collate Charset collate.
+	 */
+	public static function maybe_migrate_247_inbound_queue( $p, $charset_collate ) {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		if ( class_exists( 'SimpleVPBot_Webhook_Queue' ) ) {
+			dbDelta( SimpleVPBot_Webhook_Queue::sql_table( $p, $charset_collate ) );
+			return;
+		}
+		dbDelta(
+			"CREATE TABLE {$p}svp_inbound_queue (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			platform varchar(8) NOT NULL,
+			reseller_svp_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			update_json longtext NOT NULL,
+			status varchar(16) NOT NULL DEFAULT 'pending',
+			tries int NOT NULL DEFAULT 0,
+			last_error text NULL,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			processed_at datetime DEFAULT NULL,
+			PRIMARY KEY (id),
+			KEY status_created (status, created_at)
+		) $charset_collate;"
+		);
+	}
+
+	/**
+	 * Transactions: indexed billing_reseller_svp_id (reports/charges perf).
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_243_billing_reseller_svp_id( $p ) {
+		global $wpdb;
+		$tx = $p . 'svp_transactions';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$tx} LIKE 'billing_reseller_svp_id'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$tx} ADD COLUMN billing_reseller_svp_id bigint(20) unsigned DEFAULT NULL AFTER meta_json" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$has_idx = $wpdb->get_var( "SHOW INDEX FROM {$tx} WHERE Key_name = 'billing_reseller_svp_id'" );
+		if ( ! $has_idx ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$tx} ADD KEY billing_reseller_svp_id (billing_reseller_svp_id)" );
+		}
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$wpdb->query(
+			"UPDATE {$tx} SET billing_reseller_svp_id = CAST(JSON_UNQUOTE(JSON_EXTRACT(meta_json, '$.billing_reseller_svp_id')) AS UNSIGNED)
+			WHERE billing_reseller_svp_id IS NULL
+			AND meta_json IS NOT NULL
+			AND JSON_EXTRACT(meta_json, '$.billing_reseller_svp_id') IS NOT NULL
+			AND JSON_EXTRACT(meta_json, '$.billing_reseller_svp_id') != 'null'"
+		);
 	}
 
 	/**
@@ -1267,16 +1729,20 @@ class SimpleVPBot_Activator {
 			theme_primary varchar(16) NOT NULL DEFAULT '',
 			theme_accent varchar(16) NOT NULL DEFAULT '',
 			custom_domain varchar(255) NOT NULL DEFAULT '',
+			telegram_relay_public_url varchar(255) NOT NULL DEFAULT '',
 			config_label_override varchar(255) NOT NULL DEFAULT '',
 			config_label_prefix varchar(255) NOT NULL DEFAULT '',
 			telegram_secret_token varchar(255) NOT NULL DEFAULT '',
 			enabled tinyint(1) NOT NULL DEFAULT 1,
+			telegram_enabled tinyint(1) NOT NULL DEFAULT 1,
+			bale_enabled tinyint(1) NOT NULL DEFAULT 1,
 			admin_telegram_ids longtext NULL,
 			admin_bale_ids longtext NULL,
 			bale_wallet_provider_token varchar(255) NOT NULL DEFAULT '',
 			telegram_bot_username varchar(128) NOT NULL DEFAULT '',
 			bale_bot_username varchar(128) NOT NULL DEFAULT '',
 			text_overrides_json longtext NULL,
+			payment_methods_json longtext NULL,
 			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY (id),
 			UNIQUE KEY reseller_one (reseller_svp_user_id),
@@ -1477,6 +1943,21 @@ class SimpleVPBot_Activator {
 		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'telegram_secret_token'" ) ) {
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN telegram_secret_token varchar(255) NOT NULL DEFAULT '' AFTER brand_name" );
+		}
+	}
+
+	/**
+	 * Reseller bot: optional per-bot relay public webhook URL.
+	 *
+	 * @param string $p Table prefix.
+	 */
+	public static function maybe_migrate_248_reseller_relay_public_url( $p ) {
+		global $wpdb;
+		$t = $p . 'svp_reseller_bot_profiles';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $wpdb->get_var( "SHOW COLUMNS FROM {$t} LIKE 'telegram_relay_public_url'" ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$wpdb->query( "ALTER TABLE {$t} ADD COLUMN telegram_relay_public_url varchar(255) NOT NULL DEFAULT '' AFTER custom_domain" );
 		}
 	}
 

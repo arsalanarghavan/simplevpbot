@@ -136,13 +136,45 @@ class SimpleVPBot_Service_Admin_Ops {
 
 				$r_status = SimpleVPBot_Xui_Client::request( 'server/status', 'GET', array(), false, 1, 'api' );
 				$r_inb    = SimpleVPBot_Xui_Client::request( 'inbounds/list', 'GET', array(), false, 1, 'api' );
-				$r_post   = SimpleVPBot_Xui_Client::request( 'inbounds/onlines', 'POST', array(), false, 1, 'api' );
+				$r_v3     = SimpleVPBot_Xui_Client::request( 'clients/list/paged?page=1&pageSize=1', 'GET', array(), false, 1, 'api' );
+
+				$is_v3_probe = SimpleVPBot_Xui_Client::api_http_ok( $r_v3 );
+				if ( $is_v3_probe ) {
+					$api_flavor = SimpleVPBot_Xui_Client::FLAVOR_V3;
+				} else {
+					$v3_code = (int) ( $r_v3['code'] ?? 0 );
+					if ( 404 === $v3_code ) {
+						$api_flavor = SimpleVPBot_Xui_Client::FLAVOR_LEGACY;
+					} else {
+						$api_flavor = SimpleVPBot_Xui_Client::api_http_ok( $r_inb )
+							? SimpleVPBot_Xui_Client::FLAVOR_LEGACY
+							: SimpleVPBot_Xui_Client::FLAVOR_UNKNOWN;
+					}
+				}
+				SimpleVPBot_Xui_Client::set_api_flavor_for_bound_panel( $api_flavor );
+				$diag['api_flavor'] = $api_flavor;
 
 				$probes = array(
-					'server_status'  => $probe_row( $r_status ),
-					'inbounds_list'  => $probe_row( $r_inb ),
-					'inbounds_onlines' => $probe_row( $r_post ),
+					'server_status' => $probe_row( $r_status ),
+					'inbounds_list' => $probe_row( $r_inb ),
+					'clients_list'  => $probe_row( $r_v3 ),
 				);
+				if ( SimpleVPBot_Xui_Client::FLAVOR_V3 === $api_flavor ) {
+					$r_onlines = SimpleVPBot_Xui_Client::request( 'clients/onlines', 'POST', array(), false, 1, 'api' );
+					$probes['clients_onlines'] = $probe_row( $r_onlines );
+					$probes['inbounds_onlines'] = array(
+						'url'     => '',
+						'http'    => 0,
+						'ok'      => true,
+						'skipped' => true,
+						'hint'    => 'legacy_not_on_v3',
+						'msg'     => '',
+						'sample'  => '',
+					);
+				} else {
+					$r_post = SimpleVPBot_Xui_Client::request( 'inbounds/onlines', 'POST', array(), false, 1, 'api' );
+					$probes['inbounds_onlines'] = $probe_row( $r_post );
+				}
 				$probes['inbounds_list']['count'] = is_array( $r_inb['json']['obj'] ?? null ) ? count( $r_inb['json']['obj'] ) : 0;
 
 				$suggested_base = null;
@@ -182,7 +214,13 @@ class SimpleVPBot_Service_Admin_Ops {
 					}
 				}
 
-				$any_ok = ! empty( $probes['server_status']['ok'] ) || ! empty( $probes['inbounds_list']['ok'] ) || ! empty( $probes['inbounds_onlines']['ok'] );
+				$onlines_probe_ok = SimpleVPBot_Xui_Client::FLAVOR_V3 === $api_flavor
+					? ! empty( $probes['clients_onlines']['ok'] )
+					: ! empty( $probes['inbounds_onlines']['ok'] );
+				$any_ok = ! empty( $probes['server_status']['ok'] )
+					|| ! empty( $probes['inbounds_list']['ok'] )
+					|| $onlines_probe_ok
+					|| ! empty( $probes['clients_list']['ok'] );
 				if ( ! $any_ok ) {
 					$msg = $use_token
 						? __( 'API Token پذیرفته نشد یا مسیر API اشتباه است. Token را در Settings → Security بسازید و panel_api_base را بررسی کنید.', 'simplevpbot' )
@@ -210,6 +248,34 @@ class SimpleVPBot_Service_Admin_Ops {
 				} elseif ( 'bearer' === (string) ( $diag['auth_mode'] ?? '' ) ) {
 					$ok_msg .= ' ' . __( '(API Token)', 'simplevpbot' );
 				}
+				if ( SimpleVPBot_Xui_Client::FLAVOR_V3 === $api_flavor ) {
+					$ok_msg .= ' ' . __( '(API v3 clients)', 'simplevpbot' );
+				} elseif ( SimpleVPBot_Xui_Client::FLAVOR_LEGACY === $api_flavor ) {
+					$ok_msg .= ' ' . __( '(API legacy inbounds)', 'simplevpbot' );
+				}
+
+				$getdb_probe = SimpleVPBot_Xui_Client::probe_get_db();
+				$diag['getdb_url'] = (string) ( $getdb_probe['url'] ?? SimpleVPBot_Xui_Client::diag_url( 'server/getDb', 'api' ) );
+				$probes['getdb']   = array(
+					'url'   => (string) ( $getdb_probe['url'] ?? '' ),
+					'ok'    => ! empty( $getdb_probe['ok'] ),
+					'http'  => (int) ( $getdb_probe['http'] ?? 0 ),
+					'step'  => (string) ( $getdb_probe['step'] ?? '' ),
+					'bytes' => (int) ( $getdb_probe['bytes'] ?? 0 ),
+				);
+				if ( empty( $getdb_probe['ok'] ) ) {
+					$step = (string) ( $getdb_probe['step'] ?? 'unknown' );
+					$http = (int) ( $getdb_probe['http'] ?? 0 );
+					if ( 404 === $http || 'http_404' === $step ) {
+						$ok_msg .= ' ' . __( 'هشدار: getDb — نشست کوکی نیست یا مسیر panel/api اشتباه است (3x-ui v2.x فقط session). user/pass پنل را بررسی کنید.', 'simplevpbot' );
+					} else {
+						$ok_msg .= ' ' . sprintf(
+							/* translators: %s: failure step key */
+							__( 'هشدار: getDb ناموفق (%s) — بکاپ زمان‌بندی‌شده فقط جداول وردپرس را دارد.', 'simplevpbot' ),
+							$step
+						);
+					}
+				}
 
 				return array(
 					'ok'   => true,
@@ -234,6 +300,14 @@ class SimpleVPBot_Service_Admin_Ops {
 		$t = (string) SimpleVPBot_Settings::get( 'telegram_token', '' );
 		if ( ! $t ) {
 			return array( 'ok' => false, 'message' => __( 'توکن تلگرام تنظیم نشده است.', 'simplevpbot' ) );
+		}
+		if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) && SimpleVPBot_Telegram_Relay::is_enabled() ) {
+			$dr = SimpleVPBot_Telegram_Relay::diagnostics_via_relay( 'main', 0 );
+			if ( empty( $dr['ok'] ) ) {
+				return array( 'ok' => false, 'message' => __( 'Telegram getMe ناموفق بود.', 'simplevpbot' ), 'data' => $dr );
+			}
+			$me = isset( $dr['data']['get_me'] ) ? $dr['data']['get_me'] : null;
+			return array( 'ok' => true, 'data' => array( 'ok' => true, 'result' => $me ) );
 		}
 		$c   = new SimpleVPBot_Telegram_Client( $t );
 		$res = $c->get_me();
@@ -296,6 +370,9 @@ class SimpleVPBot_Service_Admin_Ops {
 		if ( '' === $sec ) {
 			return array( 'ok' => false, 'message' => __( 'Secret مسیر Webhook تلگرام تنظیم نشده است.', 'simplevpbot' ) );
 		}
+		if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) && SimpleVPBot_Telegram_Relay::is_enabled() ) {
+			return SimpleVPBot_Telegram_Relay::set_webhook_via_relay( 'main', 0, true );
+		}
 		$url = SimpleVPBot_Settings::public_site_url() . '/wp-json/simplevpbot/v1/webhook/telegram/' . rawurlencode( $sec );
 		$c   = new SimpleVPBot_Telegram_Client( $t );
 		$hdr = trim( (string) SimpleVPBot_Settings::get( 'telegram_secret_header', '' ) );
@@ -346,6 +423,9 @@ class SimpleVPBot_Service_Admin_Ops {
 		$t = (string) SimpleVPBot_Settings::get( 'telegram_token', '' );
 		if ( '' === $t ) {
 			return array( 'ok' => false, 'message' => __( 'توکن تلگرام تنظیم نشده است.', 'simplevpbot' ) );
+		}
+		if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) && SimpleVPBot_Telegram_Relay::is_enabled() ) {
+			return SimpleVPBot_Telegram_Relay::delete_webhook_via_relay( 'main', 0 );
 		}
 		$c   = new SimpleVPBot_Telegram_Client( $t );
 		$res = $c->delete_webhook();
@@ -407,6 +487,14 @@ class SimpleVPBot_Service_Admin_Ops {
 		if ( '' === $t ) {
 			return array( 'ok' => false, 'message' => __( 'توکن تلگرام نماینده تنظیم نشده است.', 'simplevpbot' ) );
 		}
+		if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) && SimpleVPBot_Telegram_Relay::is_enabled() ) {
+			$dr = SimpleVPBot_Telegram_Relay::diagnostics_via_relay( 'reseller', $r );
+			if ( empty( $dr['ok'] ) ) {
+				return array( 'ok' => false, 'message' => __( 'Telegram getMe ناموفق بود.', 'simplevpbot' ), 'data' => $dr );
+			}
+			$me = isset( $dr['data']['get_me'] ) ? $dr['data']['get_me'] : null;
+			return array( 'ok' => true, 'data' => array( 'ok' => true, 'result' => $me ) );
+		}
 		$c   = new SimpleVPBot_Telegram_Client( $t );
 		$res = $c->get_me();
 		if ( empty( $res['ok'] ) ) {
@@ -440,6 +528,630 @@ class SimpleVPBot_Service_Admin_Ops {
 	}
 
 	/**
+	 * Mask bot token for display (first 12 + last 4 chars).
+	 *
+	 * @param string $token Raw token.
+	 * @return string
+	 */
+	public static function mask_bot_token( $token ) {
+		$t = trim( (string) $token );
+		if ( '' === $t ) {
+			return '';
+		}
+		$len = strlen( $t );
+		if ( $len <= 16 ) {
+			return str_repeat( '•', min( 8, $len ) );
+		}
+		return substr( $t, 0, 12 ) . '…' . substr( $t, -4 );
+	}
+
+	/**
+	 * Normalize webhook URL for comparison.
+	 *
+	 * @param string $url URL.
+	 * @return string
+	 */
+	private static function normalize_webhook_url( $url ) {
+		$u = trim( (string) $url );
+		if ( '' === $u ) {
+			return '';
+		}
+		return untrailingslashit( $u );
+	}
+
+	/**
+	 * Expected webhook URL for main bot.
+	 *
+	 * @param string $platform telegram|bale.
+	 * @return string Empty when secret missing.
+	 */
+	private static function expected_webhook_url_main( $platform ) {
+		$plat = sanitize_key( (string) $platform );
+		if ( 'telegram' === $plat ) {
+			if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+				$relay_url = SimpleVPBot_Telegram_Relay::expected_webhook_url_main( $plat );
+				if ( '' !== $relay_url ) {
+					return $relay_url;
+				}
+			}
+			$sec = (string) SimpleVPBot_Settings::get( 'telegram_webhook_secret', '' );
+			if ( '' === $sec ) {
+				return '';
+			}
+			return SimpleVPBot_Settings::public_site_url() . '/wp-json/simplevpbot/v1/webhook/telegram/' . rawurlencode( $sec );
+		}
+		if ( 'bale' === $plat ) {
+			$sec = (string) SimpleVPBot_Settings::get( 'bale_webhook_secret', '' );
+			if ( '' === $sec ) {
+				return '';
+			}
+			return SimpleVPBot_Settings::public_site_url() . '/wp-json/simplevpbot/v1/webhook/bale/' . rawurlencode( $sec );
+		}
+		return '';
+	}
+
+	/**
+	 * Expected webhook URL for reseller bot.
+	 *
+	 * @param string $platform           telegram|bale.
+	 * @param int    $reseller_svp_user_id Reseller id.
+	 * @return string
+	 */
+	private static function expected_webhook_url_reseller( $platform, $reseller_svp_user_id ) {
+		$r    = (int) $reseller_svp_user_id;
+		$plat = sanitize_key( (string) $platform );
+		if ( $r < 1 || ! class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+			return '';
+		}
+		$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
+		if ( ! $prof ) {
+			return '';
+		}
+		$sec = SimpleVPBot_Model_Reseller_Bot_Profile::webhook_secret_plaintext( $prof );
+		if ( '' === $sec ) {
+			$sec = SimpleVPBot_Model_Reseller_Bot_Profile::ensure_webhook_secret( $r );
+		}
+		if ( '' === $sec ) {
+			return '';
+		}
+		if ( 'telegram' === $plat ) {
+			if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) ) {
+				$relay_url = SimpleVPBot_Telegram_Relay::expected_webhook_url_reseller( $plat, $r );
+				if ( '' !== $relay_url ) {
+					return $relay_url;
+				}
+			}
+			return SimpleVPBot_Settings::public_site_url() . '/wp-json/simplevpbot/v1/webhook/telegram/reseller/' . $r . '/' . rawurlencode( $sec );
+		}
+		if ( 'bale' === $plat ) {
+			return SimpleVPBot_Settings::public_site_url() . '/wp-json/simplevpbot/v1/webhook/bale/reseller/' . $r . '/' . rawurlencode( $sec );
+		}
+		return '';
+	}
+
+	/**
+	 * Recent log rows matching message fragment.
+	 *
+	 * @param string $search  LIKE fragment.
+	 * @param int    $limit   Max rows.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function recent_logs_matching( $search, $limit = 10 ) {
+		global $wpdb;
+		$table = $wpdb->prefix . 'svp_logs';
+		$like  = '%' . $wpdb->esc_like( (string) $search ) . '%';
+		$lim   = max( 1, min( 20, (int) $limit ) );
+		$rows  = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, level, message, context_json, created_at FROM {$table} WHERE message LIKE %s ORDER BY id DESC LIMIT %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$like,
+				$lim
+			),
+			ARRAY_A
+		);
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$ctx = null;
+			if ( ! empty( $row['context_json'] ) ) {
+				$decoded = json_decode( (string) $row['context_json'], true );
+				$ctx     = is_array( $decoded ) ? $decoded : (string) $row['context_json'];
+			}
+			$out[] = array(
+				'id'         => (int) ( $row['id'] ?? 0 ),
+				'level'      => (string) ( $row['level'] ?? '' ),
+				'message'    => (string) ( $row['message'] ?? '' ),
+				'context'    => $ctx,
+				'created_at' => (string) ( $row['created_at'] ?? '' ),
+			);
+		}
+		return $out;
+	}
+
+	/**
+	 * Append structured diagnostic issue.
+	 *
+	 * @param array<int, array<string, string>> $issues Issues.
+	 * @param string                            $code   Code.
+	 * @param string                            $severity error|warning|info.
+	 * @param string                            $fa     Persian.
+	 * @param string                            $en     English.
+	 * @param string                            $hint   Hint.
+	 */
+	private static function push_diag_issue( array &$issues, $code, $severity, $fa, $en, $hint = '' ) {
+		$issues[] = array(
+			'code'       => (string) $code,
+			'severity'   => (string) $severity,
+			'message_fa' => (string) $fa,
+			'message_en' => (string) $en,
+			'hint'       => (string) $hint,
+		);
+	}
+
+	/**
+	 * Rate-limit bot diagnostics per admin user (prevents UI loops from flooding Telegram).
+	 *
+	 * @param string $platform             telegram|bale.
+	 * @param int    $reseller_svp_user_id 0 = main bot.
+	 * @return bool True if allowed.
+	 */
+	private static function bot_diagnostics_rate_limit_ok( $platform, $reseller_svp_user_id = 0 ) {
+		$uid = (int) get_current_user_id();
+		if ( $uid < 1 ) {
+			return true;
+		}
+		$key = 'svp_diag_rl_' . md5( sanitize_key( (string) $platform ) . ':' . (int) $reseller_svp_user_id . ':' . $uid );
+		if ( get_transient( $key ) ) {
+			return false;
+		}
+		set_transient( $key, 1, 30 );
+		return true;
+	}
+
+	/**
+	 * Live bot diagnostics (getMe + getWebhookInfo + local config).
+	 *
+	 * @param string $platform             telegram|bale.
+	 * @param int    $reseller_svp_user_id 0 = main bot.
+	 * @param bool   $reveal_token         Include full token in payload.
+	 * @param bool   $send_outbound_ping   Send a test message to the first admin chat id.
+	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
+	 */
+	public static function bot_diagnostics( $platform, $reseller_svp_user_id = 0, $reveal_token = false, $send_outbound_ping = false ) {
+		$plat = sanitize_key( (string) $platform );
+		if ( ! in_array( $plat, array( 'telegram', 'bale' ), true ) ) {
+			return array( 'ok' => false, 'message' => __( 'پلتفرم نامعتبر است.', 'simplevpbot' ) );
+		}
+		$rid   = max( 0, (int) $reseller_svp_user_id );
+		if ( ! self::bot_diagnostics_rate_limit_ok( $plat, $rid ) ) {
+			return array( 'ok' => false, 'message' => 'rate_limited' );
+		}
+		$scope = $rid > 0 ? 'reseller' : 'main';
+		$token = '';
+		$prof  = null;
+
+		if ( $rid > 0 ) {
+			if ( ! class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+				return array( 'ok' => false, 'message' => __( 'ماژول ربات نماینده در دسترس نیست.', 'simplevpbot' ) );
+			}
+			$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $rid );
+			$token = $prof ? SimpleVPBot_Model_Reseller_Bot_Profile::token_for_platform( $prof, $plat ) : '';
+		} elseif ( 'telegram' === $plat ) {
+			$token = (string) SimpleVPBot_Settings::get( 'telegram_token', '' );
+		} else {
+			$token = (string) SimpleVPBot_Settings::get( 'bale_token', '' );
+		}
+
+		$issues = array();
+		if ( '' === trim( $token ) ) {
+			self::push_diag_issue(
+				$issues,
+				'token_missing',
+				'error',
+				'توکن ربات تنظیم نشده است.',
+				'Bot token is not configured.',
+				'save_token'
+			);
+		}
+
+		$expected_url = $rid > 0
+			? self::expected_webhook_url_reseller( $plat, $rid )
+			: self::expected_webhook_url_main( $plat );
+
+		$local = array(
+			'scope'                          => $scope,
+			'reseller_svp_user_id'           => $rid,
+			'platform'                       => $plat,
+			'plugin_bot_processing_enabled'  => (bool) SimpleVPBot_Settings::get( 'enabled', true ),
+			'platform_enabled'               => class_exists( 'SimpleVPBot_Platforms' )
+				? SimpleVPBot_Platforms::is_enabled( $plat, $rid )
+				: true,
+			'webhook_rate_limit_per_min'     => (int) SimpleVPBot_Settings::get( 'webhook_rate_limit_per_min', 120 ),
+			'public_site_url'                => SimpleVPBot_Settings::public_site_url(),
+			'expected_webhook_url'           => $expected_url,
+			'webhook_secret_configured'      => '' !== $expected_url,
+			'telegram_secret_header_set'     => 'telegram' === $plat && '' !== trim( (string) SimpleVPBot_Settings::get( 'telegram_secret_header', '' ) ),
+			'reseller_profile_enabled'       => null === $prof ? null : ( ! isset( $prof->enabled ) || (int) $prof->enabled !== 0 ),
+		);
+
+		if ( 'reseller' === $scope && $prof && isset( $prof->enabled ) && (int) $prof->enabled === 0 ) {
+			self::push_diag_issue(
+				$issues,
+				'reseller_profile_disabled',
+				'warning',
+				'پروفایل ربات نماینده غیرفعال است.',
+				'Reseller bot profile is disabled.',
+				'enable_profile'
+			);
+		}
+		if ( ! $local['plugin_bot_processing_enabled'] ) {
+			self::push_diag_issue(
+				$issues,
+				'plugin_disabled',
+				'error',
+				'پردازش ربات در تنظیمات افزونه خاموش است.',
+				'Bot processing is disabled in plugin settings.',
+				'enable_plugin'
+			);
+		}
+		if ( ! $local['platform_enabled'] ) {
+			self::push_diag_issue(
+				$issues,
+				'platform_disabled',
+				'warning',
+				'این پلتفرم در تنظیمات خاموش است.',
+				'This platform is disabled in settings.',
+				'enable_platform'
+			);
+		}
+		if ( '' === $expected_url ) {
+			self::push_diag_issue(
+				$issues,
+				'webhook_secret_missing',
+				'error',
+				'راز مسیر وب‌هوک روی سرور تنظیم نشده است.',
+				'Webhook path secret is not configured on the server.',
+				'set_webhook_secret'
+			);
+		}
+
+		$get_me          = null;
+		$webhook_info    = null;
+		$registered_url  = '';
+		$pending_updates = 0;
+		$last_error      = '';
+		$last_error_date = 0;
+		$relay_health    = null;
+		$wp_forward_ok   = null;
+
+		if ( '' !== trim( $token ) ) {
+			$use_relay = 'telegram' === $plat
+				&& class_exists( 'SimpleVPBot_Telegram_Relay' )
+				&& SimpleVPBot_Telegram_Relay::is_enabled();
+			if ( $use_relay ) {
+				$relay_scope = $rid > 0 ? 'reseller' : 'main';
+				$h           = SimpleVPBot_Telegram_Relay::health();
+				$relay_health = isset( $h['data'] ) && is_array( $h['data'] ) ? $h['data'] : array();
+				$wp_forward_ok = ! empty( $h['ok'] );
+				if ( empty( $h['ok'] ) ) {
+					self::push_diag_issue(
+						$issues,
+						'relay_unreachable',
+						'error',
+						'سرور واسط تلگرام در دسترس نیست.',
+						'Telegram relay server is unreachable.',
+						isset( $h['message'] ) ? (string) $h['message'] : 'check_relay'
+					);
+				}
+				$dr = SimpleVPBot_Telegram_Relay::diagnostics_via_relay( $relay_scope, $rid );
+				if ( empty( $dr['ok'] ) ) {
+					self::push_diag_issue(
+						$issues,
+						'relay_diagnostics_failed',
+						'error',
+						'عیب‌یابی از طریق واسط ناموفق بود.',
+						'Diagnostics via relay failed.',
+						isset( $dr['message'] ) ? (string) $dr['message'] : ''
+					);
+				} elseif ( isset( $dr['data'] ) && is_array( $dr['data'] ) ) {
+					$d = $dr['data'];
+					if ( ! empty( $d['get_me'] ) && is_array( $d['get_me'] ) ) {
+						$get_me = $d['get_me'];
+					} else {
+						self::push_diag_issue(
+							$issues,
+							'getme_failed',
+							'error',
+							'توکن نامعتبر است یا API در دسترس نیست (getMe ناموفق).',
+							'Token is invalid or API unreachable (getMe failed).',
+							'relay_getme'
+						);
+					}
+					if ( ! empty( $d['webhook_info'] ) && is_array( $d['webhook_info'] ) ) {
+						$webhook_info = $d['webhook_info'];
+					}
+					$registered_url  = (string) ( $d['registered_webhook_url'] ?? ( $webhook_info['url'] ?? '' ) );
+					$pending_updates = (int) ( $d['pending_update_count'] ?? ( $webhook_info['pending_update_count'] ?? 0 ) );
+					$last_error      = (string) ( $d['last_error_message'] ?? ( $webhook_info['last_error_message'] ?? '' ) );
+					$last_error_date = (int) ( $webhook_info['last_error_date'] ?? 0 );
+
+					if ( '' === $registered_url ) {
+						self::push_diag_issue(
+							$issues,
+							'webhook_not_registered',
+							'error',
+							'وب‌هوک روی Telegram/Bale ثبت نشده است.',
+							'Webhook is not registered at Telegram/Bale.',
+							'set_webhook'
+						);
+					} elseif ( '' !== $expected_url && self::normalize_webhook_url( $registered_url ) !== self::normalize_webhook_url( $expected_url ) ) {
+						self::push_diag_issue(
+							$issues,
+							'webhook_url_mismatch',
+							'error',
+							'URL وب‌هوک ثبت‌شده با URL مورد انتظار سرور یکی نیست.',
+							'Registered webhook URL does not match the expected server URL.',
+							'set_webhook'
+						);
+					}
+					if ( $pending_updates > 0 ) {
+						self::push_diag_issue(
+							$issues,
+							'pending_updates',
+							'warning',
+							sprintf(
+								/* translators: %d: pending update count */
+								__( '%d به‌روزرسانی در صف تحویل به سرور است.', 'simplevpbot' ),
+								$pending_updates
+							),
+							sprintf( '%d update(s) queued for delivery to your webhook.', $pending_updates ),
+							'check_webhook_reachability'
+						);
+					}
+					if ( '' !== $last_error ) {
+						$is_504 = false !== stripos( $last_error, '504' )
+							|| false !== stripos( $last_error, 'Gateway Time-out' )
+							|| false !== stripos( $last_error, 'Gateway Timeout' );
+						self::push_diag_issue(
+							$issues,
+							'webhook_last_error',
+							'error',
+							'آخرین خطای تحویل وب‌هوک: ' . $last_error,
+							'Last webhook delivery error: ' . $last_error,
+							'fix_webhook'
+						);
+						if ( $is_504 ) {
+							self::push_diag_issue(
+								$issues,
+								'webhook_gateway_timeout',
+								'error',
+								'سرور دیر به Telegram پاسخ داده (504). از دکمه «ثبت مجدد وب‌هوک» استفاده کنید، چند دقیقه صبر کنید، سپس /start بزنید.',
+								'Server responded too slowly to Telegram (504). Use “Re-register webhook”, wait a few minutes, then send /start.',
+								'reregister_webhook_wait'
+							);
+						}
+					}
+				}
+			} else {
+			$client = 'telegram' === $plat ? new SimpleVPBot_Telegram_Client( $token ) : new SimpleVPBot_Bale_Client( $token );
+			$me_res = $client->get_me();
+			if ( empty( $me_res['ok'] ) ) {
+				self::push_diag_issue(
+					$issues,
+					'getme_failed',
+					'error',
+					'توکن نامعتبر است یا API در دسترس نیست (getMe ناموفق).',
+					'Token is invalid or API unreachable (getMe failed).',
+					isset( $me_res['description'] ) ? (string) $me_res['description'] : ''
+				);
+			} else {
+				$get_me = isset( $me_res['result'] ) && is_array( $me_res['result'] ) ? $me_res['result'] : array();
+			}
+
+			$wh_res = $client->get_webhook_info();
+			if ( empty( $wh_res['ok'] ) ) {
+				self::push_diag_issue(
+					$issues,
+					'getwebhookinfo_failed',
+					'warning',
+					'دریافت وضعیت وب‌هوک از API ناموفق بود.',
+					'Could not fetch webhook info from the API.',
+					isset( $wh_res['description'] ) ? (string) $wh_res['description'] : ''
+				);
+			} elseif ( isset( $wh_res['result'] ) && is_array( $wh_res['result'] ) ) {
+				$webhook_info    = $wh_res['result'];
+				$registered_url  = (string) ( $webhook_info['url'] ?? '' );
+				$pending_updates = (int) ( $webhook_info['pending_update_count'] ?? 0 );
+				$last_error      = (string) ( $webhook_info['last_error_message'] ?? '' );
+				$last_error_date = (int) ( $webhook_info['last_error_date'] ?? 0 );
+
+				if ( '' === $registered_url ) {
+					self::push_diag_issue(
+						$issues,
+						'webhook_not_registered',
+						'error',
+						'وب‌هوک روی Telegram/Bale ثبت نشده است.',
+						'Webhook is not registered at Telegram/Bale.',
+						'set_webhook'
+					);
+				} elseif ( '' !== $expected_url && self::normalize_webhook_url( $registered_url ) !== self::normalize_webhook_url( $expected_url ) ) {
+					self::push_diag_issue(
+						$issues,
+						'webhook_url_mismatch',
+						'error',
+						'URL وب‌هوک ثبت‌شده با URL مورد انتظار سرور یکی نیست.',
+						'Registered webhook URL does not match the expected server URL.',
+						'set_webhook'
+					);
+				}
+				if ( $pending_updates > 0 ) {
+					self::push_diag_issue(
+						$issues,
+						'pending_updates',
+						'warning',
+						sprintf(
+							/* translators: %d: pending update count */
+							__( '%d به‌روزرسانی در صف تحویل به سرور است.', 'simplevpbot' ),
+							$pending_updates
+						),
+						sprintf( '%d update(s) queued for delivery to your webhook.', $pending_updates ),
+						'check_webhook_reachability'
+					);
+				}
+				if ( '' !== $last_error ) {
+					$is_504 = false !== stripos( $last_error, '504' )
+						|| false !== stripos( $last_error, 'Gateway Time-out' )
+						|| false !== stripos( $last_error, 'Gateway Timeout' );
+					self::push_diag_issue(
+						$issues,
+						'webhook_last_error',
+						'error',
+						'آخرین خطای تحویل وب‌هوک: ' . $last_error,
+						'Last webhook delivery error: ' . $last_error,
+						'fix_webhook'
+					);
+					if ( $is_504 ) {
+						self::push_diag_issue(
+							$issues,
+							'webhook_gateway_timeout',
+							'error',
+							'سرور دیر به Telegram پاسخ داده (504). از دکمه «ثبت مجدد وب‌هوک» استفاده کنید، چند دقیقه صبر کنید، سپس /start بزنید. افزونه اکنون پردازش inbound را async می‌کند.',
+							'Server responded too slowly to Telegram (504). Use “Re-register webhook”, wait a few minutes, then send /start. The plugin now processes inbound updates asynchronously.',
+							'reregister_webhook_wait'
+						);
+					}
+				}
+			}
+			}
+		}
+
+		global $wpdb;
+		$broadcast_pending = (int) $wpdb->get_var(
+			"SELECT COUNT(*) FROM {$wpdb->prefix}svp_broadcast_queue WHERE status = 'pending'" // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		);
+		$local_inbound_pending = class_exists( 'SimpleVPBot_Webhook_Queue' )
+			? SimpleVPBot_Webhook_Queue::pending_count()
+			: 0;
+
+		$outbound_test = array(
+			'attempted' => false,
+			'ok'        => false,
+			'message'   => '',
+			'skipped'   => $send_outbound_ping ? '' : 'not_requested',
+		);
+		if ( $send_outbound_ping && '' !== trim( $token ) && ! empty( $get_me ) ) {
+			$admin_ids = array();
+			if ( $rid > 0 && $prof && class_exists( 'SimpleVPBot_Model_Reseller_Bot_Profile' ) ) {
+				$admin_ids = SimpleVPBot_Model_Reseller_Bot_Profile::decode_admin_ids(
+					'telegram' === $plat ? (string) ( $prof->admin_telegram_ids ?? '' ) : (string) ( $prof->admin_bale_ids ?? '' )
+				);
+			} else {
+				$admin_ids = (array) SimpleVPBot_Settings::get(
+					'telegram' === $plat ? 'admin_telegram_ids' : 'admin_bale_ids',
+					array()
+				);
+			}
+			$admin_ids = array_values(
+				array_filter(
+					array_map( 'intval', $admin_ids ),
+					static function ( $id ) {
+						return $id > 0;
+					}
+				)
+			);
+			if ( ! empty( $admin_ids ) ) {
+				$client = 'telegram' === $plat ? new SimpleVPBot_Telegram_Client( $token ) : new SimpleVPBot_Bale_Client( $token );
+				$outbound_test['attempted'] = true;
+				$outbound_test['skipped']   = '';
+				$ping                       = $client->send_message(
+					array(
+						'chat_id' => (int) $admin_ids[0],
+						'text'    => 'SimpleVPBot diagnostics ping — outbound send OK.',
+					),
+					25
+				);
+				$outbound_test['ok']        = ! empty( $ping['ok'] );
+				$outbound_test['message']   = ! empty( $ping['ok'] )
+					? 'sent'
+					: (string) ( $ping['description'] ?? 'send_failed' );
+				if ( empty( $ping['ok'] ) ) {
+					self::push_diag_issue(
+						$issues,
+						'outbound_send_failed',
+						'warning',
+						'ارسال تست به ادمین ناموفق بود: ' . (string) ( $ping['description'] ?? '' ),
+						'Test outbound message to admin failed: ' . (string) ( $ping['description'] ?? '' ),
+						'check_admin_chat_id'
+					);
+				}
+			} else {
+				$outbound_test['skipped'] = 'no_admin_chat_id';
+			}
+		}
+
+		$data = array(
+			'platform'              => $plat,
+			'scope'                 => $scope,
+			'reseller_svp_user_id'  => $rid,
+			'token_configured'      => '' !== trim( $token ),
+			'token_masked'          => self::mask_bot_token( $token ),
+			'local'                 => $local,
+			'get_me'                => $get_me,
+			'webhook_info'          => $webhook_info,
+			'registered_webhook_url' => $registered_url,
+			'expected_webhook_url'  => $expected_url,
+			'webhook_url_match'     => '' !== $registered_url && '' !== $expected_url
+				&& self::normalize_webhook_url( $registered_url ) === self::normalize_webhook_url( $expected_url ),
+			'pending_update_count'  => $pending_updates,
+			'last_error_message'    => $last_error,
+			'last_error_date'       => $last_error_date,
+			'issues'                => $issues,
+			'recent_webhook_logs'   => self::recent_logs_matching( 'webhook', 10 ),
+			'recent_send_logs'      => self::recent_logs_matching( 'send_message', 5 ),
+			'broadcast_queue_pending' => $broadcast_pending,
+			'local_inbound_queue_pending' => $local_inbound_pending,
+			'outbound_test'         => $outbound_test,
+			'relay_enabled'         => 'telegram' === $plat
+				&& class_exists( 'SimpleVPBot_Telegram_Relay' )
+				&& SimpleVPBot_Telegram_Relay::is_enabled(),
+			'relay_health'          => $relay_health,
+			'wp_forward_ok'         => $wp_forward_ok,
+		);
+		if ( $reveal_token && '' !== trim( $token ) ) {
+			$data['token_full'] = $token;
+		}
+
+		return array(
+			'ok'   => true,
+			'data' => $data,
+		);
+	}
+
+	/**
+	 * Main bot diagnostics wrapper.
+	 *
+	 * @param string $platform           telegram|bale.
+	 * @param bool   $reveal_token       Reveal full token.
+	 * @param bool   $send_outbound_ping Send test message to first admin.
+	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
+	 */
+	public static function bot_diagnostics_main( $platform, $reveal_token = false, $send_outbound_ping = false ) {
+		return self::bot_diagnostics( $platform, 0, $reveal_token, $send_outbound_ping );
+	}
+
+	/**
+	 * Reseller bot diagnostics wrapper.
+	 *
+	 * @param string $platform             telegram|bale.
+	 * @param int    $reseller_svp_user_id Reseller id.
+	 * @param bool   $reveal_token         Reveal full token.
+	 * @param bool   $send_outbound_ping   Send test message to first admin.
+	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
+	 */
+	public static function bot_diagnostics_reseller( $platform, $reseller_svp_user_id, $reveal_token = false, $send_outbound_ping = false ) {
+		return self::bot_diagnostics( $platform, (int) $reseller_svp_user_id, $reveal_token, $send_outbound_ping );
+	}
+
+	/**
 	 * Set Telegram webhook for reseller bot.
 	 *
 	 * @param int $reseller_svp_user_id svp_users.id (reseller).
@@ -452,7 +1164,7 @@ class SimpleVPBot_Service_Admin_Ops {
 		}
 		$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
 		$t    = $prof ? SimpleVPBot_Model_Reseller_Bot_Profile::token_for_platform( $prof, 'telegram' ) : '';
-		$sec  = $prof ? trim( (string) ( $prof->webhook_secret ?? '' ) ) : '';
+		$sec  = $prof ? SimpleVPBot_Model_Reseller_Bot_Profile::webhook_secret_plaintext( $prof ) : '';
 		if ( '' === $t ) {
 			return array( 'ok' => false, 'message' => __( 'توکن تلگرام نماینده تنظیم نشده است.', 'simplevpbot' ) );
 		}
@@ -461,6 +1173,9 @@ class SimpleVPBot_Service_Admin_Ops {
 		}
 		if ( '' === $sec ) {
 			return array( 'ok' => false, 'message' => __( 'Secret مسیر Webhook نماینده تنظیم نشده است.', 'simplevpbot' ) );
+		}
+		if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) && SimpleVPBot_Telegram_Relay::is_enabled() ) {
+			return SimpleVPBot_Telegram_Relay::set_webhook_via_relay( 'reseller', $r, true );
 		}
 		$url = SimpleVPBot_Settings::public_site_url() . '/wp-json/simplevpbot/v1/webhook/telegram/reseller/' . $r . '/' . rawurlencode( $sec );
 		$c   = new SimpleVPBot_Telegram_Client( $t );
@@ -497,7 +1212,7 @@ class SimpleVPBot_Service_Admin_Ops {
 		}
 		$prof = SimpleVPBot_Model_Reseller_Bot_Profile::find_by_reseller( $r );
 		$t    = $prof ? SimpleVPBot_Model_Reseller_Bot_Profile::token_for_platform( $prof, 'bale' ) : '';
-		$sec  = $prof ? trim( (string) ( $prof->webhook_secret ?? '' ) ) : '';
+		$sec  = $prof ? SimpleVPBot_Model_Reseller_Bot_Profile::webhook_secret_plaintext( $prof ) : '';
 		if ( '' === $t ) {
 			return array( 'ok' => false, 'message' => __( 'توکن بله نماینده تنظیم نشده است.', 'simplevpbot' ) );
 		}
@@ -536,6 +1251,9 @@ class SimpleVPBot_Service_Admin_Ops {
 		if ( '' === $t ) {
 			return array( 'ok' => false, 'message' => __( 'توکن تلگرام نماینده تنظیم نشده است.', 'simplevpbot' ) );
 		}
+		if ( class_exists( 'SimpleVPBot_Telegram_Relay' ) && SimpleVPBot_Telegram_Relay::is_enabled() ) {
+			return SimpleVPBot_Telegram_Relay::delete_webhook_via_relay( 'reseller', $r );
+		}
 		$c   = new SimpleVPBot_Telegram_Client( $t );
 		$res = $c->delete_webhook();
 		if ( empty( $res['ok'] ) ) {
@@ -568,30 +1286,150 @@ class SimpleVPBot_Service_Admin_Ops {
 		return array( 'ok' => true, 'data' => array( 'response' => $res ) );
 	}
 
+	const MANUAL_BACKUP_STATUS_TRANSIENT = 'simplevpbot_manual_backup_status';
+
+	const MANUAL_BACKUP_CRON_HOOK = 'simplevpbot_manual_backup';
+
+	const MANUAL_BACKUP_WORKER_LOCK = 'simplevpbot_manual_backup_worker';
+
 	/**
-	 * Run backup cron job.
-	 *
-	 * @return array{ok:bool, data?:array<string,mixed>, message?:string}
+	 * Clear manual backup status, worker lock, and scheduled backup lock.
 	 */
-	public static function backup_now() {
-		try {
-			$res = SimpleVPBot_Cron_Backup::run();
-		} catch ( Throwable $e ) { // phpcs:ignore
-			return array( 'ok' => false, 'message' => $e->getMessage() );
+	public static function clear_manual_backup_locks() {
+		delete_transient( self::MANUAL_BACKUP_STATUS_TRANSIENT );
+		delete_transient( self::MANUAL_BACKUP_WORKER_LOCK );
+		if ( class_exists( 'SimpleVPBot_Cron_Backup' ) ) {
+			delete_transient( SimpleVPBot_Cron_Backup::LOCK_TRANSIENT );
+		}
+	}
+
+	/**
+	 * Admin action: release stuck backup locks (dashboard reset button).
+	 *
+	 * @return array{ok:bool, status:string}
+	 */
+	public static function reset_backup_stuck_locks() {
+		self::clear_manual_backup_locks();
+		delete_transient( 'simplevpbot_cron_ping_lock' );
+		return array(
+			'ok'     => true,
+			'status' => 'idle',
+		);
+	}
+
+	/**
+	 * Drop stale "running" manual backup state (worker never finished).
+	 *
+	 * @return bool True if locks were cleared.
+	 */
+	public static function reset_stale_manual_backup_status() {
+		$st = self::get_manual_backup_status();
+		if ( 'running' !== (string) ( $st['status'] ?? '' ) ) {
+			return false;
+		}
+		$started  = (int) ( $st['started_at'] ?? 0 );
+		$max_secs = (int) apply_filters( 'simplevpbot_manual_backup_stale_seconds', 15 * MINUTE_IN_SECONDS );
+		if ( $started > 0 && ( time() - $started ) <= $max_secs ) {
+			return false;
+		}
+		self::clear_manual_backup_locks();
+		return true;
+	}
+
+	/**
+	 * Validate delivery for manual backup; allow run when site storage is enabled.
+	 *
+	 * @return array{ok:bool, message?:string, warning?:string}
+	 */
+	public static function validate_delivery_for_manual_backup() {
+		$valid = SimpleVPBot_Cron_Backup::validate_delivery_config();
+		if ( ! empty( $valid['ok'] ) ) {
+			return array( 'ok' => true );
+		}
+		$store = class_exists( 'SimpleVPBot_Settings' )
+			&& ! empty( SimpleVPBot_Settings::get( 'backup_store_on_site', false ) );
+		if ( $store ) {
+			return array(
+				'ok'      => true,
+				'warning' => (string) ( $valid['message'] ?? '' ),
+			);
+		}
+		return array(
+			'ok'      => false,
+			'message' => (string) ( $valid['message'] ?? __( 'تنظیمات ارسال بکاپ ناقص است.', 'simplevpbot' ) ),
+		);
+	}
+
+	/**
+	 * @return array<string, mixed>
+	 */
+	public static function get_manual_backup_status() {
+		$st = get_transient( self::MANUAL_BACKUP_STATUS_TRANSIENT );
+		if ( ! is_array( $st ) ) {
+			return array( 'status' => 'idle' );
+		}
+		return $st;
+	}
+
+	/**
+	 * @param array<string, mixed> $state Status payload.
+	 */
+	private static function set_manual_backup_status( array $state ) {
+		set_transient( self::MANUAL_BACKUP_STATUS_TRANSIENT, $state, 30 * MINUTE_IN_SECONDS );
+	}
+
+	/**
+	 * Build API response from Cron_Backup::run() result.
+	 *
+	 * @param array<string, mixed> $res Cron run output.
+	 * @return array{ok:bool, code?:string, message?:string, data?:array<string,mixed>}
+	 */
+	public static function backup_response_from_cron_run( array $res ) {
+		$skipped = trim( (string) ( $res['skipped_reason'] ?? '' ) );
+		if ( '' !== $skipped ) {
+			$messages = array(
+				'lock'     => __( 'بکاپ دیگری در حال اجراست. چند دقیقه صبر کنید و دوباره تلاش کنید.', 'simplevpbot' ),
+				'enabled'  => __( 'ربات غیرفعال است؛ بکاپ زمان‌بندی‌شده اجرا نمی‌شود.', 'simplevpbot' ),
+				'zip'      => __( 'ساخت فایل zip ناموفق بود (ZipArchive یا جداول). لاگ را ببینید.', 'simplevpbot' ),
+				'max_size' => __( 'حجم zip از سقف backup_max_zip_mb بیشتر است.', 'simplevpbot' ),
+			);
+			$codes = array(
+				'lock'     => 'skipped_lock',
+				'enabled'  => 'skipped_enabled',
+				'zip'      => 'skipped_zip',
+				'max_size' => 'skipped_max_size',
+			);
+			return array(
+				'ok'      => false,
+				'code'    => $codes[ $skipped ] ?? 'skipped',
+				'message' => $messages[ $skipped ] ?? __( 'بکاپ اجرا نشد.', 'simplevpbot' ),
+				'data'    => array( 'skipped_reason' => $skipped ),
+			);
 		}
 		if ( empty( $res['built'] ) ) {
-			return array( 'ok' => false, 'message' => __( 'ساخت فایل بکاپ ناموفق بود. لاگ‌ها را ببینید.', 'simplevpbot' ) );
+			return array(
+				'ok'      => false,
+				'code'    => 'build_failed',
+				'message' => __( 'ساخت فایل بکاپ ناموفق بود. لاگ‌ها را ببینید.', 'simplevpbot' ),
+			);
 		}
 		$built_at = (int) get_option( 'simplevpbot_last_backup_built_at', 0 );
 		$last     = (int) get_option( 'simplevpbot_last_backup_at', 0 );
 		$data     = array(
-			'last_backup_at' => $last,
-			'sent'           => (int) $res['sent'],
-			'failed'         => (int) $res['failed'],
-			'last_built_at'  => $built_at,
+			'last_backup_at'   => $last,
+			'sent'             => (int) ( $res['sent'] ?? 0 ),
+			'failed'           => (int) ( $res['failed'] ?? 0 ),
+			'last_built_at'    => $built_at,
+			'stored_on_site'   => ! empty( $res['stored_on_site'] ),
+			'storage_fallback' => ! empty( $res['storage_fallback'] ),
 		);
+		if ( ! empty( $res['delivery'] ) && is_array( $res['delivery'] ) ) {
+			$data['delivery'] = $res['delivery'];
+		}
 		if ( ! empty( $res['sent'] ) ) {
 			$data['message'] = __( 'بکاپ زیپ ساخته و حداقل به یک مقصد ارسال شد.', 'simplevpbot' );
+		} elseif ( ! empty( $res['stored_on_site'] ) ) {
+			$data['message'] = __( 'زیپ بکاپ ساخته و روی سایت ذخیره شد (ارسال به مقصدها انجام نشد یا غیرفعال بود).', 'simplevpbot' );
 		} else {
 			$data['message'] = __( 'زیپ بکاپ ساخته شد؛ به هیچ مقصدی ارسال نشد یا همه ناموفق بودند (تیک‌های مقصد را بررسی کنید).', 'simplevpbot' );
 		}
@@ -605,13 +1443,196 @@ class SimpleVPBot_Service_Admin_Ops {
 				$expected
 			);
 		}
+		if ( ! empty( $res['panel_db_critical'] ) ) {
+			$data['panel_db_critical']     = true;
+			$data['panel_db_critical_msg'] = __( 'هشدار: هیچ DB پنلی در این بکاپ نیست — فقط جداول وردپرس.', 'simplevpbot' );
+		}
 		if ( isset( $res['panel_db_ok'] ) ) {
 			$data['panel_db_ok'] = (int) $res['panel_db_ok'];
 		}
 		if ( isset( $res['panel_db_failed'] ) ) {
 			$data['panel_db_failed'] = (int) $res['panel_db_failed'];
 		}
+		if ( ! empty( $res['panel_db_failures'] ) && is_array( $res['panel_db_failures'] ) ) {
+			$data['panel_db_failures'] = $res['panel_db_failures'];
+		}
 		return array( 'ok' => true, 'data' => $data );
+	}
+
+	/**
+	 * Run backup synchronously (legacy / internal).
+	 *
+	 * @return array{ok:bool, data?:array<string,mixed>, message?:string, code?:string}
+	 */
+	public static function backup_now() {
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 600 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		if ( function_exists( 'ignore_user_abort' ) ) {
+			@ignore_user_abort( true ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		$valid = self::validate_delivery_for_manual_backup();
+		if ( empty( $valid['ok'] ) ) {
+			return array(
+				'ok'      => false,
+				'code'    => 'delivery_misconfigured',
+				'message' => (string) ( $valid['message'] ?? __( 'تنظیمات ارسال بکاپ ناقص است.', 'simplevpbot' ) ),
+			);
+		}
+		try {
+			$res = SimpleVPBot_Cron_Backup::run(
+				array(
+					'force'          => true,
+					'ignore_enabled' => true,
+				)
+			);
+		} catch ( Throwable $e ) { // phpcs:ignore
+			return array(
+				'ok'      => false,
+				'code'    => 'exception',
+				'message' => $e->getMessage(),
+			);
+		}
+		return self::backup_response_from_cron_run( $res );
+	}
+
+	/**
+	 * Queue manual backup for WP-Cron (avoids CDN/proxy HTTP timeouts).
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function backup_now_start_async() {
+		self::reset_stale_manual_backup_status();
+		$valid = self::validate_delivery_for_manual_backup();
+		if ( empty( $valid['ok'] ) ) {
+			return array(
+				'ok'      => false,
+				'code'    => 'delivery_misconfigured',
+				'message' => (string) ( $valid['message'] ?? __( 'تنظیمات ارسال بکاپ ناقص است.', 'simplevpbot' ) ),
+			);
+		}
+		$st = self::get_manual_backup_status();
+		if ( 'running' === (string) ( $st['status'] ?? '' ) ) {
+			return array(
+				'ok'      => false,
+				'code'    => 'already_running',
+				'status'  => 'running',
+				'message' => __( 'بکاپ دیگری در حال اجراست. چند لحظه صبر کنید.', 'simplevpbot' ),
+			);
+		}
+		self::set_manual_backup_status(
+			array(
+				'status'     => 'running',
+				'started_at' => time(),
+			)
+		);
+		wp_clear_scheduled_hook( self::MANUAL_BACKUP_CRON_HOOK );
+		wp_schedule_single_event( time(), self::MANUAL_BACKUP_CRON_HOOK );
+		if ( class_exists( 'SimpleVPBot_Cron_Manager' ) ) {
+			SimpleVPBot_Cron_Manager::ping_wp_cron_loopback();
+		}
+		if ( function_exists( 'spawn_cron' ) ) {
+			spawn_cron();
+		}
+		self::register_manual_backup_shutdown_runner();
+		$out = array(
+			'ok'      => true,
+			'async'   => true,
+			'status'  => 'running',
+			'message' => __( 'بکاپ روی سرور شروع شد. چند لحظه صبر کنید…', 'simplevpbot' ),
+		);
+		if ( ! empty( $valid['warning'] ) ) {
+			$out['delivery_warning'] = (string) $valid['warning'];
+		}
+		return $out;
+	}
+
+	/**
+	 * WP-Cron worker for dashboard «backup now».
+	 */
+	public static function run_manual_backup_job() {
+		$st = self::get_manual_backup_status();
+		if ( 'running' !== (string) ( $st['status'] ?? '' ) ) {
+			return;
+		}
+		if ( ! self::acquire_manual_backup_worker_lock() ) {
+			return;
+		}
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 600 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		if ( function_exists( 'ignore_user_abort' ) ) {
+			@ignore_user_abort( true ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		$started = (int) ( $st['started_at'] ?? time() );
+		try {
+			try {
+				$res = SimpleVPBot_Cron_Backup::run(
+					array(
+						'force'          => true,
+						'ignore_enabled' => true,
+					)
+				);
+				$out = self::backup_response_from_cron_run( $res );
+			} catch ( Throwable $e ) { // phpcs:ignore
+				$out = array(
+					'ok'      => false,
+					'code'    => 'exception',
+					'message' => $e->getMessage(),
+				);
+			}
+			self::set_manual_backup_status(
+				array(
+					'status'      => ! empty( $out['ok'] ) ? 'done' : 'error',
+					'started_at'  => $started,
+					'finished_at' => time(),
+					'ok'          => ! empty( $out['ok'] ),
+					'code'        => (string) ( $out['code'] ?? '' ),
+					'message'     => (string) ( $out['message'] ?? ( isset( $out['data']['message'] ) ? (string) $out['data']['message'] : '' ) ),
+					'data'        => isset( $out['data'] ) && is_array( $out['data'] ) ? $out['data'] : null,
+				)
+			);
+		} finally {
+			self::release_manual_backup_worker_lock();
+		}
+	}
+
+	/**
+	 * Poll result for async manual backup.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function get_manual_backup_status_api() {
+		self::reset_stale_manual_backup_status();
+		$st     = self::get_manual_backup_status();
+		$status = (string) ( $st['status'] ?? 'idle' );
+		if ( 'running' === $status ) {
+			self::maybe_run_manual_backup_fallback( $st, true );
+			$st = self::get_manual_backup_status();
+			$status = (string) ( $st['status'] ?? 'idle' );
+		}
+		if ( 'running' === $status ) {
+			return array(
+				'ok'         => true,
+				'status'     => 'running',
+				'message'    => __( 'بکاپ در حال اجراست…', 'simplevpbot' ),
+				'started_at' => (int) ( $st['started_at'] ?? 0 ),
+			);
+		}
+		if ( 'done' === $status || 'error' === $status ) {
+			return array(
+				'ok'          => ! empty( $st['ok'] ),
+				'status'      => $status,
+				'code'        => (string) ( $st['code'] ?? '' ),
+				'message'     => (string) ( $st['message'] ?? '' ),
+				'data'        => isset( $st['data'] ) && is_array( $st['data'] ) ? $st['data'] : null,
+				'finished_at' => (int) ( $st['finished_at'] ?? 0 ),
+			);
+		}
+		return array(
+			'ok'     => true,
+			'status' => 'idle',
+		);
 	}
 
 	/**
@@ -747,9 +1768,85 @@ class SimpleVPBot_Service_Admin_Ops {
 	}
 
 	/**
+	 * Try to start the manual backup worker (shutdown = immediate; poll = after 5s if still running).
+	 *
+	 * @param array<string, mixed> $st Current status transient.
+	 * @param bool               $immediate Skip elapsed-time wait (same request shutdown).
+	 */
+	private static function maybe_run_manual_backup_fallback( array $st, $immediate = false ) {
+		if ( 'running' !== (string) ( $st['status'] ?? '' ) ) {
+			return;
+		}
+		if ( get_transient( self::MANUAL_BACKUP_WORKER_LOCK ) ) {
+			return;
+		}
+		$started = (int) ( $st['started_at'] ?? 0 );
+		if ( ! $immediate && ( $started < 1 || ( time() - $started ) < 5 ) ) {
+			return;
+		}
+		wp_clear_scheduled_hook( self::MANUAL_BACKUP_CRON_HOOK );
+		self::run_manual_backup_job();
+	}
+
+	/**
+	 * Acquire exclusive lock so shutdown + cron + poll do not run backup twice.
+	 *
+	 * @return bool
+	 */
+	private static function acquire_manual_backup_worker_lock() {
+		if ( get_transient( self::MANUAL_BACKUP_WORKER_LOCK ) ) {
+			return false;
+		}
+		set_transient( self::MANUAL_BACKUP_WORKER_LOCK, 1, 20 * MINUTE_IN_SECONDS );
+		return true;
+	}
+
+	/**
+	 * Release worker lock after job finishes.
+	 */
+	private static function release_manual_backup_worker_lock() {
+		delete_transient( self::MANUAL_BACKUP_WORKER_LOCK );
+	}
+
+	/**
+	 * Run manual backup on shutdown after REST response (fastcgi_finish_request when available).
+	 */
+	private static function register_manual_backup_shutdown_runner() {
+		static $registered = false;
+		if ( $registered ) {
+			return;
+		}
+		$registered = true;
+		add_action(
+			'shutdown',
+			static function () {
+				if ( function_exists( 'fastcgi_finish_request' ) ) {
+					fastcgi_finish_request();
+				}
+				$st = self::get_manual_backup_status();
+				self::maybe_run_manual_backup_fallback( $st, true );
+			},
+			0
+		);
+	}
+
+	/**
+	 * Resolve readable path for a site-stored backup zip.
+	 *
+	 * @param string $filename Basename.
+	 * @return string Absolute path or empty.
+	 */
+	public static function resolve_site_backup_download_path( $filename ) {
+		if ( ! class_exists( 'SimpleVPBot_Backup_Export' ) ) {
+			return '';
+		}
+		return SimpleVPBot_Backup_Export::resolve_site_backup_path( $filename );
+	}
+
+	/**
 	 * List on-site stored backup zips + last run metadata.
 	 *
-	 * @return array{ok:bool, rows?:array<int,array<string,mixed>>, last_backup_at?:int, last_built_at?:int, store_on_site?:bool}
+	 * @return array<string, mixed>
 	 */
 	public static function list_site_backups() {
 		$rows = class_exists( 'SimpleVPBot_Backup_Export' )
@@ -767,6 +1864,14 @@ class SimpleVPBot_Service_Admin_Ops {
 				);
 			}
 		}
+		$cron = class_exists( 'SimpleVPBot_Cron_Manager' )
+			? SimpleVPBot_Cron_Manager::backup_cron_diagnostics()
+			: array();
+		$last_run = get_option( 'simplevpbot_last_backup_run', array() );
+		if ( ! is_array( $last_run ) ) {
+			$last_run = array();
+		}
+		$tz = function_exists( 'wp_timezone_string' ) ? wp_timezone_string() : '';
 		return array(
 			'ok'              => true,
 			'rows'            => $rows,
@@ -774,6 +1879,25 @@ class SimpleVPBot_Service_Admin_Ops {
 			'last_backup_at'  => (int) get_option( 'simplevpbot_last_backup_at', 0 ),
 			'last_built_at'   => (int) get_option( 'simplevpbot_last_backup_built_at', 0 ),
 			'store_on_site'   => (bool) SimpleVPBot_Settings::get( 'backup_store_on_site', false ),
+			'next_backup_at'  => (int) ( $cron['next_at'] ?? 0 ),
+			'backup_interval_minutes' => (int) ( $cron['interval_minutes'] ?? max( 5, (int) SimpleVPBot_Settings::get( 'backup_interval_minutes', 60 ) ) ),
+			'cron_schedule'   => (string) ( $cron['schedule'] ?? '' ),
+			'cron_wanted_schedule' => (string) ( $cron['wanted_schedule'] ?? '' ),
+			'cron_registered' => ! empty( $cron['registered'] ),
+			'last_run'        => $last_run,
+			'backup_display_timezone' => class_exists( 'SimpleVPBot_Jalali_Date' )
+				? SimpleVPBot_Jalali_Date::BACKUP_TIMEZONE
+				: $tz,
+			'site_timezone'   => is_string( $tz ) ? $tz : '',
+			'last_cron_ping_at' => class_exists( 'SimpleVPBot_Cron_Manager' )
+				? (int) get_option( SimpleVPBot_Cron_Manager::LAST_CRON_PING_OPTION, 0 )
+				: 0,
+			'cron_ping_interval_seconds' => class_exists( 'SimpleVPBot_Cron_Manager' )
+				? SimpleVPBot_Cron_Manager::cron_ping_interval_seconds()
+				: 120,
+			'server_crontab_line' => class_exists( 'SimpleVPBot_Cron_Manager' )
+				? SimpleVPBot_Cron_Manager::server_crontab_line()
+				: '',
 		);
 	}
 
@@ -1181,28 +2305,7 @@ class SimpleVPBot_Service_Admin_Ops {
 	 * @return array<int, string>
 	 */
 	private static function xui_onlines_email_list( $json ) {
-		if ( ! is_array( $json ) ) {
-			return array();
-		}
-		$arr = null;
-		if ( isset( $json['obj'] ) && is_array( $json['obj'] ) ) {
-			$arr = $json['obj'];
-		} elseif ( isset( $json['data'] ) && is_array( $json['data'] ) ) {
-			$arr = $json['data'];
-		} elseif ( array_values( $json ) === $json ) {
-			$arr = $json;
-		} else {
-			return array();
-		}
-		$out = array();
-		foreach ( $arr as $v ) {
-			if ( is_string( $v ) && '' !== trim( $v ) ) {
-				$out[] = trim( $v );
-			} elseif ( is_array( $v ) && ! empty( $v['email'] ) ) {
-				$out[] = trim( (string) $v['email'] );
-			}
-		}
-		return $out;
+		return SimpleVPBot_Xui_Client::parse_onlines_response( $json );
 	}
 
 	/**
@@ -1216,17 +2319,23 @@ class SimpleVPBot_Service_Admin_Ops {
 		if ( '' === $em || ! class_exists( 'SimpleVPBot_Xui_Client' ) ) {
 			return array();
 		}
-		$j   = SimpleVPBot_Xui_Client::client_ips( $em );
-		$obj = is_array( $j ) && isset( $j['obj'] ) ? $j['obj'] : null;
-		$ips = array();
-		if ( is_string( $obj ) && '' !== $obj && 'No IP Record' !== $obj ) {
-			$decoded = json_decode( $obj, true );
-			$ips     = is_array( $decoded ) ? $decoded : preg_split( '/[\s,]+/', $obj );
-		} elseif ( is_array( $obj ) ) {
-			$ips = $obj;
-		}
-		$ips = array_slice( array_filter( array_map( 'trim', array_map( 'strval', (array) $ips ) ) ), 0, 30 );
-		return $ips;
+		$j = SimpleVPBot_Xui_Client::client_ips( $em );
+		return SimpleVPBot_Xui_Client::parse_client_ips_response( $j, 30 );
+	}
+
+	/**
+	 * Preview batch for immediate delete (no grace) on one panel.
+	 *
+	 * @param int $panel_id Panel id.
+	 * @param int $limit    Max ids.
+	 * @return array{ids:array<int,int>,count:int}
+	 */
+	public static function expired_linked_preview( $panel_id, $limit = 50 ) {
+		$ids = self::expired_linked_service_ids( $panel_id, $limit );
+		return array(
+			'ids'   => $ids,
+			'count' => count( $ids ),
+		);
 	}
 
 	/**
@@ -1411,6 +2520,42 @@ class SimpleVPBot_Service_Admin_Ops {
 		$const_max_per_inbound = 500;
 		$truncated             = false;
 		$row_total             = 0;
+		$v3_clients_by_inbound = array();
+		if ( SimpleVPBot_Xui_Client::is_v3_clients_api() ) {
+			$page = 1;
+			while ( $page <= 20 ) {
+				$batch = SimpleVPBot_Xui_Client::clients_list_paged_v3( $page, 500 );
+				if ( ! is_array( $batch ) || empty( $batch['clients'] ) ) {
+					break;
+				}
+				foreach ( $batch['clients'] as $c ) {
+					if ( ! is_array( $c ) || empty( $c['email'] ) ) {
+						continue;
+					}
+					$inbound_ids = $c['inboundIds'] ?? $c['inbound_ids'] ?? array();
+					if ( ! is_array( $inbound_ids ) ) {
+						$inbound_ids = array();
+					}
+					foreach ( $inbound_ids as $ciid ) {
+						$ciid = (int) $ciid;
+						if ( $ciid < 1 ) {
+							continue;
+						}
+						if ( ! isset( $v3_clients_by_inbound[ $ciid ] ) ) {
+							$v3_clients_by_inbound[ $ciid ] = array();
+						}
+						$v3_clients_by_inbound[ $ciid ][] = $c;
+					}
+				}
+				if ( count( $batch['clients'] ) < 500 ) {
+					break;
+				}
+				++$page;
+				if ( $page > 20 ) {
+					$truncated = true;
+				}
+			}
+		}
 		foreach ( $targets as $iid ) {
 			$inb = SimpleVPBot_Xui_Client::inbound_get( $iid );
 			if ( ! $inb ) {
@@ -1427,8 +2572,14 @@ class SimpleVPBot_Service_Admin_Ops {
 			$dec_in     = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
 			$inb_remark = (string) ( $inb['remark'] ?? '' );
 			$db_rows    = array();
-			if ( is_array( $dec_in ) && ! empty( $dec_in['clients'] ) && is_array( $dec_in['clients'] ) ) {
-				foreach ( $dec_in['clients'] as $c ) {
+			$client_src = array();
+			if ( SimpleVPBot_Xui_Client::is_v3_clients_api() && isset( $v3_clients_by_inbound[ $iid ] ) ) {
+				$client_src = $v3_clients_by_inbound[ $iid ];
+			} elseif ( is_array( $dec_in ) && ! empty( $dec_in['clients'] ) && is_array( $dec_in['clients'] ) ) {
+				$client_src = $dec_in['clients'];
+			}
+			if ( ! empty( $client_src ) && is_array( $client_src ) ) {
+				foreach ( $client_src as $c ) {
 					if ( count( $db_rows ) >= $const_max_per_inbound ) {
 						$truncated = true;
 						break;
@@ -1988,6 +3139,34 @@ class SimpleVPBot_Service_Admin_Ops {
 		$iid = (int) $inbound_id;
 		$em  = trim( (string) $email );
 		$en  = (bool) $enable;
+		if ( SimpleVPBot_Xui_Client::is_v3_clients_api() ) {
+			$res = SimpleVPBot_Xui_Client::client_update_v3(
+				$em,
+				array( 'enable' => $en ),
+				array( $iid )
+			);
+			if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+				return array( 'ok' => false, 'message' => __( 'به‌روزرسانی پنل ناموفق.', 'simplevpbot' ) );
+			}
+			$svc = SimpleVPBot_Model_Service::find_by_inbound_email( $iid, $em, $pid > 0 ? $pid : 1 );
+			if ( $svc ) {
+				SimpleVPBot_Model_Service::update(
+					(int) $svc->id,
+					array(
+						'panel_client_enabled' => $en ? 1 : 0,
+					)
+				);
+			}
+			if ( class_exists( 'SimpleVPBot_Model_Panel_Inbound_Client' ) ) {
+				SimpleVPBot_Model_Panel_Inbound_Client::patch_cached_client(
+					$pid,
+					$iid,
+					$em,
+					array( 'enable' => $en ? 1 : 0 )
+				);
+			}
+			return array( 'ok' => true );
+		}
 		$inbound = SimpleVPBot_Xui_Client::inbound_get( $iid );
 		if ( ! $inbound ) {
 			return array( 'ok' => false, 'message' => __( 'Inbound یافت نشد.', 'simplevpbot' ) );
@@ -2294,6 +3473,58 @@ class SimpleVPBot_Service_Admin_Ops {
 			function () use ( $pid, $iid, $em, $patch ) {
 				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
 					return array( 'ok' => false, 'message' => __( 'ورود پنل ناموفق.', 'simplevpbot' ) );
+				}
+				if ( SimpleVPBot_Xui_Client::is_v3_clients_api() ) {
+					$updated = SimpleVPBot_Xui_Client::client_get_v3( $em );
+					if ( ! is_array( $updated ) ) {
+						return array( 'ok' => false, 'message' => __( 'کلاینتی یافت نشد.', 'simplevpbot' ) );
+					}
+					if ( array_key_exists( 'expiry_ms', $patch ) ) {
+						$updated['expiryTime'] = (int) $patch['expiry_ms'];
+					}
+					if ( array_key_exists( 'total_gb', $patch ) ) {
+						$gb    = (int) $patch['total_gb'];
+						$bytes = $gb > 0 ? (int) ( $gb * 1073741824 ) : 0;
+						$updated['totalGB'] = SimpleVPBot_Inbound_Linker::panel_client_totalgb_json_value( $bytes );
+					}
+					if ( array_key_exists( 'client_remark', $patch ) ) {
+						$updated['comment'] = (string) $patch['client_remark'];
+					}
+					if ( array_key_exists( 'client_email_new', $patch ) ) {
+						$new_em = trim( (string) $patch['client_email_new'] );
+						if ( '' !== $new_em ) {
+							$updated['email'] = $new_em;
+						}
+					}
+					if ( array_key_exists( 'limit_ip', $patch ) ) {
+						$lip = (int) $patch['limit_ip'];
+						if ( $lip >= 0 ) {
+							$updated['limitIp'] = $lip;
+						}
+					}
+					if ( array_key_exists( 'client_comment', $patch ) ) {
+						$updated['comment'] = sanitize_text_field( (string) $patch['client_comment'] );
+					}
+					if ( array_key_exists( 'start_after_first_use', $patch ) ) {
+						$v = ! empty( $patch['start_after_first_use'] );
+						foreach ( array( 'firstUsage', 'startAfterFirstUse', 'start_after_first_use' ) as $fuk ) {
+							if ( array_key_exists( $fuk, $updated ) || 'firstUsage' === $fuk ) {
+								$updated[ $fuk ] = $v;
+							}
+						}
+					}
+					$new_em = isset( $updated['email'] ) ? trim( (string) $updated['email'] ) : $em;
+					$res    = SimpleVPBot_Xui_Client::client_update_v3( $em, $updated, array( $iid ) );
+					if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+						return array( 'ok' => false, 'message' => __( 'به‌روزرسانی پنل ناموفق.', 'simplevpbot' ) );
+					}
+					if ( $new_em !== $em && class_exists( 'SimpleVPBot_Model_Service' ) ) {
+						$svc = SimpleVPBot_Model_Service::find_by_inbound_email( $iid, $em, $pid > 0 ? $pid : 1 );
+						if ( $svc ) {
+							SimpleVPBot_Model_Service::update( (int) $svc->id, array( 'email' => $new_em ) );
+						}
+					}
+					return array( 'ok' => true );
 				}
 				$inbound = SimpleVPBot_Xui_Client::inbound_get( $iid );
 				if ( ! $inbound ) {

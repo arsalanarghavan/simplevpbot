@@ -19,35 +19,175 @@ class SimpleVPBot_Cron_Backup {
 	/**
 	 * Run job.
 	 *
-	 * @return array{built:bool, sent:int, failed:int, zip?:string}
+	 * @param array<string, mixed> $args force?:bool, ignore_enabled?:bool.
+	 * @return array<string, mixed>
 	 */
-	public static function run() {
-		$out = array(
-			'built'  => false,
-			'sent'   => 0,
-			'failed' => 0,
+	public static function run( array $args = array() ) {
+		$force          = ! empty( $args['force'] );
+		$ignore_enabled = ! empty( $args['ignore_enabled'] );
+		$out            = array(
+			'built'           => false,
+			'sent'            => 0,
+			'failed'          => 0,
+			'skipped_reason'  => '',
+			'delivery'        => array(),
+			'stored_on_site'  => false,
+			'panel_db_critical' => false,
 		);
-		if ( ! SimpleVPBot_Settings::get( 'enabled', true ) ) {
+		if ( ! $ignore_enabled && ! SimpleVPBot_Settings::get( 'enabled', true ) ) {
+			SimpleVPBot_Logger::info( 'backup: skipped (plugin disabled)' );
+			$out['skipped_reason'] = 'enabled';
+			self::persist_last_run( $out );
 			return $out;
 		}
-		if ( get_transient( self::LOCK_TRANSIENT ) ) {
+		if ( ! $force && get_transient( self::LOCK_TRANSIENT ) ) {
 			SimpleVPBot_Logger::info( 'backup: skipped (lock)' );
+			$out['skipped_reason'] = 'lock';
+			self::persist_last_run( $out );
 			return $out;
 		}
-		set_transient( self::LOCK_TRANSIENT, 1, 20 * MINUTE_IN_SECONDS );
+		if ( ! $force ) {
+			set_transient( self::LOCK_TRANSIENT, 1, 20 * MINUTE_IN_SECONDS );
+		}
 
 		try {
-			return self::run_locked( $out );
+			$out = self::run_locked( $out );
+			self::persist_last_run( $out );
+			return $out;
 		} finally {
-			delete_transient( self::LOCK_TRANSIENT );
+			if ( ! $force ) {
+				delete_transient( self::LOCK_TRANSIENT );
+			}
 		}
+	}
+
+	/**
+	 * Store last backup run summary for dashboard diagnostics.
+	 *
+	 * @param array<string, mixed> $out Run output.
+	 */
+	private static function persist_last_run( array $out ) {
+		update_option(
+			'simplevpbot_last_backup_run',
+			array(
+				'at'              => time(),
+				'built'           => ! empty( $out['built'] ),
+				'sent'            => (int) ( $out['sent'] ?? 0 ),
+				'failed'          => (int) ( $out['failed'] ?? 0 ),
+				'skipped_reason'  => (string) ( $out['skipped_reason'] ?? '' ),
+				'delivery'        => isset( $out['delivery'] ) && is_array( $out['delivery'] ) ? $out['delivery'] : array(),
+				'stored_on_site'  => ! empty( $out['stored_on_site'] ),
+				'storage_fallback' => ! empty( $out['storage_fallback'] ),
+			),
+			false
+		);
+	}
+
+	/**
+	 * Whether a backup channel chat id is configured (0 = empty; negative TG supergroup ids are valid).
+	 *
+	 * @param int|string $id Stored chat id.
+	 * @return bool
+	 */
+	private static function backup_channel_chat_id_is_set( $id ) {
+		return 0 !== (int) $id;
+	}
+
+	/**
+	 * Validate backup delivery settings before run (when any send flag is on).
+	 *
+	 * @return array{ok:bool, message?:string}
+	 */
+	public static function validate_delivery_config() {
+		$s = SimpleVPBot_Settings::all();
+		$issues = array();
+
+		$send_tg_adm  = ! empty( $s['backup_send_telegram_admins'] );
+		$send_bl_adm  = ! empty( $s['backup_send_bale_admins'] );
+		$send_tg_chan = ! empty( $s['backup_send_telegram_channel'] );
+		$send_bl_chan = ! empty( $s['backup_send_bale_channel'] );
+
+		if ( ! $send_tg_adm && ! $send_bl_adm && ! $send_tg_chan && ! $send_bl_chan ) {
+			return array( 'ok' => true );
+		}
+
+		$tg_tok = trim( (string) ( $s['telegram_token'] ?? '' ) );
+		$bl_tok = trim( (string) ( $s['bale_token'] ?? '' ) );
+		$tg_ids = array_filter( array_map( 'intval', (array) ( $s['admin_telegram_ids'] ?? array() ) ) );
+		$bl_ids = array_filter( array_map( 'intval', (array) ( $s['admin_bale_ids'] ?? array() ) ) );
+		$tg_chan = (int) ( $s['backup_telegram_chat_id'] ?? 0 );
+		$bl_chan = (int) ( $s['backup_bale_chat_id'] ?? 0 );
+
+		if ( $send_tg_adm ) {
+			if ( '' === $tg_tok ) {
+				$issues[] = __( 'ارسال به ادمین تلگرام فعال است ولی توکن تلگرام خالی است.', 'simplevpbot' );
+			} elseif ( empty( $tg_ids ) ) {
+				$issues[] = __( 'ارسال به ادمین تلگرام فعال است ولی شناسه ادمین‌های تلگرام در تنظیمات عمومی خالی است.', 'simplevpbot' );
+			}
+		}
+		if ( $send_tg_chan ) {
+			if ( '' === $tg_tok ) {
+				$issues[] = __( 'ارسال به کانال تلگرام فعال است ولی توکن تلگرام خالی است.', 'simplevpbot' );
+			} elseif ( ! self::backup_channel_chat_id_is_set( $tg_chan ) ) {
+				$issues[] = __( 'ارسال به کانال تلگرام فعال است ولی شناسه چت کانال بکاپ تنظیم نشده.', 'simplevpbot' );
+			}
+		}
+		if ( $send_bl_adm ) {
+			if ( '' === $bl_tok ) {
+				$issues[] = __( 'ارسال به ادمین بله فعال است ولی توکن بله خالی است.', 'simplevpbot' );
+			} elseif ( empty( $bl_ids ) ) {
+				$issues[] = __( 'ارسال به ادمین بله فعال است ولی شناسه ادمین‌های بله در تنظیمات عمومی خالی است.', 'simplevpbot' );
+			}
+		}
+		if ( $send_bl_chan ) {
+			if ( '' === $bl_tok ) {
+				$issues[] = __( 'ارسال به کانال بله فعال است ولی توکن بله خالی است.', 'simplevpbot' );
+			} elseif ( ! self::backup_channel_chat_id_is_set( $bl_chan ) ) {
+				$issues[] = __( 'ارسال به کانال بله فعال است ولی شناسه چت کانال بکاپ تنظیم نشده.', 'simplevpbot' );
+			}
+		}
+
+		if ( ! empty( $issues ) ) {
+			return array(
+				'ok'      => false,
+				'message' => implode( ' ', $issues ),
+			);
+		}
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * Send document with retries on transient API failures.
+	 *
+	 * @param object               $client Telegram or Bale client.
+	 * @param array<string, mixed> $params send_document_file params.
+	 * @return array<string, mixed>
+	 */
+	private static function send_document_with_retry( $client, array $params ) {
+		$last = array( 'ok' => false );
+		for ( $i = 0; $i < 2; $i++ ) {
+			if ( $i > 0 ) {
+				usleep( 400000 );
+			}
+			$last = $client->send_document_file( $params );
+			if ( ! empty( $last['ok'] ) ) {
+				return $last;
+			}
+			$desc = strtolower( (string) ( $last['description'] ?? '' ) );
+			$code = (int) ( $last['error_code'] ?? 0 );
+			$retryable = $code >= 500 || 429 === $code || false !== strpos( $desc, 'timeout' ) || false !== strpos( $desc, 'timed out' );
+			if ( ! $retryable ) {
+				break;
+			}
+		}
+		return $last;
 	}
 
 	/**
 	 * Inner run while lock held.
 	 *
-	 * @param array{built:bool, sent:int, failed:int, zip?:string} $out Seed.
-	 * @return array{built:bool, sent:int, failed:int, zip?:string}
+	 * @param array<string, mixed> $out Seed.
+	 * @return array<string, mixed>
 	 */
 	private static function run_locked( array $out ) {
 		$s    = SimpleVPBot_Settings::all();
@@ -78,6 +218,7 @@ class SimpleVPBot_Cron_Backup {
 				}
 				$panels_expected++;
 			}
+			$panel_index = 0;
 			foreach ( $panels as $row ) {
 				if ( ! is_object( $row ) ) {
 					continue;
@@ -86,6 +227,10 @@ class SimpleVPBot_Cron_Backup {
 				if ( $pid < 1 ) {
 					continue;
 				}
+				if ( $panel_index > 0 && class_exists( 'SimpleVPBot_Xui_Client' ) ) {
+					SimpleVPBot_Xui_Client::clear_session();
+				}
+				++$panel_index;
 				$label = trim( (string) ( $row->label ?? '' ) );
 				if ( '' === $label ) {
 					$label = 'panel-' . $pid;
@@ -109,9 +254,10 @@ class SimpleVPBot_Cron_Backup {
 				} else {
 					$step = is_array( $res ) && isset( $res['step'] ) ? (string) $res['step'] : 'unknown';
 					$panel_failures[] = array(
-						'panel_id' => $pid,
-						'label'    => $label,
-						'step'     => $step,
+						'panel_id'  => $pid,
+						'label'     => $label,
+						'step'      => $step,
+						'getdb_url' => is_array( $res ) ? (string) ( $res['getdb_url'] ?? '' ) : '',
 					);
 					SimpleVPBot_Logger::error(
 						'backup: panel db failed',
@@ -139,9 +285,10 @@ class SimpleVPBot_Cron_Backup {
 				} else {
 					$step = is_array( $res ) && isset( $res['step'] ) ? (string) $res['step'] : 'unknown';
 					$panel_failures[] = array(
-						'panel_id' => 0,
-						'label'    => 'legacy',
-						'step'     => $step,
+						'panel_id'  => 0,
+						'label'     => 'legacy',
+						'step'      => $step,
+						'getdb_url' => is_array( $res ) ? (string) ( $res['getdb_url'] ?? '' ) : '',
 					);
 					SimpleVPBot_Logger::error( 'backup: legacy panel db failed', array( 'step' => $step ) );
 					if ( is_readable( $tmp_path ) ) {
@@ -159,6 +306,7 @@ class SimpleVPBot_Cron_Backup {
 		}
 		if ( is_wp_error( $zip_result ) ) {
 			SimpleVPBot_Logger::error( 'backup: zip build failed', array( 'err' => $zip_result->get_error_message() ) );
+			$out['skipped_reason'] = 'zip';
 			return $out;
 		}
 		$filepath = $zip_result;
@@ -172,6 +320,7 @@ class SimpleVPBot_Cron_Backup {
 					array( 'bytes' => (int) $fs, 'max_mb' => $max_mb )
 				);
 				@unlink( $filepath ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				$out['skipped_reason'] = 'max_size';
 				return $out;
 			}
 		}
@@ -182,16 +331,23 @@ class SimpleVPBot_Cron_Backup {
 		$out['panel_db_failed']    = count( $panel_failures );
 		$out['panels_expected']    = $panels_expected;
 		$out['panel_db_failures']  = $panel_failures;
+		if ( $panels_expected > 0 && count( $panel_entries ) < 1 ) {
+			$out['panel_db_critical'] = true;
+		}
 		update_option( 'simplevpbot_last_backup_built_at', $now );
 
+		$stored_on_site = false;
 		if ( ! empty( $s['backup_store_on_site'] ) ) {
 			$copied = SimpleVPBot_Backup_Export::copy_zip_to_site_storage( $filepath, $stamp );
-			if ( ! $copied ) {
+			if ( $copied ) {
+				$stored_on_site = true;
+			} else {
 				SimpleVPBot_Logger::error( 'backup: site storage copy failed', array( 'path' => $filepath ) );
 			}
 			$keep = max( 1, (int) ( $s['backup_site_retention_count'] ?? 14 ) );
 			SimpleVPBot_Backup_Export::prune_site_backups( $keep );
 		}
+		$out['stored_on_site'] = $stored_on_site;
 
 		$tg_ids = array_values(
 			array_filter(
@@ -226,10 +382,10 @@ class SimpleVPBot_Cron_Backup {
 		if ( $send_bl_adm && $bl_tok && empty( $bl_ids ) ) {
 			SimpleVPBot_Logger::warning( 'backup: bale admin send enabled but admin_bale_ids is empty' );
 		}
-		if ( $send_tg_chan && $tg_tok && 0 === $tg_chan ) {
+		if ( $send_tg_chan && $tg_tok && ! self::backup_channel_chat_id_is_set( $tg_chan ) ) {
 			SimpleVPBot_Logger::warning( 'backup: telegram channel send enabled but backup_telegram_chat_id is 0' );
 		}
-		if ( $send_bl_chan && $bl_tok && 0 === $bl_chan ) {
+		if ( $send_bl_chan && $bl_tok && ! self::backup_channel_chat_id_is_set( $bl_chan ) ) {
 			SimpleVPBot_Logger::warning( 'backup: bale channel send enabled but backup_bale_chat_id is 0' );
 		}
 		if ( $send_tg_adm && ! $tg_tok ) {
@@ -245,14 +401,24 @@ class SimpleVPBot_Cron_Backup {
 			SimpleVPBot_Logger::warning( 'backup: bale channel send enabled but bale_token is empty' );
 		}
 
-		$caption = self::build_caption( $jalali_human, $labels_ok, $panel_failures );
-		$sent    = 0;
-		$fail    = 0;
+		$caption  = self::build_caption( $jalali_human, $labels_ok, $panel_failures );
+		$sent     = 0;
+		$fail     = 0;
+		$delivery = array(
+			'telegram_admins'  => array( 'enabled' => $send_tg_adm, 'ok' => 0, 'fail' => 0, 'skipped' => 0 ),
+			'telegram_channel' => array( 'enabled' => $send_tg_chan, 'ok' => 0, 'fail' => 0, 'skipped' => 0 ),
+			'bale_admins'      => array( 'enabled' => $send_bl_adm, 'ok' => 0, 'fail' => 0, 'skipped' => 0 ),
+			'bale_channel'     => array( 'enabled' => $send_bl_chan, 'ok' => 0, 'fail' => 0, 'skipped' => 0 ),
+		);
 
 		if ( $send_tg_adm && $tg_tok ) {
 			$tg = new SimpleVPBot_Telegram_Client( $tg_tok );
+			if ( empty( $tg_ids ) ) {
+				$delivery['telegram_admins']['skipped'] = 1;
+			}
 			foreach ( $tg_ids as $cid ) {
-				$r = $tg->send_document_file(
+				$r = self::send_document_with_retry(
+					$tg,
 					array(
 						'chat_id'  => (int) $cid,
 						'caption'  => $caption,
@@ -261,8 +427,10 @@ class SimpleVPBot_Cron_Backup {
 				);
 				if ( ! empty( $r['ok'] ) ) {
 					$sent++;
+					$delivery['telegram_admins']['ok']++;
 				} else {
 					$fail++;
+					$delivery['telegram_admins']['fail']++;
 					SimpleVPBot_Logger::error( 'backup: telegram send failed', array( 'chat' => (int) $cid, 'res' => $r ) );
 				}
 				usleep( 350000 );
@@ -270,8 +438,12 @@ class SimpleVPBot_Cron_Backup {
 		}
 		if ( $send_bl_adm && $bl_tok ) {
 			$bl = new SimpleVPBot_Bale_Client( $bl_tok );
+			if ( empty( $bl_ids ) ) {
+				$delivery['bale_admins']['skipped'] = 1;
+			}
 			foreach ( $bl_ids as $cid ) {
-				$r = $bl->send_document_file(
+				$r = self::send_document_with_retry(
+					$bl,
 					array(
 						'chat_id'  => (int) $cid,
 						'caption'  => $caption,
@@ -280,56 +452,88 @@ class SimpleVPBot_Cron_Backup {
 				);
 				if ( ! empty( $r['ok'] ) ) {
 					$sent++;
+					$delivery['bale_admins']['ok']++;
 				} else {
 					$fail++;
+					$delivery['bale_admins']['fail']++;
 					SimpleVPBot_Logger::error( 'backup: bale send failed', array( 'chat' => (int) $cid, 'res' => $r ) );
 				}
 				usleep( 350000 );
 			}
 		}
 
-		if ( $send_tg_chan && $tg_tok && 0 !== $tg_chan ) {
-			$tg = new SimpleVPBot_Telegram_Client( $tg_tok );
-			$r  = $tg->send_document_file(
-				array(
-					'chat_id'  => $tg_chan,
-					'caption'  => $caption,
-					'document' => $filepath,
-				)
-			);
-			if ( ! empty( $r['ok'] ) ) {
-				$sent++;
+		if ( $send_tg_chan && $tg_tok ) {
+			if ( ! self::backup_channel_chat_id_is_set( $tg_chan ) ) {
+				$delivery['telegram_channel']['skipped'] = 1;
 			} else {
-				$fail++;
-				SimpleVPBot_Logger::error( 'backup: telegram channel send failed', array( 'chat' => $tg_chan, 'res' => $r ) );
+				$tg = new SimpleVPBot_Telegram_Client( $tg_tok );
+				$r  = self::send_document_with_retry(
+					$tg,
+					array(
+						'chat_id'  => $tg_chan,
+						'caption'  => $caption,
+						'document' => $filepath,
+					)
+				);
+				if ( ! empty( $r['ok'] ) ) {
+					$sent++;
+					$delivery['telegram_channel']['ok'] = 1;
+				} else {
+					$fail++;
+					$delivery['telegram_channel']['fail'] = 1;
+					SimpleVPBot_Logger::error( 'backup: telegram channel send failed', array( 'chat' => $tg_chan, 'res' => $r ) );
+				}
+				usleep( 350000 );
 			}
-			usleep( 350000 );
 		}
-		if ( $send_bl_chan && $bl_tok && 0 !== $bl_chan ) {
-			$bl = new SimpleVPBot_Bale_Client( $bl_tok );
-			$r  = $bl->send_document_file(
-				array(
-					'chat_id'  => $bl_chan,
-					'caption'  => $caption,
-					'document' => $filepath,
-				)
-			);
-			if ( ! empty( $r['ok'] ) ) {
-				$sent++;
+		if ( $send_bl_chan && $bl_tok ) {
+			if ( ! self::backup_channel_chat_id_is_set( $bl_chan ) ) {
+				$delivery['bale_channel']['skipped'] = 1;
 			} else {
-				$fail++;
-				SimpleVPBot_Logger::error( 'backup: bale channel send failed', array( 'chat' => $bl_chan, 'res' => $r ) );
+				$bl = new SimpleVPBot_Bale_Client( $bl_tok );
+				$r  = self::send_document_with_retry(
+					$bl,
+					array(
+						'chat_id'  => $bl_chan,
+						'caption'  => $caption,
+						'document' => $filepath,
+					)
+				);
+				if ( ! empty( $r['ok'] ) ) {
+					$sent++;
+					$delivery['bale_channel']['ok'] = 1;
+				} else {
+					$fail++;
+					$delivery['bale_channel']['fail'] = 1;
+					SimpleVPBot_Logger::error( 'backup: bale channel send failed', array( 'chat' => $bl_chan, 'res' => $r ) );
+				}
+				usleep( 350000 );
 			}
-			usleep( 350000 );
 		}
 
-		$out['sent']   = $sent;
-		$out['failed'] = $fail;
+		$any_send_enabled = $send_tg_adm || $send_bl_adm || $send_tg_chan || $send_bl_chan;
+		if ( $any_send_enabled && $sent < 1 && ! $stored_on_site ) {
+			$copied = SimpleVPBot_Backup_Export::copy_zip_to_site_storage( $filepath, $stamp );
+			if ( $copied ) {
+				$stored_on_site           = true;
+				$out['stored_on_site']    = true;
+				$out['storage_fallback']  = true;
+				SimpleVPBot_Logger::warning( 'backup: no delivery succeeded; kept copy on site as fallback' );
+			}
+		}
+
+		$out['sent']      = $sent;
+		$out['failed']    = $fail;
+		$out['delivery']  = $delivery;
 		SimpleVPBot_Logger::info( 'backup completed', array( 'file' => basename( $filepath ), 'sent' => $sent, 'failed' => $fail ) );
-		if ( $sent > 0 ) {
+		if ( $sent > 0 || $stored_on_site ) {
 			update_option( 'simplevpbot_last_backup_at', $now );
 		}
-		@unlink( $filepath ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		if ( $stored_on_site || $sent > 0 ) {
+			@unlink( $filepath ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		} else {
+			SimpleVPBot_Logger::warning( 'backup: temp zip kept (no delivery, no site storage)', array( 'path' => $filepath ) );
+		}
 		return $out;
 	}
 
@@ -341,19 +545,39 @@ class SimpleVPBot_Cron_Backup {
 	 * @return array{ok:bool, step?:string}
 	 */
 	private static function download_panel_db_to_path( $panel_id, $tmp_path ) {
-		$outer_attempts = 2;
-		$last           = array( 'ok' => false, 'step' => 'unknown' );
-		for ( $o = 0; $o < $outer_attempts; $o++ ) {
-			if ( $o > 0 && class_exists( 'SimpleVPBot_Xui_Client' ) ) {
-				SimpleVPBot_Xui_Client::clear_session();
-			}
-			$last = SimpleVPBot_Xui_Client::run_with_panel(
-				(int) $panel_id,
-				function () use ( $tmp_path, $panel_id ) {
-					if ( ! SimpleVPBot_Xui_Client::login_with_cookie_session( 6, 300000 ) ) {
-						return array( 'ok' => false, 'step' => 'login' );
+		$last = SimpleVPBot_Xui_Client::run_with_panel(
+			(int) $panel_id,
+			function () use ( $tmp_path, $panel_id ) {
+				$getdb_url = SimpleVPBot_Xui_Client::diag_url( 'server/getDb', 'api' );
+				$fail      = static function ( $step ) use ( $getdb_url, $panel_id ) {
+					return array(
+						'ok'        => false,
+						'step'      => (string) $step,
+						'getdb_url' => $getdb_url,
+						'panel_id'  => (int) $panel_id,
+					);
+				};
+
+				if ( SimpleVPBot_Xui_Client::has_cookie_credentials() ) {
+					if ( ! SimpleVPBot_Xui_Client::login_with_cookie_session( 3, 350000 ) ) {
+						return $fail( 'login' );
 					}
-					$db = SimpleVPBot_Xui_Client::get_db_binary_with_retries( 3 );
+				} elseif ( ! SimpleVPBot_Xui_Client::has_api_token() ) {
+					return $fail( 'missing_cookie_creds' );
+				}
+
+				$db = SimpleVPBot_Xui_Client::get_db_binary_with_retries( 3, true );
+				if ( false === $db || '' === $db ) {
+					$step = SimpleVPBot_Xui_Client::last_get_db_step();
+					if ( '' === $step ) {
+						$step = 'download';
+					}
+					if ( SimpleVPBot_Xui_Client::has_cookie_credentials() ) {
+						SimpleVPBot_Xui_Client::clear_session();
+						if ( SimpleVPBot_Xui_Client::login_with_cookie_session( 3, 350000 ) ) {
+							$db = SimpleVPBot_Xui_Client::get_db_binary_with_retries( 2, true );
+						}
+					}
 					if ( false === $db || '' === $db ) {
 						$step = SimpleVPBot_Xui_Client::last_get_db_step();
 						if ( '' === $step ) {
@@ -364,25 +588,20 @@ class SimpleVPBot_Cron_Backup {
 							array(
 								'panel_id'  => (int) $panel_id,
 								'step'      => $step,
+								'getdb_url' => $getdb_url,
 								'auth_flow' => (string) ( SimpleVPBot_Xui_Client::get_last_auth_diag()['auth_flow'] ?? '' ),
 							)
 						);
-						return array( 'ok' => false, 'step' => $step );
+						return $fail( $step );
 					}
-					// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_read_file_put_contents
-					if ( false === file_put_contents( $tmp_path, $db ) ) {
-						return array( 'ok' => false, 'step' => 'write' );
-					}
-					return array( 'ok' => true );
 				}
-			);
-			if ( is_array( $last ) && ! empty( $last['ok'] ) ) {
-				return $last;
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_read_file_put_contents
+				if ( false === file_put_contents( $tmp_path, $db ) ) {
+					return $fail( 'write' );
+				}
+				return array( 'ok' => true );
 			}
-			if ( $o + 1 < $outer_attempts ) {
-				usleep( 600000 );
-			}
-		}
+		);
 		return is_array( $last ) ? $last : array( 'ok' => false, 'step' => 'unknown' );
 	}
 

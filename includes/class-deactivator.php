@@ -19,11 +19,14 @@ class SimpleVPBot_Deactivator {
 	 */
 	public static function deactivate() {
 		wp_clear_scheduled_hook( 'simplevpbot_cron_backup' );
+		wp_clear_scheduled_hook( 'simplevpbot_manual_backup' );
 		wp_clear_scheduled_hook( 'simplevpbot_cron_expiry' );
+		wp_clear_scheduled_hook( 'simplevpbot_cron_purge_expired' );
 		wp_clear_scheduled_hook( 'simplevpbot_cron_autorenew' );
 		wp_clear_scheduled_hook( 'simplevpbot_cron_broadcast' );
 		wp_clear_scheduled_hook( 'simplevpbot_cron_panel_online' );
 		wp_clear_scheduled_hook( 'simplevpbot_cron_panel_service_sync' );
 		wp_clear_scheduled_hook( 'simplevpbot_cron_inbound_clients_cache' );
+		wp_clear_scheduled_hook( 'simplevpbot_cron_marketing' );
 	}
 }

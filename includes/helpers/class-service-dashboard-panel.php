@@ -44,6 +44,18 @@ class SimpleVPBot_Service_Dashboard_Panel {
 				if ( ! $new || ! SimpleVPBot_Xui_Client::is_likely_client_uuid( (string) $new ) ) {
 					return array( 'ok' => false, 'reason' => 'no_uuid' );
 				}
+				if ( SimpleVPBot_Xui_Client::is_v3_clients_api() ) {
+					$res = SimpleVPBot_Xui_Client::client_update_v3(
+						(string) $svc->email,
+						array( 'id' => $new ),
+						array( (int) $svc->inbound_id )
+					);
+					if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+						return array( 'ok' => false, 'reason' => 'update_failed' );
+					}
+					SimpleVPBot_Model_Service::update( $svc_id, array( 'xui_client_id' => $new, 'xui_client_uuid' => $new ) );
+					return array( 'ok' => true );
+				}
 				$inbound = SimpleVPBot_Xui_Client::inbound_get( (int) $svc->inbound_id );
 				if ( ! $inbound ) {
 					return array( 'ok' => false, 'reason' => 'no_inbound' );
@@ -82,6 +94,44 @@ class SimpleVPBot_Service_Dashboard_Panel {
 				}
 				SimpleVPBot_Model_Service::update( $svc_id, array( 'xui_client_id' => $new, 'xui_client_uuid' => $new ) );
 				return array( 'ok' => true );
+			}
+		);
+		return is_array( $result ) ? $result : array( 'ok' => false, 'reason' => 'unknown' );
+	}
+
+	/**
+	 * Regenerate subscription id (subId) on panel and sync DB.
+	 *
+	 * @param int $service_id svp_services.id.
+	 * @return array{ok:bool, reason?:string, sub_id?:string}
+	 */
+	public static function xray_regenerate_sub_id( $service_id ) {
+		$svc_id = (int) $service_id;
+		$svc    = SimpleVPBot_Model_Service::find( $svc_id );
+		if ( ! $svc || SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
+			return array( 'ok' => false, 'reason' => 'bad_service' );
+		}
+		$result = SimpleVPBot_Xui_Client::run_with_panel(
+			self::panel_id( $svc ),
+			function () use ( $svc, $svc_id ) {
+				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 5, 300000 ) ) {
+					return array( 'ok' => false, 'reason' => 'panel_login' );
+				}
+				$new_sub = substr( md5( (string) $svc->email . microtime( true ) ), 0, 16 );
+				$res     = SimpleVPBot_Xui_Client::update_inbound_client_sequential(
+					(int) $svc->inbound_id,
+					array( 'clients' => array() ),
+					array(
+						'email' => (string) $svc->email,
+						'subId' => $new_sub,
+					),
+					array( (string) $svc->email )
+				);
+				if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+					return array( 'ok' => false, 'reason' => 'update_failed' );
+				}
+				SimpleVPBot_Model_Service::update( $svc_id, array( 'sub_id' => $new_sub ) );
+				return array( 'ok' => true, 'sub_id' => $new_sub );
 			}
 		);
 		return is_array( $result ) ? $result : array( 'ok' => false, 'reason' => 'unknown' );
@@ -168,36 +218,39 @@ class SimpleVPBot_Service_Dashboard_Panel {
 				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 5, 300000 ) ) {
 					return array( 'ok' => false, 'reason' => 'panel_login' );
 				}
-				$inbound = SimpleVPBot_Xui_Client::inbound_get( (int) $svc->inbound_id );
-				if ( ! $inbound ) {
-					return array( 'ok' => false, 'reason' => 'no_inbound' );
-				}
-				$settings = isset( $inbound['settings'] ) ? $inbound['settings'] : '';
-				$dec      = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
-				$limit    = 0;
-				$en       = null;
-				if ( is_array( $dec ) && ! empty( $dec['clients'] ) && is_array( $dec['clients'] ) ) {
-					foreach ( $dec['clients'] as $cl ) {
-						if ( is_array( $cl ) && isset( $cl['email'] ) && (string) $cl['email'] === (string) $svc->email ) {
-							$limit = (int) ( $cl['limitIp'] ?? 0 );
-							if ( array_key_exists( 'enable', $cl ) ) {
-								$en = (int) ( ! empty( $cl['enable'] ) );
+				$limit = 0;
+				$en    = null;
+				if ( SimpleVPBot_Xui_Client::is_v3_clients_api() ) {
+					$cl = SimpleVPBot_Xui_Client::client_get_v3( (string) $svc->email );
+					if ( is_array( $cl ) ) {
+						$limit = (int) ( $cl['limitIp'] ?? 0 );
+						if ( array_key_exists( 'enable', $cl ) ) {
+							$en = (int) ( ! empty( $cl['enable'] ) );
+						}
+					}
+				} else {
+					$inbound = SimpleVPBot_Xui_Client::inbound_get( (int) $svc->inbound_id );
+					if ( ! $inbound ) {
+						return array( 'ok' => false, 'reason' => 'no_inbound' );
+					}
+					$settings = isset( $inbound['settings'] ) ? $inbound['settings'] : '';
+					$dec      = is_string( $settings ) ? json_decode( $settings, true ) : ( is_array( $settings ) ? $settings : array() );
+					if ( is_array( $dec ) && ! empty( $dec['clients'] ) && is_array( $dec['clients'] ) ) {
+						foreach ( $dec['clients'] as $cl ) {
+							if ( is_array( $cl ) && isset( $cl['email'] ) && (string) $cl['email'] === (string) $svc->email ) {
+								$limit = (int) ( $cl['limitIp'] ?? 0 );
+								if ( array_key_exists( 'enable', $cl ) ) {
+									$en = (int) ( ! empty( $cl['enable'] ) );
+								}
+								break;
 							}
-							break;
 						}
 					}
 				}
 				$ips = array();
 				if ( $record_ips && class_exists( 'SimpleVPBot_Model_Service_Ip_Log' ) ) {
 					$j   = SimpleVPBot_Xui_Client::client_ips( (string) $svc->email );
-					$obj = is_array( $j ) && isset( $j['obj'] ) ? $j['obj'] : null;
-					if ( is_string( $obj ) && '' !== $obj && 'No IP Record' !== $obj ) {
-						$decoded = json_decode( $obj, true );
-						$ips     = is_array( $decoded ) ? $decoded : preg_split( '/[\s,]+/', $obj );
-					} elseif ( is_array( $obj ) ) {
-						$ips = $obj;
-					}
-					$ips = array_slice( array_filter( array_map( 'trim', array_map( 'strval', (array) $ips ) ) ), 0, 50 );
+					$ips = SimpleVPBot_Xui_Client::parse_client_ips_response( $j, 50 );
 					SimpleVPBot_Model_Service_Ip_Log::touch_many( $svc_id, $ips );
 				}
 				$upd = array(
@@ -235,6 +288,24 @@ class SimpleVPBot_Service_Dashboard_Panel {
 			function () use ( $svc, $svc_id, $cap ) {
 				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
 					return array( 'ok' => false, 'reason' => 'panel_login' );
+				}
+				if ( SimpleVPBot_Xui_Client::is_v3_clients_api() ) {
+					$res = SimpleVPBot_Xui_Client::client_update_v3(
+						(string) $svc->email,
+						array(
+							'limitIp' => $cap,
+							'enable'  => true,
+						),
+						array( (int) $svc->inbound_id )
+					);
+					if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+						return array( 'ok' => false, 'reason' => 'update_failed' );
+					}
+					SimpleVPBot_Model_Service::update(
+						$svc_id,
+						array( 'panel_limit_ip' => $cap )
+					);
+					return array( 'ok' => true );
 				}
 				$inbound = SimpleVPBot_Xui_Client::inbound_get( (int) $svc->inbound_id );
 				if ( ! $inbound ) {

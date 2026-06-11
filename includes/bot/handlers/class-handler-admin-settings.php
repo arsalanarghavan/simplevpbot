@@ -135,6 +135,10 @@ class SimpleVPBot_Handler_Admin_Settings {
 		$data     = SimpleVPBot_State::data( $user );
 
 		if ( 'admin_txt_edit' === $st && isset( $data['key'] ) ) {
+			if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+				&& SimpleVPBot_Bot_Reseller_Scope::deny_global_settings_bot_action( $platform, $chat_id, (int) $user->id ) ) {
+				return true;
+			}
 			if ( '' === $text ) {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.prompt_edit_text', $user ) );
 				return true;
@@ -166,19 +170,40 @@ class SimpleVPBot_Handler_Admin_Settings {
 			if ( $pn < 0 ) {
 				$pn = 0;
 			}
+			if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+				SimpleVPBot_Bot_Reseller_Scope::set_acting_admin_user( (int) $user->id );
+				if ( ! SimpleVPBot_Bot_Reseller_Scope::bot_admin_may_moderate_user( $uid ) ) {
+					SimpleVPBot_State::clear( (int) $user->id );
+					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.user_not_found', $user ) );
+					return true;
+				}
+				if ( SimpleVPBot_Bot_Reseller_Scope::is_scoped_bot_admin_context() ) {
+					$allowed = SimpleVPBot_Bot_Reseller_Scope::bot_admin_allowed_panel_ids();
+					if ( $pn < 1 ) {
+						SimpleVPBot_State::clear( (int) $user->id );
+						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.panel_inactive', $user ) );
+						return true;
+					}
+					if ( is_array( $allowed ) && ! in_array( $pn, array_map( 'intval', $allowed ), true ) ) {
+						SimpleVPBot_State::clear( (int) $user->id );
+						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.user_not_found', $user ) );
+						return true;
+					}
+				}
+			}
 			$r     = SimpleVPBot_Service_Admin_Ops::inbound_link( $iid, $email, $uid, $pn );
 			SimpleVPBot_State::clear( (int) $user->id );
 			if ( ! empty( $r['ok'] ) ) {
 				SimpleVPBot_Bot_Runtime::send_message(
 					$platform,
 					$chat_id,
-					SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.link_ok', $user, array( 'message' => (string) ( $r['data']['message'] ?? 'لینک انجام شد.' ) ) )
+					SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.link_ok', $user, array( 'message' => (string) ( $r['data']['message'] ?? SimpleVPBot_Texts::get_for_user( 'msg.admin.fallback.link_ok', $user ) ) ) )
 				);
 			} else {
 				SimpleVPBot_Bot_Runtime::send_message(
 					$platform,
 					$chat_id,
-					SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.error_generic', $user, array( 'reason' => (string) ( $r['message'] ?? 'ناموفق' ) ) )
+					SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.error_generic', $user, array( 'reason' => (string) ( $r['message'] ?? SimpleVPBot_Texts::get_for_user( 'msg.admin.fallback.failed', $user ) ) ) )
 				);
 			}
 			return true;
@@ -357,6 +382,10 @@ class SimpleVPBot_Handler_Admin_Settings {
 		if ( ! $user || ! $user->id ) {
 			return;
 		}
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			&& SimpleVPBot_Bot_Reseller_Scope::deny_global_settings_bot_action( $platform, $chat_id, (int) $user->id ) ) {
+			return;
+		}
 		$code       = (string) $code;
 		$uid        = (int) $user->id;
 		$prompt_key = '';
@@ -397,16 +426,34 @@ class SimpleVPBot_Handler_Admin_Settings {
 		$st       = (string) $st;
 		$text     = (string) $text;
 
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' )
+			&& SimpleVPBot_Bot_Reseller_Scope::deny_global_settings_bot_action( $platform, $chat_id, (int) $user->id ) ) {
+			return true;
+		}
+
+		$actor_post = array();
+		if ( class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			$rid = SimpleVPBot_Bot_Reseller_Scope::active_reseller_id();
+			if ( $rid > 0 ) {
+				$actor_post['__actor_svp_user_id'] = $rid;
+			}
+		}
+
 		if ( 'admin_w_pc' === $st ) {
 			$lines = self::lines_nonempty( $text );
 			if ( count( $lines ) < 2 ) {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.category_lines', $user ) );
 				return true;
 			}
-			$res = SimpleVPBot_Service_Admin_Catalog::apply_plan_category_action(
-				'add',
-				0,
+			if ( ! class_exists( 'SimpleVPBot_Bot_Admin_Mutate' ) ) {
+				SimpleVPBot_State::clear( (int) $user->id );
+				return true;
+			}
+			$res = SimpleVPBot_Bot_Admin_Mutate::apply_for_user(
+				(int) $user->id,
+				'plan_category',
 				array(
+					'pc_action' => 'add',
 					'pc_slug'   => (string) $lines[0],
 					'pc_label'  => (string) $lines[1],
 					'pc_sort'   => 0,
@@ -417,7 +464,14 @@ class SimpleVPBot_Handler_Admin_Settings {
 			if ( ! empty( $res['ok'] ) ) {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.category_added', $user ) );
 			} else {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.error_code', $user, array( 'code' => (string) ( $res['code'] ?? '—' ) ) ) );
+				SimpleVPBot_Bot_Runtime::send_message(
+					$platform,
+					$chat_id,
+					SimpleVPBot_Bot_Admin_Mutate::result_message(
+						$user,
+						is_array( $res ) ? $res : array( 'ok' => false, 'code' => (string) ( $res['code'] ?? '—' ) )
+					)
+				);
 			}
 			return true;
 		}
@@ -429,6 +483,7 @@ class SimpleVPBot_Handler_Admin_Settings {
 				return true;
 			}
 			$post = array(
+				'plan_action'          => 'add',
 				'name'                 => (string) $lines[0],
 				'category'             => (string) $lines[1],
 				'duration_days'        => (int) SimpleVPBot_Bot_Runtime::normalize_digits( (string) $lines[2] ),
@@ -446,13 +501,21 @@ class SimpleVPBot_Handler_Admin_Settings {
 				'l2tp_server_id'       => 0,
 				'plan_active'          => 1,
 			);
-			$res = SimpleVPBot_Service_Admin_Catalog::apply_plan_action( 'add', 0, $post );
+			if ( ! class_exists( 'SimpleVPBot_Bot_Admin_Mutate' ) ) {
+				SimpleVPBot_State::clear( (int) $user->id );
+				return true;
+			}
+			$res = SimpleVPBot_Bot_Admin_Mutate::apply_for_user( (int) $user->id, 'plan', $post );
 			SimpleVPBot_State::clear( (int) $user->id );
-			if ( $res && ! empty( $res['ok'] ) ) {
+			if ( ! empty( $res['ok'] ) ) {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.plan_added', $user ) );
 			} else {
-				$c = ( $res && is_array( $res ) && isset( $res['code'] ) ) ? (string) $res['code'] : 'invalid';
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.plan_invalid', $user, array( 'code' => $c ) ) );
+				$c = is_array( $res ) && isset( $res['code'] ) ? (string) $res['code'] : 'invalid';
+				SimpleVPBot_Bot_Runtime::send_message(
+					$platform,
+					$chat_id,
+					SimpleVPBot_Bot_Admin_Mutate::result_message( $user, is_array( $res ) ? $res : array( 'ok' => false, 'code' => $c ) )
+				);
 			}
 			return true;
 		}
@@ -464,20 +527,26 @@ class SimpleVPBot_Handler_Admin_Settings {
 				return true;
 			}
 			$method = SimpleVPBot_Service_Admin_Catalog::sanitize_card_method_key( (string) $segs[3] );
-			SimpleVPBot_Model_Card::insert(
-				array(
-					'card_number' => sanitize_text_field( (string) $segs[0] ),
-					'holder_name' => sanitize_text_field( (string) $segs[1] ),
-					'bank_name'   => sanitize_text_field( (string) $segs[2] ),
-					'method_key'  => $method,
-					'daily_limit' => (float) str_replace( ',', '.', (string) $segs[4] ),
-					'priority'    => (int) $segs[5],
-					'note'        => isset( $segs[6] ) ? sanitize_textarea_field( (string) $segs[6] ) : '',
-					'active'      => 1,
-				)
+			$card_row = array(
+				'card_number' => sanitize_text_field( (string) $segs[0] ),
+				'holder_name' => sanitize_text_field( (string) $segs[1] ),
+				'bank_name'   => sanitize_text_field( (string) $segs[2] ),
+				'method_key'  => $method,
+				'daily_limit' => (float) str_replace( ',', '.', (string) $segs[4] ),
+				'priority'    => (int) $segs[5],
+				'note'        => isset( $segs[6] ) ? sanitize_textarea_field( (string) $segs[6] ) : '',
 			);
+			if ( ! class_exists( 'SimpleVPBot_Bot_Admin_Mutate' ) ) {
+				SimpleVPBot_State::clear( (int) $user->id );
+				return true;
+			}
+			$res = SimpleVPBot_Bot_Admin_Mutate::apply_for_user( (int) $user->id, 'card_add', $card_row );
 			SimpleVPBot_State::clear( (int) $user->id );
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.card_added', $user ) );
+			if ( ! empty( $res['ok'] ) ) {
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Texts::msg( 'msg.admin.catalog.card_added', $user ) );
+			} else {
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Bot_Admin_Mutate::result_message( $user, is_array( $res ) ? $res : array( 'ok' => false ) ) );
+			}
 			return true;
 		}
 

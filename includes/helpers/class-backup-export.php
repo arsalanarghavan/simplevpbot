@@ -222,7 +222,7 @@ class SimpleVPBot_Backup_Export {
 	/**
 	 * List site-stored backup zips (newest first).
 	 *
-	 * @return array<int, array{filename:string, size_bytes:int, created_at:string, has_panel_db:bool, panel_db_status:string, panel_db_detail:string}>
+	 * @return array<int, array{filename:string, size_bytes:int, created_at:int, has_panel_db:bool, panel_db_status:string, panel_db_detail:string}>
 	 */
 	public static function list_site_backup_files() {
 		$dir  = self::site_backup_dir();
@@ -250,7 +250,7 @@ class SimpleVPBot_Backup_Export {
 			$rows[] = array(
 				'filename'         => $name,
 				'size_bytes'       => (int) @filesize( $path ), // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-				'created_at'       => $mtime > 0 ? gmdate( 'c', $mtime ) : '',
+				'created_at'       => $mtime > 0 ? $mtime : 0,
 				'has_panel_db'     => ! empty( $panel['has_panel_db'] ),
 				'panel_db_status'  => (string) ( $panel['panel_db_status'] ?? 'na' ),
 				'panel_db_detail'  => (string) ( $panel['panel_db_detail'] ?? '' ),
@@ -536,6 +536,14 @@ class SimpleVPBot_Backup_Export {
 			'db_version'          => (string) get_option( 'simplevpbot_db_version', '' ),
 			'generated_at_utc'    => gmdate( 'c' ),
 			'tables'              => array_values( $tables ),
+			'wordpress_files'     => array(
+				'wordpress/manifest.json',
+				'wordpress/plugin-settings.json',
+				'wordpress/reseller-permissions.json',
+				'wordpress/plugin-tables.sql',
+			),
+			'plugin_settings_contains_secrets' => false,
+			'plugin_settings_secrets_redacted' => true,
 			'has_panel_db'        => ! empty( $names ),
 			'panel_db_files'      => $names,
 			'panels_expected'     => $expected,
@@ -544,15 +552,72 @@ class SimpleVPBot_Backup_Export {
 	}
 
 	/**
+	 * Secret keys stripped from backup plugin-settings.json (values replaced with _set flags).
+	 *
+	 * @return string[]
+	 */
+	private static function plugin_settings_secret_keys_for_export() {
+		return array(
+			'telegram_token',
+			'telegram_webhook_secret',
+			'telegram_secret_header',
+			'bale_token',
+			'bale_webhook_secret',
+			'panel_password',
+			'panel_api_token',
+			'panel_login_secret',
+			'portal_link_secret',
+			'crypto_nowpayments_api_key',
+			'crypto_nowpayments_ipn_secret',
+			'crypto_ipn_path_secret',
+			'bale_wallet_provider_token',
+			'telegram_proxy_password',
+		);
+	}
+
+	/**
+	 * Redact secret values from settings array for backup export.
+	 *
+	 * @param array<string, mixed> $settings Raw plugin settings.
+	 * @return array<string, mixed>
+	 */
+	public static function redact_plugin_settings_for_export( array $settings ) {
+		foreach ( self::plugin_settings_secret_keys_for_export() as $k ) {
+			if ( ! empty( $settings[ $k ] ) ) {
+				$settings[ $k . '_set' ] = true;
+				unset( $settings[ $k ] );
+			}
+		}
+		return $settings;
+	}
+
+	/**
 	 * JSON blob of plugin-related options.
 	 *
 	 * @return string
 	 */
 	public static function export_plugin_options_json() {
+		$raw_settings = get_option( SimpleVPBot_Settings::OPTION_KEY, array() );
+		if ( ! is_array( $raw_settings ) ) {
+			$raw_settings = array();
+		}
 		$data = array(
-			SimpleVPBot_Settings::OPTION_KEY => get_option( SimpleVPBot_Settings::OPTION_KEY, array() ),
+			SimpleVPBot_Settings::OPTION_KEY => self::redact_plugin_settings_for_export( $raw_settings ),
 			'simplevpbot_db_version'         => get_option( 'simplevpbot_db_version', '' ),
 		);
+		return wp_json_encode( $data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+	}
+
+	/**
+	 * JSON blob of per-reseller permission options (simplevpbot_reseller_perms_*).
+	 *
+	 * @return string
+	 */
+	public static function export_reseller_permissions_json() {
+		$data = array();
+		if ( class_exists( 'SimpleVPBot_Model_User' ) ) {
+			$data = SimpleVPBot_Model_User::export_all_reseller_permissions();
+		}
 		return wp_json_encode( $data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 	}
 
@@ -608,6 +673,7 @@ class SimpleVPBot_Backup_Export {
 		}
 		$z->addFromString( 'wordpress/manifest.json', wp_json_encode( $manifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
 		$z->addFromString( 'wordpress/plugin-settings.json', self::export_plugin_options_json() );
+		$z->addFromString( 'wordpress/reseller-permissions.json', self::export_reseller_permissions_json() );
 		$z->addFromString( 'wordpress/plugin-tables.sql', $sql );
 		foreach ( $valid_entries as $e ) {
 			$z->addFile( $e['path'], $e['zip_name'] );

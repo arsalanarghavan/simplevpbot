@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "rea
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import {
   Collapsible,
@@ -55,14 +55,13 @@ function rowLocaleStrings(row: TextRow): TextDefaultBundle {
 export function DashboardTextsAdmin({
   texts,
   textDefaults,
-  isFa,
   onMutateSuccess,
 }: {
   texts: TextRow[]
   textDefaults: Record<string, TextDefaultBundle | string>
-  isFa: boolean
-  onMutateSuccess?: () => void
+onMutateSuccess?: () => void
 }) {
+
   const { t } = useTranslation()
   const tp = (k: string) => t(`textsAdmin.${k}`)
 
@@ -90,7 +89,7 @@ export function DashboardTextsAdmin({
   const [openCategory, setOpenCategory] = useState<string | null>(null)
 
   return (
-    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+    <DashPage>
       <DashboardPageHeader
         title={tp("title")}
         description={
@@ -120,7 +119,6 @@ export function DashboardTextsAdmin({
                   key={String(row.key_name ?? row.id)}
                   row={row}
                   defaultBundle={bundleDefaults(textDefaults[String(row.key_name ?? "")])}
-                  isFa={isFa}
                   tp={tp}
                   onMutateSuccess={onMutateSuccess}
                 />
@@ -129,21 +127,20 @@ export function DashboardTextsAdmin({
           </CollapsibleContent>
         </Collapsible>
       ))}
-    </div>
+    </DashPage>
   )
 }
 
+/** FA/EN textareas use fixed content direction (rtl/ltr), not dashboard UI locale. */
 function TextKeyEditor({
   row,
   defaultBundle,
-  isFa: _isFa,
   tp,
   onMutateSuccess,
 }: {
   row: TextRow
   defaultBundle: TextDefaultBundle
-  isFa: boolean
-  tp: (k: string) => string
+tp: (k: string) => string
   onMutateSuccess?: () => void
 }) {
   const key = String(row.key_name ?? "")
@@ -204,9 +201,16 @@ function TextKeyEditor({
     <div className="space-y-3 rounded-md border border-border/80 bg-muted/20 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Label className="font-mono text-xs">{key}</Label>
-        <span className="text-xs text-muted-foreground">
-          {totalLen}/{MAX_LEN * 2}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {row.catalog_only === true ? (
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {tp("catalogOnlyBadge")}
+            </span>
+          ) : null}
+          <span className="text-xs text-muted-foreground">
+            {totalLen}/{MAX_LEN * 2}
+          </span>
+        </div>
       </div>
       <div className="space-y-1">
         <Label className="text-xs text-muted-foreground">{tp("labelFa")}</Label>

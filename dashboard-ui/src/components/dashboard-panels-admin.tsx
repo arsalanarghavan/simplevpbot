@@ -1,7 +1,7 @@
 "use client"
 
 import { EllipsisVerticalIcon } from "lucide-react"
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
@@ -9,16 +9,8 @@ import { Badge } from "@/components/ui/badge"
 
 const PANELS_TABLE_COLS = ["5%", "16%", "22%", "10%", "14%", "10%", "5%"]
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,16 +22,23 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import {
   Sheet,
-  SheetContent,
   SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { DashSheetContent } from "@/components/dash-sheet-content"
 import { DataPagination } from "@/components/data-pagination"
+import {
+  DashboardPanelEconomicsSheet,
+  type PanelEconomicsEntry,
+} from "@/components/dashboard-panel-economics-sheet"
 import { postAdminMutate, type AdminMutateResult } from "@/lib/dash-admin-mutate"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { formatNumber } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
+import { useDashLocale } from "@/lib/dash-locale-context"
+import { DashDialogContent, DashDialogFooter, DashDialogHeader } from "@/components/dash-dialog-content"
+import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 
 type DashRecord = Record<string, unknown>
 
@@ -115,18 +114,26 @@ function probeLabelKey(name: string): string {
   if (name === "server_status") return "probe_server_status"
   if (name === "inbounds_list") return "probe_inbounds_list"
   if (name === "inbounds_onlines") return "probe_inbounds_onlines"
+  if (name === "clients_onlines") return "probe_clients_onlines"
+  if (name === "clients_list") return "probe_clients_list"
   return name
+}
+
+function mainProbeKeys(apiFlavor: string): string[] {
+  if (apiFlavor === "v3_clients") {
+    return ["server_status", "inbounds_list", "clients_onlines", "clients_list"]
+  }
+  return ["server_status", "inbounds_list", "inbounds_onlines"]
 }
 
 function PanelTestResults({
   testRes,
   tp,
-  isFa,
 }: {
   testRes: AdminMutateResult
   tp: (k: string, opts?: Record<string, string | number>) => string
-  isFa: boolean
 }) {
+  const { isFa } = useDashLocale()
   const data = testRes.data as Record<string, unknown> | undefined
   const diag = (data?.diag ?? {}) as Record<string, unknown>
   const probes = (data?.probes ?? {}) as Record<string, Record<string, unknown>>
@@ -149,7 +156,7 @@ function PanelTestResults({
     return translated !== key ? translated : hint
   }
 
-  const mainProbes = ["server_status", "inbounds_list", "inbounds_onlines"] as const
+  const mainProbes = mainProbeKeys(String(diag.api_flavor ?? ""))
 
   return (
     <div className="space-y-3 text-sm">
@@ -159,6 +166,14 @@ function PanelTestResults({
       {authMode ? (
         <p className="text-muted-foreground">
           {tp("testAuthMode")}: <span className="font-medium text-foreground">{authLabel}</span>
+        </p>
+      ) : null}
+      {diag.api_flavor ? (
+        <p className="text-muted-foreground">
+          {tp("testApiFlavor")}:{" "}
+          <span className="font-medium text-foreground" dir="ltr">
+            {String(diag.api_flavor)}
+          </span>
         </p>
       ) : null}
       {suggested ? (
@@ -188,12 +203,12 @@ function PanelTestResults({
             <tbody>
               {mainProbes.map((key) => {
                 const row = probes[key]
-                if (!row) return null
+                if (!row || row.skipped) return null
                 return (
                   <tr key={key}>
                     <td className="p-2">{tp(probeLabelKey(key))}</td>
                     <td className="p-2 font-mono tabular-nums" dir="ltr">
-                      {formatNumber(num(row.http), isFa)}
+                      {num(row.http) > 0 ? formatNumber(num(row.http), isFa) : "—"}
                     </td>
                     <td className="p-2">
                       <Badge variant={row.ok ? "default" : "destructive"} className="font-normal">
@@ -225,18 +240,27 @@ function PanelTestResults({
 export function DashboardPanelsAdmin({
   panels,
   pagination,
-  isFa,
+  panelEconomicsMap,
+  globalEconomicsConfig,
   onMutateSuccess,
   onPageChange,
   onPerPageChange,
 }: {
   panels: DashRecord[]
   pagination: PaginationMeta | null
-  isFa: boolean
-  onMutateSuccess?: () => void
+  panelEconomicsMap?: Record<string, PanelEconomicsEntry>
+  globalEconomicsConfig?: {
+    total_sold_volume_gb?: number
+    selling_price_per_gb?: number
+    volume_mode?: string
+    volume_window_days?: number
+  }
+onMutateSuccess?: () => void
   onPageChange: (page: number) => void
   onPerPageChange: (perPage: number) => void
 }) {
+  const { isFa } = useDashLocale()
+
   const { t } = useTranslation()
   const tp = (k: string, opts?: Record<string, string | number>) => t(`panelsAdmin.${k}`, opts)
 
@@ -250,11 +274,63 @@ export function DashboardPanelsAdmin({
   const [testLoading, setTestLoading] = useState(false)
   const [testPanelId, setTestPanelId] = useState(0)
   const [testRes, setTestRes] = useState<AdminMutateResult | null>(null)
+  const [economicsOpen, setEconomicsOpen] = useState(false)
+  const [economicsPanelId, setEconomicsPanelId] = useState(0)
+  const [economicsPanelLabel, setEconomicsPanelLabel] = useState("")
+  const [localEconomicsMap, setLocalEconomicsMap] = useState<
+    Record<string, PanelEconomicsEntry>
+  >({})
+
+  useEffect(() => {
+    if (panelEconomicsMap) {
+      setLocalEconomicsMap(panelEconomicsMap)
+    }
+  }, [panelEconomicsMap])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const m = window.location.search.match(/[?&]panel_costs=(\d+)/)
+    const pid = m ? Number(m[1]) : 0
+    if (pid < 1) return
+    const row = panels.find((p) => num(p.id) === pid)
+    if (row) {
+      setEconomicsPanelId(pid)
+      setEconomicsPanelLabel(String(row.label ?? ""))
+      setEconomicsOpen(true)
+    }
+  }, [panels])
+
+  const sharedLines = useMemo(
+    () => localEconomicsMap["0"]?.lines ?? [],
+    [localEconomicsMap]
+  )
+
+  const siteVolumeGb = useMemo(
+    () => Math.max(0, Number(globalEconomicsConfig?.total_sold_volume_gb) || 0),
+    [globalEconomicsConfig]
+  )
+
+  const economicsEntry = useMemo(() => {
+    if (economicsPanelId < 1) return localEconomicsMap["0"]
+    return localEconomicsMap[String(economicsPanelId)]
+  }, [localEconomicsMap, economicsPanelId])
+
+  const openEconomics = (r: DashRecord) => {
+    setEconomicsPanelId(num(r.id))
+    setEconomicsPanelLabel(String(r.label ?? ""))
+    setEconomicsOpen(true)
+  }
 
   const authBadge = (mode: AuthMode) => {
     if (mode === "bearer") return <Badge variant="default">{tp("authBearer")}</Badge>
     if (mode === "cookie") return <Badge variant="secondary">{tp("authCookie")}</Badge>
     return <Badge variant="outline">{tp("authIncomplete")}</Badge>
+  }
+
+  const apiFlavorBadge = (flavor: string) => {
+    if (flavor === "v3_clients") return <Badge variant="secondary">{tp("apiFlavorV3")}</Badge>
+    if (flavor === "legacy_inbound") return <Badge variant="outline">{tp("apiFlavorLegacy")}</Badge>
+    return null
   }
 
   const run = useCallback(
@@ -343,7 +419,7 @@ export function DashboardPanelsAdmin({
   const classicAuthClass = cn(tokenFilled && "opacity-60")
 
   return (
-    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+    <DashPage>
       <DashboardPageHeader
         title={tp("title")}
         description={tp("subtitle")}
@@ -363,7 +439,8 @@ export function DashboardPanelsAdmin({
       {panels.length === 0 ? (
         <p className="text-sm text-muted-foreground">{tp("empty")}</p>
       ) : (
-        <DashTableShell isFa={isFa} minWidth="40rem" colWidths={PANELS_TABLE_COLS}>
+        <DashTableShell
+        minWidth="40rem" colWidths={PANELS_TABLE_COLS}>
           <thead>
             <tr className="bg-muted/40">
               <DashTh>#</DashTh>
@@ -385,7 +462,12 @@ export function DashboardPanelsAdmin({
                   <DashTd className="font-mono text-xs tabular-nums">{formatNumber(id, isFa)}</DashTd>
                   <DashTd className="truncate">{String(r.label ?? "")}</DashTd>
                   <DashTd className="break-all text-xs">{String(r.panel_url ?? "—")}</DashTd>
-                  <DashTd>{authBadge(auth)}</DashTd>
+                  <DashTd>
+                    <div className="flex flex-wrap gap-1">
+                      {authBadge(auth)}
+                      {apiFlavorBadge(String(r.panel_api_flavor ?? ""))}
+                    </div>
+                  </DashTd>
                   <DashTd dir="ltr" className="truncate font-mono text-xs">
                     {String(r.panel_api_base ?? "panel/api")}
                   </DashTd>
@@ -409,6 +491,9 @@ export function DashboardPanelsAdmin({
                           {tp("testConnection")}
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => openEdit(r)}>{tp("edit")}</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEconomics(r)}>
+                          {t("panelEconomics.menuItem")}
+                        </DropdownMenuItem>
                         <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(r)}>
                           {tp("delete")}
                         </DropdownMenuItem>
@@ -426,13 +511,12 @@ export function DashboardPanelsAdmin({
 
       <DataPagination
         meta={pagination}
-        isFa={isFa}
         onPageChange={onPageChange}
         onPerPageChange={onPerPageChange}
       />
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className={cn("flex w-full flex-col sm:max-w-lg", isFa && "text-right")} side={isFa ? "left" : "right"}>
+        <DashSheetContent className={cn("flex w-full flex-col sm:max-w-lg")}>
           <SheetHeader>
             <SheetTitle>{mode === "add" ? tp("sheetAdd") : tp("sheetEdit")}</SheetTitle>
           </SheetHeader>
@@ -546,35 +630,36 @@ export function DashboardPanelsAdmin({
               {tp("save")}
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </DashSheetContent>
       </Sheet>
 
       <Dialog open={testOpen} onOpenChange={setTestOpen}>
-        <DialogContent className={cn("max-w-lg", isFa && "text-right")} dir={dashDir(isFa)}>
-          <DialogHeader>
+        <DashDialogContent className={cn("max-w-lg")}>
+          <DashDialogHeader>
             <DialogTitle>{tp("testDialogTitle", { id: formatNumber(testPanelId, isFa) })}</DialogTitle>
             <DialogDescription>{tp("testDialogDesc")}</DialogDescription>
-          </DialogHeader>
+          </DashDialogHeader>
           {testLoading ? (
             <p className="text-sm text-muted-foreground">{tp("testRunning")}</p>
           ) : testRes ? (
-            <PanelTestResults testRes={testRes} tp={tp} isFa={isFa} />
+            <PanelTestResults testRes={testRes} tp={tp}
+        />
           ) : null}
-          <DialogFooter>
+          <DashDialogFooter>
             <Button type="button" variant="outline" onClick={() => setTestOpen(false)}>
               {tp("cancel")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <DialogContent className={cn(isFa && "text-right")} dir={dashDir(isFa)}>
-          <DialogHeader>
+        <DashDialogContent className={cn()}>
+          <DashDialogHeader>
             <DialogTitle>{tp("deleteTitle")}</DialogTitle>
             <DialogDescription>{tp("deleteDesc")}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter className={cn("gap-2")}>
+          </DashDialogHeader>
+          <DashDialogFooter className={cn("gap-2")}>
             <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
               {tp("cancel")}
             </Button>
@@ -586,9 +671,24 @@ export function DashboardPanelsAdmin({
             >
               {tp("delete")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
-    </div>
+
+      <DashboardPanelEconomicsSheet
+        open={economicsOpen}
+        onOpenChange={setEconomicsOpen}
+        panelId={economicsPanelId}
+        panelLabel={economicsPanelLabel}
+        entry={economicsEntry}
+        globalConfig={globalEconomicsConfig ?? {}}
+        sharedLines={sharedLines}
+        siteVolumeGb={siteVolumeGb}
+        onSaved={({ panelId, entry }) => {
+          setLocalEconomicsMap((m) => ({ ...m, [String(panelId)]: entry }))
+          onMutateSuccess?.()
+        }}
+      />
+    </DashPage>
   )
 }

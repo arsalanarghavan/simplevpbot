@@ -8,16 +8,8 @@ import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
 import { Badge } from "@/components/ui/badge"
 
 const PLAN_CATS_TABLE_COLS = ["6%", "22%", "18%", "10%", "8%", "12%", "6%"]
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,17 +20,21 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Sheet,
-  SheetContent,
   SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { DashSheetContent } from "@/components/dash-sheet-content"
 import { DataPagination } from "@/components/data-pagination"
-import { postAdminMutate } from "@/lib/dash-admin-mutate"
+import { postAdminMutate, adminMutateErrorText } from "@/lib/dash-admin-mutate"
 import type { PaginationMeta } from "@/lib/dash-pagination"
+import { DashSelect } from "@/components/dash-select"
 import { formatNumber } from "@/lib/format-locale"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { cn } from "@/lib/utils"
+import { useDashLocale } from "@/lib/dash-locale-context"
+import { DashDialogContent, DashDialogFooter, DashDialogHeader } from "@/components/dash-dialog-content"
+import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 
 type DashRecord = Record<string, unknown>
 
@@ -51,8 +47,24 @@ function isActiveRow(r: DashRecord): boolean {
   return r.active === true || r.active === 1 || r.active === "1"
 }
 
-const selectClass =
-  "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
+const SERVER_ERROR_LOCALE: Record<string, string> = {
+  invalid: "errorCode_invalid",
+  panel_not_allowed: "errorCode_panel_not_allowed",
+  category_foreign_plans: "errorCode_category_foreign_plans",
+  inuse: "errorCode_inuse",
+  dup: "errorCode_dup",
+  forbidden: "errorCode_forbidden",
+}
+
+function formatPlanCatMutateError(
+  code: string | undefined,
+  message: string | undefined,
+  tp: (k: string) => string
+): string {
+  const c = String(code ?? message ?? "").trim()
+  if (c && SERVER_ERROR_LOCALE[c]) return tp(SERVER_ERROR_LOCALE[c])
+  return adminMutateErrorText({ ok: false, message: c || message }, tp("mutateError"))
+}
 
 type FormState = {
   pc_id: number
@@ -89,7 +101,6 @@ export function DashboardPlanCatsAdmin({
   planCategories,
   panels,
   pagination,
-  isFa,
   onMutateSuccess,
   onPageChange,
   onPerPageChange,
@@ -97,11 +108,12 @@ export function DashboardPlanCatsAdmin({
   planCategories: DashRecord[]
   panels: DashRecord[]
   pagination: PaginationMeta | null
-  isFa: boolean
-  onMutateSuccess?: () => void
+onMutateSuccess?: () => void
   onPageChange: (page: number) => void
   onPerPageChange: (perPage: number) => void
 }) {
+  const { isFa } = useDashLocale()
+
   const { t } = useTranslation()
   const tp = (k: string) => t(`planCatsAdmin.${k}`)
   const defaultPanel = Math.max(1, num(panels[0]?.id) || 1)
@@ -120,7 +132,7 @@ export function DashboardPlanCatsAdmin({
       try {
         const res = await postAdminMutate("plan_category", params)
         if (!res.ok) {
-          setError(res.code || res.message || tp("mutateError"))
+          setError(formatPlanCatMutateError(res.code ?? res.message, res.message, tp))
           return
         }
         setSheetOpen(false)
@@ -173,7 +185,7 @@ export function DashboardPlanCatsAdmin({
   }, [panels])
 
   return (
-    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+    <DashPage>
       <DashboardPageHeader
         title={tp("title")}
         description={tp("subtitle")}
@@ -193,7 +205,8 @@ export function DashboardPlanCatsAdmin({
       {planCategories.length === 0 ? (
         <p className="text-sm text-muted-foreground">{tp("empty")}</p>
       ) : (
-        <DashTableShell isFa={isFa} minWidth="36rem" colWidths={PLAN_CATS_TABLE_COLS}>
+        <DashTableShell
+        minWidth="36rem" colWidths={PLAN_CATS_TABLE_COLS}>
           <thead>
             <tr className="bg-muted/40">
               <DashTh>#</DashTh>
@@ -248,13 +261,12 @@ export function DashboardPlanCatsAdmin({
 
       <DataPagination
         meta={pagination}
-        isFa={isFa}
         onPageChange={onPageChange}
         onPerPageChange={onPerPageChange}
       />
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className={cn("flex w-full flex-col sm:max-w-md", isFa && "text-right")} dir={dashDir(isFa)} side={isFa ? "left" : "right"}>
+        <DashSheetContent className={cn("flex w-full flex-col sm:max-w-md")}>
           <SheetHeader>
             <SheetTitle>{mode === "add" ? tp("sheetAdd") : tp("sheetEdit")}</SheetTitle>
           </SheetHeader>
@@ -275,17 +287,11 @@ export function DashboardPlanCatsAdmin({
                 </div>
                 <div className="space-y-2">
                   <Label>{tp("fieldPanel")}</Label>
-                  <select
-                    className={selectClass}
-                    value={form.pc_panel_id}
-                    onChange={(e) => setForm((f) => ({ ...f, pc_panel_id: num(e.target.value) }))}
-                  >
-                    {panelOptions.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
+                  <DashSelect
+                    value={String(form.pc_panel_id)}
+                    onValueChange={(v) => setForm((f) => ({ ...f, pc_panel_id: num(v) }))}
+                    options={panelOptions.map((o) => ({ value: String(o.id), label: o.label }))}
+                  />
                 </div>
               </>
             ) : null}
@@ -297,7 +303,7 @@ export function DashboardPlanCatsAdmin({
                 onChange={(e) => setForm((f) => ({ ...f, pc_sort: num(e.target.value) }))}
               />
             </div>
-            <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
+            <label className={cn("flex items-center gap-2 text-sm")}>
               <input
                 type="checkbox"
                 className="size-4 rounded border-input"
@@ -315,16 +321,16 @@ export function DashboardPlanCatsAdmin({
               {tp("save")}
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </DashSheetContent>
       </Sheet>
 
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <DialogContent className={cn(isFa && "text-right")} dir={dashDir(isFa)}>
-          <DialogHeader>
+        <DashDialogContent className={cn()}>
+          <DashDialogHeader>
             <DialogTitle>{tp("deleteTitle")}</DialogTitle>
             <DialogDescription>{tp("deleteDesc")}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter className={cn("gap-2")} dir={dashDir(isFa)}>
+          </DashDialogHeader>
+          <DashDialogFooter className={cn("gap-2")}>
             <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
               {tp("cancel")}
             </Button>
@@ -336,9 +342,9 @@ export function DashboardPlanCatsAdmin({
             >
               {tp("delete")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
-    </div>
+    </DashPage>
   )
 }

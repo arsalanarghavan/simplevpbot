@@ -75,6 +75,29 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 	}
 
 	/**
+	 * Plaintext webhook secret from profile row or stored DB value.
+	 *
+	 * @param object|string|null $prof_or_stored Profile row or raw column value.
+	 * @return string
+	 */
+	public static function webhook_secret_plaintext( $prof_or_stored ) {
+		if ( is_object( $prof_or_stored ) ) {
+			return self::decrypt_token_field( (string) ( $prof_or_stored->webhook_secret ?? '' ) );
+		}
+		return self::decrypt_token_field( (string) $prof_or_stored );
+	}
+
+	/**
+	 * Encrypt webhook secret for DB storage.
+	 *
+	 * @param string $plain Plain secret.
+	 * @return string
+	 */
+	public static function encrypt_webhook_secret_for_storage( $plain ) {
+		return self::encrypt_token_field( $plain );
+	}
+
+	/**
 	 * @param object|null $prof Profile row.
 	 * @param string      $platform telegram|bale.
 	 * @return string
@@ -385,6 +408,49 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 		);
 	}
 
+
+	/**
+	 * Toggle per-platform enable flag on a reseller bot profile.
+	 *
+	 * @param int    $reseller_svp_user_id Id.
+	 * @param string $platform telegram|bale.
+	 * @return bool|null New platform state or null on failure.
+	 */
+	public static function toggle_platform_enabled( $reseller_svp_user_id, $platform ) {
+		global $wpdb;
+		$r = (int) $reseller_svp_user_id;
+		if ( $r < 1 || ! class_exists( 'SimpleVPBot_Platforms' ) ) {
+			return null;
+		}
+		$plat = SimpleVPBot_Platforms::normalize( $platform );
+		$key  = SimpleVPBot_Platforms::settings_key( $plat );
+		$row  = self::find_by_reseller( $r );
+		if ( ! $row ) {
+			self::ensure_webhook_secret( $r );
+			$row = self::find_by_reseller( $r );
+		}
+		if ( ! $row ) {
+			return null;
+		}
+		$cur = SimpleVPBot_Platforms::reseller_platform_flag( $row, $plat );
+		$new = ! $cur;
+		$patch = array(
+			$key         => $new ? 1 : 0,
+			'updated_at' => current_time( 'mysql' ),
+		);
+		$tg_on = 'telegram' === $plat ? $new : SimpleVPBot_Platforms::reseller_platform_flag( $row, 'telegram' );
+		$bl_on = 'bale' === $plat ? $new : SimpleVPBot_Platforms::reseller_platform_flag( $row, 'bale' );
+		$patch['enabled'] = ( $tg_on || $bl_on ) ? 1 : 0;
+		$wpdb->update(
+			self::table(),
+			$patch,
+			array( 'reseller_svp_user_id' => $r ),
+			array( '%d', '%s', '%d' ),
+			array( '%d' )
+		);
+		return $new;
+	}
+
 	/**
 	 * @param int   $reseller_svp_user_id Id.
 	 * @param array $tg_ids Telegram admin chat ids.
@@ -452,6 +518,39 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 	}
 
 	/**
+	 * Save per-reseller payment method overrides (partial map).
+	 *
+	 * @param int                  $reseller_svp_user_id Reseller id.
+	 * @param array<string, mixed> $methods              Partial method => bool map.
+	 */
+	public static function save_payment_methods( $reseller_svp_user_id, array $methods ) {
+		global $wpdb;
+		$r = (int) $reseller_svp_user_id;
+		if ( $r < 1 || ! class_exists( 'SimpleVPBot_Payment_Methods' ) ) {
+			return;
+		}
+		$row = self::find_by_reseller( $r );
+		if ( ! $row ) {
+			self::ensure_webhook_secret( $r );
+			$row = self::find_by_reseller( $r );
+		}
+		if ( ! $row ) {
+			return;
+		}
+		$clean = SimpleVPBot_Payment_Methods::sanitize_map( $methods );
+		$wpdb->update(
+			self::table(),
+			array(
+				'payment_methods_json' => (string) wp_json_encode( $clean ),
+				'updated_at'             => current_time( 'mysql' ),
+			),
+			array( 'reseller_svp_user_id' => $r ),
+			array( '%s', '%s' ),
+			array( '%d' )
+		);
+	}
+
+	/**
 	 * Ensure non-empty webhook secret for reseller (generates and persists).
 	 *
 	 * @param int $reseller_svp_user_id Id.
@@ -465,16 +564,17 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 		}
 		$row = self::find_by_reseller( $r );
 		if ( $row && '' !== trim( (string) ( $row->webhook_secret ?? '' ) ) ) {
-			return (string) $row->webhook_secret;
+			return self::webhook_secret_plaintext( $row );
 		}
-		$sec = self::generate_webhook_secret_value();
+		$sec     = self::generate_webhook_secret_value();
+		$stored  = self::encrypt_webhook_secret_for_storage( $sec );
 		$t   = self::table();
 		$now = current_time( 'mysql' );
 		if ( $row ) {
 			$wpdb->update(
 				$t,
 				array(
-					'webhook_secret' => $sec,
+					'webhook_secret' => $stored,
 					'updated_at'     => $now,
 				),
 				array( 'reseller_svp_user_id' => $r ),
@@ -489,7 +589,7 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 				'reseller_svp_user_id'   => $r,
 				'telegram_token'         => '',
 				'bale_token'             => '',
-				'webhook_secret'         => $sec,
+				'webhook_secret'         => $stored,
 				'brand_name'             => '',
 				'telegram_secret_token'  => '',
 				'enabled'                => 1,
@@ -525,7 +625,8 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 		if ( $r < 1 ) {
 			return '';
 		}
-		$sec = self::generate_webhook_secret_value();
+		$sec    = self::generate_webhook_secret_value();
+		$stored = self::encrypt_webhook_secret_for_storage( $sec );
 		$row = self::find_by_reseller( $r );
 		$t   = self::table();
 		$now = current_time( 'mysql' );
@@ -533,7 +634,7 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 			$wpdb->update(
 				$t,
 				array(
-					'webhook_secret' => $sec,
+					'webhook_secret' => $stored,
 					'updated_at'     => $now,
 				),
 				array( 'reseller_svp_user_id' => $r ),
@@ -600,7 +701,7 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 		}
 		$need_secret = $patch_tg || $patch_bl || strlen( (string) ( $ex->telegram_token ?? '' ) ) > 0 || strlen( (string) ( $ex->bale_token ?? '' ) ) > 0;
 		if ( $need_secret && ( ! isset( $ex->webhook_secret ) || '' === trim( (string) ( $ex->webhook_secret ?? '' ) ) ) ) {
-			$data['webhook_secret'] = self::generate_webhook_secret_value();
+			$data['webhook_secret'] = self::encrypt_webhook_secret_for_storage( self::generate_webhook_secret_value() );
 			$format[]               = '%s';
 		}
 		if ( null !== $brand_name ) {
@@ -667,7 +768,7 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 		$need_secret = ( strlen( $tg ) > 0 || strlen( $bl ) > 0 );
 		$wh_sec      = '';
 		if ( $ex && '' !== trim( (string) ( $ex->webhook_secret ?? '' ) ) ) {
-			$wh_sec = (string) $ex->webhook_secret;
+			$wh_sec = self::webhook_secret_plaintext( $ex );
 		} elseif ( $need_secret ) {
 			$wh_sec = self::generate_webhook_secret_value();
 		}
@@ -680,7 +781,7 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 			);
 			$format = array( '%s', '%s', '%s' );
 			if ( '' !== $wh_sec && ( ! isset( $ex->webhook_secret ) || '' === trim( (string) ( $ex->webhook_secret ?? '' ) ) ) ) {
-				$data['webhook_secret'] = $wh_sec;
+				$data['webhook_secret'] = self::encrypt_webhook_secret_for_storage( $wh_sec );
 				$format[]               = '%s';
 			}
 			if ( null !== $brand_upd ) {
@@ -703,7 +804,7 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 			'reseller_svp_user_id'       => $r,
 			'telegram_token'             => $tg,
 			'bale_token'                 => $bl,
-			'webhook_secret'             => $wh_sec,
+			'webhook_secret'             => self::encrypt_webhook_secret_for_storage( $wh_sec ),
 			'brand_name'                 => null !== $brand_upd ? $brand_upd : '',
 			'telegram_secret_token'      => '',
 			'enabled'                    => 1,
@@ -764,6 +865,10 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 			$host = preg_replace( '#/.*$#', '', $host );
 			$data['custom_domain'] = sanitize_text_field( (string) $host );
 			$fmt[]                 = '%s';
+		}
+		if ( array_key_exists( 'telegram_relay_public_url', $fields ) ) {
+			$data['telegram_relay_public_url'] = esc_url_raw( trim( (string) $fields['telegram_relay_public_url'] ) );
+			$fmt[]                             = '%s';
 		}
 		if ( array_key_exists( 'config_label_override', $fields ) ) {
 			$data['config_label_override'] = sanitize_text_field( (string) $fields['config_label_override'] );
@@ -865,5 +970,141 @@ class SimpleVPBot_Model_Reseller_Bot_Profile {
 			)
 		);
 		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
+	 * Bot enabled/brand summary keyed by reseller id.
+	 *
+	 * @param array<int, int> $reseller_ids Reseller ids.
+	 * @return array<string, array{enabled:bool, brand:string}>
+	 */
+	public static function summary_map_for_resellers( array $reseller_ids ) {
+		global $wpdb;
+		$ids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', $reseller_ids ),
+					static function ( $v ) {
+						return $v > 0;
+					}
+				)
+			)
+		);
+		$out = array();
+		if ( empty( $ids ) ) {
+			return $out;
+		}
+		foreach ( $ids as $rid ) {
+			$out[ (string) $rid ] = array(
+				'enabled' => false,
+				'brand'   => '',
+			);
+		}
+		$ph   = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT reseller_svp_user_id, brand_name, enabled FROM " . self::table() . " WHERE reseller_svp_user_id IN ({$ph})", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$ids
+			)
+		);
+		foreach ( (array) $rows as $row ) {
+			if ( ! $row || ! is_object( $row ) ) {
+				continue;
+			}
+			$key = (string) (int) ( $row->reseller_svp_user_id ?? 0 );
+			if ( ! isset( $out[ $key ] ) ) {
+				continue;
+			}
+			$out[ $key ] = array(
+				'enabled' => ! empty( $row->enabled ),
+				'brand'   => (string) ( $row->brand_name ?? '' ),
+			);
+		}
+		return $out;
+	}
+
+	/**
+	 * One-time migration: encrypt legacy plaintext telegram/bale tokens at rest.
+	 *
+	 * @return int Rows updated.
+	 */
+	public static function migrate_plaintext_tokens_to_encrypted() {
+		global $wpdb;
+		$t = self::table();
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$rows = $wpdb->get_results( "SELECT reseller_svp_user_id, telegram_token, bale_token FROM {$t}" );
+		$updated = 0;
+		foreach ( (array) $rows as $row ) {
+			if ( ! $row || ! is_object( $row ) ) {
+				continue;
+			}
+			$rid  = (int) ( $row->reseller_svp_user_id ?? 0 );
+			$data = array();
+			$fmt  = array();
+			foreach ( array( 'telegram_token', 'bale_token' ) as $col ) {
+				$stored = trim( (string) ( $row->$col ?? '' ) );
+				if ( '' === $stored || 0 === strpos( $stored, 'v1:' ) ) {
+					continue;
+				}
+				$enc = self::encrypt_token_field( self::decrypt_token_field( $stored ) );
+				if ( '' !== $enc && $enc !== $stored ) {
+					$data[ $col ] = $enc;
+					$fmt[]        = '%s';
+				}
+			}
+			if ( empty( $data ) ) {
+				continue;
+			}
+			$data['updated_at'] = current_time( 'mysql' );
+			$fmt[]              = '%s';
+			$wpdb->update(
+				$t,
+				$data,
+				array( 'reseller_svp_user_id' => $rid ),
+				$fmt,
+				array( '%d' )
+			);
+			++$updated;
+		}
+		return $updated;
+	}
+
+	/**
+	 * One-time migration: encrypt legacy plaintext webhook_secret at rest.
+	 *
+	 * @return int Rows updated.
+	 */
+	public static function migrate_plaintext_webhook_secrets_to_encrypted() {
+		global $wpdb;
+		$t = self::table();
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$rows = $wpdb->get_results( "SELECT reseller_svp_user_id, webhook_secret FROM {$t}" );
+		$updated = 0;
+		foreach ( (array) $rows as $row ) {
+			if ( ! $row || ! is_object( $row ) ) {
+				continue;
+			}
+			$rid    = (int) ( $row->reseller_svp_user_id ?? 0 );
+			$stored = trim( (string) ( $row->webhook_secret ?? '' ) );
+			if ( '' === $stored || 0 === strpos( $stored, 'v1:' ) ) {
+				continue;
+			}
+			$enc = self::encrypt_webhook_secret_for_storage( self::webhook_secret_plaintext( $stored ) );
+			if ( '' === $enc || $enc === $stored ) {
+				continue;
+			}
+			$wpdb->update(
+				$t,
+				array(
+					'webhook_secret' => $enc,
+					'updated_at'     => current_time( 'mysql' ),
+				),
+				array( 'reseller_svp_user_id' => $rid ),
+				array( '%s', '%s' ),
+				array( '%d' )
+			);
+			++$updated;
+		}
+		return $updated;
 	}
 }

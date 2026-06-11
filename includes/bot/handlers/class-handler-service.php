@@ -15,6 +15,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 class SimpleVPBot_Handler_Service {
 
 	/**
+	 * Transient TTL for Telegram config dedupe (seconds).
+	 */
+	const CONFIG_SENT_TTL_SEC = 900;
+
+	/**
 	 * Service owner or platform admin (same bot) may open the full service menu and actions.
 	 *
 	 * @param string      $platform telegram|bale.
@@ -74,6 +79,7 @@ class SimpleVPBot_Handler_Service {
 		$chat_id  = (int) $ctx['chat_id'];
 		$msg_id   = (int) $ctx['msg_id'];
 		$from_id  = isset( $ctx['from_id'] ) ? (int) $ctx['from_id'] : 0;
+		$cb_id    = isset( $ctx['cb_id'] ) ? (string) $ctx['cb_id'] : '';
 
 		$svc = SimpleVPBot_Model_Service::find( $svc_id );
 		if ( $svc && class_exists( 'SimpleVPBot_Feature_L2tp' ) && ! SimpleVPBot_Feature_L2tp::service_visible( $svc ) ) {
@@ -128,7 +134,7 @@ class SimpleVPBot_Handler_Service {
 			return;
 		}
 		if ( 'us' === $action ) {
-			$text   = self::build_usage_panel_text( $svc );
+			$text   = self::build_usage_panel_text( $svc, $platform );
 			$markup = SimpleVPBot_Keyboards::inline_subscription_back_only( $svc_id, $user );
 			if ( $msg_id <= 0 ) {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $text, array( 'reply_markup' => $markup ) );
@@ -144,38 +150,14 @@ class SimpleVPBot_Handler_Service {
 			return;
 		}
 		if ( 'p' === $action ) {
-			$portal = SimpleVPBot_Portal_Link::build_service_url( $owner_uid, (int) $svc_id );
-			$data   = self::get_portal_service_data( $svc, $owner_uid );
-			$text   = self::build_usage_panel_text( $svc );
-			if ( 'bale' === $platform ) {
-				$markup = SimpleVPBot_Keyboards::inline_bale_portal_back( $svc_id, $portal, $user );
-			} else {
-				$markup = SimpleVPBot_Keyboards::inline_telegram_config_extras( $svc_id, $data, $portal, $user );
-			}
-			if ( $msg_id <= 0 ) {
-				SimpleVPBot_Bot_Runtime::send_message(
-					$platform,
-					$chat_id,
-					$text,
-					array( 'reply_markup' => $markup )
-				);
-			} else {
-				SimpleVPBot_Bot_Runtime::edit_message_text(
-					$platform,
-					$chat_id,
-					$msg_id,
-					$text,
-					array( 'reply_markup' => $markup )
-				);
-			}
-			if ( 'telegram' === $platform ) {
-				self::telegram_send_config_unified( $chat_id, $data, $portal, $svc_id );
-			}
+			self::answer_svc_processing_toast( $platform, $cb_id );
+			$panel_msg_id = (int) $msg_id;
+			self::schedule_svc_panel_full_delivery( $platform, $chat_id, $panel_msg_id, $svc, $owner_uid, $user, 'p' );
 			return;
 		}
 		if ( 'l' === $action || 'q' === $action ) {
+			self::answer_svc_processing_toast( $platform, $cb_id );
 			$portal = SimpleVPBot_Portal_Link::build_service_url( $owner_uid, (int) $svc_id );
-			$data   = self::get_portal_service_data( $svc, $owner_uid );
 			if ( 'bale' === $platform ) {
 				$text = "🌐\n" . "کانفیگ و QR فقط داخل پنل زیر. در چت ارسال نمی‌شود.";
 				$bextra = array( 'reply_markup' => SimpleVPBot_Keyboards::admin_only_back_reply() );
@@ -190,14 +172,20 @@ class SimpleVPBot_Handler_Service {
 				);
 				return;
 			}
-			$import  = (string) ( $data['import_sub_url'] ?? $data['subscription_url'] ?? $data['primary_link'] ?? '' );
-			$primary  = (string) ( $data['primary_link'] ?? $import );
-			$port_btn = (string) ( $data['portal_url'] ?? $portal );
-			if ( '' === $primary && empty( $data['config_uris'] ) && '' === $port_btn ) {
-				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.link_not_found', $user ) );
+			self::schedule_svc_panel_full_delivery( $platform, $chat_id, 0, $svc, $owner_uid, $user, $action );
+			return;
+		}
+		if ( 'rs' === $action ) {
+			if ( ! class_exists( 'SimpleVPBot_Service_Dashboard_Panel' ) ) {
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.panel_update_fail', $user ) );
 				return;
 			}
-			self::telegram_send_config_unified( $chat_id, $data, $portal, $svc_id );
+			$r = SimpleVPBot_Service_Dashboard_Panel::xray_regenerate_sub_id( $svc_id );
+			if ( empty( $r['ok'] ) ) {
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.panel_update_fail', $user ) );
+				return;
+			}
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.sub_id_regenerated', $user ) );
 			return;
 		}
 		if ( 'k' === $action ) {
@@ -211,6 +199,20 @@ class SimpleVPBot_Handler_Service {
 					$new = SimpleVPBot_Xui_Client::get_new_uuid();
 					if ( ! $new || ! SimpleVPBot_Xui_Client::is_likely_client_uuid( (string) $new ) ) {
 						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.uuid_fail', $user ) );
+						return;
+					}
+					if ( SimpleVPBot_Xui_Client::is_v3_clients_api() ) {
+						$res = SimpleVPBot_Xui_Client::client_update_v3(
+							(string) $svc->email,
+							array( 'id' => $new ),
+							array( (int) $svc->inbound_id )
+						);
+						if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+							SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.panel_update_fail', $user ) );
+							return;
+						}
+						SimpleVPBot_Model_Service::update( $svc_id, array( 'xui_client_id' => $new, 'xui_client_uuid' => $new ) );
+						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.uuid_regenerated', $user ) );
 						return;
 					}
 					$inbound = SimpleVPBot_Xui_Client::inbound_get( (int) $svc->inbound_id );
@@ -309,15 +311,7 @@ class SimpleVPBot_Handler_Service {
 				function () use ( $platform, $chat_id, $svc ) {
 					SimpleVPBot_Xui_Client::login_with_retries( 5, 300000 );
 					$j   = SimpleVPBot_Xui_Client::client_ips( (string) $svc->email );
-					$obj = is_array( $j ) && isset( $j['obj'] ) ? $j['obj'] : null;
-					$ips = array();
-					if ( is_string( $obj ) && '' !== $obj && 'No IP Record' !== $obj ) {
-						$decoded = json_decode( $obj, true );
-						$ips     = is_array( $decoded ) ? $decoded : preg_split( '/[\s,]+/', $obj );
-					} elseif ( is_array( $obj ) ) {
-						$ips = $obj;
-					}
-					$ips = array_slice( array_filter( array_map( 'trim', (array) $ips ) ), 0, 20 );
+					$ips = SimpleVPBot_Xui_Client::parse_client_ips_response( $j, 20 );
 					$txt = '🌐 اتصالات فعال' . SimpleVPBot_Service_Alerts::text_sep();
 					$txt .= empty( $ips ) ? '📭 هنوز موردی نیست' : '• ' . implode( "\n• ", $ips );
 					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $txt );
@@ -343,8 +337,13 @@ class SimpleVPBot_Handler_Service {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.default_plan_missing', $user ) );
 				return;
 			}
+			if ( ! self::is_platform_admin_managing_other_users_service( $platform, $from_id, $user, $svc )
+				&& ! SimpleVPBot_Service_Renew::user_may_renew_same( $svc ) ) {
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Service_Renew::reject_renew_message( $user ) );
+				return;
+			}
 			if ( self::is_platform_admin_managing_other_users_service( $platform, $from_id, $user, $svc ) ) {
-				$rows = SimpleVPBot_Handler_Admin_Hub::admin_service_payment_mode_inline_rows( 'renew', $svc_id, null );
+				$rows = SimpleVPBot_Handler_Admin_Pnl::admin_service_payment_mode_inline_rows( 'renew', $svc_id, null );
 				if ( empty( $rows ) ) {
 					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.internal_button_error', $user ) );
 					return;
@@ -375,12 +374,17 @@ class SimpleVPBot_Handler_Service {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.volume_xray_only', $user ) );
 				return;
 			}
+			if ( ! self::is_platform_admin_managing_other_users_service( $platform, $from_id, $user, $svc )
+				&& ! SimpleVPBot_Service_Renew::user_may_add_volume( $svc ) ) {
+				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Service_Renew::reject_add_volume_message( $user ) );
+				return;
+			}
 			$pid = SimpleVPBot_Model_Service::effective_plan_id_for_pricing( $svc );
 			if ( $pid < 1 ) {
 				SimpleVPBot_Bot_Runtime::send_message(
 					$platform,
 					$chat_id,
-					'⛔ پلن سرویس برای قیمت‌گذاری حجم مشخص نیست. از ادمین بخواهید در تنظیمات عمومی، «پلن پیش‌فرض سرویس‌های بدون پلن» را روی یک پلن Xray فعال بگذارد.'
+					SimpleVPBot_Texts::get_for_user( 'msg.svc.pergb_plan_missing', $user )
 				);
 				return;
 			}
@@ -398,7 +402,10 @@ class SimpleVPBot_Handler_Service {
 				SimpleVPBot_Bot_Runtime::send_message_with_support(
 					$platform,
 					$chat_id,
-					"👥 افزایش کاربر\n" . SimpleVPBot_Service_Alerts::text_sep() . "🧒 هنوز قیمتش توسط ادمین تنظیم نشده.\n✋ بعداً دوباره امتحان کن یا از پشتیبانی بپرس."
+					SimpleVPBot_Texts::format(
+					SimpleVPBot_Texts::get_for_user( 'msg.svc.extra_user_price_unset', $user ),
+					array( 'sep' => SimpleVPBot_Service_Alerts::text_sep() )
+				)
 				);
 				return;
 			}
@@ -407,7 +414,7 @@ class SimpleVPBot_Handler_Service {
 				SimpleVPBot_Bot_Runtime::send_message(
 					$platform,
 					$chat_id,
-					'⛔ پلن سرویس برای این بخش ثبت نشده. از ادمین بخواهید در تنظیمات عمومی، «پلن پیش‌فرض سرویس‌های بدون پلن» را روی یک پلن Xray فعال بگذارد (برای هم‌خوانی با پنل).'
+					SimpleVPBot_Texts::get_for_user( 'msg.svc.plan_missing_for_section', $user )
 				);
 				return;
 			}
@@ -415,9 +422,7 @@ class SimpleVPBot_Handler_Service {
 			SimpleVPBot_Bot_Runtime::send_message(
 				$platform,
 				$chat_id,
-				"👥 افزایش کاربر هم‌زمان\n" . SimpleVPBot_Service_Alerts::text_sep()
-				. "🧒 یعنی چی؟ چند نفر بیشتر بتوانند هم‌زمان از همین سرویس استفاده کنند.\n" . SimpleVPBot_Service_Alerts::text_sep()
-				. "✋ فقط یک عدد بفرست: می‌خواهی چند نفر اضافه شود؟ (مثلاً ۱ تا ۵۰)."
+				SimpleVPBot_Texts::get_for_user( 'msg.alerts.add_users_prompt', $user )
 			);
 			return;
 		}
@@ -572,14 +577,11 @@ class SimpleVPBot_Handler_Service {
 			SimpleVPBot_Bot_Runtime::send_message(
 				$platform,
 				$chat_id,
-				"📉 آستانهٔ حجم\n"
-				. SimpleVPBot_Service_Alerts::text_sep()
-				. "🧒 یعنی چی؟ وقتی از حجمت این‌قدر کم مانده که به این عدد رسید، ربات یک پیام می‌فرستد.\n"
-				. SimpleVPBot_Service_Alerts::text_sep()
-				. '📋 الان: ' . SimpleVPBot_Service_Alerts::effective_low_traffic_pct( $svc ) . "٪\n"
-				. SimpleVPBot_Service_Alerts::text_sep()
-				. "✋ تو چی کار کنی؟ فقط یک عدد ۱ تا ۹۹ بفرست مثل ۲۰.\n"
-				. "🔙 برای ول کردن از منوی پایین یک دکمه بزن یا از پیام قبلی «بازگشت به هشدارها» را بزن."
+				SimpleVPBot_Texts::format(
+					SimpleVPBot_Texts::get_for_user( 'msg.alerts.threshold_volume_prompt', $user ),
+					array( 'pct' => (string) SimpleVPBot_Service_Alerts::effective_low_traffic_pct( $svc ) )
+				)
+				. SimpleVPBot_Texts::get_for_user( 'msg.alerts.threshold_cancel_hint', $user )
 			);
 			return;
 		}
@@ -589,13 +591,10 @@ class SimpleVPBot_Handler_Service {
 			SimpleVPBot_Bot_Runtime::send_message(
 				$platform,
 				$chat_id,
-				"📅 روزهای هشدار قبل از انقضا\n"
-				. SimpleVPBot_Service_Alerts::text_sep()
-				. "🧒 یعنی چی؟ وقتی تا تمام شدن وقت سرویس دقیقا این تعداد روز مانده باشد، ربات یک بار خبر می‌دهد. عدد ۰ یعنی همان روز آخر.\n"
-				. SimpleVPBot_Service_Alerts::text_sep()
-				. "📋 الان: {$d}\n"
-				. SimpleVPBot_Service_Alerts::text_sep()
-				. "✋ تو چی کار کنی؟ چند عدد با کامای انگلیسی بفرست مثل ۳,۱,۰ ."
+				SimpleVPBot_Texts::format(
+					SimpleVPBot_Texts::get_for_user( 'msg.alerts.threshold_expiry_prompt', $user ),
+					array( 'days' => $d )
+				)
 			);
 			return;
 		}
@@ -607,13 +606,10 @@ class SimpleVPBot_Handler_Service {
 			SimpleVPBot_Bot_Runtime::send_message(
 				$platform,
 				$chat_id,
-				"👥 آستانهٔ محدودیت کاربر\n"
-				. SimpleVPBot_Service_Alerts::text_sep()
-				. "🧒 یعنی چی؟ وقتی چند نفر هم‌زمان از سرویس استفاده می‌کنند و نزدیک همان عددی شدی که برایت ثبت شده، ربات هشدار می‌دهد. این فقط وقتی کار دارد که برایت یک عدد بیش از صفر ثبت شده باشد.\n"
-				. SimpleVPBot_Service_Alerts::text_sep()
-				. '📋 الان: ' . SimpleVPBot_Service_Alerts::effective_ip_fill_pct( $svc ) . "٪\n"
-				. SimpleVPBot_Service_Alerts::text_sep()
-				. "✋ تو چی کار کنی؟ یک عدد ۵۰ تا ۱۰۰ بفرست مثل ۸۵."
+				SimpleVPBot_Texts::format(
+					SimpleVPBot_Texts::get_for_user( 'msg.alerts.threshold_ip_prompt', $user ),
+					array( 'pct' => (string) SimpleVPBot_Service_Alerts::effective_ip_fill_pct( $svc ) )
+				)
 			);
 			return;
 		}
@@ -700,11 +696,17 @@ class SimpleVPBot_Handler_Service {
 		SimpleVPBot_Bot_Runtime::send_message(
 			$platform,
 			$chat_id,
-			"✅ ذخیره شد.\n" . SimpleVPBot_Service_Alerts::text_sep() . "📋 الان:\n{$sum}",
+			SimpleVPBot_Texts::format(
+				SimpleVPBot_Texts::get_for_user( 'msg.svc.alert_threshold_saved', $user ),
+				array(
+					'sep'     => SimpleVPBot_Service_Alerts::text_sep(),
+					'summary' => $sum,
+				)
+			),
 			array(
 				'reply_markup' => array(
 					'inline_keyboard' => array(
-						array( array( 'text' => SimpleVPBot_Keyboards::glass_button_text( '🔔 باز کردن پنل هشدار' ), 'callback_data' => 'svc:al:' . $sid ) ),
+						array( array( 'text' => SimpleVPBot_Keyboards::glass_button_text( SimpleVPBot_Texts::get_for_user( 'btn.svc.open_alerts', $user ) ), 'callback_data' => 'svc:al:' . $sid ) ),
 					),
 				),
 			)
@@ -770,9 +772,15 @@ class SimpleVPBot_Handler_Service {
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.invalid_amount', $user ) );
 			return;
 		}
+		if ( ! self::is_platform_admin_managing_other_users_service( $platform, $from_id, $user, $svc )
+			&& ! SimpleVPBot_Service_Renew::user_may_add_volume( $svc ) ) {
+			SimpleVPBot_State::clear( (int) $user->id );
+			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Service_Renew::reject_add_volume_message( $user ) );
+			return;
+		}
 		SimpleVPBot_State::clear( (int) $user->id );
 		if ( self::is_platform_admin_managing_other_users_service( $platform, $from_id, $user, $svc ) ) {
-			$rows = SimpleVPBot_Handler_Admin_Hub::admin_service_payment_mode_inline_rows( 'vol', $sid, $gb );
+			$rows = SimpleVPBot_Handler_Admin_Pnl::admin_service_payment_mode_inline_rows( 'vol', $sid, $gb );
 			if ( empty( $rows ) ) {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.internal_button_error', $user ) );
 				return;
@@ -838,7 +846,7 @@ class SimpleVPBot_Handler_Service {
 		}
 		SimpleVPBot_State::clear( (int) $user->id );
 		if ( self::is_platform_admin_managing_other_users_service( $platform, $from_id, $user, $svc ) ) {
-			$rows = SimpleVPBot_Handler_Admin_Hub::admin_service_payment_mode_inline_rows( 'slots', $sid, $n );
+			$rows = SimpleVPBot_Handler_Admin_Pnl::admin_service_payment_mode_inline_rows( 'slots', $sid, $n );
 			if ( empty( $rows ) ) {
 				SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.internal_button_error', $user ) );
 				return;
@@ -908,6 +916,24 @@ class SimpleVPBot_Handler_Service {
 			function () use ( $platform, $chat_id, $user, $svc, $sid, $text ) {
 				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 5, 300000 ) ) {
 					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.panel_login_retry', $user ) );
+					return;
+				}
+				if ( SimpleVPBot_Xui_Client::is_v3_clients_api() ) {
+					$patch = array( 'comment' => $text );
+					if ( SimpleVPBot_Service_Naming::is_platform_slug_service( $svc ) ) {
+						$patch['comment'] = $text;
+					}
+					$res = SimpleVPBot_Xui_Client::client_update_v3(
+						(string) $svc->email,
+						$patch,
+						array( (int) $svc->inbound_id )
+					);
+					if ( ! SimpleVPBot_Xui_Client::response_is_success( $res ) ) {
+						SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.panel_update_fail', $user ) );
+						return;
+					}
+					SimpleVPBot_State::clear( (int) $user->id );
+					SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.note_updated', $user ) );
 					return;
 				}
 				$inbound = SimpleVPBot_Xui_Client::inbound_get( (int) $svc->inbound_id );
@@ -1311,11 +1337,12 @@ class SimpleVPBot_Handler_Service {
 	/**
 	 * Pretty usage panel (shared by Telegram + Bale).
 	 *
-	 * @param object $svc Service.
+	 * @param object      $svc      Service.
+	 * @param string|null $platform telegram|bale|null for support footer.
 	 * @return string
 	 */
-	private static function build_usage_panel_text( $svc ) {
-		$v   = self::collect_usage_stats( $svc );
+	private static function build_usage_panel_text( $svc, $platform = null, $stats = null ) {
+		$v   = is_array( $stats ) ? $stats : self::collect_usage_stats( $svc );
 		if ( ! empty( $v['deleted'] ) ) {
 			return SimpleVPBot_Texts::get_for_user( 'msg.svc.deleted_from_panel', $user );
 		}
@@ -1345,7 +1372,7 @@ class SimpleVPBot_Handler_Service {
 			$txt .= "\n\n" . SimpleVPBot_Texts::get_for_user( 'msg.svc.usage_sync_uncertain', $owner );
 		}
 		if ( class_exists( 'SimpleVPBot_Support_Contacts' ) ) {
-			$txt = SimpleVPBot_Support_Contacts::append_to_message( $txt, null );
+			$txt = SimpleVPBot_Support_Contacts::append_to_message( $txt, $platform );
 		}
 		return $txt;
 	}
@@ -1369,9 +1396,10 @@ class SimpleVPBot_Handler_Service {
 	 * @return array<int, array<int, array<string, mixed>>>
 	 */
 	private static function build_config_copy_keyboard_rows( array $data, $portal, $service_id = 0 ) {
-		$uris = isset( $data['config_uris'] ) && is_array( $data['config_uris'] ) ? $data['config_uris'] : array();
-		$rows = array();
-		$port = (string) ( $data['portal_url'] ?? $portal );
+		$uris   = isset( $data['config_uris'] ) && is_array( $data['config_uris'] ) ? $data['config_uris'] : array();
+		$labels = isset( $data['config_labels'] ) && is_array( $data['config_labels'] ) ? $data['config_labels'] : array();
+		$rows   = array();
+		$port   = (string) ( $data['portal_url'] ?? $portal );
 		if ( '' !== $port ) {
 			$rows[] = array( array( 'text' => SimpleVPBot_Keyboards::glass_button_text( 'پنل وب' ), 'url' => $port ) );
 		}
@@ -1379,10 +1407,25 @@ class SimpleVPBot_Handler_Service {
 		$idx   = 0;
 		$n_uri = count( $uris );
 		foreach ( $uris as $u ) {
+			if ( '' === trim( (string) $u ) ) {
+				++$idx;
+				continue;
+			}
 			if ( $sid > 0 ) {
 				$cb = 'svc:w:' . $sid . ':' . $idx;
 				if ( strlen( $cb ) <= 64 ) {
-					$lbl = $n_uri > 1 ? ( '📋 کانفیگ ' . ( $idx + 1 ) ) : '📋 کانفیگ';
+					$remark = isset( $labels[ $idx ] ) ? trim( (string) $labels[ $idx ] ) : '';
+					if ( '' === $remark ) {
+						$remark = $n_uri > 1 ? ( 'کانفیگ ' . ( $idx + 1 ) ) : 'کانفیگ';
+					}
+					$lbl = '📋 ' . $remark;
+					if ( function_exists( 'mb_strlen' ) && function_exists( 'mb_substr' ) ) {
+						if ( mb_strlen( $lbl, 'UTF-8' ) > 30 ) {
+							$lbl = mb_substr( $lbl, 0, 27, 'UTF-8' ) . '…';
+						}
+					} elseif ( strlen( $lbl ) > 30 ) {
+						$lbl = substr( $lbl, 0, 27 ) . '...';
+					}
 					$rows[] = array( array( 'text' => SimpleVPBot_Keyboards::glass_button_text( $lbl ), 'callback_data' => $cb ) );
 				}
 			}
@@ -1395,122 +1438,534 @@ class SimpleVPBot_Handler_Service {
 	}
 
 	/**
-	 * HTML caption for Telegram (monospace in code / b labels).
+	 * One Telegram message body: label + full URI in monospace (HTML).
 	 *
-	 * @param array<string, mixed> $data    Portal data.
-	 * @param string                 $portal  Portal base.
-	 * @param bool                  $truncated Set true if truncated.
+	 * @param string $uri   Config URI (never truncated).
+	 * @param string $label Optional display label; empty uses URI fragment.
+	 * @param int    $index Zero-based index.
+	 * @param int    $total Total config count.
 	 * @return string
 	 */
-	private static function build_telegram_config_caption_html( array $data, $portal, &$truncated = false ) {
-		$uris   = isset( $data['config_uris'] ) && is_array( $data['config_uris'] ) ? $data['config_uris'] : array();
-		$labels = isset( $data['config_labels'] ) && is_array( $data['config_labels'] ) ? $data['config_labels'] : array();
-		$lines  = array();
-		$idx    = 1;
-		$n_uri  = count( $uris );
-		foreach ( $uris as $i => $u ) {
+	private static function build_single_config_message_html( $uri, $label, $index, $total ) {
+		$frag = trim( (string) $label );
+		if ( '' === $frag && class_exists( 'SimpleVPBot_Config_Link' ) ) {
+			$frag = SimpleVPBot_Config_Link::uri_fragment_label( (string) $uri );
+		}
+		$total       = max( 1, (int) $total );
+		$display_idx = max( 1, (int) $index + 1 );
+		if ( '' !== $frag ) {
+			$title = '🧾 <b>' . esc_html( $frag ) . '</b>';
+		} elseif ( $total > 1 ) {
+			$title = '🧾 <b>کانفیگ ' . $display_idx . '</b>';
+		} else {
+			$title = '🧾 <b>کانفیگ</b>';
+		}
+		return $title . "\n" . '<code>' . esc_html( (string) $uri ) . '</code>';
+	}
+
+	/**
+	 * Telegram chat id for outbound config delivery.
+	 *
+	 * @param object|null $user svp_users row.
+	 * @return int
+	 */
+	public static function resolve_telegram_chat_id( $user ) {
+		if ( ! is_object( $user ) ) {
+			return 0;
+		}
+		return (int) ( $user->tg_user_id ?? 0 );
+	}
+
+	/**
+	 * Signed dashboard / portal URL for user-facing QR and copy (never panel sub import).
+	 *
+	 * @param array<string, mixed> $data             Portal payload.
+	 * @param string               $portal_fallback  HMAC link from caller.
+	 * @return string
+	 */
+	private static function resolve_user_dashboard_url( array $data, $portal_fallback = '' ) {
+		foreach ( array( 'portal_url', 'user_portal_url' ) as $key ) {
+			$candidate = trim( (string) ( $data[ $key ] ?? '' ) );
+			if ( '' !== $candidate ) {
+				return $candidate;
+			}
+		}
+		$fallback = trim( (string) $portal_fallback );
+		return $fallback;
+	}
+
+	/**
+	 * HTML body for copyable subscription link message.
+	 *
+	 * @param string $url Subscription URL.
+	 * @return string
+	 */
+	private static function build_subscription_link_message_html( $url ) {
+		$title = SimpleVPBot_Texts::get( 'msg.svc.subscription_link_title', '🔗 لینک اشتراک' );
+		return '<b>' . esc_html( $title ) . '</b>' . "\n" . '<code>' . esc_html( (string) $url ) . '</code>';
+	}
+
+	/**
+	 * QR photo caption: title + dashboard link.
+	 *
+	 * @param string $dashboard_url Signed portal URL.
+	 * @return string
+	 */
+	private static function build_qr_caption_html( $dashboard_url ) {
+		$title = SimpleVPBot_Texts::get( 'msg.svc.subscription_qr_caption', '📷 QR لینک اشتراک' );
+		return '<b>' . esc_html( $title ) . '</b>' . "\n" . '<code>' . esc_html( (string) $dashboard_url ) . '</code>';
+	}
+
+	/**
+	 * Plain-text QR caption fallback when HTML sendPhoto fails.
+	 *
+	 * @param string $dashboard_url Signed portal URL.
+	 * @return string
+	 */
+	private static function build_qr_caption_plain( $dashboard_url ) {
+		$title = SimpleVPBot_Texts::get( 'msg.svc.subscription_qr_caption', '📷 QR لینک اشتراک' );
+		return $title . "\n" . (string) $dashboard_url;
+	}
+
+	/**
+	 * Send dashboard QR photo; returns true when QR lib unavailable or photo delivered.
+	 *
+	 * @param int    $chat_id      Telegram chat.
+	 * @param string $dashboard_url Dashboard URL payload.
+	 * @param int    $service_id   Service id for logs.
+	 * @return bool
+	 */
+	private static function send_config_qr_photo( $chat_id, $dashboard_url, $service_id = 0 ) {
+		if ( ! class_exists( 'SimpleVPBot_Qr' ) || ! SimpleVPBot_Qr::is_available() ) {
+			return true;
+		}
+		$dashboard = trim( (string) $dashboard_url );
+		if ( '' === $dashboard ) {
+			return false;
+		}
+		$bytes = SimpleVPBot_Qr::png_bytes( $dashboard );
+		if ( ! $bytes ) {
+			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+				SimpleVPBot_Logger::error(
+					'send_config_qr_photo png_bytes failed',
+					array( 'chat_id' => (int) $chat_id, 'service_id' => (int) $service_id )
+				);
+			}
+			return false;
+		}
+		$tmp = function_exists( 'wp_tempnam' ) ? wp_tempnam( 'svp_qr' ) : @tempnam( sys_get_temp_dir(), 'svp' );
+		if ( ! $tmp || false === file_put_contents( $tmp, $bytes ) ) {
+			return false;
+		}
+		$attempts = array(
+			array(
+				'caption' => self::build_qr_caption_html( $dashboard ),
+				'extra'   => array( 'parse_mode' => 'HTML' ),
+			),
+			array(
+				'caption' => self::build_qr_caption_plain( $dashboard ),
+				'extra'   => array(),
+			),
+		);
+		$ok = false;
+		foreach ( $attempts as $attempt ) {
+			$qr_res = SimpleVPBot_Bot_Runtime::send_photo_file(
+				'telegram',
+				(int) $chat_id,
+				$tmp,
+				(string) $attempt['caption'],
+				(array) $attempt['extra']
+			);
+			if ( is_array( $qr_res ) && ! empty( $qr_res['result']['message_id'] ) ) {
+				$ok = true;
+				break;
+			}
+			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+				SimpleVPBot_Logger::error(
+					'send_config_qr_photo failed',
+					array(
+						'chat_id'    => (int) $chat_id,
+						'service_id' => (int) $service_id,
+						'desc'       => is_array( $qr_res ) ? (string) ( $qr_res['description'] ?? '' ) : 'no_response',
+					)
+				);
+			}
+		}
+		if ( $tmp && file_exists( $tmp ) ) {
+			@unlink( $tmp );
+		}
+		return $ok;
+	}
+
+	/**
+	 * One Telegram HTML message: dashboard link + all config URIs stacked.
+	 *
+	 * @param string               $dashboard_url Dashboard link.
+	 * @param array<int, string>   $send_uris     Config URIs keyed by original index.
+	 * @param array<int, string>   $labels        Display labels keyed like $send_uris.
+	 * @param string               $intro_html    Optional leading block (e.g. payment confirmed).
+	 * @return string
+	 */
+	private static function build_combined_config_message_html( $dashboard_url, array $send_uris, array $labels, $intro_html = '' ) {
+		$parts = array();
+		$intro = trim( (string) $intro_html );
+		if ( '' !== $intro ) {
+			$parts[] = $intro;
+		}
+		if ( '' !== trim( (string) $dashboard_url ) ) {
+			$parts[] = self::build_subscription_link_message_html( (string) $dashboard_url );
+		}
+		$n_uri = count( $send_uris );
+		$pos   = 0;
+		foreach ( $send_uris as $i => $u ) {
+			$frag  = isset( $labels[ $i ] ) ? trim( (string) $labels[ $i ] ) : '';
+			$parts[] = self::build_single_config_message_html( (string) $u, $frag, $pos, $n_uri );
+			++$pos;
+		}
+		return implode( "\n\n", $parts );
+	}
+
+	/**
+	 * Plain-text variant for sendDocument fallback.
+	 *
+	 * @param string               $dashboard_url Dashboard link.
+	 * @param array<int, string>   $send_uris     Config URIs.
+	 * @param array<int, string>   $labels        Labels.
+	 * @return string
+	 */
+	private static function build_combined_config_plain_text( $dashboard_url, array $send_uris, array $labels, $intro_plain = '' ) {
+		$parts = array();
+		$intro = trim( (string) $intro_plain );
+		if ( '' !== $intro ) {
+			$parts[] = $intro;
+		}
+		if ( '' !== trim( (string) $dashboard_url ) ) {
+			$title = SimpleVPBot_Texts::get( 'msg.svc.subscription_link_title', '🔗 لینک اشتراک' );
+			$parts[] = $title . "\n" . (string) $dashboard_url;
+		}
+		$n_uri = count( $send_uris );
+		$pos   = 0;
+		foreach ( $send_uris as $i => $u ) {
 			$frag = isset( $labels[ $i ] ) ? trim( (string) $labels[ $i ] ) : '';
 			if ( '' === $frag && class_exists( 'SimpleVPBot_Config_Link' ) ) {
 				$frag = SimpleVPBot_Config_Link::uri_fragment_label( (string) $u );
 			}
-			if ( '' !== $frag ) {
-				$title = '🧾 <b>' . esc_html( $frag ) . '</b>';
-			} elseif ( $n_uri > 1 ) {
-				$title = "🧾 <b>کانفیگ {$idx}</b>";
-			} else {
-				$title = '🧾 <b>کانفیگ</b>';
+			if ( '' === $frag ) {
+				$frag = $n_uri > 1 ? ( 'کانفیگ ' . ( $pos + 1 ) ) : 'کانفیگ';
 			}
-			$lines[] = $title . "\n" . '<code>' . esc_html( (string) $u ) . '</code>';
-			$idx++;
-			if ( $idx > 20 ) {
-				break;
-			}
+			$parts[] = $frag . "\n" . (string) $u;
+			++$pos;
 		}
-		$out = implode( "\n\n", $lines );
-		if ( '' === $out ) {
-			$out = '🧩';
-		}
-		$max = 900;
-		if ( function_exists( 'mb_strlen' ) && function_exists( 'mb_substr' ) && mb_strlen( $out, 'UTF-8' ) > $max ) {
-			$out       = mb_substr( $out, 0, $max, 'UTF-8' ) . "…\n" . 'بقیه را با دکمهٔ کانفیگ بگیرید.';
-			$truncated = true;
-		} elseif ( strlen( $out ) > $max + 200 ) {
-			$out       = substr( $out, 0, $max ) . "…\n" . 'بقیه را با دکمهٔ کانفیگ بگیرید.';
-			$truncated = true;
-		}
-		return $out;
+		return implode( "\n\n", $parts );
 	}
 
 	/**
-	 * One message: photo (QR) + HTML caption + inline rows (callback per config).
+	 * @param string $html HTML body.
+	 * @return bool
+	 */
+	private static function telegram_html_exceeds_limit( $html ) {
+		$html = (string) $html;
+		if ( function_exists( 'mb_strlen' ) ) {
+			return mb_strlen( $html, 'UTF-8' ) > 4096;
+		}
+		return strlen( $html ) > 4096;
+	}
+
+	/**
+	 * Telegram: QR photo (dashboard link caption) + one combined config message.
 	 *
 	 * @param int                  $chat_id    Chat.
 	 * @param array<string, mixed> $data       Data.
 	 * @param string               $portal     HMAC link.
-	 * @param int                  $service_id Service id for config buttons.
+	 * @param int $svp_user_id svp_users.id.
+	 * @param int $service_id  svp_services.id.
+	 * @return string
 	 */
-	private static function telegram_send_config_unified( $chat_id, array $data, $portal, $service_id = 0 ) {
-		$import = (string) ( $data['import_sub_url'] ?? $data['subscription_url'] ?? '' );
-		$uris   = isset( $data['config_uris'] ) && is_array( $data['config_uris'] ) ? $data['config_uris'] : array();
-		$port   = (string) ( $data['portal_url'] ?? $portal );
-		if ( '' === $import && empty( $uris ) && '' === $port ) {
-			SimpleVPBot_Bot_Runtime::send_message(
-				'telegram',
-				$chat_id,
-				"⚠️ لینک اشتراک هنوز آماده نیست.\n🧒 از ادمین بخواه اشتراک را روی سرور روشن کند و آدرس عمومی اشتراک در تنظیمات سایت درست شود."
-			);
-			return;
-		}
-		$trunc   = false;
-		$caption = self::build_telegram_config_caption_html( $data, (string) $portal, $trunc );
-		$markup  = self::build_config_copy_keyboard_rows( $data, (string) $portal, (int) $service_id );
-		$inline  = array( 'inline_keyboard' => $markup );
-		$extra   = array( 'parse_mode' => 'HTML', 'reply_markup' => $inline );
-		$qr_base = '';
-		if ( ! empty( $uris[0] ) ) {
-			$qr_base = (string) $uris[0];
-		}
-		if ( '' === $qr_base ) {
-			$qr_base = $import;
-		}
-		if ( '' === $qr_base ) {
-			$qr_base = $port;
-		}
-		$sent = false;
-		if ( class_exists( 'SimpleVPBot_Qr' ) && SimpleVPBot_Qr::is_available() && $qr_base ) {
-			$bytes = SimpleVPBot_Qr::png_bytes( $qr_base );
-			if ( $bytes ) {
-				$tmp = function_exists( 'wp_tempnam' ) ? wp_tempnam( 'svp_qr' ) : @tempnam( sys_get_temp_dir(), 'svp' );
-				if ( $tmp && false !== file_put_contents( $tmp, $bytes ) ) {
-					$res  = SimpleVPBot_Bot_Runtime::send_photo_file( 'telegram', (int) $chat_id, $tmp, $caption, $extra );
-					$sent = is_array( $res ) && ! empty( $res['ok'] );
-					if ( $tmp && file_exists( $tmp ) ) {
-						@unlink( $tmp );
-					}
-				}
-			}
-		}
-		if ( ! $sent ) {
-			$res = SimpleVPBot_Bot_Runtime::send_message( 'telegram', (int) $chat_id, $caption, $extra );
-			$sent = is_array( $res ) && ! empty( $res['ok'] );
-		}
-		if ( ! $sent ) {
-			$plain = wp_strip_all_tags( $caption );
-			SimpleVPBot_Logger::error(
-				'telegram_send_config_unified failed',
-				array( 'chat_id' => (int) $chat_id, 'service_id' => (int) $service_id )
-			);
-			SimpleVPBot_Bot_Runtime::send_message_with_support(
-				'telegram',
-				(int) $chat_id,
-				'⛔ ارسال کانفیگ/QR در تلگرام انجام نشد. دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.' . ( $plain ? "\n\n" . $plain : '' )
-			);
-			return;
-		}
+	private static function config_sent_transient_key( $svp_user_id, $service_id ) {
+		return 'svp_cfg_sent_' . (int) $svp_user_id . '_' . (int) $service_id;
 	}
 
 	/**
-	 * Callback svc:w:{service_id}:{index}: send one config line as plain text for easy copy.
+	 * @param int $svp_user_id svp_users.id.
+	 * @param int $service_id  svp_services.id.
+	 * @return string
+	 */
+	private static function config_delivery_intro_transient_key( $svp_user_id, $service_id ) {
+		return 'svp_cfg_intro_' . (int) $svp_user_id . '_' . (int) $service_id;
+	}
+
+	/**
+	 * Queue intro HTML for the next auto config delivery message.
+	 *
+	 * @param int    $svp_user_id svp_users.id.
+	 * @param int    $service_id  svp_services.id.
+	 * @param string $intro_html  HTML block (escaped lines).
+	 */
+	public static function set_config_delivery_intro( $svp_user_id, $service_id, $intro_html ) {
+		$uid = (int) $svp_user_id;
+		$sid = (int) $service_id;
+		if ( $uid < 1 || $sid < 1 || '' === trim( (string) $intro_html ) ) {
+			return;
+		}
+		set_transient( self::config_delivery_intro_transient_key( $uid, $sid ), (string) $intro_html, 600 );
+	}
+
+	/**
+	 * Build and store purchase-confirmed intro for combined config delivery.
+	 *
+	 * @param object|null $svc        Service row.
+	 * @param object|null $context_tx Transaction context.
+	 * @return string HTML intro.
+	 */
+	public static function build_purchase_delivery_intro_html( $svc, $context_tx = null ) {
+		$lines = array( '✅ پرداخت شما تایید شد.' );
+		$summary = self::service_ready_summary_line( $svc, $context_tx );
+		if ( '' !== $summary ) {
+			$lines[] = $summary;
+		}
+		return implode( "\n", array_map( 'esc_html', $lines ) );
+	}
+
+	/**
+	 * @param int $svp_user_id svp_users.id.
+	 * @param int $service_id  svp_services.id.
+	 * @return string
+	 */
+	private static function peek_config_delivery_intro( $svp_user_id, $service_id ) {
+		$uid = (int) $svp_user_id;
+		$sid = (int) $service_id;
+		if ( $uid < 1 || $sid < 1 ) {
+			return '';
+		}
+		$intro = get_transient( self::config_delivery_intro_transient_key( $uid, $sid ) );
+		return is_string( $intro ) ? trim( $intro ) : '';
+	}
+
+	/**
+	 * @param int $svp_user_id svp_users.id.
+	 * @param int $service_id  svp_services.id.
+	 */
+	private static function clear_config_delivery_intro( $svp_user_id, $service_id ) {
+		$uid = (int) $svp_user_id;
+		$sid = (int) $service_id;
+		if ( $uid < 1 || $sid < 1 ) {
+			return;
+		}
+		delete_transient( self::config_delivery_intro_transient_key( $uid, $sid ) );
+	}
+
+	/**
+	 * @param int $svp_user_id svp_users.id.
+	 * @param int $service_id  svp_services.id.
+	 * @return bool
+	 */
+	private static function config_already_sent( $svp_user_id, $service_id ) {
+		$uid = (int) $svp_user_id;
+		$sid = (int) $service_id;
+		if ( $uid < 1 || $sid < 1 ) {
+			return false;
+		}
+		return (bool) get_transient( self::config_sent_transient_key( $uid, $sid ) );
+	}
+
+	/**
+	 * @param int $svp_user_id svp_users.id.
+	 * @param int $service_id  svp_services.id.
+	 */
+	private static function mark_config_sent( $svp_user_id, $service_id ) {
+		$uid = (int) $svp_user_id;
+		$sid = (int) $service_id;
+		if ( $uid < 1 || $sid < 1 ) {
+			return;
+		}
+		set_transient( self::config_sent_transient_key( $uid, $sid ), '1', self::CONFIG_SENT_TTL_SEC );
+	}
+
+	/**
+	 * @param mixed $res Bot API response.
+	 * @return int
+	 */
+	private static function api_message_id_from_response( $res ) {
+		if ( is_array( $res ) && ! empty( $res['result']['message_id'] ) ) {
+			return (int) $res['result']['message_id'];
+		}
+		return 0;
+	}
+
+	/**
+	 * Show a short-lived preparing line; return message id for later edit.
+	 *
+	 * @param string $platform  telegram|bale.
+	 * @param int    $chat_id   Chat id.
+	 * @param int    $msg_id    Callback message id (0 = send new).
+	 * @param object $user      User row.
+	 * @param int    $svc_id    Service id.
+	 * @param int    $owner_uid Owner user id.
+	 * @return int Message id to edit when delivery completes.
+	 */
+	private static function resolve_preparing_panel_message( $platform, $chat_id, $msg_id, $user, $svc_id, $owner_uid ) {
+		$svc_id    = (int) $svc_id;
+		$chat_id   = (int) $chat_id;
+		$msg_id    = (int) $msg_id;
+		$owner_uid = (int) $owner_uid;
+		$portal    = SimpleVPBot_Portal_Link::build_service_url( $owner_uid, $svc_id );
+		$text      = SimpleVPBot_Texts::get_for_user( 'msg.svc.preparing_panel', $user, '⏳ در حال آماده‌سازی سرویس…' );
+		if ( 'bale' === $platform ) {
+			$markup = SimpleVPBot_Keyboards::inline_bale_portal_back( $svc_id, $portal, $user );
+		} else {
+			$markup = SimpleVPBot_Keyboards::inline_subscription_back_only( $svc_id, $user );
+		}
+		$extra = array( 'reply_markup' => $markup );
+		if ( $msg_id > 0 ) {
+			SimpleVPBot_Bot_Runtime::edit_message_text( $platform, $chat_id, $msg_id, $text, $extra );
+			return $msg_id;
+		}
+		$res = SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $text, $extra );
+		return self::api_message_id_from_response( $res );
+	}
+
+	/**
+	 * Edit panel message or send error when deferred delivery fails.
+	 *
+	 * @param string $platform     telegram|bale.
+	 * @param int    $chat_id      Chat id.
+	 * @param int    $panel_msg_id Message to edit (0 = send new).
+	 * @param object $user         User row.
+	 * @param string $text_key     Text key or literal fallback body.
+	 * @param string $fallback     Fallback Persian text.
+	 */
+	private static function notify_panel_delivery_failed( $platform, $chat_id, $panel_msg_id, $user, $text_key, $fallback ) {
+		$chat_id      = (int) $chat_id;
+		$panel_msg_id = (int) $panel_msg_id;
+		$text         = SimpleVPBot_Texts::get_for_user( $text_key, $user, $fallback );
+		if ( class_exists( 'SimpleVPBot_Support_Contacts' ) ) {
+			$text = SimpleVPBot_Support_Contacts::append_to_message( $text, $platform );
+		}
+		if ( $panel_msg_id > 0 ) {
+			SimpleVPBot_Bot_Runtime::edit_message_text( $platform, $chat_id, $panel_msg_id, $text, array() );
+			return;
+		}
+		SimpleVPBot_Bot_Runtime::send_message_with_support( $platform, $chat_id, $text );
+	}
+
+	/**
+	 * Send Telegram config once per user/service window (dedupe).
+	 *
+	 * @param int                  $chat_id     Telegram chat id.
+	 * @param array<string, mixed> $data        Portal data.
+	 * @param string               $portal      Portal URL.
+	 * @param int                  $service_id  Service id.
+	 * @param int                  $svp_user_id svp_users.id for dedupe.
+	 * @return bool True when config is present or was already sent.
+	 */
+	private static function maybe_telegram_send_config_unified( $chat_id, array $data, $portal, $service_id, $svp_user_id ) {
+		$uid = (int) $svp_user_id;
+		$sid = (int) $service_id;
+		if ( $uid > 0 && $sid > 0 && self::config_already_sent( $uid, $sid ) ) {
+			return true;
+		}
+		return self::telegram_send_config_unified( $chat_id, $data, $portal, $sid, $uid );
+	}
+
+	/**
+	 * @param int                  $chat_id     Telegram chat.
+	 * @param array<string, mixed> $data        Data.
+	 * @param string               $portal      HMAC link.
+	 * @param int                  $service_id  Service id.
+	 * @param int                  $svp_user_id svp_users.id (0 = skip dedupe mark).
+	 * @return bool True when at least one config line was sent or dedupe hit.
+	 */
+	private static function portal_data_has_sendable_config( array $data, $portal_fallback = '' ) {
+		if ( '' === self::resolve_user_dashboard_url( $data, (string) $portal_fallback ) ) {
+			return false;
+		}
+		$uris = isset( $data['config_uris'] ) && is_array( $data['config_uris'] ) ? $data['config_uris'] : array();
+		foreach ( $uris as $u ) {
+			if ( '' !== trim( (string) $u ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static function telegram_send_config_unified( $chat_id, array $data, $portal, $service_id = 0, $svp_user_id = 0 ) {
+		$dashboard = self::resolve_user_dashboard_url( $data, (string) $portal );
+		$uris      = isset( $data['config_uris'] ) && is_array( $data['config_uris'] ) ? $data['config_uris'] : array();
+		$labels    = isset( $data['config_labels'] ) && is_array( $data['config_labels'] ) ? $data['config_labels'] : array();
+		if ( ! self::portal_data_has_sendable_config( $data, (string) $portal ) ) {
+			return false;
+		}
+
+		$send_uris = array();
+		foreach ( $uris as $i => $u ) {
+			if ( count( $send_uris ) >= 20 ) {
+				break;
+			}
+			$u = trim( (string) $u );
+			if ( '' === $u || $u === $dashboard ) {
+				continue;
+			}
+			$send_uris[ (int) $i ] = $u;
+		}
+		if ( empty( $send_uris ) || '' === $dashboard ) {
+			return false;
+		}
+
+		$intro_html  = self::peek_config_delivery_intro( (int) $svp_user_id, (int) $service_id );
+		$intro_plain = '' !== $intro_html ? wp_strip_all_tags( $intro_html ) : '';
+
+		$qr_sent = self::send_config_qr_photo( (int) $chat_id, $dashboard, (int) $service_id );
+
+		$markup   = self::build_config_copy_keyboard_rows( $data, (string) $portal, (int) $service_id );
+		$inline   = array( 'inline_keyboard' => $markup );
+		$combined = self::build_combined_config_message_html( $dashboard, $send_uris, $labels, $intro_html );
+		$extra    = array(
+			'parse_mode'    => 'HTML',
+			'reply_markup'  => $inline,
+		);
+
+		$msg_sent = false;
+		if ( self::telegram_html_exceeds_limit( $combined ) ) {
+			$plain = self::build_combined_config_plain_text( $dashboard, $send_uris, $labels, $intro_plain );
+			$doc   = function_exists( 'wp_tempnam' ) ? wp_tempnam( 'svp_cfg' ) : @tempnam( sys_get_temp_dir(), 'svp_cfg' );
+			if ( $doc && false !== file_put_contents( $doc, $plain ) ) {
+				$doc_cap = SimpleVPBot_Texts::get( 'msg.svc.subscription_link_title', '🔗 لینک اشتراک' );
+				$doc_res = SimpleVPBot_Bot_Runtime::send_document_file( 'telegram', (int) $chat_id, $doc, $doc_cap, $extra );
+				$msg_sent = is_array( $doc_res ) && ! empty( $doc_res['ok'] );
+				if ( $doc && file_exists( $doc ) ) {
+					@unlink( $doc );
+				}
+			}
+		} else {
+			$res = SimpleVPBot_Bot_Runtime::send_message( 'telegram', (int) $chat_id, $combined, $extra );
+			$msg_sent = is_array( $res ) && ! empty( $res['ok'] );
+		}
+
+		if ( ! $msg_sent || ! $qr_sent ) {
+			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+				SimpleVPBot_Logger::error(
+					'telegram_send_config_unified failed',
+					array(
+						'chat_id'    => (int) $chat_id,
+						'service_id' => (int) $service_id,
+						'msg_sent'   => $msg_sent ? 1 : 0,
+						'qr_sent'    => $qr_sent ? 1 : 0,
+					)
+				);
+			}
+			return false;
+		}
+		$uid = (int) $svp_user_id;
+		$sid = (int) $service_id;
+		if ( $uid > 0 && $sid > 0 ) {
+			self::clear_config_delivery_intro( $uid, $sid );
+			self::mark_config_sent( $uid, $sid );
+		}
+		return true;
+	}
+
+	/**
+	 * Callback svc:w:{service_id}:{index}: send one config line (HTML monospace on Telegram).
 	 *
 	 * @param array<string, mixed> $ctx platform, user, svc_id, uri_idx, chat_id.
 	 */
@@ -1521,45 +1976,498 @@ class SimpleVPBot_Handler_Service {
 		$idx      = (int) $ctx['uri_idx'];
 		$chat_id  = (int) $ctx['chat_id'];
 		$from_id  = isset( $ctx['from_id'] ) ? (int) $ctx['from_id'] : 0;
+		$cb_id    = isset( $ctx['cb_id'] ) ? (string) $ctx['cb_id'] : '';
 		$svc      = SimpleVPBot_Model_Service::find( $sid );
 		if ( ! self::service_caller_can_manage( $platform, $from_id, $user, $svc ) ) {
 			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.invalid_access', $user ) );
 			return;
 		}
-		$data = self::get_portal_service_data( $svc, (int) $svc->user_id );
-		$uris = isset( $data['config_uris'] ) && is_array( $data['config_uris'] ) ? $data['config_uris'] : array();
-		if ( ! isset( $uris[ $idx ] ) ) {
-			SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.config_unavailable', $user ) );
-			return;
+		self::answer_svc_processing_toast( $platform, $cb_id );
+		$user_id = is_object( $user ) ? (int) $user->id : 0;
+		$work    = static function () use ( $platform, $user_id, $sid, $idx, $chat_id ) {
+			$user_row = SimpleVPBot_Model_User::find( (int) $user_id );
+			if ( ! $user_row ) {
+				return;
+			}
+			self::run_config_wire_delivery( $platform, $user_row, $sid, $idx, $chat_id );
+		};
+		if ( class_exists( 'SimpleVPBot_Deferred_Work' ) ) {
+			SimpleVPBot_Deferred_Work::run_after_response( $work, 'svc_config_wire' );
+		} else {
+			$work();
 		}
-		$line  = (string) $uris[ $idx ];
-		$n_uri = count( $uris );
-		$prefix = $n_uri > 1 ? ( '🧾 کانفیگ ' . ( $idx + 1 ) ) : '🧾 کانفیگ';
-		SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $prefix . SimpleVPBot_Service_Alerts::text_sep() . $line );
 	}
 
 	/**
-	 * Data for WordPress portal page (HTML-safe values + connection URLs).
+	 * Send one config URI line after deferred fetch.
 	 *
-	 * @param object  $svc      Service.
-	 * @param int     $user_id  svp user id (for signed portal); 0 = use $svc->user_id.
-	 * @return array<string, string|array>
+	 * @param string               $platform telegram|bale.
+	 * @param object               $user     User row.
+	 * @param int                  $sid      Service id.
+	 * @param int                  $idx      Config index.
+	 * @param int                  $chat_id  Chat id.
 	 */
-	public static function get_portal_service_data( $svc, $user_id = 0 ) {
+	private static function run_config_wire_delivery( $platform, $user, $sid, $idx, $chat_id ) {
+		try {
+			$svc = SimpleVPBot_Model_Service::find( (int) $sid );
+			if ( ! $svc ) {
+				SimpleVPBot_Bot_Runtime::send_message_with_support( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.not_found', $user ) );
+				return;
+			}
+			$data   = self::get_portal_service_data( $svc, (int) $svc->user_id );
+			$uris   = isset( $data['config_uris'] ) && is_array( $data['config_uris'] ) ? $data['config_uris'] : array();
+			$labels = isset( $data['config_labels'] ) && is_array( $data['config_labels'] ) ? $data['config_labels'] : array();
+			if ( ! isset( $uris[ $idx ] ) ) {
+				SimpleVPBot_Bot_Runtime::send_message_with_support( $platform, $chat_id, SimpleVPBot_Texts::get_for_user( 'msg.svc.config_unavailable', $user ) );
+				return;
+			}
+			$line = (string) $uris[ $idx ];
+			$frag = isset( $labels[ $idx ] ) ? trim( (string) $labels[ $idx ] ) : '';
+			if ( 'telegram' === $platform ) {
+				$text  = self::build_single_config_message_html( $line, $frag, $idx, count( $uris ) );
+				$extra = array( 'parse_mode' => 'HTML' );
+			} else {
+				$n_uri  = count( $uris );
+				$prefix = $n_uri > 1 ? ( '🧾 کانفیگ ' . ( $idx + 1 ) ) : '🧾 کانفیگ';
+				$text   = $prefix . SimpleVPBot_Service_Alerts::text_sep() . $line;
+				$extra  = array();
+			}
+			$res = SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $text, $extra );
+			if ( ! is_array( $res ) || empty( $res['ok'] ) ) {
+				SimpleVPBot_Bot_Runtime::send_message_with_support(
+					$platform,
+					$chat_id,
+					SimpleVPBot_Texts::get_for_user( 'msg.svc.telegram_config_send_fail', $user )
+				);
+			}
+		} catch ( Throwable $e ) { // phpcs:ignore
+			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+				SimpleVPBot_Logger::error( 'svc_config_wire failed', array( 'service_id' => (int) $sid, 'm' => $e->getMessage() ) );
+			}
+			SimpleVPBot_Bot_Runtime::send_message_with_support(
+				$platform,
+				$chat_id,
+				SimpleVPBot_Texts::get_for_user( 'msg.svc.telegram_config_send_fail', $user )
+			);
+		}
+	}
+
+	/**
+	 * Toast for deferred service callbacks.
+	 *
+	 * @param string $platform Platform.
+	 * @param string $cb_id    Callback query id.
+	 */
+	private static function answer_svc_processing_toast( $platform, $cb_id ) {
+		if ( '' === (string) $cb_id ) {
+			return;
+		}
+		SimpleVPBot_Bot_Runtime::answer_callback_query(
+			$platform,
+			array(
+				'callback_query_id' => (string) $cb_id,
+				'text'              => '⏳ در حال بارگذاری…',
+			)
+		);
+	}
+
+	/**
+	 * DB-only portal data (no XUI / subscription fetch).
+	 *
+	 * @param object $svc     Service.
+	 * @param int    $user_id svp user id.
+	 * @return array<string, mixed>
+	 */
+	public static function get_portal_service_data_fast( $svc, $user_id = 0 ) {
 		if ( SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
 			return self::get_portal_l2tp_data( $svc, $user_id );
 		}
-		$v = self::collect_usage_stats( $svc );
-		if ( ! empty( $v['deleted'] ) ) {
-			return array( '_deleted' => 1 );
-		}
-		$uid   = (int) $user_id > 0 ? (int) $user_id : (int) ( $svc->user_id ?? 0 );
+		$v      = self::collect_usage_stats_fallback_db( $svc, 'fast' );
+		$uid    = (int) $user_id > 0 ? (int) $user_id : (int) ( $svc->user_id ?? 0 );
 		$import = SimpleVPBot_Config_Link::subscription_url( (string) $svc->sub_id, self::svc_panel_id_xui( $svc ) );
 		$portal = ( $uid > 0 && (int) $svc->id > 0 ) ? SimpleVPBot_Portal_Link::build_service_url( $uid, (int) $svc->id ) : '';
-		if ( ! empty( $v['panel_unreachable'] ) && '' !== $import ) {
-			delete_transient( 'svp_sub_' . md5( $import ) );
+		$unified = '' !== $portal ? (string) $portal : (string) $import;
+		return array_merge(
+			$v,
+			array(
+				'panel_sub_url'    => (string) $import,
+				'import_sub_url'   => $unified,
+				'subscription_url' => $unified,
+				'portal_url'       => (string) $portal,
+				'user_portal_url'  => (string) $portal,
+				'config_uris'      => array(),
+				'config_labels'    => array(),
+				'config_uri'       => '',
+				'primary_link'     => $unified,
+			)
+		);
+	}
+
+	/**
+	 * One-line DB summary for post-provision notify (plan + expiry).
+	 *
+	 * @param object|null          $svc         Service row.
+	 * @param object|null          $context_tx  Purchase transaction.
+	 * @return string
+	 */
+	public static function service_ready_summary_line( $svc, $context_tx = null ) {
+		if ( ! is_object( $svc ) ) {
+			return '';
 		}
-		$uris = $import
+		$parts = array();
+		if ( is_object( $context_tx ) ) {
+			$meta = json_decode( (string) ( $context_tx->meta_json ?? '' ), true );
+			if ( is_array( $meta ) && ! empty( $meta['plan_id'] ) ) {
+				$plan = SimpleVPBot_Model_Plan::find( (int) $meta['plan_id'] );
+				if ( $plan ) {
+					$name = trim( (string) ( $plan->name ?? $plan->label ?? '' ) );
+					if ( '' !== $name ) {
+						$parts[] = '📦 ' . $name;
+					}
+				}
+			}
+		}
+		if ( ! empty( $svc->expires_at ) ) {
+			$parts[] = '📅 انقضا: ' . self::format_datetime_fa( (string) $svc->expires_at );
+		}
+		return implode( "\n", $parts );
+	}
+
+	/**
+	 * Push Telegram config after provision (no user click).
+	 *
+	 * @param object               $user        User row.
+	 * @param int                  $service_id  Service id.
+	 * @param object|null          $context_tx  Purchase transaction.
+	 */
+	public static function enqueue_config_delivery_for_user( $user, $service_id, $context_tx = null ) {
+		unset( $context_tx );
+		if ( ! is_object( $user ) ) {
+			return;
+		}
+		$chat_id = self::resolve_telegram_chat_id( $user );
+		if ( $chat_id < 1 ) {
+			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+				SimpleVPBot_Logger::info(
+					'config_delivery_skipped_no_telegram',
+					array( 'user_id' => (int) $user->id, 'service_id' => (int) $service_id )
+				);
+			}
+			return;
+		}
+		$svc_id = (int) $service_id;
+		$uid    = (int) $user->id;
+		$work   = static function () use ( $chat_id, $svc_id, $uid ) {
+			self::run_svc_config_delivery( $chat_id, $svc_id, $uid, 0 );
+		};
+		if ( class_exists( 'SimpleVPBot_Deferred_Work' ) ) {
+			SimpleVPBot_Deferred_Work::run_after_response_or_cron(
+				$work,
+				SimpleVPBot_Deferred_Work::SVC_CONFIG_DELIVERY_CRON_HOOK,
+				array( (int) $chat_id, (int) $svc_id, (int) $uid, 0 ),
+				'svc_config_delivery'
+			);
+		} else {
+			$work();
+		}
+	}
+
+	/**
+	 * Cron fallback: push Telegram config after provision.
+	 *
+	 * @param int $chat_id Telegram chat id.
+	 * @param int $svc_id  Service id.
+	 * @param int $uid     svp_users.id.
+	 */
+	public static function deferred_svc_config_delivery_cron( $chat_id, $svc_id, $uid, $attempt = 0 ) {
+		self::run_svc_config_delivery( (int) $chat_id, (int) $svc_id, (int) $uid, (int) $attempt );
+	}
+
+	/**
+	 * Backoff delays (seconds) for config delivery retries after attempt 0.
+	 *
+	 * @return array<int, int>
+	 */
+	private static function config_delivery_retry_delays() {
+		return array( 5, 10, 20, 30, 60, 120 );
+	}
+
+	/**
+	 * @param int $chat_id Telegram chat id.
+	 * @param int $svc_id  Service id.
+	 * @param int $uid     svp_users.id.
+	 * @param int $attempt Retry attempt (0 = first run).
+	 */
+	private static function run_svc_config_delivery( $chat_id, $svc_id, $uid, $attempt = 0 ) {
+		$chat_id   = (int) $chat_id;
+		$svc_id    = (int) $svc_id;
+		$uid       = (int) $uid;
+		$attempt   = max( 0, (int) $attempt );
+		$cron_args = array( $chat_id, $svc_id, $uid, $attempt );
+		if ( $uid > 0 && $svc_id > 0 && self::config_already_sent( $uid, $svc_id ) ) {
+			if ( class_exists( 'SimpleVPBot_Deferred_Work' ) ) {
+				wp_clear_scheduled_hook( SimpleVPBot_Deferred_Work::SVC_CONFIG_DELIVERY_CRON_HOOK );
+			}
+			return;
+		}
+		$svc = SimpleVPBot_Model_Service::find( $svc_id );
+		if ( ! $svc || SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
+			return;
+		}
+		$portal = SimpleVPBot_Portal_Link::build_service_url( $uid, $svc_id );
+		$data   = array();
+		for ( $i = 0; $i < 3; $i++ ) {
+			$data = self::get_portal_service_data_for_delivery( $svc, $uid );
+			if ( self::portal_data_has_sendable_config( $data, $portal ) ) {
+				break;
+			}
+			if ( $i < 2 ) {
+				usleep( 500000 );
+			}
+		}
+		$reason = '';
+		if ( ! self::portal_data_has_sendable_config( $data, $portal ) ) {
+			$reason = 'no_sendable_config';
+		} else {
+			$ok = self::maybe_telegram_send_config_unified( $chat_id, $data, $portal, $svc_id, $uid );
+			if ( $ok ) {
+				if ( class_exists( 'SimpleVPBot_Deferred_Work' ) ) {
+					wp_clear_scheduled_hook( SimpleVPBot_Deferred_Work::SVC_CONFIG_DELIVERY_CRON_HOOK );
+				}
+				return;
+			}
+			$reason = 'send_failed';
+		}
+		$delays    = self::config_delivery_retry_delays();
+		$max_retry = count( $delays );
+		if ( $attempt < $max_retry && class_exists( 'SimpleVPBot_Deferred_Work' ) ) {
+			$next_attempt = $attempt + 1;
+			$delay        = (int) ( $delays[ $attempt ] ?? 300 );
+			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+				SimpleVPBot_Logger::info(
+					'config_delivery_retry_scheduled',
+					array(
+						'chat_id'      => $chat_id,
+						'service_id'   => $svc_id,
+						'user_id'      => $uid,
+						'attempt'      => $next_attempt,
+						'delay_sec'    => $delay,
+						'fail_reason'  => $reason,
+					)
+				);
+			}
+			SimpleVPBot_Deferred_Work::schedule_cron_retry(
+				SimpleVPBot_Deferred_Work::SVC_CONFIG_DELIVERY_CRON_HOOK,
+				array( $chat_id, $svc_id, $uid, $next_attempt ),
+				$delay
+			);
+			return;
+		}
+		if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+			SimpleVPBot_Logger::error(
+				'config_delivery_exhausted_retries',
+				array(
+					'chat_id'     => $chat_id,
+					'service_id'  => $svc_id,
+					'user_id'     => $uid,
+					'attempt'     => $attempt,
+					'fail_reason' => $reason,
+				)
+			);
+		}
+	}
+
+	/**
+	 * Fetch live panel + subscription after fast ack.
+	 *
+	 * @param string               $platform      telegram|bale.
+	 * @param int                  $chat_id       Chat id.
+	 * @param int                  $panel_msg_id  Message to edit when complete.
+	 * @param object               $svc           Service row.
+	 * @param int                  $owner_uid     Owner user id.
+	 * @param object               $user          Acting user.
+	 * @param string               $action        p|l|q.
+	 */
+	private static function schedule_svc_panel_full_delivery( $platform, $chat_id, $panel_msg_id, $svc, $owner_uid, $user, $action ) {
+		$svc_id    = (int) $svc->id;
+		$user_id   = is_object( $user ) ? (int) $user->id : 0;
+		$panel_mid = (int) $panel_msg_id;
+		$work      = static function () use ( $platform, $chat_id, $panel_mid, $svc_id, $owner_uid, $user_id, $action ) {
+			self::run_svc_panel_full_delivery( $platform, $chat_id, $panel_mid, $svc_id, $owner_uid, $user_id, $action );
+		};
+		if ( class_exists( 'SimpleVPBot_Deferred_Work' ) ) {
+			SimpleVPBot_Deferred_Work::run_after_response_or_cron(
+				$work,
+				SimpleVPBot_Deferred_Work::SVC_PANEL_DELIVERY_CRON_HOOK,
+				array( (string) $platform, (int) $chat_id, $panel_mid, (int) $svc_id, (int) $owner_uid, (int) $user_id, (string) $action ),
+				'svc_panel_delivery'
+			);
+		} else {
+			$work();
+		}
+	}
+
+	/**
+	 * Cron fallback for deferred service panel/config delivery.
+	 *
+	 * @param string $platform     telegram|bale.
+	 * @param int    $chat_id      Chat id.
+	 * @param int    $panel_msg_id Message id.
+	 * @param int    $svc_id       Service id.
+	 * @param int    $owner_uid    Owner user id.
+	 * @param int    $user_id      Acting svp_users.id.
+	 * @param string $action       p|l|q.
+	 */
+	public static function deferred_svc_panel_delivery_cron( $platform, $chat_id, $panel_msg_id, $svc_id, $owner_uid, $user_id, $action ) {
+		self::run_svc_panel_full_delivery(
+			(string) $platform,
+			(int) $chat_id,
+			(int) $panel_msg_id,
+			(int) $svc_id,
+			(int) $owner_uid,
+			(int) $user_id,
+			(string) $action
+		);
+	}
+
+	/**
+	 * Deliver full service panel / config after fast ack.
+	 *
+	 * @param string $platform     telegram|bale.
+	 * @param int    $chat_id      Chat id.
+	 * @param int    $panel_msg_id Message id.
+	 * @param int    $svc_id       Service id.
+	 * @param int    $owner_uid    Owner user id.
+	 * @param int    $user_id      Acting svp_users.id.
+	 * @param string $action       p|l|q.
+	 */
+	private static function run_svc_panel_full_delivery( $platform, $chat_id, $panel_msg_id, $svc_id, $owner_uid, $user_id, $action ) {
+		$user = SimpleVPBot_Model_User::find( (int) $user_id );
+		if ( ! $user ) {
+			return;
+		}
+		try {
+			$svc = SimpleVPBot_Model_Service::find( (int) $svc_id );
+			if ( ! $svc ) {
+				self::notify_panel_delivery_failed( $platform, $chat_id, $panel_msg_id, $user, 'msg.svc.not_found', '⛔ سرویس یافت نشد.' );
+				return;
+			}
+			$portal = SimpleVPBot_Portal_Link::build_service_url( (int) $owner_uid, (int) $svc_id );
+			$data   = self::get_portal_service_data( $svc, (int) $owner_uid );
+			if ( ! empty( $data['_deleted'] ) ) {
+				self::notify_panel_delivery_failed( $platform, $chat_id, $panel_msg_id, $user, 'msg.svc.deleted_from_panel', '⛔ سرویس از پنل حذف شده است.' );
+				return;
+			}
+			if ( 'p' === $action ) {
+				$text = self::build_usage_panel_text( $svc, $platform );
+				if ( 'bale' === $platform ) {
+					$markup = SimpleVPBot_Keyboards::inline_bale_portal_back( (int) $svc_id, $portal, $user );
+				} else {
+					$markup = SimpleVPBot_Keyboards::inline_telegram_config_extras( (int) $svc_id, $data, $portal, $user );
+				}
+				if ( $panel_msg_id > 0 ) {
+					$edit = SimpleVPBot_Bot_Runtime::edit_message_text(
+						$platform,
+						$chat_id,
+						$panel_msg_id,
+						$text,
+						array( 'reply_markup' => $markup )
+					);
+					if ( ! is_array( $edit ) || empty( $edit['ok'] ) ) {
+						$res = SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $text, array( 'reply_markup' => $markup ) );
+						$panel_msg_id = self::api_message_id_from_response( $res );
+					}
+				} else {
+					$res = SimpleVPBot_Bot_Runtime::send_message( $platform, $chat_id, $text, array( 'reply_markup' => $markup ) );
+					$panel_msg_id = self::api_message_id_from_response( $res );
+				}
+				if ( 'telegram' === $platform ) {
+					self::maybe_telegram_send_config_unified( $chat_id, $data, $portal, (int) $svc_id, (int) $owner_uid );
+				}
+				return;
+			}
+			if ( 'l' === $action || 'q' === $action ) {
+				if ( 'bale' === $platform ) {
+					return;
+				}
+				$import   = (string) ( $data['import_sub_url'] ?? $data['subscription_url'] ?? $data['primary_link'] ?? '' );
+				$primary  = (string) ( $data['primary_link'] ?? $import );
+				$port_btn = (string) ( $data['portal_url'] ?? $portal );
+				if ( '' === $primary && empty( $data['config_uris'] ) && '' === $port_btn ) {
+					SimpleVPBot_Bot_Runtime::send_message_with_support(
+						$platform,
+						$chat_id,
+						SimpleVPBot_Texts::get_for_user( 'msg.svc.link_not_found', $user )
+					);
+					return;
+				}
+				self::maybe_telegram_send_config_unified( $chat_id, $data, $portal, (int) $svc_id, (int) $owner_uid );
+			}
+		} catch ( Throwable $e ) { // phpcs:ignore
+			if ( class_exists( 'SimpleVPBot_Logger' ) ) {
+				SimpleVPBot_Logger::error(
+					'svc_panel_full_delivery failed',
+					array(
+						'service_id' => (int) $svc_id,
+						'action'     => (string) $action,
+						'm'          => $e->getMessage(),
+					)
+				);
+			}
+			self::notify_panel_delivery_failed(
+				$platform,
+				$chat_id,
+				$panel_msg_id,
+				$user,
+				'msg.svc.telegram_config_send_fail',
+				'⛔ بارگذاری سرویس ناموفق بود. لطفاً دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.'
+			);
+		}
+	}
+
+	/**
+	 * Lightweight portal payload for Telegram config delivery (no live usage stats).
+	 *
+	 * @param object $svc     Service.
+	 * @param int    $user_id svp user id.
+	 * @return array<string, mixed>
+	 */
+	public static function get_portal_service_data_for_delivery( $svc, $user_id = 0 ) {
+		if ( SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
+			return self::get_portal_l2tp_data( $svc, $user_id );
+		}
+		return array_merge( self::usage_identity_fields( $svc ), self::portal_subscription_fields( $svc, $user_id ) );
+	}
+
+	/**
+	 * Prefetch panel subscription lines into cache after provision.
+	 *
+	 * @param int $service_id svp_services.id.
+	 */
+	public static function warm_subscription_cache_for_service( $service_id ) {
+		$svc = SimpleVPBot_Model_Service::find( (int) $service_id );
+		if ( ! $svc || SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
+			return;
+		}
+		$import = SimpleVPBot_Config_Link::subscription_url( (string) $svc->sub_id, self::svc_panel_id_xui( $svc ) );
+		if ( '' === $import ) {
+			return;
+		}
+		SimpleVPBot_Config_Link::fetch_subscription( $import, (int) ( $svc->panel_id ?? 0 ) );
+	}
+
+	/**
+	 * Subscription URIs, labels, and portal links (shared by full and delivery payloads).
+	 *
+	 * @param object $svc     Service.
+	 * @param int    $user_id svp user id.
+	 * @return array<string, mixed>
+	 */
+	private static function portal_subscription_fields( $svc, $user_id = 0 ) {
+		$uid    = (int) $user_id > 0 ? (int) $user_id : (int) ( $svc->user_id ?? 0 );
+		$import = SimpleVPBot_Config_Link::subscription_url( (string) $svc->sub_id, self::svc_panel_id_xui( $svc ) );
+		$portal = ( $uid > 0 && (int) $svc->id > 0 ) ? SimpleVPBot_Portal_Link::build_service_url( $uid, (int) $svc->id ) : '';
+		$uris   = $import
 			? SimpleVPBot_Config_Link::fetch_subscription( $import, (int) ( $svc->panel_id ?? 0 ) )
 			: array();
 		if ( $uid > 0 && ! empty( $uris ) && class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
@@ -1570,22 +2478,27 @@ class SimpleVPBot_Handler_Service {
 				$svc
 			);
 		}
+		$identity = self::usage_identity_fields( $svc );
 		$sub_view = class_exists( 'SimpleVPBot_Service_Naming' )
 			? SimpleVPBot_Service_Naming::enrich_subscription_view( $svc, $uris )
 			: array(
 				'subscription_id'   => '',
-				'subscription_name' => (string) ( $v['remark'] ?? '' ),
+				'subscription_name' => (string) ( $identity['remark'] ?? '' ),
 				'config_uris'       => $uris,
 				'config_labels'     => array(),
-				'remark'            => (string) ( $v['remark'] ?? '' ),
+				'remark'            => (string) ( $identity['remark'] ?? '' ),
 				'sub_id'            => (string) ( $svc->sub_id ?? '' ),
 			);
-		$uris = isset( $sub_view['config_uris'] ) && is_array( $sub_view['config_uris'] ) ? $sub_view['config_uris'] : $uris;
+		$uris   = isset( $sub_view['config_uris'] ) && is_array( $sub_view['config_uris'] ) ? $sub_view['config_uris'] : $uris;
 		$labels = isset( $sub_view['config_labels'] ) && is_array( $sub_view['config_labels'] ) ? $sub_view['config_labels'] : array();
 		if ( ! empty( $uris ) && class_exists( 'SimpleVPBot_Config_Link' ) ) {
 			foreach ( $uris as $i => $uri_line ) {
 				$label = isset( $labels[ $i ] ) ? trim( (string) $labels[ $i ] ) : '';
 				if ( '' === $label ) {
+					continue;
+				}
+				$current = trim( (string) SimpleVPBot_Config_Link::uri_fragment_label( (string) $uri_line ) );
+				if ( '' !== $current && $label === $current ) {
 					continue;
 				}
 				$uris[ $i ] = SimpleVPBot_Config_Link::replace_uri_fragment( (string) $uri_line, $label );
@@ -1596,14 +2509,15 @@ class SimpleVPBot_Handler_Service {
 			$primary = (string) $uris[0];
 		}
 		if ( '' === $primary ) {
-			$primary = (string) $import;
+			$primary = (string) ( '' !== $portal ? $portal : $import );
 		}
+		$unified = '' !== $portal ? (string) $portal : (string) $import;
 		return array_merge(
-			$v,
 			$sub_view,
 			array(
-				'import_sub_url'   => (string) $import,
-				'subscription_url' => (string) $import,
+				'panel_sub_url'    => (string) $import,
+				'import_sub_url'   => $unified,
+				'subscription_url' => $unified,
 				'portal_url'       => (string) $portal,
 				'user_portal_url'  => (string) $portal,
 				'config_uris'      => $uris,
@@ -1611,6 +2525,21 @@ class SimpleVPBot_Handler_Service {
 				'primary_link'     => (string) $primary,
 			)
 		);
+	}
+
+	public static function get_portal_service_data( $svc, $user_id = 0 ) {
+		if ( SimpleVPBot_Model_Service::is_l2tp( $svc ) ) {
+			return self::get_portal_l2tp_data( $svc, $user_id );
+		}
+		$v = self::collect_usage_stats( $svc );
+		if ( ! empty( $v['deleted'] ) ) {
+			return array( '_deleted' => 1 );
+		}
+		$import = SimpleVPBot_Config_Link::subscription_url( (string) $svc->sub_id, self::svc_panel_id_xui( $svc ) );
+		if ( ! empty( $v['panel_unreachable'] ) && '' !== $import ) {
+			delete_transient( 'svp_sub_' . md5( $import ) );
+		}
+		return array_merge( $v, self::portal_subscription_fields( $svc, $user_id ) );
 	}
 
 	/**
@@ -1660,6 +2589,7 @@ class SimpleVPBot_Handler_Service {
 			'expiry'           => $exp_fa,
 			'expiry_fa'        => $exp_fa,
 			'remark'           => (string) $svc->remark,
+			'panel_sub_url'    => '',
 			'import_sub_url'   => '',
 			'subscription_url' => '',
 			'portal_url'      => (string) $portal,

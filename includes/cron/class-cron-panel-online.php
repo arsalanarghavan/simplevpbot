@@ -21,19 +21,7 @@ class SimpleVPBot_Cron_Panel_Online {
 	 * @return int
 	 */
 	public static function count_onlines_response( $json ) {
-		if ( ! is_array( $json ) ) {
-			return 0;
-		}
-		if ( isset( $json['obj'] ) && is_array( $json['obj'] ) ) {
-			return count( $json['obj'] );
-		}
-		if ( isset( $json['data'] ) && is_array( $json['data'] ) ) {
-			return count( $json['data'] );
-		}
-		if ( array_values( $json ) === $json && ! empty( $json ) && is_string( $json[0] ?? null ) ) {
-			return count( $json );
-		}
-		return 0;
+		return SimpleVPBot_Xui_Client::count_onlines_response( $json );
 	}
 
 	/**

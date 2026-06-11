@@ -45,7 +45,7 @@ class ResellerClosureScopeTest extends TestCase {
 	 */
 	public function test_migration_230_contract(): void {
 		$code = (string) file_get_contents( dirname( __DIR__ ) . '/includes/class-activator.php' );
-		$this->assertStringContainsString( "const DB_VERSION = '2.3.0'", $code );
+		$this->assertStringContainsString( "const DB_VERSION = '2.4.4'", $code );
 		$this->assertStringContainsString( 'svp_reseller_closure', $code );
 		$this->assertStringContainsString( 'svp_audit_log', $code );
 		$this->assertStringContainsString( 'maybe_migrate_230_branding_closure_audit', $code );

@@ -160,7 +160,10 @@ class SimpleVPBot_Config_Link {
 		}
 		$lines = array();
 		if ( null !== $panel_id ) {
-			$lines = self::fetch_subscription_from_panel_sub_path( $url, (int) $panel_id );
+			$lines = self::fetch_subscription_from_panel_api( $url, (int) $panel_id );
+			if ( empty( $lines ) ) {
+				$lines = self::fetch_subscription_from_panel_sub_path( $url, (int) $panel_id );
+			}
 		}
 		if ( empty( $lines ) ) {
 			$attempts = 5;
@@ -205,6 +208,41 @@ class SimpleVPBot_Config_Link {
 		}
 		set_transient( $cache_key, $lines, 60 );
 		return $lines;
+	}
+
+	/**
+	 * v3 panel API: clients/subLinks/{subId} or clients/links/{email} when flavor is v3_clients.
+	 *
+	 * @param string $sub_url   Public subscription URL (path basename = token).
+	 * @param int    $panel_id  svp_panels.id or 0 for legacy settings panel.
+	 * @return array<int, string>
+	 */
+	private static function fetch_subscription_from_panel_api( $sub_url, $panel_id ) {
+		$parts = wp_parse_url( (string) $sub_url );
+		if ( ! is_array( $parts ) || empty( $parts['path'] ) || ! class_exists( 'SimpleVPBot_Xui_Client' ) ) {
+			return array();
+		}
+		$token = rawurldecode( (string) basename( rtrim( (string) $parts['path'], '/' ) ) );
+		if ( '' === $token ) {
+			return array();
+		}
+		$pid = max( 0, (int) $panel_id );
+		return SimpleVPBot_Xui_Client::run_with_panel(
+			$pid,
+			function () use ( $token ) {
+				if ( ! SimpleVPBot_Xui_Client::is_v3_clients_api() ) {
+					return array();
+				}
+				if ( ! SimpleVPBot_Xui_Client::login_with_retries( 3, 200000 ) ) {
+					return array();
+				}
+				$lines = SimpleVPBot_Xui_Client::client_sub_links_v3( $token );
+				if ( ! empty( $lines ) ) {
+					return $lines;
+				}
+				return SimpleVPBot_Xui_Client::client_links_v3( $token );
+			}
+		);
 	}
 
 	/**

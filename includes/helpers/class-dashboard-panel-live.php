@@ -137,11 +137,16 @@ class SimpleVPBot_Dashboard_Panel_Live {
 					$o['error'] = 'login_failed';
 					return $o;
 				}
-				$on             = SimpleVPBot_Xui_Client::onlines();
-				$o['onlineNow'] = SimpleVPBot_Cron_Panel_Online::count_onlines_response( $on );
-				$st             = SimpleVPBot_Xui_Client::server_status();
-				$o['status']    = self::summarize_server_status( $st );
-				$o['ok']        = true;
+				$on_fetch = SimpleVPBot_Xui_Client::fetch_onlines();
+				if ( empty( $on_fetch['ok'] ) ) {
+					$o['error']     = (string) ( $on_fetch['error'] ?? 'onlines_failed' );
+					$o['onlineNow'] = null;
+				} else {
+					$o['onlineNow'] = SimpleVPBot_Xui_Client::count_onlines_response( $on_fetch['json'] ?? null );
+				}
+				$st          = SimpleVPBot_Xui_Client::server_status();
+				$o['status'] = self::summarize_server_status( $st );
+				$o['ok']     = true;
 				return $o;
 			}
 		);
@@ -150,6 +155,18 @@ class SimpleVPBot_Dashboard_Panel_Live {
 		}
 		$out['panelId']   = $panel_id;
 		$out['checkedAt'] = gmdate( 'c' );
+		if (
+			! empty( $out['ok'] )
+			&& isset( $out['onlineNow'] )
+			&& class_exists( 'SimpleVPBot_Model_Panel_Online_Daily' )
+			&& class_exists( 'SimpleVPBot_Admin_Dashboard_Stats' )
+		) {
+			SimpleVPBot_Model_Panel_Online_Daily::upsert_max(
+				$panel_id,
+				SimpleVPBot_Admin_Dashboard_Stats::stat_date_for_offset( 0 ),
+				(int) $out['onlineNow']
+			);
+		}
 		set_transient( self::transient_key( $panel_id ), $out, self::CACHE_TTL );
 		return $out;
 	}

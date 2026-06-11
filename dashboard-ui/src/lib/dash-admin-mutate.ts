@@ -1,8 +1,32 @@
 /** Prefer human-readable provision / API errors from a mutate response. */
+import i18n from "./i18n"
+
+const MUTATE_ERROR_I18N_KEYS: Record<string, string> = {
+  forbidden_op: "mutateErrors.forbiddenOp",
+  forbidden_perm: "mutateErrors.forbiddenPerm",
+  forbidden_scope: "mutateErrors.forbiddenScope",
+  referrer_cycle: "mutateErrors.referrerCycle",
+  invalid_reseller: "mutateErrors.invalidReseller",
+  not_reseller: "mutateErrors.notReseller",
+  policy_missing: "mutateErrors.policyMissing",
+  forbidden: "mutateErrors.forbidden",
+  forbidden_plan: "mutateErrors.forbiddenPlan",
+  module_missing: "mutateErrors.moduleMissing",
+  no_payment_methods: "mutateErrors.noPaymentMethods",
+}
+
 export function adminMutateErrorText(
   res: AdminMutateResult,
   fallback: string
 ): string {
+  const code = String(res.message ?? res.reason ?? "").trim()
+  if (code && MUTATE_ERROR_I18N_KEYS[code]) {
+    const key = MUTATE_ERROR_I18N_KEYS[code]
+    const translated = i18n.t(key)
+    if (translated && translated !== key) {
+      return translated
+    }
+  }
   if (res.message && String(res.message).trim()) {
     return String(res.message)
   }
@@ -37,6 +61,18 @@ async function parseAdminRestJson(res: Response): Promise<Record<string, unknown
     }
     return {}
   }
+  const trimmed = text.trim()
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const json = JSON.parse(trimmed) as Record<string, unknown>
+      if (!res.ok && typeof json.message !== "string" && typeof json.reason !== "string") {
+        json.message = `http_${res.status}`
+      }
+      return json
+    } catch {
+      // fall through to HTML / bad_json handling
+    }
+  }
   try {
     const json = JSON.parse(text) as Record<string, unknown>
     if (!res.ok && typeof json.message !== "string" && typeof json.reason !== "string") {
@@ -44,7 +80,6 @@ async function parseAdminRestJson(res: Response): Promise<Record<string, unknown
     }
     return json
   } catch {
-    const trimmed = text.trim()
     const lower = trimmed.slice(0, 64).toLowerCase()
     if (lower.startsWith("<!doctype") || lower.startsWith("<html")) {
       return {
@@ -77,6 +112,9 @@ export type AdminMutateResult = {
   users?: unknown[]
   billing?: Record<string, unknown>
   invited?: Record<string, unknown>
+  unitEconomics?: unknown
+  panelEconomics?: unknown
+  panelEconomicsMap?: unknown
 }
 
 export async function postAdminMutate(
@@ -124,12 +162,53 @@ export async function postAdminMutate(
     rows: Array.isArray(json.rows) ? json.rows : undefined,
     skipped_panel_ids: skipped_panel_ids?.length ? skipped_panel_ids : undefined,
     users: Array.isArray(json.users) ? json.users : undefined,
+    unitEconomics: "unitEconomics" in json ? json.unitEconomics : undefined,
+    panelEconomics: "panelEconomics" in json ? json.panelEconomics : undefined,
+    panelEconomicsMap: "panelEconomicsMap" in json ? json.panelEconomicsMap : undefined,
   }
 }
 
 /**
  * GET helper for dashboard admin REST (nonce + credentials).
  */
+/**
+ * Download a site-stored backup zip via admin REST (cookie + nonce).
+ */
+export async function downloadAdminBackupFile(filename: string): Promise<{ ok: boolean; message?: string }> {
+  const boot = window.__SIMPLEVPBOT_DASH__ || {}
+  const restBase = String((boot as { restUrl?: string }).restUrl || "").replace(/\/$/, "")
+  if (!restBase) {
+    return { ok: false, message: "no_rest" }
+  }
+  const nonce = String((boot as { nonce?: string }).nonce || "")
+  const q = new URLSearchParams({ filename })
+  const url = `${restBase}/dashboard/admin/backup/download?${q.toString()}`
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { "X-WP-Nonce": nonce },
+    credentials: "include",
+  })
+  if (!res.ok) {
+    try {
+      const json = (await res.json()) as { message?: string }
+      return { ok: false, message: String(json.message || `http_${res.status}`) }
+    } catch {
+      return { ok: false, message: `http_${res.status}` }
+    }
+  }
+  const blob = await res.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = objectUrl
+  a.download = filename
+  a.rel = "noopener"
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(objectUrl)
+  return { ok: true }
+}
+
 export async function getAdminJson(path: string, query: Record<string, string | number>): Promise<Record<string, unknown>> {
   const boot = window.__SIMPLEVPBOT_DASH__ || {}
   const restBase = String((boot as { restUrl?: string }).restUrl || "").replace(/\/$/, "")

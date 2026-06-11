@@ -16,6 +16,9 @@ class SimpleVPBot_UI_Layout {
 
 	const SETTINGS_KEY = 'bot_ui_layouts';
 
+	/** Telegram KeyboardButton / InlineKeyboardButton style values (Bot API 9.4+). */
+	const BUTTON_STYLES = array( 'primary', 'success', 'danger' );
+
 	/**
 	 * Raw stored value from settings (merged key).
 	 *
@@ -28,7 +31,7 @@ class SimpleVPBot_UI_Layout {
 
 	/**
 	 * Surfaces map: surface_id => rows of cells.
-	 * Each cell: array( 'id' => action_id, 'enabled' => bool, 'glass' => bool optional ).
+	 * Each cell: id, enabled, glass (optional), style (primary|success|danger), icon_custom_emoji_id (digits).
 	 *
 	 * @return array<string, array<int, array<int, array<string, mixed>>>>
 	 */
@@ -71,11 +74,7 @@ class SimpleVPBot_UI_Layout {
 				if ( '' === $id || ! isset( $valid_ids[ $id ] ) ) {
 					continue;
 				}
-				$built[] = array(
-					'id'      => $id,
-					'enabled' => ! isset( $cell['enabled'] ) || ! empty( $cell['enabled'] ),
-					'glass'   => ! empty( $cell['glass'] ),
-				);
+				$built[] = self::merge_cell_base( $id, $cell );
 			}
 			if ( array() !== $built ) {
 				$out[] = $built;
@@ -96,11 +95,7 @@ class SimpleVPBot_UI_Layout {
 		foreach ( $id_rows as $row ) {
 			$br = array();
 			foreach ( $row as $id ) {
-				$br[] = array(
-					'id'      => (string) $id,
-					'enabled' => true,
-					'glass'   => false,
-				);
+				$br[] = self::merge_cell_base( (string) $id, array( 'enabled' => true, 'glass' => false ) );
 			}
 			if ( array() !== $br ) {
 				$out[] = $br;
@@ -190,7 +185,7 @@ class SimpleVPBot_UI_Layout {
 				if ( '' === $text ) {
 					continue;
 				}
-				$r[] = array( 'text' => $text );
+				$r[] = self::decorate_button( array( 'text' => $text ), $cell );
 			}
 			if ( array() !== $r ) {
 				$kb[] = $r;
@@ -299,13 +294,12 @@ class SimpleVPBot_UI_Layout {
 						continue;
 					}
 					$seen_ids[ $id ] = true;
-					$en              = ! isset( $cell['enabled'] ) || ! empty( $cell['enabled'] );
-					$gl              = ! empty( $cell['glass'] );
-					$surf_row[]      = array(
-						'id'      => $id,
-						'enabled' => $en,
-						'glass'   => $gl,
-					);
+					$raw_style = isset( $cell['style'] ) ? (string) $cell['style'] : '';
+					if ( '' !== $raw_style && '' === self::normalize_cell_style( $raw_style ) ) {
+						$errors[] = 'bad_style:' . $surface . ':' . $id;
+						continue;
+					}
+					$surf_row[] = self::merge_cell_base( $id, $cell );
 				}
 				if ( array() !== $surf_row ) {
 					$surf_out[] = $surf_row;
@@ -361,5 +355,78 @@ class SimpleVPBot_UI_Layout {
 			'version'  => isset( $stored['version'] ) ? (int) $stored['version'] : SimpleVPBot_UI_Action_Registry::LAYOUT_VERSION,
 			'surfaces' => $surfaces_out,
 		);
+	}
+
+	/**
+	 * Normalize button style from layout cell or dashboard payload.
+	 *
+	 * @param mixed $style Raw style.
+	 * @return string primary|success|danger or empty.
+	 */
+	public static function normalize_cell_style( $style ) {
+		$s = is_string( $style ) ? strtolower( trim( $style ) ) : '';
+		return in_array( $s, self::BUTTON_STYLES, true ) ? $s : '';
+	}
+
+	/**
+	 * Normalize custom emoji id (Telegram icon_custom_emoji_id).
+	 *
+	 * @param mixed $raw Raw id.
+	 * @return string Digits only, or empty.
+	 */
+	public static function normalize_cell_icon_custom_emoji_id( $raw ) {
+		$id = trim( (string) $raw );
+		if ( '' === $id || ! preg_match( '/^\d+$/', $id ) ) {
+			return '';
+		}
+		return $id;
+	}
+
+	/**
+	 * Optional Telegram button decor fields from a layout cell.
+	 *
+	 * @param array<string, mixed> $cell Layout cell.
+	 * @return array<string, string>
+	 */
+	private static function cell_decor_fields( array $cell ) {
+		$out   = array();
+		$style = self::normalize_cell_style( $cell['style'] ?? '' );
+		if ( '' !== $style ) {
+			$out['style'] = $style;
+		}
+		$emoji = self::normalize_cell_icon_custom_emoji_id( $cell['icon_custom_emoji_id'] ?? '' );
+		if ( '' !== $emoji ) {
+			$out['icon_custom_emoji_id'] = $emoji;
+		}
+		return $out;
+	}
+
+	/**
+	 * Merge base layout cell fields with optional decor.
+	 *
+	 * @param string               $id   Action id.
+	 * @param array<string, mixed> $cell Incoming cell.
+	 * @return array<string, mixed>
+	 */
+	private static function merge_cell_base( $id, array $cell ) {
+		return array_merge(
+			array(
+				'id'      => $id,
+				'enabled' => ! isset( $cell['enabled'] ) || ! empty( $cell['enabled'] ),
+				'glass'   => ! empty( $cell['glass'] ),
+			),
+			self::cell_decor_fields( $cell )
+		);
+	}
+
+	/**
+	 * Apply layout cell style / premium emoji to a Telegram keyboard button array.
+	 *
+	 * @param array<string, mixed> $btn  KeyboardButton or InlineKeyboardButton base.
+	 * @param array<string, mixed> $cell Layout cell.
+	 * @return array<string, mixed>
+	 */
+	public static function decorate_button( array $btn, array $cell ) {
+		return array_merge( $btn, self::cell_decor_fields( $cell ) );
 	}
 }

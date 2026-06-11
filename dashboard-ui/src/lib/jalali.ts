@@ -73,3 +73,12 @@ export function jalaliToGregorian(jy: number, jm: number, jd: number): [number, 
   }
   return [gyGuess, 3, 1]
 }
+
+/** Format API date `YYYY-MM-DD` as Jalali `YYYY/MM/DD` for display hints. */
+export function formatJalaliDateFromIso(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim())
+  if (!m) return ""
+  const [jy, jm, jd] = gregorianToJalali(Number(m[1]), Number(m[2]), Number(m[3]))
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${jy}/${pad(jm)}/${pad(jd)}`
+}

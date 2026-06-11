@@ -69,7 +69,8 @@ class SimpleVPBot_Backup_Restore {
 			$panel_stats = is_array( $panel_res ) ? $panel_res : array();
 		}
 
-		$sql = $z->getFromName( 'wordpress/plugin-tables.sql' );
+		$perms_json = $z->getFromName( 'wordpress/reseller-permissions.json' );
+		$sql        = $z->getFromName( 'wordpress/plugin-tables.sql' );
 		$z->close();
 		if ( false === $sql || '' === $sql ) {
 			return new WP_Error( 'svp_sql', __( 'plugin-tables.sql در زیپ یافت نشد.', 'simplevpbot' ) );
@@ -89,6 +90,14 @@ class SimpleVPBot_Backup_Restore {
 		}
 
 		$out = is_array( $res ) ? $res : array();
+		if ( false === $perms_json || '' === $perms_json ) {
+			$out['reseller_permissions_skipped'] = true;
+		} elseif ( class_exists( 'SimpleVPBot_Model_User' ) ) {
+			$perms_map = json_decode( (string) $perms_json, true );
+			if ( is_array( $perms_map ) ) {
+				$out['reseller_permissions_restored'] = SimpleVPBot_Model_User::restore_reseller_permissions_from_export( $perms_map );
+			}
+		}
 		if ( ! empty( $panel_stats ) ) {
 			$out['panel_restore'] = $panel_stats;
 		}

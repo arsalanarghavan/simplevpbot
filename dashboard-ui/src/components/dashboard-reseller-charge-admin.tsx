@@ -1,10 +1,10 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import { Badge } from "@/components/ui/badge"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
+import { DashSelect } from "@/components/dash-select"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -16,8 +16,11 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { adminMutateErrorText, postAdminMutate } from "@/lib/dash-admin-mutate"
-import { formatNumber } from "@/lib/format-locale"
+import { formatDateTime, formatNumber } from "@/lib/format-locale"
+import type { PaginationMeta } from "@/lib/dash-pagination"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
+import { DataPagination } from "@/components/data-pagination"
+import { useDashLocale } from "@/lib/dash-locale-context"
 
 type DashRecord = Record<string, unknown>
 
@@ -26,37 +29,38 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
-function receiptUserLabel(r: DashRecord): string {
-  const label = String(r.user_label ?? "").trim()
-  if (label) return label
-  const name = String(r.user_name ?? "").trim()
-  if (name) return name
-  const username = String(r.username ?? "").trim()
-  if (username) return username.startsWith("@") ? username : `@${username}`
-  return `#${String(r.user_id ?? "—")}`
-}
-
 export function DashboardResellerChargeAdmin({
-  receipts,
   actorBalance,
   customerCharges = [],
-  isFa,
+  customerChargesPagination = null,
+  chargeTypeFilter = "all",
+  chargeDateFrom = "",
+  chargeDateTo = "",
+  onChargeTypeFilterChange,
+  onChargeDateFromChange,
+  onChargeDateToChange,
+  onCustomerChargesPageChange,
+  onCustomerChargesPerPageChange,
   onMutateSuccess,
 }: {
-  receipts: DashRecord[]
   actorBalance?: number
   customerCharges?: DashRecord[]
-  isFa: boolean
+  customerChargesPagination?: PaginationMeta | null
+  chargeTypeFilter?: string
+  chargeDateFrom?: string
+  chargeDateTo?: string
+  onChargeTypeFilterChange?: (type: string) => void
+  onChargeDateFromChange?: (value: string) => void
+  onChargeDateToChange?: (value: string) => void
+  onCustomerChargesPageChange?: (page: number) => void
+  onCustomerChargesPerPageChange?: (perPage: number) => void
   onMutateSuccess?: () => void
 }) {
+  const { isFa } = useDashLocale()
+
   const { t } = useTranslation()
   const tc = (k: string, opts?: Record<string, string | number>) => t(`resellerCharge.${k}`, opts)
   const tf = (k: string, opts?: Record<string, string | number>) => t(`resellerFinance.${k}`, opts)
-
-  const approvedReceipts = useMemo(
-    () => receipts.filter((r) => String(r.status ?? "").toLowerCase() === "approved"),
-    [receipts]
-  )
 
   const [topUpAmount, setTopUpAmount] = useState("")
   const [topUpBusy, setTopUpBusy] = useState(false)
@@ -93,7 +97,7 @@ export function DashboardResellerChargeAdmin({
   }
 
   return (
-    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+    <DashPage>
       <DashboardPageHeader title={tc("title")} description={tc("subtitle")} />
 
       {typeof actorBalance === "number" ? (
@@ -130,7 +134,7 @@ export function DashboardResellerChargeAdmin({
               />
             </div>
             <Button type="button" disabled={topUpBusy} onClick={() => void onTopUp()}>
-              {topUpBusy ? "…" : tf("topUpSubmit")}
+              {topUpBusy ? tc("busy") : tf("topUpSubmit")}
             </Button>
           </div>
         </CardContent>
@@ -138,43 +142,48 @@ export function DashboardResellerChargeAdmin({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{tf("approvedReceiptsTitle")}</CardTitle>
-          <CardDescription>{tf("approvedReceiptsHint")}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {approvedReceipts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{tf("approvedReceiptsEmpty")}</p>
-          ) : (
-            <ul className="space-y-2">
-              {approvedReceipts.map((r) => {
-                const id = num(r.id)
-                const amt = num(r.amount)
-                const label = receiptUserLabel(r)
-                return (
-                  <li
-                    key={id || String(r.created_at)}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm"
-                  >
-                    <span className="font-medium tabular-nums text-emerald-700 dark:text-emerald-400">
-                      +{formatNumber(amt, isFa)} {tc("tomanUnit")}
-                    </span>
-                    <span className="min-w-0 flex-1 text-muted-foreground">{label}</span>
-                    <span className="text-xs text-muted-foreground">#{formatNumber(id, isFa)}</span>
-                    <Badge variant="secondary">{tf("statusApproved")}</Badge>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{tf("customerChargesTitle")}</CardTitle>
+          <CardTitle className="text-base">{tc("customerChargesTitle")}</CardTitle>
           <CardDescription>{tc("customerChargesHint")}</CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 flex flex-wrap items-end gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="reseller-charge-type">{tc("filterType")}</Label>
+              <DashSelect
+                id="reseller-charge-type"
+                triggerClassName="w-[11rem]"
+                value={chargeTypeFilter || "all"}
+                onValueChange={(v) => onChargeTypeFilterChange?.(v)}
+                options={[
+                  { value: "all", label: tc("filterTypeAll") },
+                  { value: "purchase", label: tc("filterTypePurchase") },
+                  { value: "renew", label: tc("filterTypeRenew") },
+                  { value: "volume", label: tc("filterTypeVolume") },
+                  { value: "topup", label: tc("filterTypeTopup") },
+                ]}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="reseller-charge-date-from">{tc("filterDateFrom")}</Label>
+              <Input
+                id="reseller-charge-date-from"
+                type="date"
+                dir="ltr"
+                value={chargeDateFrom}
+                onChange={(e) => onChargeDateFromChange?.(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="reseller-charge-date-to">{tc("filterDateTo")}</Label>
+              <Input
+                id="reseller-charge-date-to"
+                type="date"
+                dir="ltr"
+                value={chargeDateTo}
+                onChange={(e) => onChargeDateToChange?.(e.target.value)}
+              />
+            </div>
+          </div>
           {customerCharges.length === 0 ? (
             <p className="text-sm text-muted-foreground">{tc("customerChargesEmpty")}</p>
           ) : (
@@ -183,25 +192,46 @@ export function DashboardResellerChargeAdmin({
                 const id = num(row.id)
                 const amt = num(row.amount)
                 const label = String(row.customer_label ?? "")
+                const chargeType = String(row.charge_type ?? "purchase")
+                const typeKey = ["purchase", "renew", "volume", "topup"].includes(chargeType)
+                  ? chargeType
+                  : "purchase"
+                const createdAt = String(row.charge_created_at ?? row.created_at ?? "")
+                const planLabel = String(row.charge_plan_label ?? "")
                 return (
                   <li
                     key={id}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm"
                   >
-                    <span className="font-medium tabular-nums text-destructive">
-                      {tc("customerChargeLine", {
-                        amount: formatNumber(amt, isFa),
-                        name: label || `#${num(row.customer_svp_user_id)}`,
-                      })}
-                    </span>
+                    <div className="min-w-0 space-y-0.5">
+                      <span className="font-medium tabular-nums text-destructive">
+                        {tc(`chargeType_${typeKey}`, {
+                          amount: formatNumber(amt, isFa),
+                          name: label || `#${num(row.customer_svp_user_id)}`,
+                        })}
+                      </span>
+                      <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+                        {createdAt ? (
+                          <span>{formatDateTime(createdAt, isFa)}</span>
+                        ) : null}
+                        {planLabel ? <span>{planLabel}</span> : null}
+                      </div>
+                    </div>
                     <span className="text-xs text-muted-foreground">#{formatNumber(id, isFa)}</span>
                   </li>
                 )
               })}
             </ul>
           )}
+          {customerChargesPagination && onCustomerChargesPageChange ? (
+            <DataPagination
+              meta={customerChargesPagination}
+              onPageChange={onCustomerChargesPageChange}
+              onPerPageChange={onCustomerChargesPerPageChange ?? (() => {})}
+            />
+          ) : null}
         </CardContent>
       </Card>
-    </div>
+    </DashPage>
   )
 }

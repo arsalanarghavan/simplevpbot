@@ -20,7 +20,7 @@ class SimpleVPBot_UI_Action_Registry {
 	 * All UI actions keyed by stable id.
 	 *
 	 * route keys:
-	 * - hub: submenu code for Handler_Admin_Hub::send_submenu
+	 * - hub: submenu code for Handler_Admin_Pnl::send_submenu
 	 * - wizard: "a:b" for Handler_Admin_Settings::start_wizard
 	 * - settings_op: single letter code for Handler_Admin_Settings::handle_op
 	 * - admin_route: key handled in Handler_Admin::route_text (legacy dispatch key)
@@ -157,14 +157,6 @@ class SimpleVPBot_UI_Action_Registry {
 				'max_len'       => 256,
 				'route'         => array( 'admin_route' => 'advanced' ),
 			),
-			'admin.root.exit'      => array(
-				'surface'       => 'admin_main',
-				'kind'          => 'reply',
-				'text_key'      => 'btn.admin.exit',
-				'glass_default' => false,
-				'max_len'       => 256,
-				'route'         => array( 'admin_route' => 'exit' ),
-			),
 		);
 	}
 
@@ -204,7 +196,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '➕ گروهی' ),
-				'route'         => array( 'hub' => 'blk' ),
+				'route'         => array( 'panel_tab' => 'users_bulk' ),
 			),
 			'admin.users.broadcast' => array(
 				'surface'       => 'admin_users_submenu',
@@ -239,7 +231,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '📂 دسته پلن' ),
-				'route'         => array( 'hub' => 'plc' ),
+				'route'         => array( 'panel_tab' => 'plan_cats' ),
 			),
 			'admin.cat.plans'     => array(
 				'surface'       => 'admin_settings_catalog',
@@ -248,7 +240,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '📋 پلن‌ها' ),
-				'route'         => array( 'hub' => 'pln' ),
+				'route'         => array( 'panel_tab' => 'plans' ),
 			),
 			'admin.cat.cards'   => array(
 				'surface'       => 'admin_settings_catalog',
@@ -257,7 +249,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '💳 کارت‌ها' ),
-				'route'         => array( 'hub' => 'crd' ),
+				'route'         => array( 'panel_tab' => 'cards' ),
 			),
 			'admin.cat.panel'   => array(
 				'surface'       => 'admin_settings_catalog',
@@ -266,7 +258,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '🖥 پنل' ),
-				'route'         => array( 'hub' => 'pan' ),
+				'route'         => array( 'panel_tab' => 'xui_panels' ),
 			),
 			'admin.cat.l2tp'    => array(
 				'surface'       => 'admin_settings_catalog',
@@ -275,7 +267,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '🔌 L2TP' ),
-				'route'         => array( 'hub' => 'l2p' ),
+				'route'         => array( 'panel_tab' => 'l2tp_servers' ),
 			),
 			'admin.cat.config'  => array(
 				'surface'       => 'admin_settings_catalog',
@@ -284,7 +276,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '🔗 کانفیگ' ),
-				'route'         => array( 'hub' => 'inl' ),
+				'route'         => array( 'panel_tab' => 'configs' ),
 			),
 			'admin.cat.crypto'  => array(
 				'surface'       => 'admin_settings_catalog',
@@ -293,7 +285,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '₿ کریپتو' ),
-				'route'         => array( 'hub' => 'pay' ),
+				'route'         => array( 'pnl_submenu' => 'pay' ),
 			),
 			'admin.cat.bots'    => array(
 				'surface'       => 'admin_settings_catalog',
@@ -302,7 +294,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '🤖 ربات‌ها' ),
-				'route'         => array( 'hub' => 'bot' ),
+				'route'         => array( 'panel_tab' => 'bots' ),
 			),
 		);
 	}
@@ -330,7 +322,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '⚙️ عمومی' ),
-				'route'         => array( 'hub' => 'gen' ),
+				'route'         => array( 'panel_tab' => 'site_settings' ),
 			),
 			'admin.adv.notif'     => array(
 				'surface'       => 'admin_settings_advanced',
@@ -339,7 +331,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '🔔 نوتیف' ),
-				'route'         => array( 'hub' => 'not' ),
+				'route'         => array( 'panel_tab' => 'notifications' ),
 			),
 			'admin.adv.texts'     => array(
 				'surface'       => 'admin_settings_advanced',
@@ -348,7 +340,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '📝 متن‌ها' ),
-				'route'         => array( 'hub' => 'txt' ),
+				'route'         => array( 'panel_tab' => 'texts' ),
 			),
 			'admin.adv.logs'      => array(
 				'surface'       => 'admin_settings_advanced',
@@ -357,7 +349,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '📜 لاگ' ),
-				'route'         => array( 'hub' => 'log' ),
+				'route'         => array( 'panel_tab' => 'logs' ),
 			),
 			'admin.adv.broadcast' => array(
 				'surface'       => 'admin_settings_advanced',
@@ -366,7 +358,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '📣 گزارش همگانی' ),
-				'route'         => array( 'hub' => 'brd' ),
+				'route'         => array( 'panel_tab' => 'broadcast' ),
 			),
 		);
 	}
@@ -628,7 +620,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '🔄 مسیر IPN' ),
-				'route'         => array( 'hub_dispatch_cb' => 'adm:crx' ),
+				'route'         => array( 'hub_dispatch_cb' => 'pnl:crx' ),
 			),
 			'bulk.days.1'         => array(
 				'surface'       => 'admin_bulk_submenu',
@@ -682,7 +674,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '📝 تأیید متنی گروهی' ),
-				'route'         => array( 'hub_dispatch_cb' => 'adm:hcb' ),
+				'route'         => array( 'hub_dispatch_cb' => 'pnl:hcb' ),
 			),
 			'inbound.list'        => array(
 				'surface'       => 'admin_inbound_submenu',
@@ -691,7 +683,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '📋 لیست Inbound' ),
-				'route'         => array( 'hub' => 'inl' ),
+				'route'         => array( 'panel_tab' => 'configs' ),
 			),
 			'hub.toggle.enabled'  => array(
 				'surface'       => 'admin_general_submenu',
@@ -728,7 +720,7 @@ class SimpleVPBot_UI_Action_Registry {
 				'glass_default' => false,
 				'max_len'       => 256,
 				'legacy'        => array( '⚙️ تنظیمات ربات' ),
-				'route'         => array( 'hub' => 'set' ),
+				'route'         => array( 'pnl_submenu' => 'set' ),
 			),
 		);
 	}
@@ -898,7 +890,7 @@ class SimpleVPBot_UI_Action_Registry {
 			'admin_main'               => array(
 				array( 'admin.root.dashboard', 'admin.root.users' ),
 				array( 'admin.root.finance', 'admin.root.settings' ),
-				array( 'admin.root.advanced', 'admin.root.exit' ),
+				array( 'admin.root.advanced' ),
 			),
 			'admin_users_submenu'      => array(
 				array( 'admin.users.search', 'admin.users.queue' ),

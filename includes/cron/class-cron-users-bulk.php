@@ -48,6 +48,22 @@ class SimpleVPBot_Cron_Users_Bulk {
 		if ( ! is_array( $payload ) ) {
 			$payload = array();
 		}
+		$actor = (int) ( $payload['__actor_svp_user_id'] ?? 0 );
+		if ( $actor > 0 && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			$check_uid = $user_id;
+			if ( $check_uid < 1 ) {
+				$check_uid = SimpleVPBot_Dashboard_Admin_Mutations::users_bulk_user_id_for_panel_row(
+					array(
+						'panel_id'   => $panel_id,
+						'inbound_id' => $inbound_id,
+						'email'      => $email,
+					)
+				);
+			}
+			if ( $check_uid > 0 && ! SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( $actor, $check_uid ) ) {
+				return array( 'ok' => false, 'reason' => 'forbidden_scope' );
+			}
+		}
 		$panel_opts = array(
 			'force_enable' => false,
 			'touch_remark' => false,
@@ -107,16 +123,26 @@ class SimpleVPBot_Cron_Users_Bulk {
 		if ( ! is_array( $payload ) ) {
 			$payload = array();
 		}
+		$actor = (int) ( $payload['__actor_svp_user_id'] ?? 0 );
+		if ( $actor > 0 && class_exists( 'SimpleVPBot_Bot_Reseller_Scope' ) ) {
+			if ( ! SimpleVPBot_Bot_Reseller_Scope::reseller_may_moderate_user_for( $actor, $user_id ) ) {
+				return array( 'ok' => false, 'reason' => 'forbidden_scope' );
+			}
+		}
 		if ( 'wallet' === $op ) {
 			$delta  = isset( $payload['delta'] ) ? (float) $payload['delta'] : 0.0;
 			$notify = ! empty( $payload['notify'] );
-			$res    = SimpleVPBot_Dashboard_Admin_Mutations::apply(
+			$mutate_params = array(
+				'svp_user_id' => $user_id,
+				'delta'       => $delta,
+				'notify'      => $notify,
+			);
+			if ( $actor > 0 ) {
+				$mutate_params['__actor_svp_user_id'] = $actor;
+			}
+			$res = SimpleVPBot_Dashboard_Admin_Mutations::apply(
 				'user_balance_delta',
-				array(
-					'svp_user_id' => $user_id,
-					'delta'       => $delta,
-					'notify'      => $notify,
-				)
+				$mutate_params
 			);
 			return ! empty( $res['ok'] ) ? array( 'ok' => true ) : array( 'ok' => false, 'reason' => (string) ( $res['message'] ?? 'failed' ) );
 		}

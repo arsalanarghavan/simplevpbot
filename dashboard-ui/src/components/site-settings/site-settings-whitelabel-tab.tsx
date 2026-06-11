@@ -9,17 +9,14 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { DashSelect } from "@/components/dash-select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { postAdminMutate } from "@/lib/dash-admin-mutate"
+import { useSiteSettingsSave } from "@/lib/use-site-settings-save"
+import { SiteSettingsSaveFeedback } from "@/components/site-settings/site-settings-save-feedback"
+import { useDashLocale } from "@/lib/dash-locale-context"
 import { cn } from "@/lib/utils"
+import { mainEnabledPlatforms } from "@/lib/enabled-platforms"
 
 type DashRecord = Record<string, unknown>
 type WpPage = { id: number; title: string }
@@ -37,18 +34,19 @@ export function SiteSettingsWhitelabelTab({
   settings,
   wpPages,
   plans,
-  isFa,
   onMutateSuccess,
 }: {
   settings: DashRecord | undefined
   wpPages: WpPage[]
   plans: DashRecord[]
-  isFa: boolean
   onMutateSuccess?: () => void
 }) {
   const { t } = useTranslation()
+  const { ltrCell } = useDashLocale()
   const tp = (k: string) => t(`siteSettings.whitelabel.${k}`)
   const s = settings ?? {}
+  const showTg = mainEnabledPlatforms(s).includes("telegram")
+  const showBale = mainEnabledPlatforms(s).includes("bale")
   const supportRef = useRef<HTMLDivElement>(null)
 
   const initial = useMemo(
@@ -81,8 +79,7 @@ export function SiteSettingsWhitelabelTab({
 
   const [form, setForm] = useState(initial)
   useEffect(() => setForm(initial), [initial])
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { saving, error, okMsg, saveSettingsTab, setError } = useSiteSettingsSave(onMutateSuccess)
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -96,11 +93,7 @@ export function SiteSettingsWhitelabelTab({
   }, [])
 
   const onSave = useCallback(async () => {
-    setSaving(true)
-    setError(null)
-    try {
-      const res = await postAdminMutate("settings_tab", {
-        tab: "whitelabel",
+    await saveSettingsTab("whitelabel", {
         enabled: form.enabled ? 1 : 0,
         test_account_enabled: form.test_account_enabled ? 1 : 0,
         crisis_mode: form.crisis_mode ? 1 : 0,
@@ -123,20 +116,12 @@ export function SiteSettingsWhitelabelTab({
         admin_bale_ids: form.admin_bale_ids,
         receipt_reject_reasons: form.receipt_reject_reasons.split(/\r?\n/).map((x) => x.trim()).filter(Boolean),
       })
-      if (!res.ok) {
-        setError(res.message || tp("saveError"))
-        return
-      }
-      onMutateSuccess?.()
-    } finally {
-      setSaving(false)
-    }
-  }, [form, onMutateSuccess, tp])
+  }, [form, saveSettingsTab])
 
   const row = cn("flex items-center justify-between gap-3")
 
   return (
-    <div dir={isFa ? "rtl" : "ltr"} className={cn("mx-auto max-w-6xl space-y-6", isFa && "text-right")}>
+    <div className={cn("w-full space-y-6 text-start")}>
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -158,7 +143,6 @@ export function SiteSettingsWhitelabelTab({
               label={tp("siteIconUrl")}
               value={form.dashboard_site_icon_url}
               onChange={(url) => setForm((f) => ({ ...f, dashboard_site_icon_url: url }))}
-              rtl={isFa}
               onUploadError={(msg) => setError(msg || tp("uploadError"))}
             />
             <ImageUrlField
@@ -166,7 +150,6 @@ export function SiteSettingsWhitelabelTab({
               label={tp("logoUrl")}
               value={form.branding_logo_url}
               onChange={(url) => setForm((f) => ({ ...f, branding_logo_url: url }))}
-              rtl={isFa}
               onUploadError={(msg) => setError(msg || tp("uploadError"))}
             />
             <ImageUrlField
@@ -174,7 +157,6 @@ export function SiteSettingsWhitelabelTab({
               label={tp("faviconUrl")}
               value={form.branding_favicon_url}
               onChange={(url) => setForm((f) => ({ ...f, branding_favicon_url: url }))}
-              rtl={isFa}
               onUploadError={(msg) => setError(msg || tp("uploadError"))}
             />
             <div className="grid gap-3 sm:grid-cols-2">
@@ -184,7 +166,6 @@ export function SiteSettingsWhitelabelTab({
                 value={form.branding_theme_primary}
                 onChange={(v) => setForm((f) => ({ ...f, branding_theme_primary: v }))}
                 fallback="#2563eb"
-                rtl={isFa}
               />
               <ColorHexField
                 id="theme_accent"
@@ -192,7 +173,6 @@ export function SiteSettingsWhitelabelTab({
                 value={form.branding_theme_accent}
                 onChange={(v) => setForm((f) => ({ ...f, branding_theme_accent: v }))}
                 fallback="#7c3aed"
-                rtl={isFa}
               />
             </div>
             <div className="space-y-2">
@@ -203,24 +183,20 @@ export function SiteSettingsWhitelabelTab({
                 onChange={(e) => setForm((f) => ({ ...f, branding_custom_domain: e.target.value }))}
                 placeholder="panel.example.com"
                 dir="ltr"
-                className="font-mono text-left"
+                className={ltrCell("font-mono")}
               />
               <p className="text-xs text-muted-foreground">{tp("customDomainHint")}</p>
             </div>
             <div className="space-y-2">
               <Label>{tp("defaultLocale")}</Label>
-              <Select
+              <DashSelect
                 value={form.default_bot_locale}
                 onValueChange={(v) => setForm((f) => ({ ...f, default_bot_locale: v }))}
-              >
-                <SelectTrigger className="w-full" dir={isFa ? "rtl" : "ltr"}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent dir={isFa ? "rtl" : "ltr"}>
-                  <SelectItem value="fa">{tp("localeFa")}</SelectItem>
-                  <SelectItem value="en">{tp("localeEn")}</SelectItem>
-                </SelectContent>
-              </Select>
+                options={[
+                  { value: "fa", label: tp("localeFa") },
+                  { value: "en", label: tp("localeEn") },
+                ]}
+              />
             </div>
           </CardContent>
         </Card>
@@ -255,62 +231,44 @@ export function SiteSettingsWhitelabelTab({
             </div>
             <div className="space-y-2">
               <Label>{tp("portalPage")}</Label>
-              <Select
+              <DashSelect
                 value={form.portal_page_id}
                 onValueChange={(v) => setForm((f) => ({ ...f, portal_page_id: v }))}
-              >
-                <SelectTrigger className="w-full" dir={isFa ? "rtl" : "ltr"}>
-                  <SelectValue placeholder={tp("portalPageNone")} />
-                </SelectTrigger>
-                <SelectContent dir={isFa ? "rtl" : "ltr"}>
-                  <SelectItem value="0">{tp("portalPageNone")}</SelectItem>
-                  {wpPages.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                placeholder={tp("portalPageNone")}
+                options={[
+                  { value: "0", label: tp("portalPageNone") },
+                  ...wpPages.map((p) => ({ value: String(p.id), label: p.title })),
+                ]}
+              />
             </div>
             <div className="space-y-2">
               <Label>{tp("defaultPlan")}</Label>
-              <Select
+              <DashSelect
                 value={form.default_service_plan_id}
                 onValueChange={(v) => setForm((f) => ({ ...f, default_service_plan_id: v }))}
-              >
-                <SelectTrigger className="w-full" dir={isFa ? "rtl" : "ltr"}>
-                  <SelectValue placeholder={tp("defaultPlanNone")} />
-                </SelectTrigger>
-                <SelectContent dir={isFa ? "rtl" : "ltr"}>
-                  <SelectItem value="0">{tp("defaultPlanNone")}</SelectItem>
-                  {plans.map((p) => {
+                placeholder={tp("defaultPlanNone")}
+                options={[
+                  { value: "0", label: tp("defaultPlanNone") },
+                  ...plans.flatMap((p) => {
                     const id = Number(p.id)
-                    if (!Number.isFinite(id) || id < 1) return null
+                    if (!Number.isFinite(id) || id < 1) return []
                     const label = String(p.label_fa || p.label_en || p.slug || id)
-                    return (
-                      <SelectItem key={id} value={String(id)}>
-                        {label}
-                      </SelectItem>
-                    )
-                  })}
-                </SelectContent>
-              </Select>
+                    return [{ value: String(id), label }]
+                  }),
+                ]}
+              />
             </div>
             <div className="space-y-2">
               <Label>{tp("cardsMode")}</Label>
-              <Select
+              <DashSelect
                 value={form.cards_display_mode}
                 onValueChange={(v) => setForm((f) => ({ ...f, cards_display_mode: v }))}
-              >
-                <SelectTrigger className="w-full" dir={isFa ? "rtl" : "ltr"}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent dir={isFa ? "rtl" : "ltr"}>
-                  <SelectItem value="list">{tp("cardsList")}</SelectItem>
-                  <SelectItem value="sequential">{tp("cardsSequential")}</SelectItem>
-                  <SelectItem value="random">{tp("cardsRandom")}</SelectItem>
-                </SelectContent>
-              </Select>
+                options={[
+                  { value: "list", label: tp("cardsList") },
+                  { value: "sequential", label: tp("cardsSequential") },
+                  { value: "random", label: tp("cardsRandom") },
+                ]}
+              />
             </div>
           </CardContent>
         </Card>
@@ -321,6 +279,7 @@ export function SiteSettingsWhitelabelTab({
             <CardDescription>{tp("adminsDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {showTg ? (
             <div className="space-y-2">
               <Label htmlFor="adm_tg">{tp("adminTelegramIds")}</Label>
               <Textarea
@@ -329,9 +288,11 @@ export function SiteSettingsWhitelabelTab({
                 onChange={(e) => setForm((f) => ({ ...f, admin_telegram_ids: e.target.value }))}
                 rows={3}
                 dir="ltr"
-                className="font-mono text-left"
+                className={ltrCell("font-mono")}
               />
             </div>
+            ) : null}
+            {showBale ? (
             <div className="space-y-2">
               <Label htmlFor="adm_bl">{tp("adminBaleIds")}</Label>
               <Textarea
@@ -340,9 +301,10 @@ export function SiteSettingsWhitelabelTab({
                 onChange={(e) => setForm((f) => ({ ...f, admin_bale_ids: e.target.value }))}
                 rows={3}
                 dir="ltr"
-                className="font-mono text-left"
+                className={ltrCell("font-mono")}
               />
             </div>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -377,6 +339,7 @@ export function SiteSettingsWhitelabelTab({
                 placeholder={tp("supportInfoPlaceholder")}
               />
             </div>
+            {showTg ? (
             <div className="space-y-2">
               <Label htmlFor="support_tg">{tp("supportTelegramUsername")}</Label>
               <Input
@@ -385,9 +348,11 @@ export function SiteSettingsWhitelabelTab({
                 onChange={(e) => setForm((f) => ({ ...f, support_telegram_username: e.target.value }))}
                 placeholder="username"
                 dir="ltr"
-                className="font-mono text-left"
+                className={ltrCell("font-mono")}
               />
             </div>
+            ) : null}
+            {showBale ? (
             <div className="space-y-2">
               <Label htmlFor="support_bl">{tp("supportBaleUsername")}</Label>
               <Input
@@ -396,23 +361,17 @@ export function SiteSettingsWhitelabelTab({
                 onChange={(e) => setForm((f) => ({ ...f, support_bale_username: e.target.value }))}
                 placeholder="username"
                 dir="ltr"
-                className="font-mono text-left"
+                className={ltrCell("font-mono")}
               />
             </div>
+            ) : null}
           </CardContent>
         </Card>
         </div>
       </div>
 
-      {error ? (
-        <div
-          role="alert"
-          className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        >
-          {error}
-        </div>
-      ) : null}
-      <div className={cn("flex", isFa && "justify-end")}>
+      <SiteSettingsSaveFeedback error={error} okMsg={okMsg} />
+      <div className="flex justify-end">
         <Button type="button" disabled={saving} onClick={() => void onSave()}>
           {tp("save")}
         </Button>

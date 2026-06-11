@@ -69,10 +69,11 @@ class ResellerBotScopeTest extends TestCase {
 		$this->assertStringContainsString( 'reseller_blocks_global_settings', $scope );
 		$this->assertStringContainsString( 'deny_global_settings_bot_action', $scope );
 
-		$hub = (string) file_get_contents( dirname( __DIR__ ) . '/includes/bot/handlers/class-handler-admin-hub.php' );
-		$this->assertStringContainsString( 'reseller_hub_submenu_blocked', $hub );
-		$set = (string) file_get_contents( dirname( __DIR__ ) . '/includes/bot/handlers/class-handler-admin-settings.php' );
+		$panel = (string) file_get_contents( dirname( __DIR__ ) . '/includes/bot/handlers/class-handler-admin-panel.php' );
+		$set   = (string) file_get_contents( dirname( __DIR__ ) . '/includes/bot/handlers/class-handler-admin-settings.php' );
+		$this->assertStringContainsString( 'reseller_hub_submenu_blocked', $scope );
 		$this->assertStringContainsString( 'deny_global_settings_bot_action', $set );
+		$this->assertStringContainsString( 'open_tab', $panel );
 
 		$rest = (string) file_get_contents( dirname( __DIR__ ) . '/includes/api/class-rest-dashboard.php' );
 		$this->assertStringContainsString( 'annotate_reseller_panels_for_dashboard', $rest );

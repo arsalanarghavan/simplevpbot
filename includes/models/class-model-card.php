@@ -194,26 +194,35 @@ class SimpleVPBot_Model_Card {
 	 * Active cards for one checkout transaction.
 	 * In sequential mode it returns one eligible card based on approved daily usage.
 	 *
-	 * @param int $transaction_id Transaction id.
+	 * @param int         $transaction_id Transaction id.
+	 * @param object|null $tx             Optional transaction row (skips find).
 	 * @return array<int, object>
 	 */
-	public static function active_for_transaction( $transaction_id ) {
+	public static function active_for_transaction( $transaction_id, $tx = null ) {
 		$tid   = (int) $transaction_id;
 		$cards = array();
-		$tx    = class_exists( 'SimpleVPBot_Model_Transaction' ) ? SimpleVPBot_Model_Transaction::find( $tid ) : null;
+		if ( ! $tx && class_exists( 'SimpleVPBot_Model_Transaction' ) ) {
+			$tx = SimpleVPBot_Model_Transaction::find( $tid );
+		}
+		$meta  = array();
 		if ( $tx ) {
 			$meta = json_decode( (string) ( $tx->meta_json ?? '{}' ), true );
-			if ( is_array( $meta ) && ! empty( $meta['invoice_card_owner_scope_svp_id'] ) ) {
+			if ( ! is_array( $meta ) ) {
+				$meta = array();
+			}
+			if ( ! empty( $meta['invoice_card_owner_scope_svp_id'] ) ) {
 				$scope_rid = (int) $meta['invoice_card_owner_scope_svp_id'];
 				if ( $scope_rid > 0 ) {
-					$cards = self::active_ordered_for_owners( array( 0, $scope_rid ) );
+					$cards = self::active_ordered_for_owners( array( $scope_rid ) );
 				}
 			}
 		}
 		if ( empty( $cards ) && $tx && class_exists( 'SimpleVPBot_Reseller_Branding' ) ) {
 			$uid = (int) ( $tx->user_id ?? 0 );
 			$rid = $uid > 0 ? (int) SimpleVPBot_Reseller_Branding::nearest_reseller_id_for_user( $uid ) : 0;
-			$cards = $rid > 0 ? self::active_ordered_for_owners( array( $rid, 0 ) ) : self::active_ordered_for_owners( array( 0 ) );
+			if ( $rid > 0 ) {
+				$cards = self::active_ordered_for_owners( array( $rid ) );
+			}
 		}
 		if ( empty( $cards ) ) {
 			$cards = self::active_ordered();
@@ -227,8 +236,76 @@ class SimpleVPBot_Model_Card {
 		if ( 'list' === $mode || ! class_exists( 'SimpleVPBot_Card_Rotation' ) ) {
 			return $cards;
 		}
+		if ( ! empty( $meta['checkout_card_ids'] ) && is_array( $meta['checkout_card_ids'] ) ) {
+			$cached = self::cards_from_ids( $cards, $meta['checkout_card_ids'] );
+			if ( ! empty( $cached ) ) {
+				return $cached;
+			}
+		}
 		$scope_key = SimpleVPBot_Card_Rotation::resolve_owner_scope_key( $tid );
-		return SimpleVPBot_Card_Rotation::pick_for_checkout( $cards, $mode, $scope_key, $tid );
+		$picked    = SimpleVPBot_Card_Rotation::pick_for_checkout( $cards, $mode, $scope_key, $tid );
+		if ( $tx && ! empty( $picked ) ) {
+			self::persist_checkout_card_ids( $tx, $picked );
+		}
+		return $picked;
+	}
+
+	/**
+	 * Resolve card rows by id list (preserves pick order).
+	 *
+	 * @param array<int, object>   $pool    Active card pool.
+	 * @param array<int, int|string> $ids   Card ids.
+	 * @return array<int, object>
+	 */
+	private static function cards_from_ids( array $pool, array $ids ) {
+		$by_id = array();
+		foreach ( $pool as $c ) {
+			if ( is_object( $c ) ) {
+				$by_id[ (int) ( $c->id ?? 0 ) ] = $c;
+			}
+		}
+		$out = array();
+		foreach ( $ids as $raw_id ) {
+			$cid = (int) $raw_id;
+			if ( $cid > 0 && isset( $by_id[ $cid ] ) ) {
+				$out[] = $by_id[ $cid ];
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Store picked checkout card ids on the transaction (avoids double rotation).
+	 *
+	 * @param object               $tx     Transaction row.
+	 * @param array<int, object>   $picked Picked cards.
+	 */
+	private static function persist_checkout_card_ids( $tx, array $picked ) {
+		if ( ! is_object( $tx ) || empty( $picked ) || ! class_exists( 'SimpleVPBot_Model_Transaction' ) ) {
+			return;
+		}
+		$ids = array();
+		foreach ( $picked as $c ) {
+			$cid = (int) ( is_object( $c ) ? ( $c->id ?? 0 ) : 0 );
+			if ( $cid > 0 ) {
+				$ids[] = $cid;
+			}
+		}
+		if ( empty( $ids ) ) {
+			return;
+		}
+		$meta = json_decode( (string) ( $tx->meta_json ?? '{}' ), true );
+		if ( ! is_array( $meta ) ) {
+			$meta = array();
+		}
+		if ( ! empty( $meta['checkout_card_ids'] ) && is_array( $meta['checkout_card_ids'] ) ) {
+			$existing = array_map( 'intval', $meta['checkout_card_ids'] );
+			if ( $existing === $ids ) {
+				return;
+			}
+		}
+		$meta['checkout_card_ids'] = $ids;
+		SimpleVPBot_Model_Transaction::update( (int) $tx->id, array( 'meta_json' => wp_json_encode( $meta ) ) );
 	}
 
 	/**

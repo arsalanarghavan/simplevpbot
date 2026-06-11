@@ -14,19 +14,50 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { DataPagination } from "@/components/data-pagination"
+import { DashboardDateTimePicker } from "@/components/dashboard-datetime-picker"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
+import { DashSelect } from "@/components/dash-select"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { formatNumber, formatPlainLatinInt } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
+import type { BotPlatformId } from "@/config/bot-platforms"
+import { BOT_PLATFORMS } from "@/config/bot-platforms"
 import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
 import { DashboardUserMergeAdmin } from "@/components/dashboard-user-merge-admin"
+import { useDashLocale } from "@/lib/dash-locale-context"
+import { DashDialogContent, DashDialogHeader } from "@/components/dash-dialog-content"
+import { Dialog, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 
 const USERS_TABLE_COLS = ["7%", "20%", "11%", "9%", "14%", "14%", "10%"]
+
+export type UsersListFilters = {
+  status: string
+  role: string
+  platform: string
+  segment: string
+  sort: string
+  dateFrom: string
+  dateTo: string
+  minSvc: string
+  maxSvc: string
+}
+
+export const DEFAULT_USERS_LIST_FILTERS: UsersListFilters = {
+  status: "all",
+  role: "all",
+  platform: "all",
+  segment: "all",
+  sort: "created_desc",
+  dateFrom: "",
+  dateTo: "",
+  minSvc: "",
+  maxSvc: "",
+}
 
 type DashRecord = Record<string, unknown>
 
@@ -71,11 +102,15 @@ function IdsCell({ numericId, username, emptyLabel }: { numericId: number; usern
   if (numericId <= 0) return <span className="text-muted-foreground">{emptyLabel}</span>
   const at = formatAtUsername(username)
   return (
-    <div className="space-y-0.5 text-start">
-      <div dir="ltr" className="font-mono text-xs tabular-nums">
+    <div className="flex w-full min-w-0 flex-col gap-0.5 text-start">
+      <div dir="ltr" className="block w-full font-mono text-xs tabular-nums">
         {formatPlainLatinInt(numericId)}
       </div>
-      {at ? <div className="text-xs text-muted-foreground">{at}</div> : null}
+      {at ? (
+        <div dir="ltr" className="block w-full break-all text-xs text-muted-foreground">
+          {at}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -85,9 +120,10 @@ export function DashboardUsersAdmin({
   pending,
   usersPagination,
   pendingPagination,
-  isFa,
   usersSearchQuery,
   onUsersSearchQueryChange,
+  listFilters,
+  onListFiltersChange,
   onMutateSuccess,
   onUsersPageChange,
   onUsersPerPageChange,
@@ -96,14 +132,16 @@ export function DashboardUsersAdmin({
   onOpenUserDetail,
   isReseller = false,
   actorPermissions,
+  enabledPlatforms = BOT_PLATFORMS.map((p) => p.id),
 }: {
   users: DashRecord[]
   pending: DashRecord[]
   usersPagination: PaginationMeta | null
   pendingPagination: PaginationMeta | null
-  isFa: boolean
-  usersSearchQuery: string
+usersSearchQuery: string
   onUsersSearchQueryChange: (q: string) => void
+  listFilters: UsersListFilters
+  onListFiltersChange: (patch: Partial<UsersListFilters>) => void
   onMutateSuccess?: () => void
   onUsersPageChange: (page: number) => void
   onUsersPerPageChange: (perPage: number) => void
@@ -112,7 +150,10 @@ export function DashboardUsersAdmin({
   onOpenUserDetail: (id: number) => void
   isReseller?: boolean
   actorPermissions?: Record<string, boolean>
+  enabledPlatforms?: BotPlatformId[]
 }) {
+  const { isFa } = useDashLocale()
+
   const { t } = useTranslation()
   const tp = (k: string) => t(`usersAdmin.${k}`)
   const statusLabel = (st: string) => t(`usersAdmin.status_${st}`, { defaultValue: st })
@@ -123,7 +164,24 @@ export function DashboardUsersAdmin({
   const [searchDraft, setSearchDraft] = useState(usersSearchQuery)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const canManageUsers = !isReseller || actorPermissions?.["users.manage"] !== false
+  const showTg = enabledPlatforms.includes("telegram")
+  const showBale = enabledPlatforms.includes("bale")
   const canMergeUsers = !isReseller
+
+  const hasActiveFilters =
+    listFilters.status !== "all" ||
+    listFilters.role !== "all" ||
+    listFilters.platform !== "all" ||
+    listFilters.segment !== "all" ||
+    listFilters.sort !== "created_desc" ||
+    listFilters.dateFrom.trim() !== "" ||
+    listFilters.dateTo.trim() !== "" ||
+    listFilters.minSvc.trim() !== "" ||
+    listFilters.maxSvc.trim() !== ""
+
+  const clearFilters = useCallback(() => {
+    onListFiltersChange({ ...DEFAULT_USERS_LIST_FILTERS })
+  }, [onListFiltersChange])
 
   useEffect(() => {
     setSearchDraft(usersSearchQuery)
@@ -193,14 +251,18 @@ export function DashboardUsersAdmin({
             </span>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
+            {showTg ? (
             <div>
               <div className="mb-0.5 text-xs font-medium text-muted-foreground">{tp("colTelegram")}</div>
               <IdsCell numericId={tg} username={uname(u)} emptyLabel="—" />
             </div>
+            ) : null}
+            {showBale ? (
             <div>
               <div className="mb-0.5 text-xs font-medium text-muted-foreground">{tp("colBale")}</div>
               <IdsCell numericId={bl} username={uname(u)} emptyLabel="—" />
             </div>
+            ) : null}
           </div>
           {showActions ? (
             <div className="flex flex-wrap gap-2 pt-2">
@@ -236,7 +298,7 @@ export function DashboardUsersAdmin({
   }
 
   return (
-    <div className={dashPageRootClass(isFa, "space-y-8")} dir={dashDir(isFa)}>
+    <DashPage className={"space-y-8"}>
       <DashboardPageHeader
         title={tp("title")}
         description={tp("subtitle")}
@@ -248,18 +310,17 @@ export function DashboardUsersAdmin({
                   {tp("mergeUsers")}
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl" dir={dashDir(isFa)}>
-                <DialogHeader>
+              <DashDialogContent className="sm:max-w-3xl">
+                <DashDialogHeader>
                   <DialogTitle>{tp("mergeUsers")}</DialogTitle>
-                </DialogHeader>
+                </DashDialogHeader>
                 <DashboardUserMergeAdmin
-                  isFa={isFa}
-                  onMutateSuccess={() => {
+        onMutateSuccess={() => {
                     onMutateSuccess?.()
                     setMergeOpen(false)
                   }}
                 />
-              </DialogContent>
+              </DashDialogContent>
             </Dialog>
           ) : null
         }
@@ -287,8 +348,7 @@ export function DashboardUsersAdmin({
         )}
         <DataPagination
           meta={pendingPagination}
-          isFa={isFa}
-          onPageChange={onPendingPageChange}
+        onPageChange={onPendingPageChange}
           onPerPageChange={onPendingPerPageChange}
         />
       </section>
@@ -304,7 +364,7 @@ export function DashboardUsersAdmin({
             </p>
           ) : null}
         </div>
-        <div className={cn("space-y-1.5", isFa && "text-right")}>
+        <div className={cn("space-y-1.5")}>
           <div className="relative max-w-md">
             <Search
               className={cn(
@@ -324,18 +384,140 @@ export function DashboardUsersAdmin({
           </div>
           <p className="text-xs text-muted-foreground">{tp("searchHint")}</p>
         </div>
+        <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">{tp("filterStatus")}</Label>
+              <DashSelect
+                triggerClassName="w-auto min-w-[10rem]"
+                value={listFilters.status}
+                onValueChange={(v) => onListFiltersChange({ status: v })}
+                options={[
+                  { value: "all", label: tp("filterAll") },
+                  { value: "pending", label: statusLabel("pending") },
+                  { value: "approved", label: statusLabel("approved") },
+                  { value: "rejected", label: statusLabel("rejected") },
+                  { value: "blocked", label: statusLabel("blocked") },
+                ]}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">{tp("filterRole")}</Label>
+              <DashSelect
+                triggerClassName="w-auto min-w-[10rem]"
+                value={listFilters.role}
+                onValueChange={(v) => onListFiltersChange({ role: v })}
+                options={[
+                  { value: "all", label: tp("filterAll") },
+                  { value: "user", label: tp("filterRoleUser") },
+                  { value: "reseller", label: tp("filterRoleReseller") },
+                  { value: "admin", label: tp("filterRoleAdmin") },
+                ]}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">{tp("filterPlatform")}</Label>
+              <DashSelect
+                triggerClassName="w-auto min-w-[10rem]"
+                value={listFilters.platform}
+                onValueChange={(v) => onListFiltersChange({ platform: v })}
+                options={[
+                  { value: "all", label: tp("filterAll") },
+                  ...(showTg ? [{ value: "telegram", label: tp("filterPlatformTelegram") }] : []),
+                  ...(showBale ? [{ value: "bale", label: tp("filterPlatformBale") }] : []),
+                  ...(showTg && showBale ? [{ value: "both", label: tp("filterPlatformBoth") }] : []),
+                  { value: "none", label: tp("filterPlatformNone") },
+                ]}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">{tp("filterSegment")}</Label>
+              <DashSelect
+                triggerClassName="w-auto min-w-[12rem]"
+                value={listFilters.segment}
+                onValueChange={(v) => onListFiltersChange({ segment: v })}
+                options={[
+                  { value: "all", label: tp("filterSegmentAll") },
+                  { value: "churned", label: tp("filterSegment_churned") },
+                  { value: "never_purchased", label: tp("filterSegment_never_purchased") },
+                  { value: "abandoned_checkout", label: tp("filterSegment_abandoned_checkout") },
+                  { value: "stale_buy_funnel", label: tp("filterSegment_stale_buy_funnel") },
+                  { value: "expiring_renew", label: tp("filterSegment_expiring_renew") },
+                ]}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">{tp("sortLabel")}</Label>
+              <DashSelect
+                triggerClassName="w-auto min-w-[10rem]"
+                value={listFilters.sort}
+                onValueChange={(v) => onListFiltersChange({ sort: v })}
+                options={[
+                  { value: "created_desc", label: tp("sortCreatedDesc") },
+                  { value: "created_asc", label: tp("sortCreatedAsc") },
+                  { value: "id_desc", label: tp("sortIdDesc") },
+                  { value: "id_asc", label: tp("sortIdAsc") },
+                  { value: "services_desc", label: tp("sortServicesDesc") },
+                  { value: "services_asc", label: tp("sortServicesAsc") },
+                  { value: "status_asc", label: tp("sortStatusAsc") },
+                  { value: "status_desc", label: tp("sortStatusDesc") },
+                  { value: "name_asc", label: tp("sortNameAsc") },
+                  { value: "name_desc", label: tp("sortNameDesc") },
+                ]}
+              />
+            </div>
+            <div className="min-w-[11rem] flex-1">
+              <DashboardDateTimePicker
+                label={tp("dateFrom")}
+                value={listFilters.dateFrom}
+                onChange={(v) => onListFiltersChange({ dateFrom: v })}
+              />
+            </div>
+            <div className="min-w-[11rem] flex-1">
+              <DashboardDateTimePicker
+                label={tp("dateTo")}
+                value={listFilters.dateTo}
+                onChange={(v) => onListFiltersChange({ dateTo: v })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">{tp("svcMin")}</Label>
+              <Input
+                dir="ltr"
+                className="w-28 font-mono"
+                value={listFilters.minSvc}
+                onChange={(e) => onListFiltersChange({ minSvc: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">{tp("svcMax")}</Label>
+              <Input
+                dir="ltr"
+                className="w-28 font-mono"
+                value={listFilters.maxSvc}
+                onChange={(e) => onListFiltersChange({ maxSvc: e.target.value })}
+              />
+            </div>
+            {hasActiveFilters ? (
+              <Button type="button" variant="ghost" size="sm" className="h-9" onClick={clearFilters}>
+                {tp("filterClear")}
+              </Button>
+            ) : null}
+          </div>
+        </div>
         {users.length === 0 ? (
           <p className="text-sm text-muted-foreground">{tp("usersEmpty")}</p>
         ) : (
-          <DashTableShell isFa={isFa} minWidth="42rem" colWidths={USERS_TABLE_COLS}>
+          <DashTableShell
+        minWidth="42rem" colWidths={USERS_TABLE_COLS}>
             <thead>
               <tr className="bg-muted/40">
                 <DashTh>{tp("colId")}</DashTh>
                 <DashTh>{tp("colName")}</DashTh>
                 <DashTh>{tp("colStatus")}</DashTh>
                 <DashTh>{tp("colServices")}</DashTh>
-                <DashTh>{tp("colTelegram")}</DashTh>
-                <DashTh>{tp("colBale")}</DashTh>
+{showTg ? <DashTh>{tp("colTelegram")}</DashTh> : null}
+                {showBale ? <DashTh>{tp("colBale")}</DashTh> : null}
                 <DashTh>{tp("colActions")}</DashTh>
               </tr>
             </thead>
@@ -350,19 +532,32 @@ export function DashboardUsersAdmin({
                     <DashTd dir="ltr" className="font-mono text-xs tabular-nums">
                       {formatPlainLatinInt(id)}
                     </DashTd>
-                    <DashTd>{displayName(u)}</DashTd>
+                    <DashTd>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span>{displayName(u)}</span>
+                        {u.marketing_open_offer ? (
+                          <Badge variant="outline" className="text-xs font-normal">
+                            {tp("badgeOpenOffer")}
+                          </Badge>
+                        ) : null}
+                      </div>
+                    </DashTd>
                     <DashTd>
                       <Badge variant={statusBadgeVariant(st)} className="font-normal">
                         {statusLabel(st)}
                       </Badge>
                     </DashTd>
                     <DashTd className="tabular-nums">{formatNumber(num(u.svc_count), isFa)}</DashTd>
+                    {showTg ? (
                     <DashTd>
                       <IdsCell numericId={tg} username={uname(u)} emptyLabel="—" />
                     </DashTd>
+                    ) : null}
+                    {showBale ? (
                     <DashTd>
                       <IdsCell numericId={bl} username={uname(u)} emptyLabel="—" />
                     </DashTd>
+                    ) : null}
                     <DashTd>
                       <Button type="button" size="sm" variant="outline" onClick={() => onOpenUserDetail(id)}>
                         {tp("manage")}
@@ -376,11 +571,10 @@ export function DashboardUsersAdmin({
         )}
         <DataPagination
           meta={usersPagination}
-          isFa={isFa}
-          onPageChange={onUsersPageChange}
+        onPageChange={onUsersPageChange}
           onPerPageChange={onUsersPerPageChange}
         />
       </section>
-    </div>
+    </DashPage>
   )
 }

@@ -8,15 +8,9 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { DashSelect } from "@/components/dash-select"
 import { getAdminJson, postAdminMutate } from "@/lib/dash-admin-mutate"
-import { dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
 
 type DashRecord = Record<string, unknown>
 type InboundRow = { id: number; remark: string; port: number }
@@ -40,16 +34,15 @@ export function DashboardResellerSettings({
   botsList,
   panels,
   actorSvpUserId,
-  isFa,
   onMutateSuccess,
 }: {
   settings?: DashRecord
   botsList: DashRecord[]
   panels?: DashRecord[]
   actorSvpUserId: number
-  isFa: boolean
   onMutateSuccess?: () => void
 }) {
+
   const { t } = useTranslation()
   const tp = (k: string) => t(`resellerSettingsAdmin.${k}`)
 
@@ -170,7 +163,7 @@ export function DashboardResellerSettings({
   }, [inboundAliases, onMutateSuccess, overrideValue, prefixValue, resellerId, tp])
 
   return (
-    <div className={dashPageRootClass(isFa)}>
+    <DashPage>
       <DashboardPageHeader title={tp("title")} description={tp("desc")} />
       <Card>
         <CardHeader>
@@ -225,21 +218,13 @@ export function DashboardResellerSettings({
           <div className="flex flex-wrap items-end gap-3">
             <div className="min-w-[12rem] flex-1 space-y-1">
               <Label>{tp("panel")}</Label>
-              <Select
+              <DashSelect
                 value={panelId > 0 ? String(panelId) : ""}
                 onValueChange={(v) => setPanelId(Number(v) || 0)}
-              >
-                <SelectTrigger dir={isFa ? "rtl" : "ltr"}>
-                  <SelectValue placeholder={tp("panelPlaceholder")} />
-                </SelectTrigger>
-                <SelectContent dir={isFa ? "rtl" : "ltr"}>
-                  {panelRows.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                allowEmpty
+                placeholder={tp("panelPlaceholder")}
+                options={panelRows.map((p) => ({ value: String(p.id), label: p.name }))}
+              />
             </div>
             <Button type="button" variant="outline" size="sm" disabled={loadBusy} onClick={() => void loadCatalog()}>
               {loadBusy ? tp("loading") : tp("loadInbounds")}
@@ -251,7 +236,7 @@ export function DashboardResellerSettings({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50 text-muted-foreground">
-                    <th className="px-3 py-2 text-start">ID</th>
+                    <th className="px-3 py-2 text-start">{tp("colId")}</th>
                     <th className="px-3 py-2 text-start">{tp("panelRemark")}</th>
                     <th className="px-3 py-2 text-start">{tp("displayAlias")}</th>
                   </tr>
@@ -291,6 +276,6 @@ export function DashboardResellerSettings({
           </Button>
         </CardContent>
       </Card>
-    </div>
+    </DashPage>
   )
 }

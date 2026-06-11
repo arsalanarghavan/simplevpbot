@@ -25,9 +25,11 @@ class SimpleVPBot_Portal_Admin {
 		$nonce = wp_create_nonce( 'svp_portal_admin_' . $uid );
 		$ajax  = admin_url( 'admin-ajax.php' );
 		$ipn   = esc_html( SimpleVPBot_Crypto_Payment::ipn_callback_url() );
+		$user  = class_exists( 'SimpleVPBot_Model_User' ) ? SimpleVPBot_Model_User::find( $uid ) : null;
+		$is_reseller = $user && SimpleVPBot_Model_User::is_reseller_row( $user );
 		ob_start();
 		?>
-		<div class="svp-admin" data-uid="<?php echo esc_attr( (string) $uid ); ?>" data-nonce="<?php echo esc_attr( $nonce ); ?>" data-ajax="<?php echo esc_url( $ajax ); ?>">
+		<div class="svp-admin<?php echo $is_reseller ? ' svp-admin--reseller' : ''; ?>" data-uid="<?php echo esc_attr( (string) $uid ); ?>" data-nonce="<?php echo esc_attr( $nonce ); ?>" data-ajax="<?php echo esc_url( $ajax ); ?>" data-is-reseller="<?php echo $is_reseller ? '1' : '0'; ?>" data-portal-lang="fa">
 			<h1 class="svp-admin__title">پنل مدیریت وب</h1>
 			<p class="svp-admin__hint">دسترسی با لینک امضاشده از ربات. IPN خودکار کریپتو: <code class="svp-admin__code"><?php echo $ipn; ?></code></p>
 			<section class="svp-admin__card">
@@ -74,7 +76,7 @@ class SimpleVPBot_Portal_Admin {
 				<label>حجم (گیگ، برای پلن per-GB)<input type="number" id="svp-cr-gb" min="0" class="svp-admin__input" placeholder="0"/></label>
 				<label>حالت
 					<select id="svp-cr-mode" class="svp-admin__input">
-						<option value="free">بدون پرداخت</option>
+						<option value="free" data-svp-portal-site-only>بدون پرداخت</option>
 						<option value="wallet">کسر از کیف پول کاربر</option>
 						<option value="invoice">فاکتور به کاربر</option>
 					</select>
@@ -87,7 +89,7 @@ class SimpleVPBot_Portal_Admin {
 				<label>شناسه سرویس<input type="number" id="svp-rn-sid" min="1" class="svp-admin__input"/></label>
 				<label>حالت
 					<select id="svp-rn-mode" class="svp-admin__input">
-						<option value="free">بدون پرداخت</option>
+						<option value="free" data-svp-portal-site-only>بدون پرداخت</option>
 						<option value="wallet">کسر از کیف پول کاربر</option>
 						<option value="invoice">فاکتور به کاربر</option>
 					</select>
@@ -101,7 +103,7 @@ class SimpleVPBot_Portal_Admin {
 				<label>گیگ اضافه<input type="number" id="svp-v-gb" min="1" value="1" class="svp-admin__input"/></label>
 				<label>حالت
 					<select id="svp-v-mode" class="svp-admin__input">
-						<option value="free">بدون پرداخت</option>
+						<option value="free" data-svp-portal-site-only>بدون پرداخت</option>
 						<option value="wallet">کسر از کیف پول کاربر</option>
 						<option value="invoice">فاکتور به کاربر</option>
 					</select>
@@ -109,7 +111,7 @@ class SimpleVPBot_Portal_Admin {
 				<button type="button" class="svp-btn svp-btn--primary" data-svp-admin-op="add_volume">اعمال</button>
 				<pre class="svp-admin__out" id="svp-adm-vol"></pre>
 			</section>
-			<section class="svp-admin__card">
+			<section class="svp-admin__card" data-svp-portal-site-only>
 				<h2>عملیات گروهی (فقط Xray)</h2>
 				<p class="svp-admin__warn">حداکثر ۲۰۰ سرویس در هر اجرا؛ بار روی پنل ۳x-ui.</p>
 				<label>افزودن روز به همه<input type="number" id="svp-bulk-d" min="1" value="1" class="svp-admin__input"/></label>
@@ -119,7 +121,7 @@ class SimpleVPBot_Portal_Admin {
 				<button type="button" class="svp-btn" data-svp-admin-op="bulk_gb">اجرای افزودن حجم</button>
 				<pre class="svp-admin__out" id="svp-adm-bulk"></pre>
 			</section>
-			<section class="svp-admin__card">
+			<section class="svp-admin__card" data-svp-portal-site-only>
 				<h2>ریفرال و لینک ربات</h2>
 				<p class="svp-admin__hint">برای ویرایش کامل کدهای تخفیف از وردپرس » SimpleVPBot » تب «کدهای تخفیف» استفاده کنید.</p>
 				<button type="button" class="svp-btn" data-svp-admin-op="referral_load">بارگذاری تنظیمات</button>
@@ -135,13 +137,63 @@ class SimpleVPBot_Portal_Admin {
 				<pre class="svp-admin__out" id="svp-adm-ref"></pre>
 			</section>
 			<section class="svp-admin__card">
-				<h2>کدهای تخفیف (فهرست / حذف)</h2>
-				<button type="button" class="svp-btn" data-svp-admin-op="discount_list">بارگذاری لیست</button>
-				<label>شناسه برای حذف<input type="number" id="svp-disc-del-id" min="1" class="svp-admin__input"/></label>
-				<button type="button" class="svp-btn" data-svp-admin-op="discount_delete">حذف با شناسه</button>
-				<pre class="svp-admin__out" id="svp-adm-disc"></pre>
+				<h2 data-svp-i18n="transferTitle">انتقال سرویس</h2>
+				<p class="svp-admin__hint" data-svp-i18n="transferHint">انتقال مالکیت سرویس به کاربر دیگر (شناسه عددی یا نام کاربری).</p>
+				<label data-svp-i18n="transferServiceId">شناسه سرویس<input type="number" id="svp-xfer-sid" min="1" class="svp-admin__input"/></label>
+				<label data-svp-i18n="transferTarget">کاربر مقصد<input type="text" id="svp-xfer-tgt" class="svp-admin__input" placeholder="123 یا @username"/></label>
+				<button type="button" class="svp-btn svp-btn--primary" data-svp-admin-op="service_transfer" data-svp-i18n="transferSubmit">انتقال</button>
+				<pre class="svp-admin__out" id="svp-adm-xfer"></pre>
 			</section>
 			<section class="svp-admin__card">
+				<h2 data-svp-i18n="receiptsTitle">رسیدها</h2>
+				<p class="svp-admin__hint" data-svp-i18n="receiptsHint">۱۰ رسید در هر صفحه (جدیدترین اول).</p>
+				<div id="svp-rcpt-root" class="svp-rcpt" data-offset="0">
+					<p class="svp-admin__hint">
+						<button type="button" class="svp-btn" data-svp-rcpt-refresh data-svp-i18n="receiptsRefresh">بارگذاری / تازه‌سازی</button>
+						<button type="button" class="svp-btn" data-svp-rcpt-prev disabled data-svp-i18n="receiptsPrev">صفحه قبل</button>
+						<button type="button" class="svp-btn" data-svp-rcpt-next disabled data-svp-i18n="receiptsNext">صفحه بعد</button>
+					</p>
+					<table class="svp-admin__table">
+						<thead><tr><th data-svp-i18n="receiptsColId">شناسه</th><th data-svp-i18n="receiptsColUser">کاربر</th><th data-svp-i18n="receiptsColAmount">مبلغ</th><th data-svp-i18n="receiptsColStatus">وضعیت</th><th data-svp-i18n="receiptsColDate">تاریخ</th></tr></thead>
+						<tbody id="svp-rcpt-tbody"></tbody>
+					</table>
+				</div>
+			</section>
+			<section class="svp-admin__card">
+				<h2 data-svp-i18n="discountTitle">کدهای تخفیف</h2>
+				<p class="svp-admin__hint" data-svp-i18n="discountHint">فهرست، ایجاد/ویرایش و حذف کدهای تخفیف در محدودهٔ حساب شما.</p>
+				<button type="button" class="svp-btn" data-svp-admin-op="discount_list" data-svp-i18n="discountLoadList">بارگذاری لیست</button>
+				<label data-svp-i18n="discountIdEdit">شناسه (۰ = جدید)<input type="number" id="svp-disc-id" min="0" class="svp-admin__input" placeholder="0"/></label>
+				<label data-svp-i18n="discountCode">کد<input type="text" id="svp-disc-code" class="svp-admin__input" placeholder="SAVE10"/></label>
+				<label data-svp-i18n="discountType">نوع
+					<select id="svp-disc-type" class="svp-admin__input">
+						<option value="percent">percent</option>
+						<option value="fixed_toman">fixed_toman</option>
+						<option value="percent_per_gb">percent_per_gb</option>
+						<option value="fixed_per_gb">fixed_per_gb</option>
+					</select>
+				</label>
+				<label data-svp-i18n="discountValue">مقدار<input type="text" id="svp-disc-value" class="svp-admin__input" placeholder="10"/></label>
+				<label data-svp-i18n="discountMaxUses">حداکثر استفاده (خالی = نامحدود)<input type="text" id="svp-disc-max" class="svp-admin__input"/></label>
+				<label data-svp-i18n="discountValidFrom">معتبر از (YYYY-MM-DD HH:MM، اختیاری)<input type="text" id="svp-disc-from" class="svp-admin__input" placeholder="2026-01-01 00:00"/></label>
+				<label data-svp-i18n="discountValidUntil">معتبر تا (YYYY-MM-DD HH:MM، اختیاری)<input type="text" id="svp-disc-until" class="svp-admin__input"/></label>
+				<label data-svp-i18n="discountMinOrder">حداقل سفارش (تومان، اختیاری)<input type="text" id="svp-disc-min" class="svp-admin__input"/></label>
+				<label data-svp-i18n="discountMaxOrder">حداکثر مبلغ سفارش (تومان، اختیاری)<input type="text" id="svp-disc-max-order" class="svp-admin__input"/></label>
+				<label data-svp-i18n="discountMaxDiscount">سقف تخفیف (تومان، اختیاری)<input type="text" id="svp-disc-max-disc" class="svp-admin__input"/></label>
+				<label data-svp-i18n="discountPlanIds">شناسه پلن‌های مجاز (با کاما، خالی = همه)<input type="text" id="svp-disc-plans" class="svp-admin__input" placeholder="1,2,3"/></label>
+				<label data-svp-i18n="discountRestrictedUser">محدود به کاربر (شناسه، اختیاری)<input type="number" id="svp-disc-user" min="0" class="svp-admin__input"/></label>
+				<div class="svp-admin__hint" data-svp-i18n="discountAllowSection">مجاز برای:</div>
+				<label class="svp-admin__check"><input type="checkbox" id="svp-disc-allow-new" checked/> <span data-svp-i18n="discountAllowNew">خرید جدید</span></label>
+				<label class="svp-admin__check"><input type="checkbox" id="svp-disc-allow-renew" checked/> <span data-svp-i18n="discountAllowRenew">تمدید</span></label>
+				<label class="svp-admin__check"><input type="checkbox" id="svp-disc-allow-vol" checked/> <span data-svp-i18n="discountAllowVol">افزایش حجم</span></label>
+				<label class="svp-admin__check"><input type="checkbox" id="svp-disc-allow-users" checked/> <span data-svp-i18n="discountAllowUsers">افزایش کاربر</span></label>
+				<label class="svp-admin__check"><input type="checkbox" id="svp-disc-active" checked/> <span data-svp-i18n="discountActive">فعال</span></label>
+				<button type="button" class="svp-btn svp-btn--primary" data-svp-admin-op="discount_save" data-svp-i18n="discountSave">ذخیره کد</button>
+				<label data-svp-i18n="discountIdDelete">شناسه برای حذف<input type="number" id="svp-disc-del-id" min="1" class="svp-admin__input"/></label>
+				<button type="button" class="svp-btn" data-svp-admin-op="discount_delete" data-svp-i18n="discountDelete">حذف با شناسه</button>
+				<pre class="svp-admin__out" id="svp-adm-disc"></pre>
+			</section>
+			<section class="svp-admin__card" data-svp-portal-site-only>
 				<h2>تنظیمات کریپتو (NOWPayments)</h2>
 				<label>API key<textarea id="svp-cry-api" class="svp-admin__textarea" rows="2"></textarea></label>
 				<label>IPN secret<textarea id="svp-cry-ipn" class="svp-admin__textarea" rows="2"></textarea></label>

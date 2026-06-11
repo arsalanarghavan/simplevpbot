@@ -7,10 +7,11 @@ import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
 import { Badge } from "@/components/ui/badge"
 
 const RESELLER_PANELS_TABLE_COLS = ["55%", "20%", "15%"]
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
 import { Card, CardContent } from "@/components/ui/card"
 import { formatNumber } from "@/lib/format-locale"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
+import { useDashLocale } from "@/lib/dash-locale-context"
 
 type DashRecord = Record<string, unknown>
 
@@ -29,12 +30,11 @@ function panelAllowed(row: Record<string, unknown> | undefined): boolean {
 export function DashboardResellerPanelsAdmin({
   panels,
   resellerPanelPricesMap,
-  isFa,
 }: {
   panels: DashRecord[]
   resellerPanelPricesMap: Record<string, Array<Record<string, unknown>> | undefined>
-  isFa: boolean
 }) {
+  const { isFa } = useDashLocale()
   const { t } = useTranslation()
   const tp = (k: string, opts?: Record<string, string | number>) => t(`resellerPanelsAdmin.${k}`, opts)
 
@@ -63,11 +63,12 @@ export function DashboardResellerPanelsAdmin({
   }, [panels, resellerPanelPricesMap])
 
   return (
-    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+    <DashPage>
       <DashboardPageHeader title={tp("title")} description={tp("subtitle")} />
       <Card>
         <CardContent className="pt-6">
-          <DashTableShell isFa={isFa} minWidth="28rem" colWidths={RESELLER_PANELS_TABLE_COLS}>
+          <DashTableShell
+        minWidth="28rem" colWidths={RESELLER_PANELS_TABLE_COLS}>
             <thead>
               <tr className="bg-muted/40">
                 <DashTh>{tp("colPanel")}</DashTh>
@@ -100,6 +101,6 @@ export function DashboardResellerPanelsAdmin({
         </CardContent>
       </Card>
       <p className="text-xs text-muted-foreground">{tp("hint")}</p>
-    </div>
+    </DashPage>
   )
 }

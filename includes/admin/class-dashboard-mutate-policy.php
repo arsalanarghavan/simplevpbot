@@ -2,6 +2,10 @@
 /**
  * Reseller dashboard mutation authorization (op → required permission).
  *
+ * Discount/marketing writes are intentionally excluded here: resellers manage those
+ * via the signed Telegram/Bale admin portal ({@see SimpleVPBot_Admin_Ajax::portal_admin}),
+ * while the SPA dashboard stays read-only and links to portalAdminUrl.
+ *
  * @package SimpleVPBot
  */
 
@@ -23,20 +27,20 @@ class SimpleVPBot_Dashboard_Mutate_Policy {
 	public static function reseller_mutate_required_permission( $op ) {
 		$op = sanitize_key( (string) $op );
 		static $map = array(
+			'reseller_inbound_labels_save' => 'services.manage',
+			'card_reorder'                 => 'plans.manage',
 			'plan'                       => 'plans.manage',
 			'plan_category'              => 'plans.manage',
 			'broadcast_send'             => 'broadcast.send',
 			'broadcast_cancel'           => 'broadcast.send',
-			'discount_save'              => 'plans.manage',
-			'discount_delete'            => 'plans.manage',
 			'discount_redemptions'       => 'plans.manage',
 			'card_add'                   => 'plans.manage',
 			'card_update'                => 'plans.manage',
 			'card_delete'                => 'plans.manage',
+			'reseller_payment_methods_save' => 'plans.manage',
 			'receipt_action'             => 'receipts.review',
 			'receipt_set_status'         => 'receipts.review',
 			'receipt_update'             => 'receipts.review',
-			'receipt_reject_reasons_save' => 'receipts.review',
 			'membership'                 => 'users.manage',
 			'user_status'                => 'users.manage',
 			'user_balance_delta'         => 'users.manage',
@@ -52,21 +56,24 @@ class SimpleVPBot_Dashboard_Mutate_Policy {
 			'service_delete'             => 'services.manage',
 			'user_admin_message'         => 'users.manage',
 			'service_alerts_patch'       => 'services.manage',
+			'service_set_note'           => 'services.manage',
 			'service_panel_sync'         => 'services.manage',
 			'service_regen_key'          => 'services.manage',
+			'service_regen_sub_id'       => 'services.manage',
 			'service_panel_refresh'      => 'services.manage',
 			'service_panel_delete_client' => 'services.manage',
 			'user_service_add_slots'     => 'services.manage',
 			'service_set_limit_ip'       => 'services.manage',
 			'user_manual_create'         => 'users.manage',
+			'reseller_wp_provision'      => 'users.manage',
 			'bot_reseller_save'          => 'services.manage',
 			'bot_reseller_secret_rotate' => 'services.manage',
 			'bot_reseller_toggle_enabled' => 'services.manage',
 			'bot_test_telegram'          => 'services.manage',
 			'bot_test_bale'              => 'services.manage',
+			'bot_diagnostics'            => 'services.manage',
 			'reseller_bot_webhook_set'   => 'services.manage',
 			'reseller_bot_webhook_delete' => 'services.manage',
-			'bot_delete_webhook'         => 'services.manage',
 			'bot_admin_id_add'           => 'services.manage',
 			'bot_admin_id_remove'        => 'services.manage',
 			'reseller_panel_prices_save' => 'users.manage',

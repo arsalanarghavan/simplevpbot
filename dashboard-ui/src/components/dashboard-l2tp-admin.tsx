@@ -5,16 +5,8 @@ import { useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Badge } from "@/components/ui/badge"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,17 +17,21 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Sheet,
-  SheetContent,
   SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { DashSheetContent } from "@/components/dash-sheet-content"
 import { DataPagination } from "@/components/data-pagination"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import type { PaginationMeta } from "@/lib/dash-pagination"
+import { DashSelect } from "@/components/dash-select"
 import { formatNumber } from "@/lib/format-locale"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { cn } from "@/lib/utils"
+import { useDashLocale } from "@/lib/dash-locale-context"
+import { DashDialogContent, DashDialogFooter, DashDialogHeader } from "@/components/dash-dialog-content"
+import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 
 type DashRecord = Record<string, unknown>
 
@@ -118,18 +114,18 @@ function formFromRow(r: DashRecord): FormState {
 export function DashboardL2tpAdmin({
   servers,
   pagination,
-  isFa,
   onMutateSuccess,
   onPageChange,
   onPerPageChange,
 }: {
   servers: DashRecord[]
   pagination: PaginationMeta | null
-  isFa: boolean
-  onMutateSuccess?: () => void
+onMutateSuccess?: () => void
   onPageChange: (page: number) => void
   onPerPageChange: (perPage: number) => void
 }) {
+  const { isFa } = useDashLocale()
+
   const { t } = useTranslation()
   const tp = (k: string) => t(`l2tpAdmin.${k}`)
 
@@ -201,7 +197,7 @@ export function DashboardL2tpAdmin({
   }
 
   return (
-    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+    <DashPage>
       <DashboardPageHeader
         title={tp("title")}
         description={tp("subtitle")}
@@ -289,13 +285,12 @@ export function DashboardL2tpAdmin({
 
       <DataPagination
         meta={pagination}
-        isFa={isFa}
         onPageChange={onPageChange}
         onPerPageChange={onPerPageChange}
       />
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className={cn("flex w-full flex-col sm:max-w-lg", isFa && "text-right")} dir={dashDir(isFa)} side={isFa ? "left" : "right"}>
+        <DashSheetContent className={cn("flex w-full flex-col sm:max-w-lg")}>
           <SheetHeader>
             <SheetTitle>{mode === "add" ? tp("sheetAdd") : tp("sheetEdit")}</SheetTitle>
           </SheetHeader>
@@ -325,16 +320,16 @@ export function DashboardL2tpAdmin({
             </div>
             <div className="space-y-2">
               <Label>{tp("fieldSshAuth")}</Label>
-              <select
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none"
+              <DashSelect
                 value={form.ssh_auth}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, ssh_auth: e.target.value === "password" ? "password" : "key" }))
+                onValueChange={(v) =>
+                  setForm((f) => ({ ...f, ssh_auth: v === "password" ? "password" : "key" }))
                 }
-              >
-                <option value="key">{tp("authKey")}</option>
-                <option value="password">{tp("authPassword")}</option>
-              </select>
+                options={[
+                  { value: "key", label: tp("authKey") },
+                  { value: "password", label: tp("authPassword") },
+                ]}
+              />
             </div>
             <div className="space-y-2">
               <Label>{tp("fieldSshPassword")}</Label>
@@ -402,7 +397,7 @@ export function DashboardL2tpAdmin({
                 onChange={(e) => setForm((f) => ({ ...f, apps_note: e.target.value }))}
               />
             </div>
-            <label className={cn("flex items-center gap-2 text-sm")} dir={dashDir(isFa)}>
+            <label className={cn("flex items-center gap-2 text-sm")}>
               <input
                 type="checkbox"
                 className="size-4 rounded border-input"
@@ -420,16 +415,16 @@ export function DashboardL2tpAdmin({
               {tp("save")}
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </DashSheetContent>
       </Sheet>
 
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <DialogContent className={cn(isFa && "text-right")} dir={dashDir(isFa)}>
-          <DialogHeader>
+        <DashDialogContent className={cn()}>
+          <DashDialogHeader>
             <DialogTitle>{tp("deleteTitle")}</DialogTitle>
             <DialogDescription>{tp("deleteDesc")}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter className={cn("gap-2")} dir={dashDir(isFa)}>
+          </DashDialogHeader>
+          <DashDialogFooter className={cn("gap-2")}>
             <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
               {tp("cancel")}
             </Button>
@@ -441,9 +436,9 @@ export function DashboardL2tpAdmin({
             >
               {tp("delete")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
-    </div>
+    </DashPage>
   )
 }

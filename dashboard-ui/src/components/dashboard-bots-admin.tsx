@@ -9,20 +9,23 @@ import {
   Power,
   RefreshCw,
   Send,
+  Stethoscope,
   Trash2,
   Webhook,
 } from "lucide-react"
 
 import { DashTableShell, DashTd, DashTh } from "@/components/dash-data-table"
 import { AdminIdChips } from "@/components/dashboard-bots-admin-ids"
+import { DashboardBotDiagnosticsDialog } from "@/components/dashboard-bot-diagnostics-dialog"
 
 const RESELLER_BOTS_TABLE_COLS = ["6%", "18%", "16%", "10%", "10%", "12%", "6%"]
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { DashboardForceJoinAdmin } from "@/components/dashboard-force-join-admin"
 import { BaleLogo } from "@/components/icons/bale-logo"
 import { TelegramLogo } from "@/components/icons/telegram-logo"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
-import { BOT_PLATFORMS, type BotPlatformForm } from "@/config/bot-platforms"
+import { DashPage } from "@/components/dash-page"
+import { BOT_PLATFORMS, type BotPlatformForm, type BotPlatformId } from "@/config/bot-platforms"
+import { mainPlatformEnabled, resellerPlatformEnabled } from "@/lib/enabled-platforms"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -34,14 +37,6 @@ import {
 } from "@/components/ui/card"
 import { DataPagination } from "@/components/data-pagination"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -51,11 +46,13 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Separator } from "@/components/ui/separator"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import type { PaginationMeta } from "@/lib/dash-pagination"
 import { formatNumber } from "@/lib/format-locale"
 import { cn } from "@/lib/utils"
+import { useDashLocale } from "@/lib/dash-locale-context"
+import { DashDialogContent, DashDialogFooter, DashDialogHeader } from "@/components/dash-dialog-content"
+import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 
 type DashRecord = Record<string, unknown>
 type BotRow = {
@@ -68,9 +65,12 @@ type BotRow = {
   theme_primary?: string
   theme_accent?: string
   custom_domain?: string
+  telegram_relay_public_url?: string
   config_label_override?: string
   config_label_prefix?: string
   enabled?: boolean
+  telegram_enabled?: boolean
+  bale_enabled?: boolean
   has_telegram_token?: boolean
   has_bale_token?: boolean
   telegram_secret_token_set?: boolean
@@ -89,6 +89,10 @@ function num(v: unknown): number {
 function asIdList(v: unknown): number[] {
   if (!Array.isArray(v)) return []
   return v.map((x) => num(x)).filter((x) => x > 0)
+}
+
+function bool(v: unknown): boolean {
+  return v === true || v === 1 || v === "1"
 }
 
 function isSetFlag(s: DashRecord, key: string): boolean {
@@ -127,15 +131,13 @@ export function DashboardBotsAdmin({
   settings,
   botsList = [],
   botsPagination,
-  isFa,
   variant = "site",
   onPageChange,
   onPerPageChange,
   onMutateSuccess,
 }: {
   settings: DashRecord | undefined
-  isFa: boolean
-  /** site = main bot only; reseller_admin = reseller bot table; reseller_self = own reseller bot. */
+/** site = main bot only; reseller_admin = reseller bot table; reseller_self = own reseller bot. */
   variant?: BotsAdminVariant
   botsList?: BotRow[]
   botsPagination?: PaginationMeta | null
@@ -143,6 +145,8 @@ export function DashboardBotsAdmin({
   onPerPageChange?: (n: number) => void
   onMutateSuccess?: () => void
 }) {
+  const { isFa } = useDashLocale()
+
   const resellerSelfServe = variant === "reseller_self"
   const showMainBot = variant === "site"
   const showResellerTable = variant === "reseller_admin" || variant === "reseller_self"
@@ -195,6 +199,9 @@ export function DashboardBotsAdmin({
     platform: "telegram" | "bale"
     botId: number
   } | null>(null)
+  const [diagOpen, setDiagOpen] = useState<{ platform: "telegram" | "bale"; resellerId: number } | null>(
+    null
+  )
 
   const busy = busyAction !== "" || saving
 
@@ -261,9 +268,26 @@ export function DashboardBotsAdmin({
     }
   }, [form, onMutateSuccess, tp])
 
-  const mainEnabled = Boolean(s.enabled)
   const tgUser = String(s.telegram_bot_username ?? "")
   const baleUser = String(s.bale_bot_username ?? "")
+  const relayOn =
+    (bool(s.telegram_relay_enabled) || bool(s.telegram_relay_force)) &&
+    String(s.telegram_relay_base_url || s.telegram_relay_public_url || "").trim() !== ""
+
+  const platformOn = (plat: BotPlatformId) => mainPlatformEnabled(s, plat)
+  const resellerPlatformOn = (row: BotRow, plat: BotPlatformId) =>
+    resellerPlatformEnabled(row as Record<string, unknown>, plat)
+
+  const togglePlatform = (plat: BotPlatformId, resellerId = 0) => {
+    const payload: Record<string, unknown> = { platform: plat }
+    if (resellerId > 0) payload.reseller_svp_user_id = resellerId
+    return runBotAction("bot_toggle_platform_enabled", payload)
+  }
+
+  const platformToggleLabel = (plat: BotPlatformId, on: boolean) => {
+    if (plat === "telegram") return on ? tp("btnDisableTelegram") : tp("btnEnableTelegram")
+    return on ? tp("btnDisableBale") : tp("btnEnableBale")
+  }
 
   const openResellerDlg = (row: BotRow) => {
     const ov = row.text_overrides ?? {}
@@ -276,6 +300,7 @@ export function DashboardBotsAdmin({
       theme_primary: String(row.theme_primary ?? ""),
       theme_accent: String(row.theme_accent ?? ""),
       custom_domain: String(row.custom_domain ?? ""),
+      telegram_relay_public_url: String(row.telegram_relay_public_url ?? ""),
       config_label_override: String(row.config_label_override ?? ""),
       config_label_prefix: String(row.config_label_prefix ?? ""),
       telegram_token: "",
@@ -365,7 +390,7 @@ export function DashboardBotsAdmin({
   const soleResellerRow = resellerSelfServe && botsList.length === 1 ? botsList[0] : null
 
   return (
-    <div className={dashPageRootClass(isFa)} dir={dashDir(isFa)}>
+    <DashPage>
       <DashboardPageHeader title={pageTitle} description={pageDesc} />
       {error ? (
         <div
@@ -382,178 +407,146 @@ export function DashboardBotsAdmin({
       {showMainBot ? (
         <Card>
           <CardHeader className="pb-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <CardTitle className="text-base">{tp("mainBotSectionTitle")}</CardTitle>
-                <CardDescription className="text-xs">{tp("webhookSecretHint")}</CardDescription>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={mainEnabled ? "default" : "secondary"}>
-                  {mainEnabled ? tp("statusEnabled") : tp("statusDisabled")}
-                </Badge>
-                {tgUser ? (
-                  <span className="text-xs text-muted-foreground" dir="ltr">
-                    TG @{tgUser}
-                  </span>
-                ) : null}
-                {baleUser ? (
-                  <span className="text-xs text-muted-foreground" dir="ltr">
-                    Bale @{baleUser}
-                  </span>
-                ) : null}
-              </div>
+            <div>
+              <CardTitle className="text-base">{tp("mainBotSectionTitle")}</CardTitle>
+              <CardDescription className="text-xs">{tp("webhookSecretHint")}</CardDescription>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className={cn("flex flex-wrap gap-2")} dir={dashDir(isFa)}>
-              <Button
-                type="button"
-                size="sm"
-                variant={mainEnabled ? "destructive" : "default"}
-                className="gap-1.5"
-                disabled={busy}
-                onClick={() => void runBotAction("bot_toggle_enabled", {})}
-              >
-                <Power className="size-3.5" />
-                {mainEnabled ? tp("btnDisableBot") : tp("btnEnableBot")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="gap-1.5"
-                disabled={busy}
-                onClick={() => void runBotAction("bot_test_telegram", {})}
-              >
-                <Send className="size-3.5" />
-                {tp("testTelegramShort")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="gap-1.5"
-                disabled={busy}
-                onClick={() => void runBotAction("bot_test_bale", {})}
-              >
-                <MessagesSquare className="size-3.5" />
-                {tp("testBaleShort")}
-              </Button>
-              <Separator orientation="vertical" className="mx-1 hidden h-8 sm:block" />
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="gap-1.5"
-                disabled={busy}
-                onClick={() => setDeleteHookDlg({ platform: "telegram", botId: 0 })}
-              >
-                <Trash2 className="size-3.5" />
-                {tp("actionDeleteWebhookTg")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="gap-1.5"
-                disabled={busy}
-                onClick={() => setDeleteHookDlg({ platform: "bale", botId: 0 })}
-              >
-                <Trash2 className="size-3.5" />
-                {tp("actionDeleteWebhookBale")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                className="gap-1.5"
-                disabled={busy}
-                onClick={() => void runBotAction("bot_set_webhook", { platform: "telegram", bot_id: 0 })}
-              >
-                <Webhook className="size-3.5" />
-                {tp("actionSetWebhookTg")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                className="gap-1.5"
-                disabled={busy}
-                onClick={() => void runBotAction("bot_set_webhook", { platform: "bale", bot_id: 0 })}
-              >
-                <Webhook className="size-3.5" />
-                {tp("actionSetWebhookBale")}
-              </Button>
-            </div>
+            {relayOn ? (
+              <p className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                {tp("relayTelegramBanner")}
+              </p>
+            ) : null}
             <p className="text-xs text-muted-foreground">
-              {tp("enabled")}: {String(s.enabled ?? "—")} · {tp("webhookRate")}:{" "}
-              {formatNumber(num(s.webhook_rate_limit_per_min), isFa)}
+              {tp("webhookRate")}: {formatNumber(num(s.webhook_rate_limit_per_min), isFa)}
             </p>
-
-            <Separator />
-
             <div className="grid gap-4 md:grid-cols-2">
-              <AdminIdChips
-                platform="telegram"
-                label={tp("adminTelegramIds")}
-                ids={mainTgIds}
-                isFa={isFa}
-                busy={busy}
-                tp={tp}
-                onChanged={() => onMutateSuccess?.()}
-                onError={setError}
-              />
-              <AdminIdChips
-                platform="bale"
-                label={tp("adminBaleIds")}
-                ids={mainBaleIds}
-                isFa={isFa}
-                busy={busy}
-                tp={tp}
-                onChanged={() => onMutateSuccess?.()}
-                onError={setError}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">{tp("adminIdsCardDesc")}</p>
-
-            <Separator />
-
-            <div className="grid gap-4 md:grid-cols-2">
-              {BOT_PLATFORMS.map((plat) => (
-                <div key={plat.id} className="space-y-2 rounded-lg border border-border/60 p-3">
-                  <div className="flex items-center gap-2">
-                    {plat.id === "telegram" ? (
-                      <TelegramLogo className="size-5" />
-                    ) : (
-                      <BaleLogo className="size-5" />
-                    )}
-                    <p className="text-sm font-medium">{t(plat.titleKey)}</p>
+              {BOT_PLATFORMS.map((plat) => {
+                const on = platformOn(plat.id)
+                const username = plat.id === "telegram" ? tgUser : baleUser
+                return (
+                  <div key={plat.id} className="space-y-3 rounded-lg border border-border/60 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        {plat.id === "telegram" ? (
+                          <TelegramLogo className="size-5" />
+                        ) : (
+                          <BaleLogo className="size-5" />
+                        )}
+                        <p className="text-sm font-medium">{t(plat.titleKey)}</p>
+                      </div>
+                      <Badge variant={on ? "default" : "secondary"}>
+                        {on ? tp("platformEnabled") : tp("platformDisabled")}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {t(plat.summaryUsernameKey)}: {username ? `@${username}` : "—"}
+                    </p>
+                    {relayOn && plat.id === "telegram" ? (
+                      <p className="text-xs text-muted-foreground" dir="ltr">
+                        {tp("relayWebhookVia")}: {String(s.telegram_relay_public_url || s.telegram_relay_base_url || "—")}
+                      </p>
+                    ) : null}
+                    <div className={cn("flex flex-wrap gap-2")}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={on ? "destructive" : "default"}
+                        className="gap-1.5"
+                        disabled={busy}
+                        onClick={() => void togglePlatform(plat.id)}
+                      >
+                        <Power className="size-3.5" />
+                        {platformToggleLabel(plat.id, on)}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        disabled={busy}
+                        onClick={() =>
+                          void runBotAction(
+                            plat.id === "telegram" ? "bot_test_telegram" : "bot_test_bale",
+                            {}
+                          )
+                        }
+                      >
+                        {plat.id === "telegram" ? (
+                          <Send className="size-3.5" />
+                        ) : (
+                          <MessagesSquare className="size-3.5" />
+                        )}
+                        {plat.id === "telegram" ? tp("testTelegramShort") : tp("testBaleShort")}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        disabled={busy}
+                        onClick={() => setDiagOpen({ platform: plat.id, resellerId: 0 })}
+                      >
+                        <Stethoscope className="size-3.5" />
+                        {tp("diagnosticsShort")}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="gap-1.5"
+                        disabled={busy}
+                        onClick={() =>
+                          void runBotAction("bot_set_webhook", { platform: plat.id, bot_id: 0 })
+                        }
+                      >
+                        <Webhook className="size-3.5" />
+                        {plat.id === "telegram" ? tp("actionSetWebhookTg") : tp("actionSetWebhookBale")}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        disabled={busy}
+                        onClick={() => setDeleteHookDlg({ platform: plat.id, botId: 0 })}
+                      >
+                        <Trash2 className="size-3.5" />
+                        {plat.id === "telegram" ? tp("actionDeleteWebhookTg") : tp("actionDeleteWebhookBale")}
+                      </Button>
+                    </div>
+                    <AdminIdChips
+                      platform={plat.id}
+                      label={plat.id === "telegram" ? tp("adminTelegramIds") : tp("adminBaleIds")}
+                      ids={plat.id === "telegram" ? mainTgIds : mainBaleIds}
+                      busy={busy}
+                      tp={tp}
+                      onChanged={() => onMutateSuccess?.()}
+                      onError={setError}
+                    />
+                    {plat.fieldKeys.map((fk) => {
+                      const labelMap: Partial<Record<keyof BotPlatformForm, string>> = {
+                        telegram_token: "telegramToken",
+                        bale_token: "baleToken",
+                        telegram_secret_header: "telegramSecretHeader",
+                        bale_wallet_provider_token: "baleWalletToken",
+                      }
+                      const lk = labelMap[fk] ?? String(fk)
+                      const inputType = fk === "telegram_secret_header" ? "text" : "password"
+                      const configured =
+                        fk === "telegram_token"
+                          ? tokenConfigured.telegram_token
+                          : fk === "bale_token"
+                            ? tokenConfigured.bale_token
+                            : fk === "bale_wallet_provider_token"
+                              ? tokenConfigured.bale_wallet_provider_token
+                              : false
+                      return fieldInput(fk, lk, inputType, configured)
+                    })}
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {t(plat.summaryUsernameKey)}:{" "}
-                    {plat.id === "telegram" ? tgUser || "—" : baleUser || "—"}
-                  </p>
-                  {plat.fieldKeys.map((fk) => {
-                    const labelMap: Partial<Record<keyof BotPlatformForm, string>> = {
-                      telegram_token: "telegramToken",
-                      bale_token: "baleToken",
-                      telegram_secret_header: "telegramSecretHeader",
-                      bale_wallet_provider_token: "baleWalletToken",
-                    }
-                    const lk = labelMap[fk] ?? String(fk)
-                    const inputType = fk === "telegram_secret_header" ? "text" : "password"
-                    const configured =
-                      fk === "telegram_token"
-                        ? tokenConfigured.telegram_token
-                        : fk === "bale_token"
-                          ? tokenConfigured.bale_token
-                          : fk === "bale_wallet_provider_token"
-                            ? tokenConfigured.bale_wallet_provider_token
-                            : false
-                    return fieldInput(fk, lk, inputType, configured)
-                  })}
-                </div>
-              ))}
+                )
+              })}
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
@@ -574,7 +567,6 @@ export function DashboardBotsAdmin({
           <CardContent className="pt-6">
             <DashboardForceJoinAdmin
               settings={s}
-              isFa={isFa}
               onMutateSuccess={onMutateSuccess}
             />
           </CardContent>
@@ -611,15 +603,44 @@ export function DashboardBotsAdmin({
                   emptyLabel="—"
                 />
               </div>
-              <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => openResellerDlg(soleResellerRow)}>
-                <Pencil className="size-4" />
-                {tp("actionEdit")}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => openResellerDlg(soleResellerRow)}>
+                  <Pencil className="size-4" />
+                  {tp("actionEdit")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={busy}
+                  onClick={() =>
+                    setDiagOpen({ platform: "telegram", resellerId: num(soleResellerRow.reseller_id) })
+                  }
+                >
+                  <Stethoscope className="size-3.5" />
+                  {tp("diagnosticsTelegram")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={busy}
+                  onClick={() =>
+                    setDiagOpen({ platform: "bale", resellerId: num(soleResellerRow.reseller_id) })
+                  }
+                >
+                  <Stethoscope className="size-3.5" />
+                  {tp("diagnosticsBale")}
+                </Button>
+              </div>
             </div>
           ) : botsList.length === 0 ? (
             <p className="text-sm text-muted-foreground">{tp("resellerBotsDesc")}</p>
           ) : (
-          <DashTableShell isFa={isFa} minWidth="40rem" colWidths={RESELLER_BOTS_TABLE_COLS}>
+          <DashTableShell
+        minWidth="40rem" colWidths={RESELLER_BOTS_TABLE_COLS}>
             <thead>
               <tr className="bg-muted/40 text-xs">
                 <DashTh>#</DashTh>
@@ -692,6 +713,14 @@ export function DashboardBotsAdmin({
                               <Power className="size-4" />
                               {tp("actionToggle")}
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => void togglePlatform("telegram", rid)}>
+                              <TelegramLogo className="size-4" />
+                              {platformToggleLabel("telegram", resellerPlatformOn(row, "telegram"))}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => void togglePlatform("bale", rid)}>
+                              <BaleLogo className="size-4" />
+                              {platformToggleLabel("bale", resellerPlatformOn(row, "bale"))}
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               disabled={!row.has_telegram_token}
@@ -708,6 +737,14 @@ export function DashboardBotsAdmin({
                             >
                               <MessagesSquare className="size-4" />
                               {tp("testBaleShort")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setDiagOpen({ platform: "telegram", resellerId: rid })}>
+                              <Stethoscope className="size-4" />
+                              {tp("diagnosticsTelegram")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setDiagOpen({ platform: "bale", resellerId: rid })}>
+                              <Stethoscope className="size-4" />
+                              {tp("diagnosticsBale")}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
@@ -769,7 +806,6 @@ export function DashboardBotsAdmin({
           )}
           <DataPagination
             meta={botsPagination ?? null}
-            isFa={isFa}
             onPageChange={(p) => onPageChange?.(p)}
             onPerPageChange={(n) => onPerPageChange?.(n)}
             perPageOptions={[25, 50, 100, 150, 200]}
@@ -778,15 +814,22 @@ export function DashboardBotsAdmin({
       </Card>
       ) : null}
 
+      <DashboardBotDiagnosticsDialog
+        open={diagOpen !== null}
+        platform={diagOpen?.platform ?? "telegram"}
+        resellerId={diagOpen?.resellerId ?? 0}
+        onClose={() => setDiagOpen(null)}
+      />
+
       <Dialog open={deleteHookDlg !== null} onOpenChange={(o) => !o && setDeleteHookDlg(null)}>
-        <DialogContent className={cn("sm:max-w-md", isFa && "text-right")} dir={dashDir(isFa)}>
-          <DialogHeader>
+        <DashDialogContent className={cn("sm:max-w-md")}>
+          <DashDialogHeader>
             <DialogTitle>
               {deleteHookDlg?.platform === "bale" ? tp("actionDeleteWebhookBale") : tp("actionDeleteWebhookTg")}
             </DialogTitle>
             <DialogDescription>{tp("confirmDeleteWebhook")}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter className={cn("gap-2")} dir={dashDir(isFa)}>
+          </DashDialogHeader>
+          <DashDialogFooter className={cn("gap-2")}>
             <Button type="button" variant="outline" onClick={() => setDeleteHookDlg(null)} disabled={busy}>
               {tp("adminIdCancel")}
             </Button>
@@ -804,16 +847,16 @@ export function DashboardBotsAdmin({
             >
               {deleteHookDlg?.platform === "bale" ? tp("actionDeleteWebhookBale") : tp("actionDeleteWebhookTg")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog open={dlgOpen} onOpenChange={setDlgOpen}>
-        <DialogContent className={cn("sm:max-w-lg max-h-[90vh] overflow-y-auto", isFa && "text-right")} dir={dashDir(isFa)}>
-          <DialogHeader>
+        <DashDialogContent className={cn("sm:max-w-lg")}>
+          <DashDialogHeader>
             <DialogTitle>{tp("resellerDialogTitle")}</DialogTitle>
             <DialogDescription className="text-xs">{tp("resellerWebhookAutoHint")}</DialogDescription>
-          </DialogHeader>
+          </DashDialogHeader>
           <div className="grid gap-3">
             <div className="space-y-1">
               <Label className="text-xs">{tp("resellerPlaceholderId")}</Label>
@@ -866,6 +909,15 @@ export function DashboardBotsAdmin({
               dir="ltr"
               disabled={busy}
             />
+            {relayOn ? (
+              <Input
+                placeholder={tp("relayPublicUrlReseller")}
+                value={dlgForm.telegram_relay_public_url ?? ""}
+                onChange={(e) => setDlgForm((p) => ({ ...p, telegram_relay_public_url: e.target.value }))}
+                dir="ltr"
+                disabled={busy}
+              />
+            ) : null}
             <Input
               placeholder={
                 dlgRow?.has_telegram_token && !dlgForm.telegram_token
@@ -934,7 +986,6 @@ export function DashboardBotsAdmin({
                   label={tp("adminTelegramIds")}
                   ids={dlgRow.admin_telegram_ids ?? []}
                   resellerId={num(dlgRow.reseller_id)}
-                  isFa={isFa}
                   busy={busy}
                   tp={tp}
                   onChanged={() => onMutateSuccess?.()}
@@ -945,7 +996,6 @@ export function DashboardBotsAdmin({
                   label={tp("adminBaleIds")}
                   ids={dlgRow.admin_bale_ids ?? []}
                   resellerId={num(dlgRow.reseller_id)}
-                  isFa={isFa}
                   busy={busy}
                   tp={tp}
                   onChanged={() => onMutateSuccess?.()}
@@ -954,7 +1004,7 @@ export function DashboardBotsAdmin({
               </>
             ) : null}
           </div>
-          <DialogFooter className={cn("gap-2")} dir={dashDir(isFa)}>
+          <DashDialogFooter className={cn("gap-2")}>
             <Button variant="outline" onClick={() => setDlgOpen(false)} disabled={busy}>
               {tp("adminIdCancel")}
             </Button>
@@ -968,9 +1018,9 @@ export function DashboardBotsAdmin({
             >
               {tp("save")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
-    </div>
+    </DashPage>
   )
 }

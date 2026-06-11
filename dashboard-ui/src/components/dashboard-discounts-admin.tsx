@@ -16,7 +16,7 @@ import { useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { DashboardDateTimePicker } from "@/components/dashboard-datetime-picker"
-import { dashDir, dashPageRootClass } from "@/lib/dash-locale"
+import { DashPage } from "@/components/dash-page"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -25,14 +25,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,17 +36,21 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import {
   Sheet,
-  SheetContent,
   SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { DashSheetContent } from "@/components/dash-sheet-content"
 import { DataPagination } from "@/components/data-pagination"
 import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import type { PaginationMeta } from "@/lib/dash-pagination"
+import { DashSelect } from "@/components/dash-select"
 import { formatDateTime, formatNumber } from "@/lib/format-locale"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { cn } from "@/lib/utils"
+import { useDashLocale } from "@/lib/dash-locale-context"
+import { DashDialogContent, DashDialogFooter, DashDialogHeader } from "@/components/dash-dialog-content"
+import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 
 type DashRecord = Record<string, unknown>
 
@@ -205,9 +201,6 @@ function formToPayload(f: DiscountFormState): Record<string, unknown> {
   }
 }
 
-const selectClass =
-  "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
-
 function typeLabelKey(dtype: string): string {
   if (dtype === "fixed_toman") return "typeFixed"
   if (dtype === "percent_per_gb") return "typePercentPerGb"
@@ -221,7 +214,6 @@ function flagIcon(ok: boolean) {
 
 function DiscountCodeTile({
   d,
-  isFa,
   saving,
   tp,
   typeLabel,
@@ -230,10 +222,10 @@ function DiscountCodeTile({
   onUsage,
   onEdit,
   onDelete,
+  readOnlySettings = false,
 }: {
   d: DashRecord
-  isFa: boolean
-  saving: boolean
+saving: boolean
   tp: (k: string) => string
   typeLabel: (dtype: string) => string
   planNameById: Map<number, string>
@@ -241,7 +233,10 @@ function DiscountCodeTile({
   onUsage: (row: DashRecord) => void
   onEdit: (row: DashRecord) => void
   onDelete: (row: DashRecord) => void
+  readOnlySettings?: boolean
 }) {
+  const { isFa } = useDashLocale()
+
   const act = isDiscountActive(d)
   const dtype = String(d.discount_type ?? "percent")
   const planIds = parsePlanIds(d.allowed_plan_ids)
@@ -264,7 +259,7 @@ function DiscountCodeTile({
         <div className="flex shrink-0 items-center gap-2">
           <Switch
             checked={act}
-            disabled={saving}
+            disabled={saving || readOnlySettings}
             onCheckedChange={(checked) => onToggleActive(d, checked)}
             aria-label={act ? tp("badgeActive") : tp("badgeInactive")}
           />
@@ -276,10 +271,14 @@ function DiscountCodeTile({
             </DropdownMenuTrigger>
             <DropdownMenuContent align={isFa ? "start" : "end"}>
               <DropdownMenuItem onClick={() => onUsage(d)}>{tp("details")}</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onEdit(d)}>{tp("edit")}</DropdownMenuItem>
-              <DropdownMenuItem className="text-destructive" onClick={() => onDelete(d)}>
-                {tp("delete")}
-              </DropdownMenuItem>
+              {!readOnlySettings ? (
+                <>
+                  <DropdownMenuItem onClick={() => onEdit(d)}>{tp("edit")}</DropdownMenuItem>
+                  <DropdownMenuItem className="text-destructive" onClick={() => onDelete(d)}>
+                    {tp("delete")}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -355,21 +354,25 @@ export function DashboardDiscountsAdmin({
   plans,
   usersList,
   pagination,
-  isFa,
   onMutateSuccess,
   onPageChange,
   onPerPageChange,
+  readOnlySettings = false,
+  portalAdminUrl = "",
 }: {
   discountCodes: DashRecord[]
   discountUsageSummary?: UsageSummary | null
   plans: DashRecord[]
   usersList: DashRecord[]
   pagination: PaginationMeta | null
-  isFa: boolean
-  onMutateSuccess?: () => void
+onMutateSuccess?: () => void
   onPageChange: (page: number) => void
   onPerPageChange: (perPage: number) => void
+  readOnlySettings?: boolean
+  portalAdminUrl?: string
 }) {
+  const { isFa } = useDashLocale()
+
   const { t } = useTranslation()
   const tp = (k: string) => t(`discountsAdmin.${k}`)
 
@@ -540,7 +543,7 @@ export function DashboardDiscountsAdmin({
     filter === "active" ? tp("filterActive") : filter === "inactive" ? tp("filterInactive") : tp("filterAll")
 
   return (
-    <div className={dashPageRootClass(isFa, "mx-auto w-full max-w-7xl")} dir={dashDir(isFa)}>
+    <DashPage className={"w-full space-y-6"}>
       <DashboardPageHeader title={tp("title")} description={tp("subtitle")} />
 
       {error ? (
@@ -587,21 +590,43 @@ export function DashboardDiscountsAdmin({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <Label className="text-muted-foreground">{tp("filterLabel")}</Label>
-            <select
-              className={selectClass + " w-auto min-w-[8rem]"}
+            <DashSelect
+              triggerClassName="w-auto min-w-[8rem]"
               value={filter}
-              onChange={(e) => setFilter(e.target.value as typeof filter)}
-            >
-              <option value="all">{tp("filterAll")}</option>
-              <option value="active">{tp("filterActive")}</option>
-              <option value="inactive">{tp("filterInactive")}</option>
-            </select>
+              onValueChange={(v) => setFilter(v as typeof filter)}
+              options={[
+                { value: "all", label: tp("filterAll") },
+                { value: "active", label: tp("filterActive") },
+                { value: "inactive", label: tp("filterInactive") },
+              ]}
+            />
             <span className="text-xs text-muted-foreground">{filterLabel}</span>
           </div>
-          <Button type="button" size="sm" onClick={openAdd}>
-            {tp("addCode")}
-          </Button>
+          {!readOnlySettings ? (
+            <Button type="button" size="sm" onClick={openAdd}>
+              {tp("addCode")}
+            </Button>
+          ) : null}
         </div>
+
+        {readOnlySettings ? (
+          <p className="mb-4 text-sm text-muted-foreground">
+            {tp("readOnlyResellerHint")}
+            {portalAdminUrl ? (
+              <>
+                {" "}
+                <a
+                  href={portalAdminUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-primary underline underline-offset-2"
+                >
+                  {tp("portalManageLink")}
+                </a>
+              </>
+            ) : null}
+          </p>
+        ) : null}
 
         {filtered.length === 0 ? (
           <p className="text-sm text-muted-foreground">{tp("empty")}</p>
@@ -611,8 +636,7 @@ export function DashboardDiscountsAdmin({
               <DiscountCodeTile
                 key={num(d.id) || String(d.code)}
                 d={d}
-                isFa={isFa}
-                saving={saving}
+        saving={saving}
                 tp={tp}
                 typeLabel={(dtype) => tp(typeLabelKey(dtype))}
                 planNameById={planNameById}
@@ -620,6 +644,7 @@ export function DashboardDiscountsAdmin({
                 onUsage={(row) => void openUsage(row)}
                 onEdit={openEdit}
                 onDelete={setDeleteTarget}
+                readOnlySettings={readOnlySettings}
               />
             ))}
           </div>
@@ -627,15 +652,14 @@ export function DashboardDiscountsAdmin({
 
         <DataPagination
           meta={pagination}
-          isFa={isFa}
-          onPageChange={onPageChange}
+        onPageChange={onPageChange}
           onPerPageChange={onPerPageChange}
           perPageOptions={[40, 80, 120, 200]}
         />
       </div>
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className={cn("flex w-full flex-col gap-0 overflow-y-auto sm:max-w-md", isFa && "text-right")} dir={dashDir(isFa)}>
+        <DashSheetContent className={cn("flex w-full flex-col gap-0 overflow-y-auto sm:max-w-md")}>
           <SheetHeader className="border-b p-4 text-start">
             <SheetTitle>{formMode === "add" ? tp("addCode") : tp("editCode")}</SheetTitle>
           </SheetHeader>
@@ -652,16 +676,16 @@ export function DashboardDiscountsAdmin({
             </div>
             <div className="space-y-2">
               <Label>{tp("fieldType")}</Label>
-              <select
-                className={selectClass}
+              <DashSelect
                 value={form.svpc_type}
-                onChange={(e) => setForm((f) => ({ ...f, svpc_type: parseDiscountType(e.target.value) }))}
-              >
-                <option value="percent">{tp("typePercent")}</option>
-                <option value="fixed_toman">{tp("typeFixed")}</option>
-                <option value="percent_per_gb">{tp("typePercentPerGb")}</option>
-                <option value="fixed_per_gb">{tp("typeFixedPerGb")}</option>
-              </select>
+                onValueChange={(v) => setForm((f) => ({ ...f, svpc_type: parseDiscountType(v) }))}
+                options={[
+                  { value: "percent", label: tp("typePercent") },
+                  { value: "fixed_toman", label: tp("typeFixed") },
+                  { value: "percent_per_gb", label: tp("typePercentPerGb") },
+                  { value: "fixed_per_gb", label: tp("typeFixedPerGb") },
+                ]}
+              />
             </div>
             <div className="space-y-2">
               <Label>{tp("fieldValue")}</Label>
@@ -684,14 +708,12 @@ export function DashboardDiscountsAdmin({
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <DashboardDateTimePicker
                 label={tp("fieldValidFrom")}
-                isFa={isFa}
-                value={form.svpc_valid_from}
+        value={form.svpc_valid_from}
                 onChange={(v) => setForm((f) => ({ ...f, svpc_valid_from: v }))}
               />
               <DashboardDateTimePicker
                 label={tp("fieldValidUntil")}
-                isFa={isFa}
-                value={form.svpc_valid_until}
+        value={form.svpc_valid_until}
                 onChange={(v) => setForm((f) => ({ ...f, svpc_valid_until: v }))}
               />
             </div>
@@ -725,22 +747,17 @@ export function DashboardDiscountsAdmin({
                 value={userFilter}
                 onChange={(e) => setUserFilter(e.target.value)}
               />
-              <select
-                className={selectClass}
+              <DashSelect
                 value={form.svpc_restricted_user_id}
-                onChange={(e) => setForm((f) => ({ ...f, svpc_restricted_user_id: e.target.value }))}
-              >
-                <option value="">{tp("allUsers")}</option>
-                {filteredUsers.map((u) => {
+                onValueChange={(v) => setForm((f) => ({ ...f, svpc_restricted_user_id: v }))}
+                allowEmpty
+                placeholder={tp("allUsers")}
+                options={filteredUsers.map((u) => {
                   const uid = num(u.id)
                   const label = `${uid} — ${String(u.first_name ?? "")} ${String(u.last_name ?? "")}`.trim()
-                  return (
-                    <option key={uid} value={String(uid)}>
-                      {label || `#${uid}`}
-                    </option>
-                  )
+                  return { value: String(uid), label: label || `#${uid}` }
                 })}
-              </select>
+              />
             </div>
             <div className="space-y-2 border-t pt-2">
               <p className="text-xs font-medium text-muted-foreground">{tp("fieldAllowedPlans")}</p>
@@ -825,34 +842,34 @@ export function DashboardDiscountsAdmin({
               {tp("save")}
             </Button>
           </SheetFooter>
-        </SheetContent>
+        </DashSheetContent>
       </Sheet>
 
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <DialogContent className={cn(isFa && "text-right [direction:rtl]")} dir={dashDir(isFa)}>
-          <DialogHeader className={cn(isFa && "text-right sm:text-right")} dir={dashDir(isFa)}>
+        <DashDialogContent className={cn()}>
+          <DashDialogHeader className={cn("text-start")}>
             <DialogTitle>{tp("deleteTitle")}</DialogTitle>
             <DialogDescription>{tp("deleteDescription")}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter className={cn("gap-2 sm:justify-between")} dir={dashDir(isFa)}>
+          </DashDialogHeader>
+          <DashDialogFooter className={cn("gap-2 sm:justify-between")}>
             <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
               {tp("deleteCancel")}
             </Button>
             <Button type="button" variant="destructive" disabled={saving} onClick={() => void onConfirmDelete()}>
               {tp("deleteConfirm")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
 
       <Dialog open={Boolean(usageTarget)} onOpenChange={(o) => !o && setUsageTarget(null)}>
-        <DialogContent className={cn("max-w-lg", isFa && "text-right [direction:rtl]")} dir={dashDir(isFa)}>
-          <DialogHeader className={cn(isFa && "text-right sm:text-right")} dir={dashDir(isFa)}>
+        <DashDialogContent className={cn("max-w-lg")}>
+          <DashDialogHeader className={cn("text-start")}>
             <DialogTitle>{tp("usageDialogTitle")}</DialogTitle>
             <DialogDescription>
               {usageTarget ? String(usageTarget.code ?? "") : ""}
             </DialogDescription>
-          </DialogHeader>
+          </DashDialogHeader>
           {usageLoading ? (
             <p className="text-sm text-muted-foreground">{tp("usageLoading")}</p>
           ) : usageRows.length === 0 ? (
@@ -884,13 +901,13 @@ export function DashboardDiscountsAdmin({
               </table>
             </div>
           )}
-          <DialogFooter>
+          <DashDialogFooter>
             <Button type="button" variant="outline" onClick={() => setUsageTarget(null)}>
               {tp("cancel")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </DashDialogFooter>
+        </DashDialogContent>
       </Dialog>
-    </div>
+    </DashPage>
   )
 }

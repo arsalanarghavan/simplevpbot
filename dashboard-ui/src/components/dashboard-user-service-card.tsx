@@ -8,9 +8,11 @@ import {
   HardDrive,
   Hash,
   KeyRound,
+  Link2,
   Mail,
   Minus,
   Package,
+  Pencil,
   Plus,
   Power,
   Radio,
@@ -23,7 +25,7 @@ import {
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
-import { dashDir } from "@/lib/dash-locale"
+
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -37,14 +39,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
@@ -55,8 +49,18 @@ import {
   previewAddVolumePriceToman,
   previewRenewPriceToman,
 } from "@/lib/dashboard-user-detail-pricing"
-import { formatDateTime, formatNumber, formatPlainLatinInt } from "@/lib/format-locale"
+import {
+  formatNumber,
+  formatPlainLatinInt,
+  formatServiceExpiryLine,
+  formatServiceQuotaLine,
+} from "@/lib/format-locale"
+import { useTranslation } from "react-i18next"
+import { DashSelect } from "@/components/dash-select"
 import { cn } from "@/lib/utils"
+import { useDashLocale } from "@/lib/dash-locale-context"
+import { DashDialogContent, DashDialogFooter, DashDialogHeader } from "@/components/dash-dialog-content"
+import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 
 type DashRecord = Record<string, unknown>
 type PayMode = "free" | "wallet" | "invoice"
@@ -68,6 +72,7 @@ export type ServiceActionKind =
   | "users"
   | "limitIp"
   | "regen"
+  | "regenSub"
   | "refresh"
   | "sync"
   | "deletePanel"
@@ -100,9 +105,9 @@ function InfoRow({
   icon: React.ComponentType<{ className?: string }>
   label: string
   children: ReactNode
-  isFa?: boolean
   valueDir?: "ltr" | "rtl"
 }) {
+
   return (
     <div className="flex gap-2 text-start text-xs">
       <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
@@ -119,7 +124,6 @@ function InfoRow({
 export function ServiceActionDialog({
   dlg,
   setDlg,
-  isFa,
   isReseller,
   busy,
   plans,
@@ -129,14 +133,14 @@ export function ServiceActionDialog({
 }: {
   dlg: ServiceActionDlg
   setDlg: (v: ServiceActionDlg) => void
-  isFa: boolean
-  isReseller: boolean
+isReseller: boolean
   busy: boolean
   plans: DashRecord[]
   pricePerExtraUser: number
   tp: (k: string, opts?: Record<string, string | number>) => string
   onConfirm: (op: string, payload: Record<string, unknown>) => void
 }) {
+  const { isFa } = useDashLocale()
   const [payMode, setPayMode] = useState<PayMode>(isReseller ? "wallet" : "free")
   const [direction, setDirection] = useState<"add" | "reduce">("add")
   const [amount, setAmount] = useState("")
@@ -191,6 +195,7 @@ export function ServiceActionDialog({
       users: "dlgUsersTitle",
       limitIp: "dlgLimitIpTitle",
       regen: "dlgRegenTitle",
+      regenSub: "dlgRegenSubTitle",
       refresh: "dlgRefreshTitle",
       sync: "actionSyncMeta",
       deletePanel: "dlgDeletePanelTitle",
@@ -209,6 +214,7 @@ export function ServiceActionDialog({
       renew: "dlgRenewDesc",
       limitIp: "dlgLimitIpDesc",
       regen: "dlgRegenDesc",
+      regenSub: "dlgRegenSubDesc",
       refresh: "dlgRefreshDesc",
       deletePanel: "dlgDeletePanelDesc",
       deleteService: "dlgDeleteServiceDesc",
@@ -264,6 +270,9 @@ export function ServiceActionDialog({
       case "regen":
         op = "service_regen_key"
         break
+      case "regenSub":
+        op = "service_regen_sub_id"
+        break
       case "refresh":
         op = "service_panel_refresh"
         break
@@ -292,11 +301,11 @@ export function ServiceActionDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-md" dir={dashDir(isFa)}>
-        <DialogHeader>
+      <DashDialogContent className="sm:max-w-md">
+        <DashDialogHeader>
           <DialogTitle>{titleKey ? tp(titleKey) : ""}</DialogTitle>
           {descKey ? <DialogDescription>{tp(descKey)}</DialogDescription> : null}
-        </DialogHeader>
+        </DashDialogHeader>
 
         <div className="space-y-3">
           {(kind === "traffic" || kind === "days" || kind === "users") && (
@@ -360,16 +369,16 @@ export function ServiceActionDialog({
           {showPayMode ? (
             <div className="space-y-1">
               <Label>{tp("mode")}</Label>
-              <select
-                className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              <DashSelect
                 value={payMode}
-                onChange={(e) => setPayMode(e.target.value as PayMode)}
+                onValueChange={(v) => setPayMode(v as PayMode)}
                 disabled={busy}
-              >
-                {!isReseller ? <option value="free">{tp("modeFree")}</option> : null}
-                <option value="wallet">{tp("modeWallet")}</option>
-                <option value="invoice">{tp("modeInvoice")}</option>
-              </select>
+                options={[
+                  ...(!isReseller ? [{ value: "free", label: tp("modeFree") }] : []),
+                  { value: "wallet", label: tp("modeWallet") },
+                  { value: "invoice", label: tp("modeInvoice") },
+                ]}
+              />
             </div>
           ) : null}
 
@@ -381,7 +390,7 @@ export function ServiceActionDialog({
           ) : null}
         </div>
 
-        <DialogFooter className={cn("gap-2")} dir={dashDir(isFa)}>
+        <DashDialogFooter className={cn("gap-2")}>
           <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={busy}>
             {tp("dlgCancel")}
           </Button>
@@ -393,8 +402,8 @@ export function ServiceActionDialog({
           >
             {tp("dlgConfirm")}
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </DashDialogFooter>
+      </DashDialogContent>
     </Dialog>
   )
 }
@@ -402,24 +411,28 @@ export function ServiceActionDialog({
 export function DashboardUserServiceCard({
   svc,
   plans: _plans,
-  isFa,
   isReseller: _isReseller,
   busy,
   tp,
   onOpenAction,
   onPatchAlert,
   onToggleEnable,
+  onSetServiceNote,
 }: {
   svc: DashRecord
   plans: DashRecord[]
-  isFa: boolean
-  isReseller: boolean
+isReseller: boolean
   busy: boolean
   tp: (k: string, opts?: Record<string, string | number>) => string
   onOpenAction: (kind: ServiceActionKind, svc: DashRecord) => void
   onPatchAlert: (key: "alerts_enabled" | "alerts_volume" | "alerts_expiry" | "alerts_users", val: boolean) => void
   onToggleEnable?: (enabled: boolean) => void
+  onSetServiceNote?: (note: string) => void
 }) {
+  const { isFa } = useDashLocale()
+  const { t } = useTranslation()
+  const [noteOpen, setNoteOpen] = useState(false)
+  const [noteDraft, setNoteDraft] = useState("")
   const sid = num(svc.id)
   const expire = svc.expires_at ?? svc.expire_at ?? svc.expired_at ?? svc.expiry ?? ""
   const subState = String(svc.subscription_state ?? "")
@@ -446,6 +459,13 @@ export function DashboardUserServiceCard({
   const limitCached = svc.panel_limit_ip != null && svc.panel_limit_ip !== "" ? num(svc.panel_limit_ip) : null
   const ipRows = Array.isArray(svc.ip_log) ? (svc.ip_log as DashRecord[]) : []
   const usedPct = quotaGb > 0 ? Math.min(100, (usedGb / quotaGb) * 100) : 0
+  const gbSuffix = t("plansAdmin.gbSuffix")
+  const quotaLine = formatServiceQuotaLine(quotaGb, usedGb, isFa, {
+    usedShort: tp("usedShort"),
+    gbSuffix,
+  })
+  const expiryLine = formatServiceExpiryLine(expire ? String(expire) : null, isFa)
+  const valueDir = isFa ? "rtl" : "ltr"
 
   const actionBtn = (
     label: string,
@@ -470,16 +490,41 @@ export function DashboardUserServiceCard({
   }
 
   return (
-    <Card className="overflow-hidden" dir={dashDir(isFa)}>
+    <Card className="overflow-hidden">
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0 text-start">
-            <CardTitle className="text-base">
-              {subscriptionName || tp("serviceUntitled")}
-              <span className="ms-2 font-mono text-xs font-normal text-muted-foreground" dir="ltr">
+          <div className="min-w-0 flex-1 text-start">
+            <div className="relative flex w-full items-center gap-2">
+              <CardTitle className="flex-1 text-center text-base">
+                {subscriptionName || tp("serviceUntitled")}
+              </CardTitle>
+              <span
+                className="absolute end-0 font-mono text-xs font-normal tabular-nums text-muted-foreground"
+                dir="ltr"
+              >
                 #{formatPlainLatinInt(sid)}
               </span>
-            </CardTitle>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center justify-center gap-1 text-center text-xs text-muted-foreground">
+              <span className="shrink-0">{tp("userNoteLabel")}:</span>
+              <span className="min-w-0 break-words">{serviceNote || "—"}</span>
+              {onSetServiceNote ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="size-7 shrink-0"
+                  disabled={busy}
+                  aria-label={tp("editServiceNote")}
+                  onClick={() => {
+                    setNoteDraft(serviceNote)
+                    setNoteOpen(true)
+                  }}
+                >
+                  <Pencil className="size-3.5" />
+                </Button>
+              ) : null}
+            </div>
             <CardDescription className="mt-1 flex items-center gap-1 break-all text-start text-xs">
               <Mail className="size-3 shrink-0" />
               <span dir="ltr">{String(svc.email ?? "—")}</span>
@@ -495,18 +540,55 @@ export function DashboardUserServiceCard({
         </div>
       </CardHeader>
 
+      {onSetServiceNote ? (
+        <Dialog open={noteOpen} onOpenChange={setNoteOpen}>
+          <DashDialogContent>
+            <DashDialogHeader>
+              <DialogTitle>{tp("editServiceNote")}</DialogTitle>
+              <DialogDescription className="sr-only">{tp("editServiceNote")}</DialogDescription>
+            </DashDialogHeader>
+            <div className="space-y-2 py-2">
+              <Label htmlFor={`svc-note-${sid}`}>{tp("userNoteLabel")}</Label>
+              <Input
+                id={`svc-note-${sid}`}
+                value={noteDraft}
+                maxLength={512}
+                placeholder={tp("serviceNotePlaceholder")}
+                onChange={(e) => setNoteDraft(e.target.value)}
+              />
+            </div>
+            <DashDialogFooter>
+              <Button type="button" variant="outline" onClick={() => setNoteOpen(false)}>
+                {tp("dlgCancel")}
+              </Button>
+              <Button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  onSetServiceNote(noteDraft.trim())
+                  setNoteOpen(false)
+                }}
+              >
+                {tp("saveServiceNote")}
+              </Button>
+            </DashDialogFooter>
+          </DashDialogContent>
+        </Dialog>
+      ) : null}
+
       <CardContent className="space-y-4 text-start text-sm">
         <div className="grid gap-3 sm:grid-cols-2">
-          <InfoRow icon={Package} label={tp("svcPlan")} isFa={isFa}>
+          <InfoRow icon={Package} label={tp("svcPlan")}
+        >
             {planName ? (
               <>
                 {planName}
                 {pricingType === "per_gb" ? (
-                  <span className="ms-1 text-muted-foreground" dir="ltr">
-                    ({formatNumber(planPpg, isFa)} / GB)
+                  <span className="ms-1 text-muted-foreground" dir={isFa ? undefined : "ltr"}>
+                    ({formatNumber(planPpg, isFa)} / {isFa ? gbSuffix : "GB"})
                   </span>
                 ) : (
-                  <span className="ms-1 text-muted-foreground" dir="ltr">
+                  <span className="ms-1 text-muted-foreground" dir={isFa ? undefined : "ltr"}>
                     ({tp("basePrice")}: {formatNumber(planPrice, isFa)})
                   </span>
                 )}
@@ -515,65 +597,44 @@ export function DashboardUserServiceCard({
               <span dir="ltr">#{formatPlainLatinInt(num(svc.plan_id))}</span>
             )}
           </InfoRow>
-          <InfoRow icon={Radio} label={tp("svcStatus")} isFa={isFa}>
+          <InfoRow icon={Radio} label={tp("svcStatus")}
+        >
             <Badge variant={statusVariant(subState)} className="font-normal">
               {tp(`subscription_${subState}`, { defaultValue: subState })}
             </Badge>
           </InfoRow>
-          <InfoRow icon={HardDrive} label={tp("svcVolume")} isFa={isFa} valueDir="ltr">
+          <InfoRow icon={HardDrive} label={tp("svcVolume")} valueDir={valueDir}>
             <div className="space-y-1">
-              <span className="inline-block" dir="ltr">
-                {formatNumber(quotaGb, isFa)} GB
-                {usedGb > 0 ? (
-                  <span className="text-muted-foreground">
-                    {" "}
-                    ({tp("usedShort")} {formatNumber(usedGb, isFa)} GB)
-                  </span>
-                ) : null}
-              </span>
+              <span className="inline-block">{quotaLine}</span>
               {quotaGb > 0 ? <Progress value={usedPct} className="h-1.5" /> : null}
             </div>
           </InfoRow>
-          <InfoRow icon={Calendar} label={tp("svcExpires")} isFa={isFa} valueDir="ltr">
-            <span className="inline-block" dir="ltr">
-              {expire ? formatDateTime(String(expire), isFa) : "—"}
-            </span>
+          <InfoRow icon={Calendar} label={tp("svcExpires")} valueDir={valueDir}>
+            <span className="inline-block">{expiryLine}</span>
           </InfoRow>
-          <InfoRow icon={Users} label={tp("svcUserCap")} isFa={isFa} valueDir="ltr">
+          <InfoRow icon={Users} label={tp("svcUserCap")}
+        valueDir="ltr">
             <span className="inline-block" dir="ltr">
               {limitCached != null && limitCached > 0 ? formatPlainLatinInt(limitCached) : "—"}
             </span>
           </InfoRow>
-          <InfoRow icon={Hash} label="ID" isFa={isFa} valueDir="ltr">
+          <InfoRow icon={Hash} label="ID"
+        valueDir="ltr">
             <span className="inline-block" dir="ltr">{formatPlainLatinInt(sid)}</span>
           </InfoRow>
-          {(serviceNote || panelRemark || subscriptionName) && (
-            <InfoRow icon={StickyNote} label={tp("noteLabel")} isFa={isFa} valueDir="ltr">
+          {panelRemark && panelRemark !== subscriptionName ? (
+            <InfoRow icon={StickyNote} label={tp("noteLabel")} valueDir={isFa ? "rtl" : "ltr"}>
               <div className="space-y-0.5 text-xs">
-                {subscriptionName ? (
-                  <p>
-                    <span className="text-muted-foreground">{tp("subscriptionName")}: </span>
-                    {subscriptionName}
-                  </p>
-                ) : null}
-                {panelRemark && panelRemark !== subscriptionName ? (
-                  <p>
-                    <span className="text-muted-foreground">{tp("notePanel")}: </span>
-                    {panelRemark}
-                  </p>
-                ) : null}
-                {serviceNote ? (
-                  <p>
-                    <span className="text-muted-foreground">{tp("noteService")}: </span>
-                    {serviceNote}
-                  </p>
-                ) : null}
-                {panelRemark && panelRemark !== subscriptionName && !serviceNote ? (
+                <p>
+                  <span className="text-muted-foreground">{tp("notePanel")}: </span>
+                  {panelRemark}
+                </p>
+                {!serviceNote ? (
                   <p className="text-muted-foreground">{tp("noteSyncHint")}</p>
                 ) : null}
               </div>
             </InfoRow>
-          )}
+          ) : null}
         </div>
 
         {!isL2tp ? (
@@ -652,6 +713,7 @@ export function DashboardUserServiceCard({
                     </Button>
                   ) : null}
                   {actionBtn(tp("actionRegenUuid"), "regen", KeyRound)}
+                  {actionBtn(tp("actionRegenSub"), "regenSub", Link2)}
                   {actionBtn(tp("actionRefreshInbound"), "refresh", Server)}
                   {actionBtn(tp("actionSyncMeta"), "sync", RefreshCw)}
                   {actionBtn(tp("actionSetLimitIp"), "limitIp", Users)}

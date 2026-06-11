@@ -280,17 +280,9 @@ class SimpleVPBot_Service_Alerts {
 		if ( ! SimpleVPBot_Xui_Client::login_with_retries( 6, 300000 ) ) {
 			return 0;
 		}
-		$j = SimpleVPBot_Xui_Client::client_ips( (string) $email );
-		$obj = is_array( $j ) && isset( $j['obj'] ) ? $j['obj'] : null;
-		$ips = array();
-		if ( is_string( $obj ) && '' !== $obj && 'No IP Record' !== $obj ) {
-			$decoded = json_decode( $obj, true );
-			$ips     = is_array( $decoded ) ? $decoded : preg_split( '/[\s,]+/', $obj );
-		} elseif ( is_array( $obj ) ) {
-			$ips = $obj;
-		}
-		$ips = array_filter( array_map( 'trim', (array) $ips ) );
-		return count( array_unique( $ips ) );
+		$j   = SimpleVPBot_Xui_Client::client_ips( (string) $email );
+		$ips = SimpleVPBot_Xui_Client::parse_client_ips_response( $j, 100 );
+		return count( $ips );
 	}
 
 	/**
@@ -300,25 +292,16 @@ class SimpleVPBot_Service_Alerts {
 	 * @return string
 	 */
 	public static function main_panel_intro( $is_l2tp ) {
-		$sep = self::text_sep();
-		$t   = "🔔 هشدار یعنی چی؟\n";
-		$t  .= "📣 یعنی ربات برای همین سرویس به شما در تلگرام یا بله یک پیام کوتاه می‌فرستد.\n";
-		$t  .= $sep;
-		$t  .= "📊 حجم\n";
-		$t  .= "🧒 وقتی حجم باقی‌مانده‌ات کم می‌شود و به عددی که خودت تعیین کردی رسید، ربات بهت خبر می‌دهد.\n";
-		$t  .= $sep;
-		$t  .= "⏰ زمان\n";
-		$t  .= "🧒 وقتی به روزهایی که گفتی نزدیک انقضا شدی، ربات یک بار خبر می‌دهد.\n";
-		if ( ! $is_l2tp ) {
-			$t .= $sep;
-			$t .= "👥 محدودیت کاربر\n";
-			$t .= "🧒 یعنی چند نفر هم‌زمان می‌توانند از این سرویس استفاده کنند. وقتی نزدیک سقف همان عدد شدی، ربات هشدار می‌دهد.\n";
+		$base = class_exists( 'SimpleVPBot_Texts' )
+			? SimpleVPBot_Texts::get(
+				'msg.alerts.panel_intro',
+				"🔔 هشدارهای سرویس\n📣 ربات برای همین سرویس در تلگرام یا بله پیام کوتاه می‌فرستد."
+			)
+			: "🔔 هشدارهای سرویس\n📣 ربات برای همین سرویس در تلگرام یا بله پیام کوتاه می‌فرستد.";
+		if ( $is_l2tp ) {
+			$base = preg_replace( '/\n👥 محدودیت کاربر.*?(\n➖|$)/su', "\n", $base );
 		}
-		$t .= $sep;
-		$t .= "✋ کار تو چیه؟\n";
-		$t .= "🔘 هر ردیف دو دکمه دارد. اگر هشدار روشن است روی دکمه «خاموش کردن» می‌زنی و برعکس.\n";
-		$t .= "🔘 «آستانه‌ها» یعنی بگو دقیقا از کجا به بعد برایت پیام بفرستیم.";
-		return $t;
+		return $base;
 	}
 
 	/**
@@ -328,25 +311,16 @@ class SimpleVPBot_Service_Alerts {
 	 * @return string
 	 */
 	public static function thresholds_intro( $is_l2tp ) {
-		$sep = self::text_sep();
-		$t   = "⚙️ آستانه یعنی چی؟\n";
-		$t  .= "🧒 یعنی از کجا به بعد ربات برایت پیام بفرستد.\n";
-		$t  .= $sep;
-		$t  .= "📉 حجم\n";
-		$t  .= "🧒 یک عدد ۱ تا ۹۹ بده. مثلا ۲۰ یعنی وقتی حدود ۲۰ درصد از حجمت مانده بود بهت خبر بدهد.\n";
-		$t  .= $sep;
-		$t  .= "📅 انقضا\n";
-		$t  .= "🧒 چند عدد با کامای انگلیسی بفرست مثل ۳,۱,۰ . یعنی سه روز قبل و یک روز قبل و روز خود انقضا. عدد منفی یعنی چند روز بعد از انقضا (مثلاً -۱ یعنی یک روز بعد).\n";
-		if ( ! $is_l2tp ) {
-			$t .= $sep;
-			$t .= "👥 محدودیت کاربر\n";
-			$t .= "🧒 یک عدد ۵۰ تا ۱۰۰ بده. یعنی وقتی تعداد استفاده‌کننده‌های هم‌زمان به این درصد از سقف عددی که برایت ثبت شده رسید، ربات هشدار بدهد.\n";
+		$base = class_exists( 'SimpleVPBot_Texts' )
+			? SimpleVPBot_Texts::get(
+				'msg.alerts.thresholds_intro',
+				"⚙️ آستانه‌های هشدار\n📉 حجم — عدد ۱ تا ۹۹ (درصد باقی‌مانده)."
+			)
+			: "⚙️ آستانه‌های هشدار\n📉 حجم — عدد ۱ تا ۹۹ (درصد باقی‌مانده).";
+		if ( $is_l2tp ) {
+			$base = preg_replace( '/\n👥 محدودیت کاربر.*?(\n➖|$)/su', "\n", $base );
 		}
-		$t .= $sep;
-		$t .= "✋ کار تو\n";
-		$t .= "🔘 یک دکمه را بزن بعد فقط همان عدد یا اعداد را در چت بفرست.\n";
-		$t .= "🔘 برای برگشت دکمه «بازگشت به هشدارها» را بزن.";
-		return $t;
+		return $base;
 	}
 
 	/**

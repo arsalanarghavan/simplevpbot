@@ -87,10 +87,11 @@ class SimpleVPBot_Crypto_Payment {
 			'order_description' => 'SimpleVPBot tx ' . (int) $tx->id,
 			'ipn_callback_url'  => $ipn_url,
 		);
-		$res = wp_remote_post(
+		$timeout = class_exists( 'SimpleVPBot_Settings' ) ? SimpleVPBot_Settings::crypto_invoice_timeout_sec() : 12;
+		$res     = wp_remote_post(
 			'https://api.nowpayments.io/v1/payment',
 			array(
-				'timeout' => 30,
+				'timeout' => $timeout,
 				'headers' => array(
 					'x-api-key'    => $api,
 					'Content-Type' => 'application/json',
@@ -226,14 +227,155 @@ class SimpleVPBot_Crypto_Payment {
 			);
 			return new WP_REST_Response( array( 'error' => 'payment_id_mismatch' ), 409 );
 		}
+		self::schedule_crypto_fulfill( $tx_id );
+		return new WP_REST_Response( array( 'ok' => true, 'queued' => true ), 200 );
+	}
+
+	/**
+	 * Queue NOWPayments fulfill after HTTP response.
+	 *
+	 * @param int $tx_id Transaction id.
+	 */
+	private static function schedule_crypto_fulfill( $tx_id ) {
+		$tx_id = (int) $tx_id;
+		if ( $tx_id < 1 ) {
+			return;
+		}
+		$work = static function () use ( $tx_id ) {
+			self::run_deferred_crypto_fulfill( $tx_id );
+		};
+		if ( class_exists( 'SimpleVPBot_Deferred_Work' ) ) {
+			SimpleVPBot_Deferred_Work::run_after_response_or_cron(
+				$work,
+				SimpleVPBot_Deferred_Work::CRYPTO_FULFILL_CRON_HOOK,
+				array( $tx_id ),
+				'crypto_fulfill'
+			);
+		} else {
+			$work();
+		}
+	}
+
+	/**
+	 * Cron fallback for deferred crypto fulfill.
+	 *
+	 * @param int $tx_id Transaction id.
+	 */
+	public static function deferred_crypto_fulfill_cron( $tx_id ) {
+		self::run_deferred_crypto_fulfill( (int) $tx_id );
+	}
+
+	/**
+	 * Run purchase fulfill for a NOWPayments IPN (idempotent).
+	 *
+	 * @param int $tx_id Transaction id.
+	 */
+	const CRYPTO_FULFILL_MAX_ATTEMPTS = 3;
+
+	/**
+	 * @param int $tx_id Transaction id.
+	 * @return string
+	 */
+	private static function crypto_fulfill_attempt_transient_key( $tx_id ) {
+		return 'svp_crypto_fulfill_try_' . (int) $tx_id;
+	}
+
+	/**
+	 * @param int $tx_id Transaction id.
+	 * @return string
+	 */
+	private static function crypto_fulfill_notified_transient_key( $tx_id ) {
+		return 'svp_crypto_fulfill_notified_' . (int) $tx_id;
+	}
+
+	/**
+	 * @param string $reason Fulfill failure reason.
+	 * @return bool
+	 */
+	private static function crypto_fulfill_reason_non_retryable( $reason ) {
+		return in_array( (string) $reason, array( 'bad_tx', 'no_plan', 'no_plan_id' ), true );
+	}
+
+	/**
+	 * Notify user once when crypto fulfill ultimately fails.
+	 *
+	 * @param object $tx     Transaction row.
+	 * @param string $reason Failure reason.
+	 */
+	private static function notify_crypto_fulfill_failed( $tx, $reason ) {
+		unset( $reason );
+		$tx_id = (int) $tx->id;
+		if ( get_transient( self::crypto_fulfill_notified_transient_key( $tx_id ) ) ) {
+			return;
+		}
+		set_transient( self::crypto_fulfill_notified_transient_key( $tx_id ), '1', 3600 );
+		$user = SimpleVPBot_Model_User::find( (int) $tx->user_id );
+		if ( ! $user ) {
+			return;
+		}
+		$meta     = json_decode( (string) ( $tx->meta_json ?? '' ), true );
+		$platform = ( is_array( $meta ) && class_exists( 'SimpleVPBot_Service_Naming' ) )
+			? SimpleVPBot_Service_Naming::platform_from_meta( $meta )
+			: 'telegram';
+		if ( ! in_array( $platform, array( 'telegram', 'bale' ), true ) ) {
+			$platform = 'telegram';
+		}
+		$chat_id = 'bale' === $platform ? (int) ( $user->bale_user_id ?? 0 ) : (int) ( $user->tg_user_id ?? 0 );
+		if ( $chat_id < 1 ) {
+			return;
+		}
+		$text = SimpleVPBot_Texts::format(
+			SimpleVPBot_Texts::get_for_user(
+				'msg.buy.fulfill_failed_crypto',
+				$user,
+				'⛔ تکمیل سفارش پرداخت کریپتو ناموفق بود. شماره سفارش: #{id}. لطفاً با پشتیبانی تماس بگیرید.'
+			),
+			array( 'id' => $tx_id )
+		);
+		SimpleVPBot_Bot_Runtime::send_message_with_support( $platform, $chat_id, $text );
+	}
+
+	/**
+	 * Run purchase fulfill for a NOWPayments IPN (idempotent, with retry).
+	 *
+	 * @param int $tx_id Transaction id.
+	 */
+	private static function run_deferred_crypto_fulfill( $tx_id ) {
+		$tx_id = (int) $tx_id;
+		if ( $tx_id < 1 ) {
+			return;
+		}
+		$tx = SimpleVPBot_Model_Transaction::find( $tx_id );
+		if ( ! $tx || 'approved' === (string) $tx->status ) {
+			delete_transient( self::crypto_fulfill_attempt_transient_key( $tx_id ) );
+			return;
+		}
 		$res = SimpleVPBot_Receipt_Processor::fulfill_purchase_by_transaction( $tx_id, 'nowpayments' );
-		if ( empty( $res['ok'] ) ) {
+		if ( ! empty( $res['ok'] ) ) {
+			delete_transient( self::crypto_fulfill_attempt_transient_key( $tx_id ) );
+			delete_transient( self::crypto_fulfill_notified_transient_key( $tx_id ) );
+			return;
+		}
+		$reason = (string) ( $res['reason'] ?? '' );
+		if ( class_exists( 'SimpleVPBot_Logger' ) ) {
 			SimpleVPBot_Logger::error(
 				'crypto_ipn fulfill failed',
-				array( 'tx_id' => $tx_id, 'reason' => (string) ( $res['reason'] ?? '' ) )
+				array( 'tx_id' => $tx_id, 'reason' => $reason )
 			);
-			return new WP_REST_Response( array( 'ok' => false, 'reason' => (string) ( $res['reason'] ?? '' ) ), 200 );
 		}
-		return new WP_REST_Response( array( 'ok' => true ), 200 );
+		if ( self::crypto_fulfill_reason_non_retryable( $reason ) ) {
+			self::notify_crypto_fulfill_failed( $tx, $reason );
+			return;
+		}
+		$attempt = (int) get_transient( self::crypto_fulfill_attempt_transient_key( $tx_id ) );
+		if ( $attempt < self::CRYPTO_FULFILL_MAX_ATTEMPTS - 1 ) {
+			set_transient( self::crypto_fulfill_attempt_transient_key( $tx_id ), (string) ( $attempt + 1 ), 3600 );
+			$delay = 30 * ( $attempt + 1 );
+			if ( ! wp_next_scheduled( SimpleVPBot_Deferred_Work::CRYPTO_FULFILL_CRON_HOOK, array( $tx_id ) ) ) {
+				wp_schedule_single_event( time() + $delay, SimpleVPBot_Deferred_Work::CRYPTO_FULFILL_CRON_HOOK, array( $tx_id ) );
+			}
+			return;
+		}
+		self::notify_crypto_fulfill_failed( $tx, $reason );
 	}
 }
