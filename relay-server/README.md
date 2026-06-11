@@ -2,7 +2,27 @@
 
 Standalone Node.js service: fast webhook `200 OK`, multi-tenant config, per-bot domains, Bot API proxy, WordPress forward.
 
-## Quick install (VPS)
+## Quick install (VPS) — one command from GitHub
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/arsalanarghavan/simplevpbot/main/relay-server/scripts/install-from-github.sh | sudo bash -s -- --domain tg.example.com --email you@example.com --ssl certbot
+```
+
+Without SSL (HTTP only, add cert later):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/arsalanarghavan/simplevpbot/main/relay-server/scripts/install-from-github.sh | sudo bash -s -- --domain tg.example.com
+```
+
+With acme.sh instead of certbot:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/arsalanarghavan/simplevpbot/main/relay-server/scripts/install-from-github.sh | sudo bash -s -- --domain tg.example.com --email you@example.com --ssl acme
+```
+
+After install: copy the printed `RELAY_MASTER_SECRET` into WordPress → Site settings → Telegram relay → Shared secret, then **Sync config**.
+
+## Quick install (already cloned)
 
 ```bash
 cd relay-server
