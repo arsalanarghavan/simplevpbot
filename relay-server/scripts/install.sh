@@ -105,8 +105,7 @@ if [[ "$NO_NGINX" -eq 0 ]] && command -v nginx >/dev/null 2>&1; then
 fi
 
 echo "[7/7] CLI on PATH..."
-ln -sf "$INSTALL_DIR/dist/cli/svp-relay.js" /usr/local/bin/svp-relay
-chmod +x /usr/local/bin/svp-relay 2>/dev/null || true
+bash "$SCRIPT_DIR/install-cli-bin.sh" "$INSTALL_DIR"
 
 echo "Done."
 echo "Install dir: $INSTALL_DIR"

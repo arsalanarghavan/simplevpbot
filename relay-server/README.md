@@ -31,6 +31,24 @@ sudo bash scripts/install.sh --domain tg.example.com --email you@example.com --s
 
 Copy `RELAY_MASTER_SECRET` from install output into WordPress **Site settings → Telegram relay → Shared secret**, then **Sync config**.
 
+## Update existing VPS (no git in `/opt/svp-relay`)
+
+The install directory is not a git clone. Pull updates with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/arsalanarghavan/simplevpbot/main/relay-server/scripts/update-from-github.sh | sudo bash
+```
+
+This keeps your `.env` and `data/tenants/`, rebuilds, installs `/usr/local/bin/svp-relay`, and restarts the service.
+
+If `svp-relay` is still not found:
+
+```bash
+sudo node /opt/svp-relay/dist/cli/svp-relay.js panel
+```
+
+Do **not** run `npm ci` as root inside `/opt/svp-relay` — the update script runs build as the `svp-relay` user.
+
 ## Manual install
 
 ```bash
