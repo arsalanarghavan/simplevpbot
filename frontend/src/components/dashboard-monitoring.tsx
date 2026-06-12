@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Area,
@@ -109,6 +109,17 @@ onRefreshPanelHealth?: () => void
 
   const { t } = useTranslation()
   const chartPrimary = useChartPrimaryColor()
+
+  useEffect(() => {
+    if (compactHealthOnly) return
+    const intervalSec = 60
+    const id = window.setInterval(() => {
+      onRefreshLivePanelMetrics?.()
+      onRefreshPanelHealth?.()
+    }, intervalSec * 1000)
+    return () => window.clearInterval(id)
+  }, [compactHealthOnly, onRefreshLivePanelMetrics, onRefreshPanelHealth])
+
   const host = overview?.host
   const series: OnlineDailyPoint[] = overview?.onlineDailySeries ?? []
   const panelHealth: PanelHealth[] = overview?.panelHealth ?? []

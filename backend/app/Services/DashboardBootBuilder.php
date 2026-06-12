@@ -268,6 +268,7 @@ class DashboardBootBuilder
             'discounts' => ! empty($perms['plans.manage']),
             'referral' => ! empty($perms['users.manage']),
             'referral_reports' => ! empty($perms['users.manage']),
+            'resellers' => ! empty($perms['users.manage']),
             'reseller_reports' => ! empty($perms['users.manage']),
             'reseller_charge' => ! empty($perms['plans.manage']),
             'reseller_settings' => true,

@@ -18,8 +18,16 @@ class NavTabsBuilderTest extends TestCase
 
         $keys = array_column(app(NavTabsBuilder::class)->build(true), 'key');
 
-        foreach (['users_bulk', 'bot_ui', 'unit_economics', 'reseller_charge', 'reseller_settings', 'reseller_xui_panels'] as $tab) {
+        foreach (['users_bulk', 'bot_ui', 'unit_economics', 'reseller_charge', 'reseller_settings', 'reseller_xui_panels', 'cards'] as $tab) {
             $this->assertContains($tab, $keys, "Missing nav tab: {$tab}");
         }
+    }
+
+    public function test_cards_tab_visible_when_crypto_module_off(): void
+    {
+        $this->setModuleEnabled('crypto', false);
+        $this->setModuleEnabled('xui_panel', true);
+        $keys = array_column(app(NavTabsBuilder::class)->build(true), 'key');
+        $this->assertContains('cards', $keys);
     }
 }

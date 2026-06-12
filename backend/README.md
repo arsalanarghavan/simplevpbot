@@ -109,4 +109,4 @@ php artisan svp:register-webhooks --platform=both
 
 ## Schema
 
-WordPress parity DDL is in `database/schema/svp_wp_parity.sql` (generated from `includes/class-activator.php`).
+WordPress parity DDL is in `database/schema/svp_wp_parity.sql` (mirrored from archived WP activator on branch `archive/wp-plugin`).

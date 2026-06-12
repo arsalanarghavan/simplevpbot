@@ -42,7 +42,7 @@ import {
 import { saveUiPreferences, type UiTheme } from "@/lib/dash-ui-preferences"
 import type { DashLang } from "@/lib/dash-locale"
 import { DashLocaleProvider } from "@/lib/dash-locale-context"
-import { apiBase, apiHeaders, ensureCsrfCookie } from "@/lib/api-base"
+import { apiBase, apiHeaders, ensureCsrfCookie, normalizeAdminApiPath } from "@/lib/api-base"
 import { cn } from "@/lib/utils"
 
 type DashData = {
@@ -328,7 +328,7 @@ function App() {
     async (svpUserId: number) => {
       const restBase = apiBase(boot as Record<string, unknown>)
       if (!restBase || !Number.isFinite(svpUserId) || svpUserId < 1) return
-      const r = await fetch(`${restBase}/impersonate/start`, {
+      const r = await fetch(`${restBase}${normalizeAdminApiPath("/dashboard/impersonate/start")}`, {
         method: "POST",
         credentials: "include",
         headers: apiHeaders(),
@@ -414,7 +414,7 @@ function App() {
       if (isAdmin && resellerContextId && resellerContextId > 0) {
         const sep = q.includes("?") ? "&" : "?"
         const q2 = `${q}${sep}resellerContextId=${encodeURIComponent(String(resellerContextId))}`
-        void fetch(`${restBase}/admin/state${q2}`, {
+        void fetch(`${restBase}${normalizeAdminApiPath("/dashboard/admin/state")}${q2}`, {
           headers,
           credentials: "include",
           signal,
@@ -424,7 +424,7 @@ function App() {
           .catch(onFetchError)
         return
       }
-      void fetch(`${restBase}/admin/state${q}`, {
+      void fetch(`${restBase}${normalizeAdminApiPath("/dashboard/admin/state")}${q}`, {
         headers,
         credentials: "include",
         signal,

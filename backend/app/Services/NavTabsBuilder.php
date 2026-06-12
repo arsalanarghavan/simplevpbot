@@ -25,10 +25,8 @@ class NavTabsBuilder
         $tabs = array_merge($tabs, [
             ['key' => 'plan_cats', 'label' => 'دسته‌های خرید'],
             ['key' => 'plans', 'label' => 'پلن‌ها'],
+            ['key' => 'cards', 'label' => 'کارت‌ها'],
         ]);
-        if ($modules->isEnabled('crypto')) {
-            $tabs[] = ['key' => 'cards', 'label' => 'کارت‌ها'];
-        }
 
         if ($l2tpEnabled && $modules->isEnabled('l2tp')) {
             $tabs[] = ['key' => 'l2tp_servers', 'label' => 'سرورهای L2TP'];

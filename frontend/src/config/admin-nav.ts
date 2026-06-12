@@ -354,6 +354,7 @@ export type DashboardFeatures = {
 const FEATURE_TAB_MAP: Record<string, keyof DashboardFeatures> = {
   xui_panels: "xui_panel",
   configs: "xui_panel",
+  unit_economics: "xui_panel",
   backup: "backup",
   marketing_lifecycle: "marketing",
   resellers: "reseller",

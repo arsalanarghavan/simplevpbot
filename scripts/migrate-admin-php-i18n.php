@@ -1,10 +1,8 @@
 #!/usr/bin/env php
 <?php
-/**
- * One-off: class-handler-admin.php hardcoded strings → Bot_Admin_Texts::msg().
- *
- * @package SimpleVPBot
- */
+/** DEPRECATED (v13 ARCH-11): WP includes/ archived. */
+fwrite(STDERR, "DEPRECATED: Laravel dashboard replaces WP admin handlers.\n");
+exit(2);
 
 $path = dirname( __DIR__ ) . '/includes/bot/handlers/class-handler-admin.php';
 $src  = file_get_contents( $path );

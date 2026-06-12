@@ -1,6 +1,84 @@
 # گزارش جامع وضعیت پنل نماینده و ربات مستقل
 
-**آخرین به‌روزرسانی:** **Laravel backend v8** — NavTabsBuilder parity، RBAC `configs_client_*`، webhook drain IP gate، module boot topological، `BrandingResolver` + CSS vars editor، settings_tab flat mirror، impersonate stop admin-only، CI load 100 + alert-smoke + deploy artifact workflow، acceptance/mutate tests گسترش‌یافته.
+**آخرین به‌روزرسانی:** **Laravel backend v17** — B.3.2 proxy runtime، reseller matrix 72، cron smoke 14/14، Playwright `dashboard-v17.spec.ts` (full `ADMIN_TAB_KEYS`)، evidence `*-v17.md` + staging logs، §14 honest matrix 81+2.
+
+## Laravel dashboard (spec v17 — خلاصه)
+
+- §14 B.3.2: `telegram_http_proxy` در `AbstractPlatformClient` + `BotRuntime`
+- Tests: `MutateResellerPositiveMatrixTest`, `CronJobHandleBatchTest` (14 jobs), `MutateDepthBatchV17Part1/2`, `WpImportAccentMetaTest`, `AuditLogServiceRedactTest`
+- Secrets: `.env.example` IPN/relay SSL؛ env→DB bot token hydration؛ nested audit redact
+- Playwright: `frontend/e2e/dashboard-v17.spec.ts` — all tabs, Group F/H, 60s poll mock, cards
+- Docs: `SPEC-DEVIATIONS-FA.md` v17، `SECTION14-GAP-MATRIX-V17-FA.md`، `NAV-TABS-NOTIFICATIONS-FA.md`
+- OPS: `docs/evidence/*-v17.md` + `import-verify/run/soak/relay-forward` logs (staging)
+
+## Laravel dashboard (spec v16 — خلاصه)
+
+- Service naming: `ServiceNaming::formatServiceDisplayLabel` — bot + user detail API
+- Monitoring: auto-refresh 60s (`dashboard-monitoring.tsx`)
+- Tests: `MutatePolicyPositiveMatrixTest` (72 ops), `CronJobMetricsTest` (14 jobs), `PanelDownSustainedTest`, backup valid zip restore
+- Metrics: `mutate_op_total:{op}` per successful mutate
+- Frontend: `normalizeAdminApiPath` in `App.tsx` + `dash-admin-upload.ts`
+- Playwright: `frontend/e2e/dashboard-v16.spec.ts` (tabs, reseller scope, whitelabel, cards, reports chart + impersonate)
+- Docs: `SPEC-DEVIATIONS-FA.md` v16، `SECTION14-GAP-MATRIX-V16-FA.md`
+- OPS: `docs/evidence/*-v16.md` + `import-verify-*.log` / `relay-forward-*.log` templates
+
+## Laravel dashboard (spec v15 — خلاصه)
+
+- RBAC: `resellers` tab در `resellerAllowedTabsMap`؛ `TabPermissionParityTest`؛ HTTP broadcast-queue + purge-expired gates
+- §14 A.2.2: `MonitorHostSnapshotService` — `externalHostSnapshots` در monitoring refresh
+- Policy: 72 `$resellerMap` (marketing lifecycle ops)؛ `MutatePolicyPositiveMatrixTest`
+- Gates: `user_create_service` + bot/l2tp batch در `MutateModuleGateBatchTest`
+- §12: `CronJobHandleBatchTest`؛ `CronJobMetricsTest` extended (autorenew, admin_alerts)
+- §18: PanelDown sustained 300s؛ webhook `message` field؛ `HealthDeepTokenTest`؛ `RedactSecretsMiddlewareTest`
+- Auth: `AuthSanctumFlowTest`، `LoginRateLimitTest`، `ImpersonationHttpsTest`
+- §14: `GroupAcceptanceV15Test` — overview isolation, monitoring scope, receipt deliver, panel access toggle
+- Playwright: `frontend/e2e/dashboard-v15.spec.ts`
+- Docs: `SPEC-DEVIATIONS-FA.md` v15، `WEBHOOK-RESELLER-SECRET-FA.md`
+- OPS: `docs/evidence/*-v15.md` checklists
+
+## Laravel dashboard (spec v14 — خلاصه)
+
+- Policy: 68 `$resellerMap` entries؛ `MutateAdminOnlyMatrixTest` + `MutateResellerModuleGateBatchTest`
+- Gates: `MutateModuleGateBatchTest` — `l2tp_update`, `bot_test_bale`
+- §12–§13: `ScheduleListTest` (14 jobs), `InboundQueueDrainJobTest`, `BackupJobCronTest`, Bale/TG webhook tests
+- §7 REST: `AdminRestRoutesBatchTest`, `AuthLogoutTest`, `UiPreferencesTest`, `ResellerAdminOnlyRoutesTest`
+- §14: `GroupAcceptanceV14Test`, `BuyFlowApproveDeliverTest` (deliver assertion), `BackupRestoreZipTest`
+- §18: `MetricsWebhookTest`, `CronJobMetricsTest`, `LogRedactionTest`, rate limit 60/min default
+- Playwright: `frontend/e2e/dashboard-v14.spec.ts`
+- Docs: `SPEC-DEVIATIONS-FA.md` v14, `ARCH-1-API-ROUTES-FA.md`, `PORTAL-SIGNED-LINKS-FA.md`
+- CI: `scripts/ci-check-frontend-fetch.sh`
+- OPS: `docs/evidence/*-v14.md` checklists (live execution by operator)
+
+## Laravel dashboard (spec v13 — خلاصه)
+
+- Policy: `MutatePolicyParityTest` 67 entries؛ `MutatePolicyMatrixTest` forbidden_perm data-driven
+- Gates: `MutateModuleGateBatchTest` — relay(22)، xui، marketing
+- Depth: `MutateL2tpParityTest`، `MutateUserMergeDepthTest`، `MutateAuditTest` sensitive ops
+- §14: `GroupAcceptanceV13Test`، `BackupRestHttpTest`، `BuyFlowApproveDeliverTest`
+- §12–§18: `CronJobDispatchTest`، `WebhookResellerRateLimitTest`، `AdminAlertsExtendedTest`، `MetricsIncrementTest`
+- Migration: `WpImportForceTest`، `WpImportBackupsFromTest`، `RegisterWebhooksCommandTest`
+- Playwright: `frontend/e2e/dashboard-auth.spec.ts` (CI migrate+seed)
+- ARCH-11: legacy `scripts/*` → deprecation redirect to `backend artisan test`
+- Evidence: `docs/evidence/*-v13.md`؛ OPS live items remain operator-run
+
+## Laravel dashboard (spec v11 — خلاصه)
+
+- `EnsureAdminStateModule`: xui_panels، configs، backup، marketing_lifecycle، finance/crypto subtab
+- `MutationPipeline`: xui_panel + marketing ops gated؛ `settings_tab` bots/relay/finance gated
+- Mutate depth v11: bot/site، reseller admin/bot، service/user، configs/economics، bulk/broadcast، finance، L2TP CRUD
+- `MutateNegativeTest` + `AdminStateModuleGateTest` گسترش یافته
+- `GroupAcceptanceV11Test` — §14 gaps (quick links، monitoring refresh، wpPages، bulk API)
+- Playwright: `frontend/e2e/dashboard.spec.ts`
+- WP: `includes/`, `simplevpbot.php`, root WP tests حذف؛ branch `archive/wp-plugin`
+- Evidence: `docs/evidence/import-checklist-v11.md`، CUTOVER-SIGNOFF v11
+
+## Laravel dashboard (spec v10 — خلاصه)
+
+- HTTP module gates روی `admin/state` (l2tp، bots، relay/proxy subtabs)
+- Mutate depth: relay admin nginx/ssl، reseller bot، service panel، configs `panel_access`
+- Deploy artifact: `frontend/dist` → `assets/dashboard/dist`
+- Broadcast load smoke (100 targets) + API E2E script (`scripts/e2e-dashboard-api.sh`)
+- Evidence: `docs/evidence/CUTOVER-SIGNOFF-FA.md` بخش v10
 
 ## Laravel dashboard (spec v7 — خلاصه)
 
@@ -13,7 +91,7 @@
 | User portal `/me/portal` | ✅ |
 | CI: test + preflight + soak + load + frontend build | ✅ |
 | Cutover evidence | `docs/evidence/` + CI artifacts |
-| WP `includes/` decommission | ⏳ پس از `CONFIRM=1` اپراتور |
+| WP `includes/` decommission | ✅ v11 staged (`CONFIRM=1` اجرا شد) |
 
 راهنمای عملیاتی: [RESELLER_SETUP.md](RESELLER_SETUP.md)
 
@@ -98,4 +176,4 @@
 
 ## پوشش بررسی
 
-`frontend/*`, `includes/api/*`, `includes/admin/*`, `includes/bot/*`, `includes/models/*`, `includes/helpers/class-bot-reseller-scope.php`, `class-user-notify.php`, `class-reseller-backfill.php`
+`frontend/*`, `backend/app/*` (Laravel). مرجع تاریخی WP: `archive/wp-plugin` (`includes/*`).

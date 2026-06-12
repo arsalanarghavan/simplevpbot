@@ -36,4 +36,19 @@ class ResellerModuleGateTest extends TestCase
             'owner_svp_user_id' => 0,
         ]);
     }
+
+    public function test_reseller_webhook_route_503_when_module_off(): void
+    {
+        $this->postJson('/api/v1/webhook/telegram/reseller/100/secret')
+            ->assertStatus(503)
+            ->assertJsonPath('message', 'module_missing');
+    }
+
+    public function test_reseller_wp_provision_blocked_when_module_off(): void
+    {
+        $this->actingAsAdmin()->postJson('/api/v1/admin/mutate', [
+            'op' => 'reseller_wp_provision',
+            'username' => 'newres',
+        ])->assertOk()->assertJsonPath('message', 'module_disabled');
+    }
 }

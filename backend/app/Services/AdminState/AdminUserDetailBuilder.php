@@ -6,6 +6,7 @@ use App\Models\SvpReceipt;
 use App\Models\SvpService;
 use App\Models\SvpUser;
 use App\Modules\Reseller\Services\ResellerScopeService;
+use App\Support\Xui\ServiceNaming;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -32,12 +33,14 @@ class AdminUserDetailBuilder
             ->whereNull('deleted_at')
             ->orderByDesc('id')
             ->get()
-            ->map(function ($svc) {
+            ->values()
+            ->map(function ($svc, int $idx) {
                 $row = AdminRowFormatter::rowArray($svc);
                 $tt = (int) ($row['total_traffic'] ?? 0);
                 $ut = (int) ($row['used_traffic'] ?? 0);
                 $row['quota_gb'] = $tt > 0 ? round($tt / (1024 * 1024 * 1024), 4) : 0.0;
                 $row['used_gb'] = $ut > 0 ? round($ut / (1024 * 1024 * 1024), 4) : 0.0;
+                $row['subscription_name'] = ServiceNaming::formatServiceDisplayLabel($svc, $idx + 1);
 
                 return $row;
             })

@@ -77,6 +77,9 @@ class SettingsTabService
     public function save(string $tab, array $values): bool
     {
         $tab = preg_replace('/[^a-z0-9_]/', '', strtolower($tab)) ?? '';
+        if ($tab === 'panel') {
+            $tab = 'logs';
+        }
         if ($tab === '' || ! in_array($tab, self::ALLOWED_TABS, true)) {
             return false;
         }

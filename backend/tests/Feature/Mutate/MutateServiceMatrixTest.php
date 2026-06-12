@@ -52,16 +52,20 @@ class MutateServiceMatrixTest extends TestCase
         ])->assertOk();
     }
 
-    public function test_user_service_transfer_mutate_payload_accepted(): void
+    public function test_user_service_transfer_updates_service_owner(): void
     {
         $svcId = (int) DB::table('svp_services')->min('id');
+        $beforeUser = (int) DB::table('svp_services')->where('id', $svcId)->value('user_id');
 
         $this->actingAsAdmin()->postJson('/api/v1/admin/mutate', [
             'op' => 'user_service_transfer',
             'service_id' => $svcId,
-            'target_panel_id' => 1,
-            'target_inbound_id' => 1,
-        ])->assertOk();
+            'target' => '200',
+        ])->assertOk()->assertJsonPath('ok', true);
+
+        $afterUser = (int) DB::table('svp_services')->where('id', $svcId)->value('user_id');
+        $this->assertSame(200, $afterUser);
+        $this->assertNotSame($beforeUser, $afterUser);
     }
 
     public function test_configs_clients_batch_mutate(): void

@@ -42,6 +42,15 @@ class SettingsTabMutateTest extends TestCase
         ];
     }
 
+    public function test_settings_tab_deprecated_panel_key_rejected(): void
+    {
+        $this->actingAsAdmin()->postJson('/api/v1/admin/mutate', [
+            'op' => 'settings_tab',
+            'tab' => 'panel',
+            'foo' => 'bar',
+        ])->assertOk()->assertJsonPath('message', 'invalid_tab');
+    }
+
     /** @dataProvider allowedTabsProvider */
     public function test_settings_tab_allowed_keys_save(string $tab): void
     {

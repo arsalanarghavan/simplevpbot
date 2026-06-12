@@ -162,6 +162,7 @@ class ResellerMutations
                 }
             }
 
+            $access = $row['panel_access'] ?? $row['active'] ?? true;
             DB::table('svp_reseller_panel_prices')->updateOrInsert(
                 [
                     'reseller_svp_user_id' => $resellerId,
@@ -170,6 +171,7 @@ class ResellerMutations
                 [
                     'price' => $price,
                     'active' => (bool) ($row['active'] ?? true),
+                    'panel_access' => (bool) $access,
                 ]
             );
         }

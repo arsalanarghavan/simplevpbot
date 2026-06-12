@@ -3,9 +3,9 @@
 namespace App\Services\Bot;
 
 use App\Modules\Core\Bot\Jobs\ProcessInboundUpdateJob;
+use App\Modules\Core\Jobs\InboundQueueDrainJob;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 
 class InboundQueueService
@@ -104,21 +104,13 @@ class InboundQueueService
         }
         Cache::put('svp_inbound_kick_lock', true, 5);
 
-        $key = $this->internalQueueKey();
-        if ($key === '') {
-            ProcessInboundUpdateJob::dispatch('telegram', ['_drain' => true], 0);
+        if (! app()->runningUnitTests()) {
+            InboundQueueDrainJob::dispatch()->afterResponse();
 
             return;
         }
 
-        $url = url('/api/v1/webhook-queue/drain');
-        try {
-            Http::withHeaders(['X-SVP-QUEUE-KEY' => $key])
-                ->timeout(2)
-                ->post($url);
-        } catch (\Throwable) {
-            // cron fallback via schedule
-        }
+        InboundQueueDrainJob::dispatchSync();
     }
 
     public function internalQueueKey(): string

@@ -43,4 +43,9 @@ class AdminDashboardRateLimitTest extends TestCase
             ->assertStatus(429)
             ->assertJson(['ok' => false, 'message' => 'rate_limited']);
     }
+
+    public function test_default_admin_state_rate_limit_is_sixty_per_min(): void
+    {
+        $this->assertSame(60, (int) config('svp.admin_state_rate_limit_per_min'));
+    }
 }

@@ -1,12 +1,13 @@
 #!/usr/bin/env php
 <?php
 /**
- * Validate bot message text keys: catalog coverage + no hardcoded user strings.
+ * DEPRECATED (v13 ARCH-11): WP plugin `includes/` archived — use Laravel TextService + PHPUnit.
  *
- * Usage: php scripts/validate-bot-text-coverage.php
- *
- * @package SimpleVPBot
+ * @see backend/tests/Feature/Core/LoggingChannelsTest.php
+ * @see docs/evidence/arch-decommission-ready-v13.md
  */
+fwrite( STDERR, "DEPRECATED: use backend artisan test instead of WP includes/ scripts.\n" );
+exit( 2 );
 
 $root = dirname( __DIR__ );
 if ( ! defined( 'ABSPATH' ) ) {

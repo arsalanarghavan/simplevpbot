@@ -78,4 +78,40 @@ class ServiceNaming
 
         return $s !== '' ? $s : 'client_'.bin2hex(random_bytes(4));
     }
+
+    /**
+     * Human-facing service label (bot list, dashboard, portal) per §14 B.2.1.
+     *
+     * @param  object|array<string, mixed>|null  $svc
+     */
+    public static function formatServiceDisplayLabel($svc, ?int $lineIndex = null): string
+    {
+        if ($svc === null) {
+            return '';
+        }
+        $display = trim((string) (is_object($svc) ? ($svc->display_label ?? '') : ($svc['display_label'] ?? '')));
+        if ($display !== '') {
+            return $display;
+        }
+        $remark = trim((string) (is_object($svc) ? ($svc->remark ?? '') : ($svc['remark'] ?? '')));
+        if ($remark !== '') {
+            return $remark;
+        }
+        $email = trim((string) (is_object($svc) ? ($svc->email ?? '') : ($svc['email'] ?? '')));
+        $id = (int) (is_object($svc) ? ($svc->id ?? 0) : ($svc['id'] ?? 0));
+        $mode = self::mode();
+        $prefix = trim((string) (DB::table('svp_settings')->where('key_name', 'service_naming_prefix')->value('value') ?? ''));
+        $n = $lineIndex ?? ($id > 0 ? $id : 1);
+        if ($mode === 'prefix_numbered' && $prefix !== '') {
+            return $prefix.$n;
+        }
+        if ($mode === 'numbered') {
+            return (string) $n;
+        }
+        if ($email !== '') {
+            return $email;
+        }
+
+        return $id > 0 ? '#'.$id : '—';
+    }
 }

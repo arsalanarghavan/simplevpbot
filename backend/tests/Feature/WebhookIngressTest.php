@@ -25,7 +25,8 @@ class WebhookIngressTest extends TestCase
     public function test_invalid_secret_returns_403(): void
     {
         $this->postJson('/api/v1/webhook/telegram/wrong', ['update_id' => 1])
-            ->assertForbidden();
+            ->assertForbidden()
+            ->assertJsonPath('message', 'forbidden');
     }
 
     public function test_valid_webhook_enqueues_and_returns_200(): void

@@ -3,6 +3,7 @@
 namespace App\Services\Mutations;
 
 use App\Models\DashboardUser;
+use App\Services\ImpersonationService;
 
 class MutatePolicyService
 {
@@ -55,6 +56,9 @@ class MutatePolicyService
         'bot_diagnostics' => 'services.manage',
         'reseller_bot_webhook_set' => 'services.manage',
         'reseller_bot_webhook_delete' => 'services.manage',
+        'reseller_bot_secret_rotate' => 'services.manage',
+        'reseller_bot_tokens_save' => 'services.manage',
+        'telegram_relay_set_webhook_reseller' => 'services.manage',
         'bot_admin_id_add' => 'services.manage',
         'bot_admin_id_remove' => 'services.manage',
         'reseller_panel_prices_save' => 'users.manage',
@@ -73,6 +77,10 @@ class MutatePolicyService
         'configs_panel_client_patch' => 'services.manage',
         'configs_clients_batch' => 'services.manage',
         'configs_assign_plan' => 'services.manage',
+        'marketing_rule_save' => 'marketing.lifecycle',
+        'marketing_rule_delete' => 'marketing.lifecycle',
+        'marketing_send_manual' => 'marketing.lifecycle',
+        'marketing_run_rule_now' => 'marketing.lifecycle',
     ];
 
     /** @var list<string> */
@@ -98,6 +106,43 @@ class MutatePolicyService
     /**
      * @return array{ok: false, message: string}|null
      */
+    /**
+     * When admin impersonates a reseller, restrict mutate to reseller-allowed ops + perms.
+     *
+     * @return array{ok: false, message: string}|null
+     */
+    public function assertImpersonatingAdminMayRun(string $op, DashboardUser $actor): ?array
+    {
+        if ($actor->role !== 'admin' || ! app(ImpersonationService::class)->isActive()) {
+            return null;
+        }
+
+        $perm = $this->requiredResellerPermission($op);
+        if ($perm === null) {
+            return ['ok' => false, 'message' => 'forbidden_op'];
+        }
+
+        $targetId = app(ImpersonationService::class)->targetId();
+        $dash = DashboardUser::query()
+            ->where('role', 'reseller')
+            ->where('svp_user_id', $targetId)
+            ->first();
+        if (! $dash) {
+            return ['ok' => false, 'message' => 'forbidden'];
+        }
+
+        $perms = is_array($dash->permissions_json) ? $dash->permissions_json : [];
+        if ($perm !== '' && empty($perms[$perm])) {
+            return ['ok' => false, 'message' => 'forbidden_perm'];
+        }
+
+        if (in_array($this->sanitizeOp($op), self::$lifecycleOps, true) && empty($perms['marketing.lifecycle'])) {
+            return ['ok' => false, 'message' => 'forbidden_perm'];
+        }
+
+        return null;
+    }
+
     public function assertResellerMayRun(string $op, DashboardUser $actor): ?array
     {
         if ($actor->role !== 'reseller') {

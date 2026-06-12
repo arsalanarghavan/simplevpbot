@@ -80,7 +80,11 @@ class AdminAlertsService
                         'panel_id' => $pid,
                         'label' => $label,
                     ]);
-                    $this->maybeNotifyPanelDown('p'.$pid, $coolMin, $label, $pid, $detail);
+                    if ($this->panelDownSustained('p'.$pid)) {
+                        $this->maybeNotifyPanelDown('p'.$pid, $coolMin, $label, $pid, $detail);
+                    }
+                } else {
+                    $this->clearPanelDownSince('p'.$pid);
                 }
             }
 
@@ -112,8 +116,32 @@ class AdminAlertsService
         if (! $ok) {
             Log::channel('svp-panel')->warning('panel.probe_failed', ['panel_id' => 0, 'legacy' => true]);
             $legacyLabel = $this->texts->get('msg.cron.admin.panel_legacy_label', 'Legacy panel settings');
-            $this->maybeNotifyPanelDown('legacy', $coolMin, $legacyLabel, 0, $detail);
+            if ($this->panelDownSustained('legacy')) {
+                $this->maybeNotifyPanelDown('legacy', $coolMin, $legacyLabel, 0, $detail);
+            }
+        } else {
+            $this->clearPanelDownSince('legacy');
         }
+    }
+
+    protected function panelDownSustained(string $suffix): bool
+    {
+        $sinceKey = self::PANEL_ALERT_PREFIX.'since:'.$suffix;
+        $threshold = max(60, (int) config('svp.panel_down_alert_sustained_sec', 300));
+        if (! Cache::has($sinceKey)) {
+            Cache::put($sinceKey, time(), $threshold + 3600);
+
+            return false;
+        }
+
+        $since = (int) Cache::get($sinceKey, time());
+
+        return (time() - $since) >= $threshold;
+    }
+
+    protected function clearPanelDownSince(string $suffix): void
+    {
+        Cache::forget(self::PANEL_ALERT_PREFIX.'since:'.$suffix);
     }
 
     protected function maybeNotifyPanelDown(string $suffix, int $coolMin, string $label, int $panelId, string $detail = ''): void

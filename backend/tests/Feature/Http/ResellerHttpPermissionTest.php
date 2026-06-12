@@ -44,4 +44,17 @@ class ResellerHttpPermissionTest extends TestCase
             ->assertForbidden()
             ->assertJsonPath('message', 'forbidden_perm');
     }
+
+    public function test_reseller_without_broadcast_send_cannot_access_broadcast_queue(): void
+    {
+        $this->setModuleEnabled('marketing', true);
+        $user = DashboardUser::query()->where('username', 'reseller')->first();
+        $user->permissions_json = ['users.manage' => true, 'broadcast.send' => false];
+        $user->save();
+        $this->actingAs($user);
+
+        $this->getJson('/api/v1/admin/broadcast-queue')
+            ->assertForbidden()
+            ->assertJsonPath('message', 'forbidden_perm');
+    }
 }

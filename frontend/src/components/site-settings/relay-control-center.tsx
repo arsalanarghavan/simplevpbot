@@ -143,7 +143,17 @@ export function RelayControlCenter({
       <Card className={cn(PURPLE)}>
         <CardHeader>
           <CardTitle className="text-base text-violet-200">{tr("hubTitle", "Relay Control Center")}</CardTitle>
-          <CardDescription>{tr("hubDesc", "Manage VPS relay from WordPress. Admin via VPS IP (443). Domain is for Telegram only.")}</CardDescription>
+          <CardDescription>
+            {tr("hubDesc", "Manage VPS relay from WordPress. Admin via VPS IP (443). Domain is for Telegram only.")}{" "}
+            <a
+              href="https://github.com/simplevpbot/simplevpbot/blob/main/relay-server/SETUP-GUIDE-FA.md"
+              target="_blank"
+              rel="noreferrer"
+              className="text-violet-400 underline underline-offset-2"
+            >
+              {tr("setupGuideLink", "Relay setup guide")}
+            </a>
+          </CardDescription>
         </CardHeader>
       </Card>
 

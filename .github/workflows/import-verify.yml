@@ -1,0 +1,32 @@
+name: Import verify
+
+on:
+  workflow_dispatch:
+    inputs:
+      mysql_dsn:
+        description: SVP_MYSQL_DSN (secret)
+        required: true
+        type: string
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: dom, mbstring, pdo_mysql, xml, xmlwriter
+      - run: composer install --no-interaction --prefer-dist
+      - name: Import verify
+        env:
+          SVP_MYSQL_DSN: ${{ inputs.mysql_dsn }}
+        run: |
+          bash scripts/ops/import-verify.sh | tee ../docs/evidence/import-verify-$(date +%F).log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: import-verify-log
+          path: docs/evidence/import-verify-*.log

@@ -1,5 +1,9 @@
 #!/usr/bin/env php
 <?php
+/** DEPRECATED (v13 ARCH-11): WP includes/ archived. */
+fwrite(STDERR, "DEPRECATED: bot texts managed in Laravel dashboard.\n");
+exit(2);
+
 /**
  * Inventory helper: list bot PHP files and scan for likely hardcoded UI strings.
  *

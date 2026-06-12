@@ -34,7 +34,11 @@ Route::prefix('v1')->group(function () {
         Route::get('me/portal', UserPortalController::class);
         Route::post('dashboard/persona', [DashboardSessionController::class, 'setPersona']);
         Route::post('dashboard/ui-preferences', [DashboardSessionController::class, 'uiPreferences']);
-        Route::get('admin/state', AdminStateController::class)->middleware([EnsureAdminOrReseller::class, AdminDashboardRateLimit::class.':state']);
+        Route::get('admin/state', AdminStateController::class)->middleware([
+            EnsureAdminOrReseller::class,
+            'admin.state.module',
+            AdminDashboardRateLimit::class.':state',
+        ]);
         Route::get('admin/audit', [AuditController::class, 'index'])->middleware([EnsureAdminOrReseller::class, EnsureAdmin::class]);
         Route::get('admin/logs', [LogsController::class, 'index'])->middleware([EnsureAdminOrReseller::class, EnsureAdmin::class]);
         Route::get('admin/purge-expired', [PurgeExpiredController::class, 'index'])->middleware([EnsureAdminOrReseller::class, EnsureAdmin::class]);

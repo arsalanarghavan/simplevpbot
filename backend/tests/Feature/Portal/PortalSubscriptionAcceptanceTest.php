@@ -42,6 +42,13 @@ class PortalSubscriptionAcceptanceTest extends TestCase
             ->assertHeader('content-type');
     }
 
+    public function test_sub_token_route_is_registered(): void
+    {
+        $this->get('/sub/demo-token')
+            ->assertOk()
+            ->assertJsonPath('note', 'portal_html');
+    }
+
     public function test_subscription_html_when_accept_html(): void
     {
         $user = SvpUser::query()->create([

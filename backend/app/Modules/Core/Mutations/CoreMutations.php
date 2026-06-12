@@ -42,6 +42,20 @@ class CoreMutations
             return svp_err('missing_tab');
         }
 
+        $tabKey = preg_replace('/[^a-z0-9_]/', '', strtolower($tab)) ?? '';
+        $modules = svp_modules();
+        if (in_array($tabKey, ['bots', 'force_join'], true)
+            && ! $modules->isEnabled('telegram')
+            && ! $modules->isEnabled('bale')) {
+            return svp_err('module_disabled');
+        }
+        if ($tabKey === 'relay' && ! $modules->isEnabled('relay')) {
+            return svp_err('module_disabled');
+        }
+        if ($tabKey === 'finance' && ! $modules->isEnabled('crypto')) {
+            return svp_err('module_disabled');
+        }
+
         $values = is_array($payload['values'] ?? null) ? $payload['values'] : $payload;
         if (! $this->settingsTab->save($tab, $values)) {
             return svp_err('invalid_tab');

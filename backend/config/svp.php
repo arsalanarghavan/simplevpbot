@@ -4,6 +4,7 @@ return [
     'backup_interval_minutes' => max(5, (int) env('SVP_BACKUP_INTERVAL_MINUTES', 60)),
     'health_deep_token' => env('SVP_HEALTH_DEEP_TOKEN', ''),
     'admin_state_rate_limit_per_min' => max(1, (int) env('SVP_ADMIN_STATE_RATE_LIMIT', 60)),
+    'panel_down_alert_sustained_sec' => max(60, (int) env('SVP_PANEL_DOWN_ALERT_SUSTAINED_SEC', 300)),
     'admin_mutate_rate_limit_per_min' => max(1, (int) env('SVP_ADMIN_MUTATE_RATE_LIMIT', 300)),
     'login_rate_limit_per_min' => max(1, (int) env('SVP_LOGIN_RATE_LIMIT', 10)),
     'inbound_queue_alert_threshold' => max(100, (int) env('SVP_INBOUND_QUEUE_ALERT_THRESHOLD', 1000)),

@@ -1,10 +1,8 @@
 #!/usr/bin/env php
 <?php
-/**
- * Generates includes/class-bot-text-defaults-extended.php from embedded pairs.
- *
- * @package SimpleVPBot
- */
+/** DEPRECATED (v14 ARCH-11): WP includes/ removed — use Laravel TextService + dashboard Texts UI. */
+fwrite(STDERR, "DEPRECATED: bot text defaults managed in Laravel backend.\n");
+exit(2);
 
 $root = dirname( __DIR__ );
 $out  = $root . '/includes/class-bot-text-defaults-extended.php';

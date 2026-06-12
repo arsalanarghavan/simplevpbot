@@ -92,4 +92,5 @@ SVP_BASE_URL=https://staging.example.com backend/scripts/ops/staging-cutover-che
 
 - نگهداری snapshot WP حداقل ۳۰ روز
 - آرشیو `includes/` در branch `archive/wp-plugin` (فاز نهایی)
-- حذف فیزیکی WP فقط پس از تأیید نهایی ops
+- حذف فیزیکی WP فقط پس از تأیید نهایی ops (`CONFIRM=1 backend/scripts/ops/remove-includes-from-main.sh`)
+- Evidence: [`evidence/CUTOVER-SIGNOFF-FA.md`](evidence/CUTOVER-SIGNOFF-FA.md) بخش v10

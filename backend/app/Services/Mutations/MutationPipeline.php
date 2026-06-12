@@ -4,6 +4,7 @@ namespace App\Services\Mutations;
 
 use App\Models\DashboardUser;
 use App\Services\AuditLogService;
+use App\Services\ImpersonationService;
 use App\Services\MutationRegistry;
 use App\Support\Metrics\SvpMetrics;
 use App\Services\UserActivityLogService;
@@ -39,26 +40,66 @@ class MutationPipeline
             return ['result' => ['ok' => false, 'message' => 'unknown_op', 'code' => $op], 'http_status' => 422];
         }
 
-        $policyErr = $this->policy->assertResellerMayRun($op, $actor);
+        $impersonation = app(ImpersonationService::class);
+        $isImpersonating = $actor->role === 'admin' && $impersonation->isActive();
+
+        $policyErr = $isImpersonating
+            ? $this->policy->assertImpersonatingAdminMayRun($op, $actor)
+            : $this->policy->assertResellerMayRun($op, $actor);
         if ($policyErr !== null) {
             return ['result' => $policyErr, 'http_status' => 403];
         }
 
-        $lifecycleErr = $this->policy->assertLifecycleFeature($op, $actor);
-        if ($lifecycleErr !== null) {
-            return ['result' => $lifecycleErr, 'http_status' => 403];
+        if (! $isImpersonating) {
+            $lifecycleErr = $this->policy->assertLifecycleFeature($op, $actor);
+            if ($lifecycleErr !== null) {
+                return ['result' => $lifecycleErr, 'http_status' => 403];
+            }
         }
 
         if (str_starts_with($op, 'telegram_relay_') && ! svp_modules()->isEnabled('relay')) {
             return ['result' => svp_err('module_disabled'), 'http_status' => 403];
         }
 
+        if (str_starts_with($op, 'l2tp_') && ! svp_modules()->isEnabled('l2tp')) {
+            return ['result' => svp_err('module_disabled'), 'http_status' => 403];
+        }
+
+        if ($this->isXuiPanelOp($op) && ! svp_modules()->isEnabled('xui_panel')) {
+            return ['result' => svp_err('module_disabled'), 'http_status' => 403];
+        }
+
+        if ($this->isMarketingOp($op) && ! svp_modules()->isEnabled('marketing')) {
+            return ['result' => svp_err('module_disabled'), 'http_status' => 403];
+        }
+
+        $resellerOps = str_starts_with($op, 'reseller_') || str_starts_with($op, 'bot_reseller_')
+            || in_array($op, ['wholesale_line_save', 'wholesale_line_delete'], true);
+        if ($resellerOps && ! svp_modules()->isEnabled('reseller')) {
+            return ['result' => svp_err('module_disabled'), 'http_status' => 403];
+        }
+
+        $botOps = ['bot_toggle_enabled', 'bot_toggle_platform_enabled', 'bot_test_telegram', 'bot_test_bale',
+            'bot_diagnostics', 'bot_set_webhook', 'bot_delete_webhook', 'bot_admin_id_add', 'bot_admin_id_remove',
+            'force_join_publish', 'telegram_proxy_test', 'texts_save', 'text_reset_one', 'texts_reset',
+            'bot_ui_layout_save', 'bot_ui_layout_reset'];
+        if (in_array($op, $botOps, true)
+            && ! svp_modules()->isEnabled('telegram')
+            && ! svp_modules()->isEnabled('bale')) {
+            return ['result' => svp_err('module_disabled'), 'http_status' => 403];
+        }
+
+        $effectiveReseller = $actor->role === 'reseller' || $isImpersonating;
+        $actorSvpId = $isImpersonating
+            ? $impersonation->targetId()
+            : (int) ($actor->svp_user_id ?? 0);
+
         $ctx = new MutateContext(
             op: $op,
             payload: $payload,
             actor: $actor,
-            isReseller: $actor->role === 'reseller',
-            actorSvpUserId: (int) ($actor->svp_user_id ?? 0),
+            isReseller: $effectiveReseller,
+            actorSvpUserId: $actorSvpId,
             resellerContextId: (int) ($payload['reseller_context_svp_user_id'] ?? 0),
         );
 
@@ -90,6 +131,7 @@ class MutationPipeline
 
         if (! empty($result['ok'])) {
             SvpMetrics::inc('mutate_op_total');
+            SvpMetrics::inc('mutate_op_total:'.$op);
         }
 
         return [
@@ -114,5 +156,40 @@ class MutationPipeline
         }
 
         return 422;
+    }
+
+    /** @var list<string> */
+    private const XUI_PANEL_OPS = [
+        'panel_xp', 'panel_test', 'service_panel_sync', 'service_panel_refresh',
+        'service_panel_delete_client', 'service_panel_transfer', 'service_apply_canonical_panel_identity',
+        'user_create_service', 'user_renew_service', 'user_add_volume', 'user_reduce_volume',
+        'user_add_days', 'user_reduce_days', 'user_service_reduce_slots', 'user_service_transfer',
+        'user_service_toggle_enable', 'user_service_add_slots',
+        'service_regen_key', 'service_regen_sub_id', 'service_set_limit_ip', 'service_alerts_patch',
+        'configs_panel_client_patch', 'configs_clients_batch', 'configs_assign_plan',
+        'configs_client_toggle_enable', 'configs_client_reset_traffic', 'configs_client_delete',
+        'configs_delete_expired_linked', 'inbound_link', 'inbound_autolink',
+        'purge_expired_run_cron', 'purge_expired_purge_ready', 'purge_expired_purge_one',
+        'panel_economics_save', 'panel_economics_mark_paid', 'shared_economics_save',
+        'unit_economics_save', 'unit_economics_config_save',
+    ];
+
+    /** @var list<string> */
+    private const MARKETING_OPS = [
+        'broadcast_send', 'broadcast_cancel', 'broadcast_run_worker',
+        'marketing_rule_save', 'marketing_rule_delete', 'marketing_send_manual', 'marketing_run_rule_now',
+    ];
+
+    protected function isXuiPanelOp(string $op): bool
+    {
+        return in_array($op, self::XUI_PANEL_OPS, true)
+            || str_starts_with($op, 'configs_')
+            || str_starts_with($op, 'panel_economics_')
+            || str_starts_with($op, 'purge_expired_');
+    }
+
+    protected function isMarketingOp(string $op): bool
+    {
+        return in_array($op, self::MARKETING_OPS, true) || str_starts_with($op, 'marketing_');
     }
 }

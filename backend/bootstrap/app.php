@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'webhook.drain.internal' => \App\Http\Middleware\EnsureInternalWebhookDrain::class,
             'l2tp.module' => \App\Http\Middleware\EnsureL2tpModule::class,
             'bot.module' => \App\Http\Middleware\EnsureTelegramOrBaleModule::class,
+            'admin.state.module' => \App\Http\Middleware\EnsureAdminStateModule::class,
         ]);
         $middleware->api(append: [
             \App\Http\Middleware\RedactSecretsInLogs::class,

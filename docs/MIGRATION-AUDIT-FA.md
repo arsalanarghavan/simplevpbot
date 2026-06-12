@@ -1,6 +1,6 @@
 # Audit migration — spec §11
 
-جدول‌های `svp_*` در [`backend/database/migrations/2026_06_11_000003_create_svp_wp_parity_schema.php`](../backend/database/migrations/2026_06_11_000003_create_svp_wp_parity_schema.php) از [`includes/class-activator.php`](../includes/class-activator.php) mirror شده‌اند.
+جدول‌های `svp_*` در [`backend/database/migrations/2026_06_11_000003_create_svp_wp_parity_schema.php`](../backend/database/migrations/2026_06_11_000003_create_svp_wp_parity_schema.php) از DDL آرشیو WP (`archive/wp-plugin` → `includes/class-activator.php`) mirror شده‌اند. مرجع واحد: [`backend/database/schema/svp_wp_parity.sql`](../backend/database/schema/svp_wp_parity.sql).
 
 ## Indexes حیاتی (§11.1)
 

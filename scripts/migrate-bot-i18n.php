@@ -1,12 +1,8 @@
 #!/usr/bin/env php
 <?php
-/**
- * One-off: replace hardcoded bot strings with SimpleVPBot_Texts::get_for_user().
- *
- * Usage: php scripts/migrate-bot-i18n.php
- *
- * @package SimpleVPBot
- */
+/** DEPRECATED (v13 ARCH-11): WP includes/ archived — texts live in Laravel `TextService`. */
+fwrite(STDERR, "DEPRECATED: use backend TextService + dashboard texts UI.\n");
+exit(2);
 
 $root = dirname( __DIR__ );
 $files = array(

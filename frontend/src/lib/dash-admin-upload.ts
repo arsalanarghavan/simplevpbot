@@ -1,4 +1,4 @@
-import { apiBase, apiHeaders } from "./api-base"
+import { apiBase, apiHeaders, normalizeAdminApiPath } from "./api-base"
 
 export type MediaUploadResult = { ok: true; url: string } | { ok: false; message: string }
 
@@ -12,7 +12,7 @@ export async function postDashboardMediaUpload(file: File): Promise<MediaUploadR
   fd.append("file", file)
   const headers = apiHeaders() as Record<string, string>
   delete headers["Content-Type"]
-  const res = await fetch(`${restBase}/admin/media`, {
+  const res = await fetch(`${restBase}${normalizeAdminApiPath("/dashboard/admin/media")}`, {
     method: "POST",
     headers,
     credentials: "include",

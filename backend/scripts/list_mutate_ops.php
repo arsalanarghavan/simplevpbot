@@ -1,5 +1,7 @@
 <?php
 
+require __DIR__ . '/../vendor/autoload.php';
+
 $dirs = array_merge(
     glob(__DIR__ . '/../app/Modules/*/Mutations/*.php') ?: [],
     glob(__DIR__ . '/../app/Modules/*/*/Mutations/*.php') ?: [],
@@ -14,31 +16,26 @@ foreach ($dirs as $f) {
     }
 }
 
-$wp = [];
-foreach (file(__DIR__ . '/../../includes/admin/class-dashboard-admin-mutations.php') as $line) {
-    if (preg_match("/case '([a-z0-9_]+)':/", $line, $m)) {
-        $wp[] = $m[1];
-    }
-}
+$catalog = \App\Support\MutateOpCatalog::all();
 
 $laravel = array_keys($ops);
 sort($laravel);
-$wp = array_values(array_unique($wp));
-sort($wp);
+$canonical = array_values(array_unique($catalog));
+sort($canonical);
 
-echo 'Laravel: ' . count($laravel) . PHP_EOL;
-echo 'WP: ' . count($wp) . PHP_EOL;
-echo 'Missing: ' . PHP_EOL . implode(PHP_EOL, array_diff($wp, $laravel)) . PHP_EOL;
-echo 'Extra: ' . PHP_EOL . implode(PHP_EOL, array_diff($laravel, $wp)) . PHP_EOL;
+echo 'Laravel handlers: ' . count($laravel) . PHP_EOL;
+echo 'Catalog: ' . count($canonical) . PHP_EOL;
+echo 'Missing from handlers: ' . PHP_EOL . implode(PHP_EOL, array_diff($canonical, $laravel)) . PHP_EOL;
+echo 'Extra handlers: ' . PHP_EOL . implode(PHP_EOL, array_diff($laravel, $canonical)) . PHP_EOL;
 
 if (($argv[1] ?? '') === '--write-catalog') {
-    $export = var_export($wp, true);
+    $export = var_export($laravel, true);
     $content = <<<PHP
 <?php
 
 namespace App\Support;
 
-/** Canonical mutate ops from WP class-dashboard-admin-mutations.php (§15). */
+/** Canonical mutate ops registered in Laravel MutationRegistry (§15). */
 class MutateOpCatalog
 {
     /** @return list<string> */

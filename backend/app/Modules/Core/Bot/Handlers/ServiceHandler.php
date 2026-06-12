@@ -8,6 +8,7 @@ use App\Modules\Core\Bot\BotContext;
 use App\Modules\Core\Bot\Services\BotRuntime;
 use App\Modules\Core\Bot\Services\KeyboardBuilder;
 use App\Modules\Core\Bot\Services\TextService;
+use App\Support\Xui\ServiceNaming;
 
 class ServiceHandler
 {
@@ -33,8 +34,10 @@ class ServiceHandler
         }
 
         $rows = [];
+        $i = 0;
         foreach ($services as $svc) {
-            $label = $svc->email ?: ('#'.$svc->id);
+            $i++;
+            $label = ServiceNaming::formatServiceDisplayLabel($svc, $i);
             $rows[] = [['text' => $label, 'callback_data' => 'svc:v:'.$svc->id]];
         }
 
@@ -56,9 +59,10 @@ class ServiceHandler
         }
 
         if ($action === 'v') {
+            $label = ServiceNaming::formatServiceDisplayLabel($svc);
             $msg = $this->texts->format(
-                $this->texts->getForUser('msg.service.detail', $user, "Service #{id}\nEmail: {email}"),
-                ['id' => $svc->id, 'email' => $svc->email]
+                $this->texts->getForUser('msg.service.detail', $user, "Service #{id}\nLabel: {label}\nEmail: {email}"),
+                ['id' => $svc->id, 'label' => $label, 'email' => $svc->email]
             );
             $this->runtime->sendMessage($ctx, $chatId, $msg);
 

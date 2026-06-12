@@ -25,7 +25,7 @@ class WebhookController extends Controller
     {
         $platform = $this->normalizePlatform($platform);
         if ($platform === null) {
-            return response()->json(['ok' => false], 404);
+            return response()->json(['ok' => false, 'message' => 'not_found'], 404);
         }
 
         if (! svp_modules()->isEnabled($platform)) {
@@ -42,11 +42,11 @@ class WebhookController extends Controller
 
         $expected = (string) $this->settings->get("{$platform}_webhook_secret", '');
         if ($expected === '' || ! hash_equals($expected, $secret)) {
-            return response()->json(['ok' => false], 403);
+            return response()->json(['ok' => false, 'message' => 'forbidden'], 403);
         }
 
         if ($platform === 'telegram' && ! $this->validateTelegramHeader($request)) {
-            return response()->json(['ok' => false], 403);
+            return response()->json(['ok' => false, 'message' => 'forbidden'], 403);
         }
 
         return $this->acceptUpdate($request, $platform, 0);
@@ -56,7 +56,7 @@ class WebhookController extends Controller
     {
         $platform = $this->normalizePlatform($platform);
         if ($platform === null || $resellerId < 1) {
-            return response()->json(['ok' => false], 403);
+            return response()->json(['ok' => false, 'message' => 'forbidden'], 403);
         }
 
         if (! svp_modules()->isEnabled($platform) || ! svp_modules()->isEnabled('reseller')) {
@@ -77,7 +77,7 @@ class WebhookController extends Controller
 
         $webhookSecret = $this->resellerProfiles->webhookSecretPlaintext($profile);
         if (! $profile || $webhookSecret === '' || ! hash_equals($webhookSecret, $candidate)) {
-            return response()->json(['ok' => false], 403);
+            return response()->json(['ok' => false, 'message' => 'forbidden'], 403);
         }
 
         if (isset($profile->enabled) && ! (int) $profile->enabled) {

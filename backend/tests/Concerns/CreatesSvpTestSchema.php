@@ -394,6 +394,7 @@ trait CreatesSvpTestSchema
             $table->unsignedBigInteger('panel_id');
             $table->decimal('price', 15, 2)->default(0);
             $table->boolean('active')->default(true);
+            $table->boolean('panel_access')->default(true);
         });
 
         Schema::dropIfExists('svp_reseller_inbound_display_names');

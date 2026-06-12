@@ -4,6 +4,8 @@
 **دامنه:** داشبورد SPA، REST API، پورتال legacy، بات وایت‌لیبل، wholesale، impersonation، backup  
 **روش:** بررسی استاتیک کد + تست‌های قراردادی + smoke test (PHPUnit به‌خاطر نبود `dom/xml/xmlwriter` اجرا نشد)
 
+> **v12:** ارجاعات `includes/*` در این گزارش به **کد آرشیو WP** (`archive/wp-plugin`) اشاره دارند؛ پیاده‌سازی فعلی در `backend/app/`.
+
 ---
 
 ## خلاصه اجرایی

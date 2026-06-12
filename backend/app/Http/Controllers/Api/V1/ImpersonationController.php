@@ -17,6 +17,10 @@ class ImpersonationController extends Controller
             return response()->json(svp_err('forbidden'), 403);
         }
 
+        if (app()->environment('production') && ! $request->secure()) {
+            return response()->json(svp_err('https_required'), 403);
+        }
+
         $targetId = (int) ($request->json('targetSvpUserId') ?? $request->input('target_svp_user_id', 0));
         $result = $impersonation->start($user, $targetId);
 

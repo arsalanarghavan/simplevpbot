@@ -22,6 +22,7 @@ jobs:
         run: |
           php artisan serve --host=127.0.0.1 --port=8097 &
           sleep 2
+          # Production cutover: SVP_SOAK_DURATION_SEC=86400
           SVP_BASE_URL=http://127.0.0.1:8097 \
             SVP_SOAK_DURATION_SEC=300 \
             SVP_SOAK_INTERVAL_SEC=30 \
@@ -32,3 +33,5 @@ jobs:
         with:
           name: soak-log
           path: ../docs/evidence/soak-nightly-*.log
+      - name: Broadcast 1000+ enqueue (nightly)
+        run: php artisan test --filter=BroadcastLoadEnqueueTest::test_broadcast_enqueue_1000_targets

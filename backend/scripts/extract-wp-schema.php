@@ -2,12 +2,18 @@
 
 /**
  * One-off: extract CREATE TABLE DDL from WordPress activator for Laravel migration.
+ * Canonical schema after WP decommission: database/schema/svp_wp_parity.sql
+ * WP activator archived on branch archive/wp-plugin.
  */
 if (! defined('ABSPATH')) {
     define('ABSPATH', dirname(__DIR__, 2).'/');
 }
 
 $wpActivator = dirname(__DIR__, 2).'/includes/class-activator.php';
+if (! is_file($wpActivator)) {
+    fwrite(STDERR, "WP activator not found. Use database/schema/svp_wp_parity.sql or checkout archive/wp-plugin.\n");
+    exit(1);
+}
 require_once $wpActivator;
 
 $p = '';

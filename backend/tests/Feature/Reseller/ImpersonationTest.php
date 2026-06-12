@@ -34,6 +34,14 @@ class ImpersonationTest extends TestCase
             ->assertOk()
             ->assertJson(['ok' => true]);
 
+        $this->actingAsAdmin()->postJson('/api/v1/admin/impersonate/start', [
+            'targetSvpUserId' => 100,
+        ])->assertOk();
+
+        $this->postJson('/api/v1/admin/impersonate/stop')
+            ->assertOk()
+            ->assertJson(['ok' => true]);
+
         $this->getJson('/api/v1/bootstrap')
             ->assertOk()
             ->assertJsonPath('impersonating', false);
