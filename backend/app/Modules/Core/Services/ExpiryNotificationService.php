@@ -4,6 +4,7 @@ namespace App\Modules\Core\Services;
 
 use App\Models\SvpUser;
 use App\Modules\L2tp\Services\L2tpProvisionerService;
+use App\Services\NotifySettings;
 use App\Services\ServiceAlertsHelper;
 use App\Services\SettingsStore;
 use Illuminate\Support\Facades\Cache;
@@ -17,7 +18,8 @@ class ExpiryNotificationService
 
     public function __construct(
         protected SettingsStore $settings,
-        protected UserBotNotifyService $notify,
+        protected NotifySettings $notify,
+        protected UserBotNotifyService $notifyUser,
         protected L2tpProvisionerService $l2tp,
         protected ServiceAlertsHelper $alerts,
     ) {}
@@ -71,15 +73,18 @@ class ExpiryNotificationService
 
     protected function processVolumeAlert(object $svc, SvpUser $user): void
     {
+        if (! $this->notify->volumeOn() || ! $this->alerts->volumeEnabled($svc)) {
+            return;
+        }
         $total = (int) ($svc->total_traffic ?? 0);
         $used = (int) ($svc->used_traffic ?? 0);
-        $pctTh = max(1, (int) $this->settings->get('alert_low_traffic_pct', 10));
-        if ($total > 0 && $this->settings->get('notify_volume_on', true)) {
+        $pctTh = max(1, $this->alerts->effectiveLowTrafficPct($svc));
+        if ($total > 0) {
             $remainingPct = (int) floor((($total - $used) * 100) / $total);
             if ($remainingPct <= $pctTh && $remainingPct >= 0) {
                 $key = 'svc'.(int) $svc->id.':low:'.$pctTh;
                 if ($this->claimBucket($key)) {
-                    $this->notify->sendToUser(
+                    $this->notifyUser->sendToUser(
                         $user,
                         '⚠️ حجم سرویس «'.(string) ($svc->remark ?: $svc->email).'» به '.$remainingPct.'٪ رسید.'
                     );
@@ -90,7 +95,7 @@ class ExpiryNotificationService
 
     protected function processExpiryAlerts(object $svc, SvpUser $user): void
     {
-        if (! $this->settings->get('notify_expiry_on', true) || ! $this->alerts->expiryAlertEnabled($svc)) {
+        if (! $this->notify->expiryOn() || ! $this->alerts->expiryAlertEnabled($svc)) {
             return;
         }
         if (empty($svc->expires_at)) {
@@ -101,24 +106,44 @@ class ExpiryNotificationService
             return;
         }
         $days = (int) floor(($exp - time()) / 86400);
-        if ($days < 0 && $this->coversExpiredByPurge($svc)) {
-            return;
+        $purgeCovers = $days < 0 && $this->coversExpiredByPurge($svc);
+        $warnDays = $this->alerts->effectiveExpiryDays($svc);
+        $label = (string) ($svc->remark ?: $svc->email);
+
+        if ($days >= 0 && in_array($days, $warnDays, true)) {
+            $this->sendExpiryWarn($svc, $user, $days, $label);
         }
-        $warnDays = $this->parseWarnDays();
-        if (in_array($days, $warnDays, true)) {
-            $key = 'svc'.(int) $svc->id.':expd:'.$days;
-            if ($this->claimBucket($key)) {
-                $msg = $days === 0
-                    ? '⏳ سرویس «'.(string) ($svc->remark ?: $svc->email).'» امروز منقضی می‌شود.'
-                    : '⏳ سرویس «'.(string) ($svc->remark ?: $svc->email).'» تا '.$days.' روز دیگر منقضی می‌شود.';
-                $this->notify->sendToUser($user, $msg);
+        if ($days < 0 && ! $purgeCovers && in_array($days, $warnDays, true)) {
+            $this->sendExpiryWarn($svc, $user, $days, $label);
+        }
+        if ($days < 0 && ! $purgeCovers && $this->notify->afterExpireOn()) {
+            $bucketKey = 'svc'.(int) $svc->id.':expired:'.gmdate('Y-m-d', $exp);
+            if ($this->claimBucket($bucketKey)) {
+                $this->notifyUser->sendToUser(
+                    $user,
+                    '⛔ سرویس «'.$label.'» منقضی شده است. برای تمدید از ربات اقدام کنید.'
+                );
             }
         }
     }
 
+    protected function sendExpiryWarn(object $svc, SvpUser $user, int $days, string $label): void
+    {
+        $key = 'svc'.(int) $svc->id.':expd:'.$days;
+        if (! $this->claimBucket($key)) {
+            return;
+        }
+        $msg = $days === 0
+            ? '⏳ سرویس «'.$label.'» امروز منقضی می‌شود.'
+            : ($days > 0
+                ? '⏳ سرویس «'.$label.'» تا '.$days.' روز دیگر منقضی می‌شود.'
+                : '⏳ سرویس «'.$label.'» '.$days.' روز است که منقضی شده است.');
+        $this->notifyUser->sendToUser($user, $msg);
+    }
+
     protected function maybeIpFillAlert(object $svc, SvpUser $user): void
     {
-        if (! $this->settings->get('notify_users_on', true) || ! $this->alerts->usersAlertEnabled($svc)) {
+        if (! $this->notify->usersOn() || ! $this->alerts->usersAlertEnabled($svc)) {
             return;
         }
         $lim = $this->alerts->clientLimitIp($svc);
@@ -143,7 +168,7 @@ class ExpiryNotificationService
         }
         $bucketKey = 'svc'.(int) $svc->id.':ip:'.$lim.':'.$ipTh.':m'.$minD;
         if ($this->claimBucket($bucketKey)) {
-            $this->notify->sendToUser(
+            $this->notifyUser->sendToUser(
                 $user,
                 '👥 سرویس «'.(string) ($svc->remark ?: $svc->email).'» به '.$nIp.' اتصال هم‌زمان رسید (سقف '.$lim.').'
             );
@@ -201,7 +226,7 @@ class ExpiryNotificationService
         }
         $key = 'svc'.(int) $svc->id.':stale_traffic';
         if ($this->claimBucket($key)) {
-            $this->notify->sendToUser(
+            $this->notifyUser->sendToUser(
                 $user,
                 '⚠️ آمار ترافیک سرویس «'.(string) ($svc->remark ?: $svc->email).'» '.$staleDays.' روز به‌روز نشده است.'
             );
@@ -229,17 +254,6 @@ class ExpiryNotificationService
         $grace = max(0, (int) $this->settings->get('purge_expired_grace_hours', 24));
 
         return (time() - $exp) > ($grace * 3600);
-    }
-
-    /** @return list<int> */
-    protected function parseWarnDays(): array
-    {
-        $raw = $this->settings->get('alert_expiry_days', [7, 3, 1, 0]);
-        if (! is_array($raw)) {
-            return [7, 3, 1, 0];
-        }
-
-        return array_values(array_map('intval', $raw));
     }
 
     protected function claimBucket(string $key): bool

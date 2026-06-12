@@ -32,8 +32,10 @@ import { resolveLegacySiteTab, writeSiteSubtabToUrl } from "@/lib/site-settings-
 import { formatNumber } from "@/lib/format-locale"
 import {
   ADMIN_NAV_SECTIONS,
+  filterAdminNavByFeatures,
   filterAdminNavForReseller,
   injectL2tpNavTab,
+  type DashboardFeatures,
   type AdminNavSection,
 } from "@/config/admin-nav"
 import { saveUiPreferences, type UiTheme } from "@/lib/dash-ui-preferences"
@@ -600,24 +602,29 @@ function App() {
     () => (isOperator ? [] : [{ key: "home", label: t("layout.breadcrumbHome") }]),
     [isOperator, t],
   )
-  const l2tpEnabled = useMemo(() => {
+  const dashboardFeatures = useMemo((): DashboardFeatures | null => {
     const feat = (data?.settings as Record<string, unknown> | undefined)?.features
-    return !!(
-      feat &&
-      typeof feat === "object" &&
-      (feat as Record<string, unknown>).l2tp === true
-    )
+    if (!feat || typeof feat !== "object") return null
+    return feat as DashboardFeatures
   }, [data?.settings])
 
-  const adminNavSections = useMemo(
-    () => injectL2tpNavTab(ADMIN_NAV_SECTIONS, l2tpEnabled),
-    [l2tpEnabled]
+  const l2tpEnabled = dashboardFeatures?.l2tp === true
+
+  const baseNavSections = useMemo(
+    () =>
+      filterAdminNavByFeatures(
+        injectL2tpNavTab(ADMIN_NAV_SECTIONS, l2tpEnabled),
+        dashboardFeatures
+      ),
+    [l2tpEnabled, dashboardFeatures]
   )
+
+  const adminNavSections = baseNavSections
 
   const operatorNavSections: AdminNavSection[] | undefined = useMemo(() => {
     if (!isReseller) return undefined
-    return filterAdminNavForReseller(ADMIN_NAV_SECTIONS, allowedResellerTabs)
-  }, [isReseller, allowedResellerTabs])
+    return filterAdminNavForReseller(baseNavSections, allowedResellerTabs)
+  }, [isReseller, allowedResellerTabs, baseNavSections])
 
   const currentSectionLabel = useMemo(() => {
     if (!isOperator) {

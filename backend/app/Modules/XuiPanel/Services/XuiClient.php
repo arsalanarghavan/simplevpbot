@@ -152,6 +152,58 @@ class XuiClient
         return ! empty($fetch['ok']) ? $fetch['json'] : null;
     }
 
+    public function clientIps(string $email): ?array
+    {
+        $email = trim($email);
+        if ($email === '') {
+            return null;
+        }
+        if ($this->isV3ClientsApi()) {
+            $r = $this->http->request('clients/ips/'.rawurlencode($email), 'POST', []);
+
+            return is_array($r['json'] ?? null) ? $r['json'] : null;
+        }
+        $r = $this->http->request('inbounds/clientIps/'.rawurlencode($email), 'POST', []);
+
+        return is_array($r['json'] ?? null) ? $r['json'] : null;
+    }
+
+    /** @return array<int, string> */
+    public function parseClientIpsResponse(mixed $json, int $max = 30): array
+    {
+        $lim = max(1, min(100, $max));
+        if (! is_array($json)) {
+            return [];
+        }
+        $obj = array_key_exists('obj', $json) ? $json['obj'] : $json;
+        $ips = [];
+        if (is_string($obj) && $obj !== '' && $obj !== 'No IP Record') {
+            $decoded = json_decode($obj, true);
+            $ips = is_array($decoded) ? $decoded : preg_split('/[\s,]+/', $obj);
+        } elseif (is_array($obj)) {
+            foreach ($obj as $item) {
+                if (is_string($item) && trim($item) !== '') {
+                    $ips[] = trim($item);
+                } elseif (is_array($item)) {
+                    if (! empty($item['ip'])) {
+                        $ips[] = trim((string) $item['ip']);
+                    } elseif (! empty($item['Ip'])) {
+                        $ips[] = trim((string) $item['Ip']);
+                    }
+                }
+            }
+            if ($ips === []) {
+                $ips = $obj;
+            }
+        }
+
+        return array_slice(
+            array_values(array_unique(array_filter(array_map('trim', array_map('strval', (array) $ips))))),
+            0,
+            $lim
+        );
+    }
+
     /** @return array<int, string> */
     public function parseOnlinesResponse(mixed $json): array
     {

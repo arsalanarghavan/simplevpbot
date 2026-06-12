@@ -70,6 +70,16 @@ class RelayMutateTest extends TestCase
         Http::assertSent(fn ($r) => str_contains($r->url(), '/internal/set-webhook'));
     }
 
+    public function test_telegram_relay_admin_logs_mutate(): void
+    {
+        Http::fake(['relay.test/*' => Http::response(['ok' => true, 'lines' => []], 200)]);
+
+        $this->actingAsAdmin()->postJson('/api/v1/admin/mutate', [
+            'op' => 'telegram_relay_admin_logs',
+            'lines' => 50,
+        ])->assertOk()->assertJsonPath('ok', true);
+    }
+
     public function test_telegram_relay_rotate_secret_updates_settings(): void
     {
         $this->actingAsAdmin()->postJson('/api/v1/admin/mutate', [

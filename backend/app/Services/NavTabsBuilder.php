@@ -7,37 +7,56 @@ class NavTabsBuilder
     /** @return list<array{key: string, label: string}> */
     public function build(bool $l2tpEnabled = true): array
     {
+        $modules = svp_modules();
         $tabs = [
             ['key' => 'dashboard', 'label' => 'پیشخوان'],
             ['key' => 'monitoring', 'label' => 'مانیتورینگ'],
             ['key' => 'site_settings', 'label' => 'تنظیمات سایت'],
             ['key' => 'bots', 'label' => 'ربات‌ها'],
-            ['key' => 'xui_panels', 'label' => 'پنل‌های 3x-ui'],
+        ];
+        if ($modules->isEnabled('xui_panel')) {
+            $tabs[] = ['key' => 'xui_panels', 'label' => 'پنل‌های 3x-ui'];
+            $tabs[] = ['key' => 'configs', 'label' => 'کانفیگ‌ها'];
+        }
+        $tabs = array_merge($tabs, [
             ['key' => 'plan_cats', 'label' => 'دسته‌های خرید'],
             ['key' => 'plans', 'label' => 'پلن‌ها'],
             ['key' => 'cards', 'label' => 'کارت‌ها'],
-        ];
+        ]);
 
-        if ($l2tpEnabled && svp_modules()->isEnabled('l2tp')) {
+        if ($l2tpEnabled && $modules->isEnabled('l2tp')) {
             $tabs[] = ['key' => 'l2tp_servers', 'label' => 'سرورهای L2TP'];
         }
 
-        return array_merge($tabs, [
+        $tabs = array_merge($tabs, [
             ['key' => 'receipts', 'label' => 'رسیدها'],
             ['key' => 'broadcast', 'label' => 'پیام همگانی'],
             ['key' => 'texts', 'label' => 'متن‌ها'],
             ['key' => 'users', 'label' => 'کاربران'],
-            ['key' => 'backup', 'label' => 'بکاپ'],
+        ]);
+        if ($modules->isEnabled('backup')) {
+            $tabs[] = ['key' => 'backup', 'label' => 'بکاپ'];
+        }
+        $tabs = array_merge($tabs, [
             ['key' => 'notifications', 'label' => 'نوتیفیکیشن'],
             ['key' => 'referral', 'label' => 'ریفرال و لینک ربات'],
             ['key' => 'referral_reports', 'label' => 'گزارشات رفرال'],
             ['key' => 'reseller_reports', 'label' => 'گزارشات نمایندگان'],
-            ['key' => 'marketing_lifecycle', 'label' => 'بازگشت مشتری'],
+        ]);
+        if ($modules->isEnabled('marketing')) {
+            $tabs[] = ['key' => 'marketing_lifecycle', 'label' => 'بازگشت مشتری'];
+        }
+        $tabs = array_merge($tabs, [
             ['key' => 'discounts', 'label' => 'کدهای تخفیف'],
             ['key' => 'logs', 'label' => 'لاگ‌ها'],
-            ['key' => 'resellers', 'label' => 'نمایندگان'],
-            ['key' => 'audit', 'label' => 'ممیزی'],
         ]);
+        if ($modules->isEnabled('reseller')) {
+            $tabs[] = ['key' => 'resellers', 'label' => 'نمایندگان'];
+            $tabs[] = ['key' => 'reseller_bots', 'label' => 'ربات‌های نماینده'];
+        }
+        $tabs[] = ['key' => 'audit', 'label' => 'ممیزی'];
+
+        return $tabs;
     }
 
     /**

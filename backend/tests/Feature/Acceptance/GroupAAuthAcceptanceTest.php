@@ -87,4 +87,13 @@ class GroupAAuthAcceptanceTest extends TestCase
             ->assertOk()
             ->assertJsonStructure(['monitorHosts', 'overview']);
     }
+
+    public function test_refresh_live_metrics_query_accepted(): void
+    {
+        $this->actingAs(DashboardUser::query()->where('username', 'admin')->first());
+
+        $this->getJson('/api/v1/admin/state?tab=monitoring&refreshLivePanelMetrics=1')
+            ->assertOk()
+            ->assertJsonStructure(['overview']);
+    }
 }

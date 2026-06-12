@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\UsersBulkController;
 use App\Http\Middleware\AdminDashboardRateLimit;
 use App\Http\Middleware\EnsureAdmin;
 use App\Http\Middleware\EnsureAdminOrReseller;
+use App\Http\Middleware\EnsureBackupModule;
 use App\Modules\Backup\Http\BackupController;
 use App\Modules\Marketing\Http\BroadcastController;
 use App\Modules\XuiPanel\Http\ConfigsController;
@@ -50,7 +51,7 @@ Route::prefix('v1')->group(function () {
         Route::get('admin/configs-portal-payload', [ConfigsController::class, 'portalPayload'])->middleware(EnsureAdminOrReseller::class);
         Route::post('admin/configs-sync', [ConfigsController::class, 'sync'])->middleware(EnsureAdminOrReseller::class);
         Route::get('admin/broadcast-queue', [BroadcastController::class, 'queue'])->middleware(EnsureAdminOrReseller::class);
-        Route::middleware([EnsureAdminOrReseller::class, EnsureAdmin::class])->group(function () {
+        Route::middleware([EnsureAdminOrReseller::class, EnsureAdmin::class, EnsureBackupModule::class])->group(function () {
             Route::get('admin/backups', [BackupController::class, 'index']);
             Route::get('admin/backup/status', [BackupController::class, 'status']);
             Route::post('admin/backup/run', [BackupController::class, 'run']);

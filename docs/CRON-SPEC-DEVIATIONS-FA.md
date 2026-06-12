@@ -1,4 +1,4 @@
-# انحراف‌های زمان‌بندی Cron (v3)
+# انحراف‌های زمان‌بندی Cron (v4)
 
 مبنا: `docs/LARAVEL-BACKEND-SPEC-FA.md` §12
 
@@ -8,7 +8,7 @@
 |-----|-------------------------------|------|
 | Expiry | hourly | hourly |
 | Autorenew | hourly | hourly |
-| PanelEconomics | hourly | hourly |
+| PanelEconomics | hourly (if `xui_panel`) | hourly |
 | Marketing | hourly (if module) | hourly |
 | AdminAlerts | every 10 minutes | every 10 minutes |
 | IdleOffers | hourly (if module) | hourly |
@@ -18,9 +18,9 @@
 
 | Job | Laravel | دلیل |
 |-----|---------|------|
-| Backup | `*/N` دقیقه (پیش‌فرض ۶۰) | `SVP_BACKUP_INTERVAL_MINUTES` — فقط اگر `backup` module enabled |
+| Backup | `*/N` دقیقه از `BackupIntervalResolver` (settings یا env) | gate: `backup` module؛ clamp 5–1440 |
 | Broadcast / users_bulk / inbound_queue | every minute | worker queues |
-| panel_online / panel_service_sync / inbound_clients_cache | every 10 minutes | بار پنل — فقط اگر `xui_panel` enabled |
+| panel_online / panel_service_sync / inbound_clients_cache | every 10 minutes | فقط اگر `xui_panel` enabled |
 
 ## Module gating (§6.2)
 
@@ -28,22 +28,26 @@
 |-----|------|
 | `svp:backup` | `backup` module |
 | `svp:marketing`, `svp:idle_offers` | `marketing` module |
-| panel crons | `xui_panel` module |
+| `svp:panel_online`, `svp:panel_service_sync`, `svp:inbound_clients_cache`, `svp:panel_economics_renewal` | `xui_panel` module |
+| `svp:purge_expired` | بدون gate (spec: core؛ کد در `XuiPanel\Jobs`) |
 
-## عمق منطق Expiry / Autorenew (v3)
+## Notify / Expiry parity (v4)
 
 | قابلیت | Laravel | WP |
 |--------|---------|-----|
-| IP-fill از ip_log | بله (`maybeFillIpFromLog`) | بله |
-| IP-fill alert (limit_ip) | بله (`maybeIpFillAlert` + cache/onlines) | بله |
-| traffic stale alert | بله | بله |
-| L2TP `sync_l2tp_usage` | بله | بله |
-| L2TP expired cleanup | بله | بله |
-| L2TP volume/expiry alerts | بله (v3 — دیگر early-return نیست) | بله |
-| Autorenew skip L2TP | بله | بله |
-| Autorenew `checkout_price_renew` | بله | بله |
+| کلیدهای global notify | `notify_user_*` + fallback `notify_*_on` — [`NotifySettings.php`](../backend/app/Services/NotifySettings.php) | `notify_user_expiry/volume/users/after_expire` |
+| warn days per service | `ServiceAlertsHelper::effectiveExpiryDays()` | `effective_expiry_days()` |
+| low traffic % per service | `effectiveLowTrafficPct()` | `effective_low_traffic_pct()` |
+| per-service toggles | `alerts_volume/expiry/users` + legacy columns | همان |
+| `notify_after_expire` | daily bucket `svc{id}:expired:{date}` | همان |
+| IP-fill live API | `XuiClient::clientIps()` + cache `client_ips_json` on sync | `client_ips()` |
+| IP-fill fallback | `svp_service_ip_log` | ip_log |
 
-مرجع: `ExpiryNotificationService.php`, `includes/cron/class-cron-expiry.php`
+## Backup interval SSOT (v4)
+
+- UI save: `settings_tab` tab=`backup` → `backup.backup_interval_minutes` + mirror `backup_interval_minutes`
+- Scheduler: `BackupIntervalResolver` (settings → env fallback)
+- Stale alert: `AdminAlertsService` via resolver
 
 ## Metrics
 

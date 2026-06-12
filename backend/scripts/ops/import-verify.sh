@@ -22,4 +22,7 @@ mkdir -p "$(dirname "$OUT")"
     exit 1
   fi
   echo "import-verify complete $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if [[ "${SVP_SKIP_POST_IMPORT:-}" != "1" ]]; then
+    bash "$(dirname "$0")/post-import-ops.sh"
+  fi
 } 2>&1 | tee "$OUT"

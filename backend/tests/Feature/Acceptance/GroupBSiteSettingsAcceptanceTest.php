@@ -98,4 +98,24 @@ class GroupBSiteSettingsAcceptanceTest extends TestCase
             ->assertOk()
             ->assertJsonPath('ok', true);
     }
+
+    public function test_settings_tab_resellers_defaults(): void
+    {
+        $this->actingAsAdmin();
+
+        $this->postJson('/api/v1/admin/mutate', [
+            'op' => 'settings_tab',
+            'tab' => 'resellers_defaults',
+            'permissions' => ['users.manage' => true, 'plans.manage' => false],
+        ])->assertOk()->assertJsonPath('ok', true);
+    }
+
+    public function test_purge_expired_purge_ready_mutate(): void
+    {
+        $this->actingAsAdmin();
+
+        $this->postJson('/api/v1/admin/mutate', [
+            'op' => 'purge_expired_purge_ready',
+        ])->assertOk();
+    }
 }

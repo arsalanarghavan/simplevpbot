@@ -7,6 +7,7 @@ use App\Modules\Backup\Jobs\ManualBackupJob;
 use App\Modules\Backup\Services\BackupExportService;
 use App\Modules\Backup\Services\BackupRestoreService;
 use App\Modules\Backup\Services\BackupStatusService;
+use App\Services\BackupIntervalResolver;
 use App\Services\SettingsStore;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -32,7 +33,7 @@ class BackupController extends Controller
             $lastRun = [];
         }
 
-        $interval = max(5, (int) $settings->get('backup_interval_minutes', 60));
+        $interval = app(BackupIntervalResolver::class)->minutes();
 
         return response()->json([
             'ok' => true,

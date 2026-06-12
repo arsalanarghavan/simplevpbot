@@ -13,12 +13,21 @@ use App\Modules\XuiPanel\Jobs\PanelEconomicsRenewalJob;
 use App\Modules\XuiPanel\Jobs\PanelOnlineJob;
 use App\Modules\XuiPanel\Jobs\PanelServiceSyncJob;
 use App\Modules\XuiPanel\Jobs\PurgeExpiredJob;
+use App\Services\BackupIntervalResolver;
 use App\Support\Metrics\CronTimer;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Schedule;
 
 // Intervals aligned with docs/LARAVEL-BACKEND-SPEC-FA.md §12 (see docs/CRON-SPEC-DEVIATIONS-FA.md).
 if (svp_modules()->isEnabled('backup')) {
-    $backupInterval = (int) config('svp.backup_interval_minutes', 60);
+    $backupInterval = max(5, (int) config('svp.backup_interval_minutes', 60));
+    try {
+        if (Schema::hasTable('svp_settings')) {
+            $backupInterval = app(BackupIntervalResolver::class)->minutes();
+        }
+    } catch (\Throwable) {
+        // pre-migrate / isolated tests
+    }
     Schedule::job(new BackupJob)->cron("*/{$backupInterval} * * * *")->name('svp:backup');
 }
 Schedule::job(new PurgeExpiredJob)->hourly()->name('svp:purge_expired');
@@ -36,7 +45,9 @@ if (svp_modules()->isEnabled('marketing')) {
     Schedule::job(new MarketingJob)->hourly()->name('svp:marketing');
 }
 Schedule::job(new AdminAlertsJob)->everyTenMinutes()->name('svp:admin_alerts');
-Schedule::job(new PanelEconomicsRenewalJob)->hourly()->name('svp:panel_economics_renewal');
+if (svp_modules()->isEnabled('xui_panel')) {
+    Schedule::job(new PanelEconomicsRenewalJob)->hourly()->name('svp:panel_economics_renewal');
+}
 Schedule::call(fn () => CronTimer::run('svp:inbound_queue_drain', fn () => app(\App\Services\Bot\InboundQueueService::class)->drainBatch()))
     ->everyMinute()
     ->name('svp:inbound_queue_drain');

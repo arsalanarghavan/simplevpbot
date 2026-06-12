@@ -11,6 +11,7 @@ use App\Modules\Reseller\Services\ResellerScopeService;
 use App\Modules\Reseller\Services\ResellerWebhookService;
 use App\Modules\Reseller\Services\WholesalePricingService;
 use App\Services\Commerce\ServiceTransferService;
+use App\Services\ResellerDefaultsService;
 use App\Services\SettingsStore;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\DB;
@@ -128,7 +129,9 @@ class ResellerMutations
                 'password' => bcrypt((string) ($payload['password'] ?? Str::random(12))),
                 'role' => 'reseller',
                 'svp_user_id' => $svpUserId,
-                'permissions_json' => $payload['permissions'] ?? [],
+                'permissions_json' => is_array($payload['permissions'] ?? null)
+                    ? $payload['permissions']
+                    : app(ResellerDefaultsService::class)->permissions(),
             ]
         );
 

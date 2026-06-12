@@ -442,6 +442,17 @@ trait CreatesSvpTestSchema
             $table->timestamp('updated_at')->nullable();
         });
 
+        Schema::dropIfExists('svp_panel_economics_lines');
+        Schema::create('svp_panel_economics_lines', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('panel_id');
+            $table->string('label')->default('');
+            $table->decimal('amount', 15, 2)->default(0);
+            $table->boolean('active')->default(true);
+            $table->date('expires_at')->nullable();
+            $table->timestamp('created_at')->nullable();
+        });
+
         Schema::dropIfExists('svp_panel_inbound_clients');
         Schema::create('svp_panel_inbound_clients', function (Blueprint $table) {
             $table->id();
@@ -462,6 +473,7 @@ trait CreatesSvpTestSchema
             $table->bigInteger('used_bytes')->default(0);
             $table->bigInteger('limit_bytes')->default(0);
             $table->boolean('is_online')->default(false);
+            $table->longText('client_ips_json')->nullable();
             $table->longText('client_json')->nullable();
             $table->timestamp('synced_at')->nullable();
         });

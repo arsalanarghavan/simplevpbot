@@ -339,6 +339,58 @@ export const ADMIN_TAB_KEYS: string[] = [
   "audit",
 ]
 
+export type DashboardFeatures = {
+  xui_panel?: boolean
+  backup?: boolean
+  marketing?: boolean
+  reseller?: boolean
+  l2tp?: boolean
+  relay?: boolean
+  telegram?: boolean
+}
+
+const FEATURE_TAB_MAP: Record<string, keyof DashboardFeatures> = {
+  xui_panels: "xui_panel",
+  configs: "xui_panel",
+  reseller_xui_panels: "xui_panel",
+  backup: "backup",
+  marketing_lifecycle: "marketing",
+  resellers: "reseller",
+  reseller_reports: "reseller",
+  reseller_bots: "reseller",
+  l2tp_servers: "l2tp",
+}
+
+/** Hide nav entries when the corresponding backend module is disabled. */
+export function filterAdminNavByFeatures(
+  sections: AdminNavSection[],
+  features: DashboardFeatures | null | undefined
+): AdminNavSection[] {
+  if (!features || typeof features !== "object") return sections
+  const isOn = (tabKey: string): boolean => {
+    const feat = FEATURE_TAB_MAP[tabKey]
+    if (!feat) return true
+    return (features as Record<string, unknown>)[feat] === true
+  }
+  const out: AdminNavSection[] = []
+  for (const sec of sections) {
+    const entries: AdminNavEntry[] = []
+    for (const ent of sec.entries) {
+      if (ent.kind === "leaf") {
+        if (!isOn(ent.tabKey)) continue
+        entries.push(ent)
+      } else {
+        const children = ent.children.filter((ch) => isOn(ch.tabKey))
+        if (children.length === 0) continue
+        entries.push({ ...ent, children })
+      }
+    }
+    if (entries.length === 0) continue
+    out.push({ ...sec, entries })
+  }
+  return out
+}
+
 /** Add L2TP servers tab under servers_menu when the feature flag is on. */
 export function injectL2tpNavTab(
   sections: AdminNavSection[],

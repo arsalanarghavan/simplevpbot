@@ -26,6 +26,9 @@ class CryptoMutations
     /** @param  array<string, mixed>  $payload */
     public function cryptoSettings(array $payload, ?Authenticatable $actor): array
     {
+        if (! svp_modules()->isEnabled('crypto')) {
+            return svp_err('module_disabled');
+        }
         foreach ($payload as $key => $value) {
             if ($key === 'op') {
                 continue;

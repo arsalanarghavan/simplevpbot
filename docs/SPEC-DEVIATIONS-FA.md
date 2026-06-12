@@ -1,4 +1,4 @@
-# انحراف‌های آگاهانه از spec (v3)
+# انحراف‌های آگاهانه از spec (v4)
 
 مبنا: [`LARAVEL-BACKEND-SPEC-FA.md`](LARAVEL-BACKEND-SPEC-FA.md)
 
@@ -51,9 +51,11 @@
 
 جزئیات: [`CRON-SPEC-DEVIATIONS-FA.md`](CRON-SPEC-DEVIATIONS-FA.md)
 
-- IP-fill alert: **v3 پیاده شد** در `ExpiryNotificationService` + `ServiceAlertsHelper`
-- L2TP expiry: **v3** پس از sync، alertهای volume/expiry ادامه می‌یابد (مثل WP)
-- backup/marketing crons: gated با `svp_modules()->isEnabled()`
+- **v4:** `notify_user_*` keys، `notify_after_expire`، `client_ips` API، economics renewal gated
+- IP-fill: live panel API + `client_ips_json` on configs sync + ip_log fallback
+- L2TP expiry: volume/expiry alerts پس از sync ادامه می‌یابد
+- backup/marketing/xui_panel crons: gated با `svp_modules()->isEnabled()`
+- backup interval: `BackupIntervalResolver` (settings SSOT، env fallback)
 
 ## Cutover
 

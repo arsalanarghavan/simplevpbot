@@ -24,7 +24,7 @@ class PanelEconomicsRenewalService
             return;
         }
 
-        $offsets = [7, 1, 0];
+        $offsets = $this->reminderOffsets();
         $rows = DB::table('svp_panel_economics_lines as l')
             ->leftJoin('svp_panels as pn', 'pn.id', '=', 'l.panel_id')
             ->where('l.active', 1)
@@ -54,5 +54,17 @@ class PanelEconomicsRenewalService
             );
             Cache::put($key, 1, now()->addDays(3));
         }
+    }
+
+    /** @return list<int> */
+    protected function reminderOffsets(): array
+    {
+        $raw = $this->settings->get('panel_cost_reminder_days', [7, 1, 0]);
+        if (! is_array($raw)) {
+            return [7, 1, 0];
+        }
+        $out = array_values(array_unique(array_map('intval', $raw)));
+
+        return $out !== [] ? $out : [7, 1, 0];
     }
 }

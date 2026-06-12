@@ -431,6 +431,11 @@ class ConfigsSyncService
     {
         $email = trim((string) ($c['email'] ?? ''));
         $limitBytes = InboundTraffic::totalgbToBytes($c['totalGB'] ?? 0);
+        $ips = [];
+        if ($email !== '') {
+            $json = $this->xui->clientIps($email);
+            $ips = $this->xui->parseClientIpsResponse($json, 100);
+        }
 
         return [
             'panel_id' => $panelId,
@@ -450,6 +455,7 @@ class ConfigsSyncService
             'used_bytes' => (int) (($c['up'] ?? 0) + ($c['down'] ?? 0)),
             'limit_bytes' => $limitBytes,
             'is_online' => isset($onlineSet[$email]) ? 1 : 0,
+            'client_ips_json' => json_encode($ips, JSON_UNESCAPED_UNICODE),
             'client_json' => json_encode($c, JSON_UNESCAPED_UNICODE),
             'synced_at' => $now,
         ];

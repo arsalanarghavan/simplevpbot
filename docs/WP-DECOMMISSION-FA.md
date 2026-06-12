@@ -8,7 +8,9 @@ Evidence template: [`evidence/CUTOVER-SIGNOFF-FA.md`](evidence/CUTOVER-SIGNOFF-F
 
 اسکریپت‌ها (repo):
 
-- `backend/scripts/ops/import-verify.sh` — verify-only + log
+- `backend/scripts/ops/import-verify.sh` — verify-only + log (+ post-import ops)
+- `backend/scripts/ops/post-import-ops.sh` — rebuild-closure + register-webhooks + schedule:list
+- `backend/scripts/ops/remove-includes-from-main.sh` — حذف `includes/` پس از آرشیو (نیاز `CONFIRM=1`)
 - `backend/scripts/ops/staging-cutover-runbook.sh` — import + post-import + E2E
 - `backend/scripts/ops/soak-24h.sh` — soak با `SVP_SOAK_DURATION_SEC=86400`
 - `backend/scripts/ops/wp-disable-staging.sh` — غیرفعال WP cron روی staging

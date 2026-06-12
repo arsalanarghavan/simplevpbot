@@ -161,7 +161,7 @@ class AdminAlertsService
 
     protected function checkBackupFailed(): void
     {
-        $intervalMin = max(5, (int) config('svp.backup_interval_minutes', 60));
+        $intervalMin = app(\App\Services\BackupIntervalResolver::class)->minutes();
         $maxAge = $intervalMin * 2 * 60;
         $lastBuilt = (int) $this->settings->get('backup_last_built_at', 0);
         if ($lastBuilt > 0 && (time() - $lastBuilt) <= $maxAge) {
