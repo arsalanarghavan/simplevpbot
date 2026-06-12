@@ -31,4 +31,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: soak-log
-          path: docs/evidence/soak-nightly-*.log
+          path: ../docs/evidence/soak-nightly-*.log

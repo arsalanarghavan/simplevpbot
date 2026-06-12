@@ -434,9 +434,11 @@ export type SearchNavRow = {
 }
 
 /** Flat list for command palette: every navigable tab once per menu row (duplicate tabKeys allowed for search). */
-export function flattenNavForSearch(): SearchNavRow[] {
+export function flattenNavForSearch(
+  sections: AdminNavSection[] = ADMIN_NAV_SECTIONS
+): SearchNavRow[] {
   const rows: SearchNavRow[] = []
-  for (const sec of ADMIN_NAV_SECTIONS) {
+  for (const sec of sections) {
     for (const ent of sec.entries) {
       if (ent.kind === "leaf") {
         rows.push({ tabKey: ent.tabKey, sectionHintKey: sec.hintKey })

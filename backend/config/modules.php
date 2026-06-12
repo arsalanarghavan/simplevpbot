@@ -60,6 +60,7 @@ return [
             'enabled' => env('SVP_MODULE_RESELLER', true),
             'label' => 'Reseller',
             'depends' => ['core'],
+            'depends_any' => ['telegram', 'bale'],
             'provider' => \App\Modules\Reseller\ResellerServiceProvider::class,
         ],
         'backup' => [

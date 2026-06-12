@@ -18,6 +18,12 @@ return Application::configure(basePath: dirname(__DIR__))
             'dashboard.enabled' => \App\Http\Middleware\EnsureDashboardEnabled::class,
             'reseller.scope' => \App\Http\Middleware\ResellerScopeMiddleware::class,
             'relay.module' => \App\Http\Middleware\EnsureRelayModule::class,
+            'xui.module' => \App\Http\Middleware\EnsureXuiPanelModule::class,
+            'marketing.module' => \App\Http\Middleware\EnsureMarketingModule::class,
+            'reseller.perm' => \App\Http\Middleware\EnsureResellerPermission::class,
+            'webhook.drain.internal' => \App\Http\Middleware\EnsureInternalWebhookDrain::class,
+            'l2tp.module' => \App\Http\Middleware\EnsureL2tpModule::class,
+            'bot.module' => \App\Http\Middleware\EnsureTelegramOrBaleModule::class,
         ]);
         $middleware->api(append: [
             \App\Http\Middleware\RedactSecretsInLogs::class,

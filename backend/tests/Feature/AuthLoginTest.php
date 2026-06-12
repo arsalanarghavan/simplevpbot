@@ -44,6 +44,6 @@ class AuthLoginTest extends TestCase
         ]);
 
         $response->assertUnauthorized()
-            ->assertJson(['ok' => false, 'code' => 'invalid_credentials']);
+            ->assertJsonPath('message', 'invalid_credentials');
     }
 }

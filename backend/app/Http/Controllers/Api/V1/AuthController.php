@@ -20,20 +20,20 @@ class AuthController extends Controller
         $remember = (bool) ($request->input('remember') ?? false);
 
         if (trim($username) === '' || $password === '') {
-            return response()->json(['ok' => false, 'code' => 'invalid_credentials'], 401);
+            return response()->json(svp_err('invalid_credentials'), 401);
         }
 
         $limit = (int) config('svp.login_rate_limit_per_min', 10);
         $key = 'svp-dash-login-ip:'.$request->ip();
         if (RateLimiter::tooManyAttempts($key, $limit)) {
-            return response()->json(['ok' => false, 'code' => 'rate_limited'], 429);
+            return response()->json(svp_err('rate_limited'), 429);
         }
 
         RateLimiter::hit($key, 60);
 
         $user = DashboardUser::query()->where('username', $username)->first();
         if (! $user || ! Hash::check($password, $user->password)) {
-            return response()->json(['ok' => false, 'code' => 'invalid_credentials'], 401);
+            return response()->json(svp_err('invalid_credentials'), 401);
         }
 
         RateLimiter::clear($key);

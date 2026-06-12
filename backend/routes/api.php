@@ -38,21 +38,32 @@ Route::prefix('v1')->group(function () {
         Route::get('admin/audit', [AuditController::class, 'index'])->middleware([EnsureAdminOrReseller::class, EnsureAdmin::class]);
         Route::get('admin/logs', [LogsController::class, 'index'])->middleware([EnsureAdminOrReseller::class, EnsureAdmin::class]);
         Route::get('admin/purge-expired', [PurgeExpiredController::class, 'index'])->middleware([EnsureAdminOrReseller::class, EnsureAdmin::class]);
-        Route::get('admin/users-bulk-jobs', [UsersBulkController::class, 'jobs'])->middleware(EnsureAdminOrReseller::class);
-        Route::get('admin/users-bulk-job-items', [UsersBulkController::class, 'jobItems'])->middleware(EnsureAdminOrReseller::class);
+        Route::get('admin/users-bulk-jobs', [UsersBulkController::class, 'jobs'])
+            ->middleware([EnsureAdminOrReseller::class, 'reseller.perm:users.bulk']);
+        Route::get('admin/users-bulk-job-items', [UsersBulkController::class, 'jobItems'])
+            ->middleware([EnsureAdminOrReseller::class, 'reseller.perm:users.bulk']);
         Route::get('admin/inbound-display-catalog', InboundDisplayCatalogController::class)->middleware(EnsureAdminOrReseller::class);
         Route::post('admin/media', [MediaController::class, 'upload'])->middleware(EnsureAdminOrReseller::class);
         Route::get('admin/user-search', [AdminUserController::class, 'search'])->middleware(EnsureAdminOrReseller::class);
         Route::get('admin/user/{id}', [AdminUserController::class, 'show'])->middleware(EnsureAdminOrReseller::class)->whereNumber('id');
         Route::post('admin/mutate', MutateController::class)->middleware([EnsureAdminOrReseller::class, AdminDashboardRateLimit::class.':mutate']);
-        Route::post('admin/impersonate/start', [ImpersonationController::class, 'start']);
-        Route::post('admin/impersonate/stop', [ImpersonationController::class, 'stop']);
-        Route::post('impersonate/start', [ImpersonationController::class, 'start']);
-        Route::post('dashboard/impersonate/stop', [ImpersonationController::class, 'stop']);
-        Route::get('admin/configs-snapshot', [ConfigsController::class, 'snapshot'])->middleware(EnsureAdminOrReseller::class);
-        Route::get('admin/configs-portal-payload', [ConfigsController::class, 'portalPayload'])->middleware(EnsureAdminOrReseller::class);
-        Route::post('admin/configs-sync', [ConfigsController::class, 'sync'])->middleware(EnsureAdminOrReseller::class);
-        Route::get('admin/broadcast-queue', [BroadcastController::class, 'queue'])->middleware(EnsureAdminOrReseller::class);
+        Route::post('dashboard/impersonate/start', [ImpersonationController::class, 'start'])->middleware(EnsureAdmin::class);
+        Route::post('dashboard/impersonate/stop', [ImpersonationController::class, 'stop'])->middleware(EnsureAdmin::class);
+        Route::post('admin/impersonate/start', [ImpersonationController::class, 'start'])->middleware(EnsureAdmin::class);
+        Route::post('admin/impersonate/stop', [ImpersonationController::class, 'stop'])->middleware(EnsureAdmin::class);
+        Route::middleware(['xui.module', EnsureAdminOrReseller::class, 'reseller.perm:services.manage'])->group(function () {
+            Route::get('admin/configs-snapshot', [ConfigsController::class, 'snapshot']);
+            Route::get('admin/configs-portal-payload', [ConfigsController::class, 'portalPayload']);
+            Route::post('admin/configs-sync', [ConfigsController::class, 'sync']);
+            Route::get('admin/panel-inbounds', [PanelController::class, 'inbounds']);
+            Route::get('admin/panel-inbound-clients', [PanelController::class, 'inboundClients']);
+            Route::get('admin/panel/inbound-map', [PanelController::class, 'inboundMapGet']);
+            Route::post('admin/panel/inbound-map', [PanelController::class, 'inboundMapSave']);
+            Route::post('admin/panel/rebuild-from-db', [PanelController::class, 'rebuildFromDb'])->middleware(EnsureAdmin::class);
+            Route::post('admin/panel/fix-51200-traffic', [PanelController::class, 'fix51200Traffic'])->middleware(EnsureAdmin::class);
+        });
+        Route::get('admin/broadcast-queue', [BroadcastController::class, 'queue'])
+            ->middleware(['marketing.module', EnsureAdminOrReseller::class, 'reseller.perm:broadcast.send']);
         Route::middleware([EnsureAdminOrReseller::class, EnsureAdmin::class, EnsureBackupModule::class])->group(function () {
             Route::get('admin/backups', [BackupController::class, 'index']);
             Route::get('admin/backup/status', [BackupController::class, 'status']);
@@ -62,11 +73,5 @@ Route::prefix('v1')->group(function () {
             Route::post('admin/backup/restore', [BackupController::class, 'restore']);
             Route::post('admin/backup/restore-upload', [BackupController::class, 'restoreUpload']);
         });
-        Route::get('admin/panel-inbounds', [PanelController::class, 'inbounds'])->middleware(EnsureAdminOrReseller::class);
-        Route::get('admin/panel-inbound-clients', [PanelController::class, 'inboundClients'])->middleware(EnsureAdminOrReseller::class);
-        Route::get('admin/panel/inbound-map', [PanelController::class, 'inboundMapGet'])->middleware(EnsureAdminOrReseller::class);
-        Route::post('admin/panel/inbound-map', [PanelController::class, 'inboundMapSave'])->middleware(EnsureAdminOrReseller::class);
-        Route::post('admin/panel/rebuild-from-db', [PanelController::class, 'rebuildFromDb'])->middleware([EnsureAdminOrReseller::class, EnsureAdmin::class]);
-        Route::post('admin/panel/fix-51200-traffic', [PanelController::class, 'fix51200Traffic'])->middleware([EnsureAdminOrReseller::class, EnsureAdmin::class]);
     });
 });

@@ -21,7 +21,7 @@ class ImpersonationTest extends TestCase
     {
         $admin = $this->actingAsAdmin();
 
-        $this->postJson('/api/v1/impersonate/start', [
+        $this->postJson('/api/v1/admin/impersonate/start', [
             'targetSvpUserId' => 100,
         ])->assertOk()->assertJson(['ok' => true]);
 
@@ -41,7 +41,7 @@ class ImpersonationTest extends TestCase
 
     public function test_impersonation_scopes_admin_state_to_reseller_downline(): void
     {
-        $this->actingAsAdmin()->postJson('/api/v1/impersonate/start', [
+        $this->actingAsAdmin()->postJson('/api/v1/admin/impersonate/start', [
             'targetSvpUserId' => 100,
         ])->assertOk();
 
@@ -54,14 +54,14 @@ class ImpersonationTest extends TestCase
 
     public function test_reseller_cannot_start_impersonation(): void
     {
-        $this->actingAsReseller()->postJson('/api/v1/impersonate/start', [
+        $this->actingAsReseller()->postJson('/api/v1/admin/impersonate/start', [
             'targetSvpUserId' => 100,
         ])->assertStatus(400);
     }
 
     public function test_impersonation_writes_audit_log(): void
     {
-        $this->actingAsAdmin()->postJson('/api/v1/impersonate/start', [
+        $this->actingAsAdmin()->postJson('/api/v1/admin/impersonate/start', [
             'targetSvpUserId' => 100,
         ])->assertOk();
 

@@ -20,7 +20,6 @@ import { saveUiPreferences } from "@/lib/dash-ui-preferences"
 type AccentMenuProps = {
   initialAccent?: string | null
   restUrl?: string
-  nonce?: string
 }
 
 export function AccentMenu({ initialAccent, restUrl }: AccentMenuProps) {

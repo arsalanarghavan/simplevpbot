@@ -34,7 +34,9 @@ if (svp_modules()->isEnabled('backup')) {
 if (svp_modules()->isEnabled('xui_panel')) {
     Schedule::job(new PurgeExpiredJob)->hourly()->name('svp:purge_expired');
 }
-Schedule::job(new BroadcastWorkerJob)->everyMinute()->name('svp:broadcast');
+if (svp_modules()->isEnabled('marketing')) {
+    Schedule::job(new BroadcastWorkerJob)->everyMinute()->name('svp:broadcast');
+}
 Schedule::job(new UsersBulkWorkerJob)->everyMinute()->name('svp:users_bulk');
 if (svp_modules()->isEnabled('xui_panel')) {
     Schedule::job(new PanelOnlineJob)->everyTenMinutes()->name('svp:panel_online');

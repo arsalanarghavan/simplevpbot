@@ -30,6 +30,28 @@ function linesFromIds(raw: unknown): string {
   return String(raw ?? "")
 }
 
+function cssVarLinesFrom(raw: unknown): string {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return ""
+  return Object.entries(raw as Record<string, unknown>)
+    .filter(([k]) => String(k).startsWith("--"))
+    .map(([k, v]) => `${k}: ${String(v ?? "").trim()}`)
+    .join("\n")
+}
+
+function parseCssVarLines(text: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const line of text.split(/\r?\n/)) {
+    const t = line.trim()
+    if (!t || t.startsWith("#")) continue
+    const idx = t.indexOf(":")
+    if (idx < 1) continue
+    const key = t.slice(0, idx).trim()
+    const val = t.slice(idx + 1).trim()
+    if (key.startsWith("--") && val) out[key] = val
+  }
+  return out
+}
+
 export function SiteSettingsWhitelabelTab({
   settings,
   wpPages,
@@ -74,6 +96,7 @@ export function SiteSettingsWhitelabelTab({
       receipt_reject_reasons: Array.isArray(s.receipt_reject_reasons)
         ? (s.receipt_reject_reasons as string[]).join("\n")
         : "",
+      css_variables_custom: cssVarLinesFrom(s.css_variables_custom),
     }),
     [s])
 
@@ -115,6 +138,7 @@ export function SiteSettingsWhitelabelTab({
         admin_telegram_ids: form.admin_telegram_ids,
         admin_bale_ids: form.admin_bale_ids,
         receipt_reject_reasons: form.receipt_reject_reasons.split(/\r?\n/).map((x) => x.trim()).filter(Boolean),
+        css_variables_custom: parseCssVarLines(form.css_variables_custom),
       })
   }, [form, saveSettingsTab])
 
@@ -174,6 +198,18 @@ export function SiteSettingsWhitelabelTab({
                 onChange={(v) => setForm((f) => ({ ...f, branding_theme_accent: v }))}
                 fallback="#7c3aed"
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="css_variables_custom">{tp("cssVariablesCustom")}</Label>
+              <Textarea
+                id="css_variables_custom"
+                value={form.css_variables_custom}
+                onChange={(e) => setForm((f) => ({ ...f, css_variables_custom: e.target.value }))}
+                placeholder={"--svp-sidebar-width: 280px\n--svp-header-height: 56px"}
+                dir="ltr"
+                className={ltrCell("min-h-[100px] font-mono text-xs")}
+              />
+              <p className="text-xs text-muted-foreground">{tp("cssVariablesCustomHint")}</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="custom_domain">{tp("customDomain")}</Label>

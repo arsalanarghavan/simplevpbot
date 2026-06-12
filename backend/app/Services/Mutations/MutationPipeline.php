@@ -50,7 +50,7 @@ class MutationPipeline
         }
 
         if (str_starts_with($op, 'telegram_relay_') && ! svp_modules()->isEnabled('relay')) {
-            return ['result' => ['ok' => false, 'message' => 'module_missing'], 'http_status' => 403];
+            return ['result' => svp_err('module_disabled'), 'http_status' => 403];
         }
 
         $ctx = new MutateContext(

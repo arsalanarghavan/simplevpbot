@@ -128,6 +128,10 @@ class InboundQueueService
             return $envKey;
         }
 
+        if (! app()->environment(['local', 'testing'])) {
+            return '';
+        }
+
         $settings = app(\App\Services\SettingsStore::class);
         $sec = (string) $settings->get('telegram_webhook_secret', '');
         if ($sec === '') {

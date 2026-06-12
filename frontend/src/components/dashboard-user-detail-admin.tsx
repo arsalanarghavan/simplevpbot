@@ -190,8 +190,13 @@ function formatUserActivityLine(
       })
     case "service_soft_delete":
       return t("userDetailAdmin.activity_service_soft_delete", { service: g("service_id") })
+    case "user_merge":
     case "link_wp_user":
-      return t("userDetailAdmin.activity_link_wp_user", { wp: g("wp_user_id") })
+      return t("userDetailAdmin.activity_user_merge", {
+        defaultValue: "Merged users {{drop}} → {{keep}}",
+        keep: String(g("keep_id") || g("user_id") || ""),
+        drop: String(g("drop_id") || g("wp_user_id") || ""),
+      })
     case "user_ban":
       return t("userDetailAdmin.activity_user_ban")
     case "user_unban":
@@ -347,8 +352,6 @@ export function DashboardUserDetailAdmin({
 
   const boot = useMemo(() => window.__SIMPLEVPBOT_DASH__ || {}, [])
   const restBase = String((boot as { restUrl?: string }).restUrl || "").replace(/\/$/, "")
-  const nonce = String((boot as { nonce?: string }).nonce || "")
-
   const load = useCallback(async () => {
     if (!restBase || userId < 1) return
     setLoading(true)
@@ -408,11 +411,11 @@ export function DashboardUserDetailAdmin({
     } finally {
       setLoading(false)
     }
-  }, [restBase, nonce, userId, actPage, rcptPage, rcptPerPage, rcptFilters, isFa])
+  }, [restBase, userId, actPage, rcptPage, rcptPerPage, rcptFilters, isFa])
 
   useEffect(() => {
     void load()
-  }, [restBase, nonce, userId, actPage, rcptPage, rcptPerPage, rcptFilters, load])
+  }, [restBase, userId, actPage, rcptPage, rcptPerPage, rcptFilters, load])
 
   const onRcptFiltersChange = useCallback((patch: Partial<ReceiptsListFilters>) => {
     setRcptFilters((f) => ({ ...f, ...patch }))
@@ -495,7 +498,7 @@ export function DashboardUserDetailAdmin({
         .catch(() => setReferrerHits([]))
     }, 280)
     return () => window.clearTimeout(t)
-  }, [restBase, nonce, referrerQuery, userId])
+  }, [restBase, referrerQuery, userId])
 
   const runMut = useCallback(
     async (op: string, params: Record<string, unknown>, okMsg?: string) => {

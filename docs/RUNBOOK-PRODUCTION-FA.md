@@ -11,13 +11,22 @@
 | `mysql` | دیتابیس |
 | `redis` | cache, queue, rate limit |
 | `scheduler` | `php artisan schedule:run` هر دقیقه — **الزامی** |
-| `queue-worker` (profile workers) | پردازش queue (`php artisan queue:work redis`) |
+| `queue-worker` (profile `workers`) | پردازش queue (`php artisan queue:work redis`) — **الزامی** برای broadcast/bulk/webhook drain |
 
 ```bash
 cd backend
 docker compose up -d mysql redis app web scheduler
 docker compose --profile workers up -d queue-worker   # در صورت نیاز
 ```
+
+## Observability smoke
+
+```bash
+SVP_BASE_URL=https://your-host SVP_HEALTH_DEEP_TOKEN=... backend/scripts/ops/alert-smoke.sh
+SVP_BASE_URL=https://your-host SVP_LOAD_REQUESTS=100 backend/scripts/ops/load-smoke.sh
+```
+
+Nightly soak artifact: `.github/workflows/nightly-soak.yml` (۵ دقیقه؛ production ۲۴h با `SVP_SOAK_DURATION_SEC=86400`).
 
 ## Health checks
 

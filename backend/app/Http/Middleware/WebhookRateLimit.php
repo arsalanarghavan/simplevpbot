@@ -18,7 +18,7 @@ class WebhookRateLimit
         $limit = $this->limitFor($request, $bucket);
 
         if ($limit > 0 && ! $this->allow($key, $limit)) {
-            return response()->json(['ok' => false], 429);
+            return response()->json(svp_err('rate_limited'), 429);
         }
 
         return $next($request);
@@ -38,10 +38,18 @@ class WebhookRateLimit
     protected function limitFor(Request $request, string $bucket): int
     {
         if ($bucket === 'reseller') {
-            return (int) $this->settings->get('webhook_reseller_rate_limit_per_min', 60);
+            $env = (int) config('svp.webhook_reseller_rate_limit_per_min', 0);
+
+            return $env > 0
+                ? $env
+                : (int) $this->settings->get('webhook_reseller_rate_limit_per_min', 60);
         }
 
-        return (int) $this->settings->get('webhook_rate_limit_per_min', 120);
+        $env = (int) config('svp.webhook_rate_limit_per_min', 0);
+
+        return $env > 0
+            ? $env
+            : (int) $this->settings->get('webhook_rate_limit_per_min', 120);
     }
 
     protected function allow(string $bucketKey, int $limit): bool
@@ -57,7 +65,11 @@ class WebhookRateLimit
 
     protected function clientIp(Request $request): string
     {
-        if ($this->settings->get('rate_limit_trust_forwarded_for', false)) {
+        $trust = config('svp.rate_limit_trust_forwarded_for', false);
+        if (! $trust) {
+            $trust = (bool) $this->settings->get('rate_limit_trust_forwarded_for', false);
+        }
+        if ($trust) {
             foreach (['CF-Connecting-IP', 'X-Real-IP', 'X-Forwarded-For'] as $header) {
                 $raw = trim(explode(',', (string) $request->header($header))[0]);
                 if ($raw !== '' && filter_var($raw, FILTER_VALIDATE_IP)) {

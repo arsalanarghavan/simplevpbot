@@ -157,14 +157,15 @@ class DashboardBootBuilder
     /** @return array<string, mixed> */
     protected function brandingPayload(): array
     {
+        $packed = \App\Services\BrandingResolver::packFromSettings($this->settings);
         $whitelabel = $this->settings->get('whitelabel', []);
-        if (! is_array($whitelabel)) {
-            $whitelabel = [];
+        if (is_array($whitelabel) && ! empty($whitelabel['cssVariables']) && is_array($whitelabel['cssVariables'])) {
+            $packed['cssVariables'] = $whitelabel['cssVariables'];
         }
 
         return [
-            'cssVariables' => $whitelabel['cssVariables'] ?? [],
-            'customDomain' => $whitelabel['customDomain'] ?? '',
+            'cssVariables' => $packed['cssVariables'] ?? [],
+            'customDomain' => (string) ($packed['customDomain'] ?? ''),
         ];
     }
 

@@ -71,4 +71,12 @@ class GroupDBotSettingsAcceptanceTest extends TestCase
             'surfaces' => [],
         ])->assertForbidden();
     }
+
+    public function test_reseller_bots_tab_in_state(): void
+    {
+        $this->actingAsAdmin();
+        $this->getJson('/api/v1/admin/state?tab=reseller_bots')
+            ->assertOk()
+            ->assertJsonStructure(['botsList']);
+    }
 }

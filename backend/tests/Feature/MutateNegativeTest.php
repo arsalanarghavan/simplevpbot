@@ -32,4 +32,29 @@ class MutateNegativeTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('ok', false);
     }
+
+    public function test_invalid_settings_tab_rejected(): void
+    {
+        $this->actingAsAdmin()->postJson('/api/v1/admin/mutate', [
+            'op' => 'settings_tab',
+            'tab' => 'not_a_tab',
+        ])->assertOk()->assertJsonPath('ok', false);
+    }
+
+    public function test_reseller_configs_client_without_perm(): void
+    {
+        $this->actingAsReseller()->postJson('/api/v1/admin/mutate', [
+            'op' => 'configs_client_toggle_enable',
+            'client_id' => 1,
+            'enabled' => false,
+        ])->assertOk()->assertJsonPath('ok', false);
+    }
+
+    public function test_relay_mutate_blocked_when_module_off(): void
+    {
+        config(['svp.modules.relay' => false]);
+        $this->actingAsAdmin()->postJson('/api/v1/admin/mutate', [
+            'op' => 'telegram_relay_sync_tenant',
+        ])->assertOk()->assertJsonPath('message', 'module_disabled');
+    }
 }

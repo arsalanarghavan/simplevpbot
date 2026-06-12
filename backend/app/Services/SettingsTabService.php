@@ -4,6 +4,23 @@ namespace App\Services;
 
 class SettingsTabService
 {
+    /** Tabs whose keys are also mirrored flat (WP `svp_settings` parity). */
+    /** @var list<string> */
+    protected const FLAT_MIRROR_TABS = [
+        'general',
+        'referral',
+        'whitelabel',
+        'resellers_defaults',
+        'finance',
+        'proxy',
+        'relay',
+        'service_naming',
+        'bots',
+        'plans_catalog',
+        'cards',
+        'force_join',
+        'receipts',
+    ];
     /** @var list<string> */
     protected const ALLOWED_TABS = [
         'general',
@@ -72,7 +89,7 @@ class SettingsTabService
                 continue;
             }
             $this->settings->set("{$tab}.{$safeKey}", $value);
-            if (in_array($safeKey, $flatMirror, true)) {
+            if (in_array($safeKey, $flatMirror, true) || in_array($tab, self::FLAT_MIRROR_TABS, true)) {
                 $this->settings->set($safeKey, $value);
             }
             if ($tab === 'backup' && $safeKey === 'backup_interval_minutes') {
@@ -81,6 +98,10 @@ class SettingsTabService
             if ($tab === 'resellers_defaults' && $safeKey === 'permissions') {
                 $this->settings->set('resellers_defaults', ['permissions' => $value]);
             }
+        }
+
+        if ($tab === 'whitelabel') {
+            $this->settings->set('whitelabel', BrandingResolver::packFromSettings($this->settings));
         }
 
         return true;

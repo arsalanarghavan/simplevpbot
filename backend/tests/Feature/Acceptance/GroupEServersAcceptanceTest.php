@@ -59,4 +59,17 @@ class GroupEServersAcceptanceTest extends TestCase
             ->assertOk()
             ->assertJsonStructure(['panels', 'pagination']);
     }
+
+    public function test_panel_xp_create_mutate(): void
+    {
+        $this->actingAsAdmin()->postJson('/api/v1/admin/mutate', [
+            'op' => 'panel_xp',
+            'label' => 'Acceptance Panel',
+            'panel_url' => 'https://panel.acceptance.test',
+            'panel_username' => 'admin',
+            'panel_password' => 'secret',
+        ])->assertOk()->assertJsonPath('ok', true);
+
+        $this->assertDatabaseHas('svp_panels', ['label' => 'Acceptance Panel']);
+    }
 }

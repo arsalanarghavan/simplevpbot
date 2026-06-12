@@ -29,7 +29,17 @@ jobs:
           grep -q svp:purge_expired /tmp/schedule-list.txt
           grep -q svp:inbound_queue_drain /tmp/schedule-list.txt
       - name: Cutover preflight smoke
-        run: bash scripts/ops/cutover-preflight.sh
+        run: |
+          SVP_BASE_URL=http://127.0.0.1:8097 php artisan serve --host=127.0.0.1 --port=8097 &
+          sleep 2
+          bash scripts/ops/cutover-preflight.sh
+          kill %1 || true
+      - name: Upload cutover preflight log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cutover-preflight-log
+          path: ../docs/evidence/cutover-preflight-*.log
       - name: Smoke soak (short)
         run: |
           php artisan serve --host=127.0.0.1 --port=8099 &
@@ -41,7 +51,13 @@ jobs:
         run: |
           php artisan serve --host=127.0.0.1 --port=8098 &
           sleep 2
-          SVP_BASE_URL=http://127.0.0.1:8098 SVP_LOAD_REQUESTS=20 bash scripts/ops/load-smoke.sh
+          SVP_BASE_URL=http://127.0.0.1:8098 SVP_LOAD_REQUESTS=100 bash scripts/ops/load-smoke.sh
+          kill %1 || true
+      - name: Alert smoke
+        run: |
+          php artisan serve --host=127.0.0.1 --port=8100 &
+          sleep 2
+          SVP_BASE_URL=http://127.0.0.1:8100 bash scripts/ops/alert-smoke.sh
           kill %1 || true
 
   docker-smoke:
@@ -99,7 +115,7 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
       - name: Build dashboard SPA
-        run: npm run build
+        run: bash ../scripts/build-frontend.sh
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:

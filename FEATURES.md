@@ -1,6 +1,19 @@
 # گزارش جامع وضعیت پنل نماینده و ربات مستقل
 
-**آخرین به‌روزرسانی:** پس از فازهای ۱–۶ (backfill مالی، اعلان مرکزی، رمزنگاری توکن، متن per-reseller، گیت تب‌ها).
+**آخرین به‌روزرسانی:** **Laravel backend v8** — NavTabsBuilder parity، RBAC `configs_client_*`، webhook drain IP gate، module boot topological، `BrandingResolver` + CSS vars editor، settings_tab flat mirror، impersonate stop admin-only، CI load 100 + alert-smoke + deploy artifact workflow، acceptance/mutate tests گسترش‌یافته.
+
+## Laravel dashboard (spec v7 — خلاصه)
+
+| بخش | وضعیت |
+|-----|--------|
+| 141/141 mutate handlers | ✅ |
+| Module gates (xui, marketing, relay, backup) | ✅ HTTP + schedule |
+| Reseller RBAC HTTP (`services.manage`, `users.bulk`) | ✅ middleware |
+| CSRF Sanctum + frontend nonce cleanup | ✅ |
+| User portal `/me/portal` | ✅ |
+| CI: test + preflight + soak + load + frontend build | ✅ |
+| Cutover evidence | `docs/evidence/` + CI artifacts |
+| WP `includes/` decommission | ⏳ پس از `CONFIRM=1` اپراتور |
 
 راهنمای عملیاتی: [RESELLER_SETUP.md](RESELLER_SETUP.md)
 

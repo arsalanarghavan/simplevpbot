@@ -19,5 +19,6 @@ Route::prefix('api/v1')->group(function () {
     Route::post('webhook/{platform}/reseller/{resellerId}/{secret}', [WebhookController::class, 'reseller'])
         ->whereNumber('resellerId')
         ->middleware([WebhookRateLimit::class.':ip', WebhookRateLimit::class.':reseller']);
-    Route::post('webhook-queue/drain', [WebhookController::class, 'drain']);
+    Route::post('webhook-queue/drain', [WebhookController::class, 'drain'])
+        ->middleware('webhook.drain.internal');
 });

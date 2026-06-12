@@ -1915,6 +1915,8 @@
       "faviconUrl": "آدرس فاویکون",
       "themePrimary": "رنگ اصلی (hex)",
       "themeAccent": "رنگ تأکید (hex)",
+      "cssVariablesCustom": "متغیرهای CSS سفارشی",
+      "cssVariablesCustomHint": "هر خط: --نام-متغیر: مقدار (مثلاً --svp-sidebar-width: 280px)",
       "customDomain": "دامنه اختصاصی (فقط hostname)",
       "customDomainHint": "CNAME این دامنه به همان هاست وردپرس؛ بازدیدکننده به /dashboard/ هدایت می‌شود",
       "defaultLocale": "زبان پیش‌فرض ربات",

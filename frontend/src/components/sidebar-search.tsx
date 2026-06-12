@@ -55,7 +55,6 @@ export type DashboardSearchProps = {
   onSelectTab: (tabKey: string) => void
   onOpenUserDetail?: (id: number) => void
   restUrl?: string
-  nonce?: string
   sections?: AdminNavSection[]
 }
 
@@ -65,7 +64,6 @@ export function DashboardSearch({
   onSelectTab,
   onOpenUserDetail,
   restUrl,
-  nonce,
   sections = ADMIN_NAV_SECTIONS,
 }: DashboardSearchProps) {
   const { isFa, dir } = useDashLocale()
@@ -74,21 +72,7 @@ export function DashboardSearch({
   const [userHits, setUserHits] = useState<DashRecord[]>([])
   const [userLoading, setUserLoading] = useState(false)
   const { t } = useTranslation()
-  const rows = useMemo(() => {
-    if (sections === ADMIN_NAV_SECTIONS) return flattenNavForSearch()
-    const out: { tabKey: string; sectionHintKey: string; parentLabelKey?: string }[] = []
-    for (const sec of sections) {
-      for (const ent of sec.entries) {
-        if (ent.kind === "leaf") out.push({ tabKey: ent.tabKey, sectionHintKey: sec.hintKey })
-        else {
-          for (const ch of ent.children) {
-            out.push({ tabKey: ch.tabKey, sectionHintKey: sec.hintKey, parentLabelKey: ent.labelKey })
-          }
-        }
-      }
-    }
-    return out
-  }, [sections])
+  const rows = useMemo(() => flattenNavForSearch(sections), [sections])
 
   const bySection = useMemo(() => {
     const m = new Map<string, typeof rows>()
@@ -101,9 +85,7 @@ export function DashboardSearch({
   const itemLabel = (tabKey: string) =>
     t(`sidebar.items.${tabKey}`, { defaultValue: tabKey })
 
-  const canUserSearch = Boolean(
-    onOpenUserDetail && restUrl && nonce && String(nonce).length > 0
-  )
+  const canUserSearch = Boolean(onOpenUserDetail && restUrl)
 
   useEffect(() => {
     if (!open) {
@@ -148,7 +130,7 @@ export function DashboardSearch({
       window.clearTimeout(timer)
       ctrl.abort()
     }
-  }, [canUserSearch, open, paletteQuery, restUrl, nonce])
+  }, [canUserSearch, open, paletteQuery, restUrl])
 
   const triggerLabel = t("sidebar.search.trigger")
   const isHeader = placement === "header"

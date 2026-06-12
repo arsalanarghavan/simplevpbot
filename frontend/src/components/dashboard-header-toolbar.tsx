@@ -20,7 +20,6 @@ export type DashboardHeaderToolbarProps = {
   onToggleTheme: () => void
   uiAccent?: string | null
   restUrl?: string
-  nonce?: string
   className?: string
 }
 
@@ -36,7 +35,6 @@ export function DashboardHeaderToolbar({
   onToggleTheme,
   uiAccent,
   restUrl,
-  nonce,
   className,
 }: DashboardHeaderToolbarProps) {
   const { t } = useTranslation()
@@ -113,7 +111,7 @@ export function DashboardHeaderToolbar({
           {langLabel}
         </Button>
       )}
-      <AccentMenu initialAccent={uiAccent} restUrl={restUrl} nonce={nonce} />
+      <AccentMenu initialAccent={uiAccent} restUrl={restUrl} />
       <Button
         variant="outline"
         size="icon"

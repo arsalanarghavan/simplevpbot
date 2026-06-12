@@ -15,10 +15,12 @@ class NavTabsBuilder
         ];
         if ($modules->isEnabled('telegram') || $modules->isEnabled('bale')) {
             $tabs[] = ['key' => 'bots', 'label' => 'ربات‌ها'];
+            $tabs[] = ['key' => 'bot_ui', 'label' => 'استودیوی UI ربات'];
         }
         if ($modules->isEnabled('xui_panel')) {
             $tabs[] = ['key' => 'xui_panels', 'label' => 'پنل‌های 3x-ui'];
             $tabs[] = ['key' => 'configs', 'label' => 'کانفیگ‌ها'];
+            $tabs[] = ['key' => 'unit_economics', 'label' => 'اقتصاد واحد'];
         }
         $tabs = array_merge($tabs, [
             ['key' => 'plan_cats', 'label' => 'دسته‌های خرید'],
@@ -37,6 +39,7 @@ class NavTabsBuilder
             ['key' => 'broadcast', 'label' => 'پیام همگانی'],
             ['key' => 'texts', 'label' => 'متن‌ها'],
             ['key' => 'users', 'label' => 'کاربران'],
+            ['key' => 'users_bulk', 'label' => 'عملیات گروهی'],
         ]);
         if ($modules->isEnabled('backup')) {
             $tabs[] = ['key' => 'backup', 'label' => 'بکاپ'];
@@ -53,6 +56,9 @@ class NavTabsBuilder
         if ($modules->isEnabled('reseller')) {
             $tabs[] = ['key' => 'resellers', 'label' => 'نمایندگان'];
             $tabs[] = ['key' => 'reseller_bots', 'label' => 'ربات‌های نماینده'];
+            $tabs[] = ['key' => 'reseller_xui_panels', 'label' => 'پنل‌های نماینده'];
+            $tabs[] = ['key' => 'reseller_charge', 'label' => 'شارژ نماینده'];
+            $tabs[] = ['key' => 'reseller_settings', 'label' => 'تنظیمات نماینده'];
         }
         $tabs[] = ['key' => 'audit', 'label' => 'ممیزی'];
 

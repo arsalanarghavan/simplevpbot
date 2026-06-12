@@ -1915,6 +1915,8 @@
       "faviconUrl": "Favicon URL",
       "themePrimary": "Primary color (hex)",
       "themeAccent": "Accent color (hex)",
+      "cssVariablesCustom": "Custom CSS variables",
+      "cssVariablesCustomHint": "One per line: --var-name: value (e.g. --svp-sidebar-width: 280px)",
       "customDomain": "Custom domain (hostname only)",
       "customDomainHint": "CNAME this host to your WordPress site; visitors are redirected to /dashboard/",
       "defaultLocale": "Default bot locale",

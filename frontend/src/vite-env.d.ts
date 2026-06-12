@@ -8,13 +8,10 @@ declare module "*.svg" {
 interface Window {
   __SIMPLEVPBOT_DASH__?: {
     restUrl?: string
-    nonce?: string
     lang?: "fa" | "en"
     locale?: string
     isRtl?: boolean
-    /** When false, SPA shows login only (no wp_rest nonce). */
     isLoggedIn?: boolean
-    loginNonce?: string
     isAdmin?: boolean
     isReseller?: boolean
     activePersona?: "admin" | "reseller" | "user"

@@ -270,7 +270,12 @@ export function DashboardBotsAdmin({
 
   const tgUser = String(s.telegram_bot_username ?? "")
   const baleUser = String(s.bale_bot_username ?? "")
+  const relayFeatureOn = (() => {
+    const f = s.features
+    return !!(f && typeof f === "object" && (f as Record<string, unknown>).relay === true)
+  })()
   const relayOn =
+    relayFeatureOn &&
     (bool(s.telegram_relay_enabled) || bool(s.telegram_relay_force)) &&
     String(s.telegram_relay_admin_url || s.telegram_relay_base_url || s.telegram_relay_public_url || "").trim() !== ""
 

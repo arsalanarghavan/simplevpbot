@@ -12,7 +12,7 @@ class EnsureAdminOrReseller
     {
         $user = $request->user();
         if (! $user || ! in_array($user->role, ['admin', 'reseller'], true)) {
-            return response()->json(svp_err('Forbidden'), 403);
+            return response()->json(svp_err('forbidden'), 403);
         }
 
         return $next($request);

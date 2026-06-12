@@ -11,7 +11,14 @@ class ModuleBootstrapServiceProvider extends ServiceProvider
     {
         $this->app->singleton(ModuleManager::class);
 
-        foreach (config('modules.modules', []) as $module) {
+        $manager = $this->app->make(ModuleManager::class);
+        $modules = config('modules.modules', []);
+
+        foreach ($manager->bootOrder() as $key) {
+            $module = $modules[$key] ?? null;
+            if (! is_array($module)) {
+                continue;
+            }
             $provider = $module['provider'] ?? null;
             if (is_string($provider) && class_exists($provider)) {
                 $this->app->register($provider);

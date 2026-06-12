@@ -166,10 +166,10 @@ export async function postAdminMutate(
 }
 
 /**
- * GET helper for dashboard admin REST (nonce + credentials).
+ * GET helper for dashboard admin REST (Sanctum cookie + CSRF).
  */
 /**
- * Download a site-stored backup zip via admin REST (cookie + nonce).
+ * Download a site-stored backup zip via admin REST (cookie + CSRF).
  */
 export async function downloadAdminBackupFile(filename: string): Promise<{ ok: boolean; message?: string }> {
   const boot = window.__SIMPLEVPBOT_DASH__ || {}
@@ -226,7 +226,7 @@ export async function getAdminJson(path: string, query: Record<string, string | 
 }
 
 /**
- * POST helper for dashboard admin REST (nonce + credentials).
+ * POST helper for dashboard admin REST (Sanctum cookie + CSRF).
  */
 export async function postAdminJson(
   path: string,

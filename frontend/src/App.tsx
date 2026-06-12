@@ -709,7 +709,6 @@ function App() {
     onToggleTheme: () => setTheme(theme === "dark" ? "light" : "dark"),
     uiAccent: boot.uiAccent,
     restUrl: String(boot.restUrl ?? ""),
-    nonce: String(boot.nonce ?? ""),
   }
 
   const mobileHeaderToolbar = (
@@ -754,7 +753,6 @@ function App() {
               onSelectTab={selectTab}
               onOpenUserDetail={openUserDetail}
               restUrl={String(boot.restUrl ?? "")}
-              nonce={String(boot.nonce ?? "")}
               sections={isReseller ? operatorNavSections : adminNavSections}
             />
           ) : (
@@ -783,7 +781,6 @@ function App() {
               onSelectTab={selectTab}
               onOpenUserDetail={openUserDetail}
               restUrl={String(boot.restUrl ?? "")}
-              nonce={String(boot.nonce ?? "")}
               sections={isReseller ? operatorNavSections : adminNavSections}
             />
           </div>

@@ -1,0 +1,29 @@
+name: Deploy artifact
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - frontend/**
+      - scripts/build-frontend.sh
+      - assets/dashboard/**
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build dashboard SPA
+        run: bash scripts/build-frontend.sh
+      - name: Upload dashboard dist for nginx volume
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-dist-deploy
+          path: assets/dashboard/dist/
+          retention-days: 30

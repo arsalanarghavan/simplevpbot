@@ -8,7 +8,7 @@
 |------|---------|----------|
 | CI preflight | `backend/scripts/ops/cutover-preflight.sh` (GitHub Actions `backend` job) | `docs/evidence/cutover-preflight-YYYY-MM-DD.log` |
 | CI short soak | `SVP_SOAK_DURATION_SEC=30 soak-24h.sh` | workflow log |
-| CI load smoke | `SVP_LOAD_REQUESTS=20 load-smoke.sh` | workflow log |
+| CI load smoke | `SVP_LOAD_REQUESTS=100 load-smoke.sh` | workflow log |
 | Nightly soak | `.github/workflows/nightly-soak.yml` | `docs/evidence/soak-nightly-YYYY-MM-DD.log` artifact |
 | Import verify only | `SVP_MYSQL_DSN=... backend/scripts/ops/import-verify.sh` | `docs/evidence/import-verify-YYYY-MM-DD.log` |
 | Import + verify | `SVP_MYSQL_DSN=... backend/scripts/ops/staging-cutover-runbook.sh` | log output |
@@ -32,3 +32,10 @@
 Runbook: [`CUTOVER-STAGING-FA.md`](CUTOVER-STAGING-FA.md) + DNS change ticket.
 
 Operator / date: _______________
+
+## v8 code readiness (automated)
+
+- [x] CI: PHPUnit, cutover preflight artifact, soak 30s, load 100 req
+- [x] Module boot topological order + webhook drain IP gate
+- [x] NavTabsBuilder parity (users_bulk, bot_ui, unit_economics, reseller_*)
+- [ ] `includes/` removal — pending `CONFIRM=1 remove-includes-from-main.sh`

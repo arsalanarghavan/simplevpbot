@@ -66,6 +66,13 @@ class MutatePolicyService
         'users_bulk_job_cancel' => 'users.bulk',
         'users_bulk_job_resume' => 'users.bulk',
         'reseller_wallet_topup_checkout' => 'plans.manage',
+        'configs_client_toggle_enable' => 'services.manage',
+        'configs_client_reset_traffic' => 'services.manage',
+        'configs_client_delete' => 'services.manage',
+        'configs_delete_expired_linked' => 'services.manage',
+        'configs_panel_client_patch' => 'services.manage',
+        'configs_clients_batch' => 'services.manage',
+        'configs_assign_plan' => 'services.manage',
     ];
 
     /** @var list<string> */

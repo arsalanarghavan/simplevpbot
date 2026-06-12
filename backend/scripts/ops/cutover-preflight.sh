@@ -13,8 +13,10 @@ mkdir -p "$(dirname "$LOG")"
   echo "== artisan commands =="
   php artisan --version
   php artisan schedule:list | tee /tmp/svp-schedule.txt
-  for job in svp:expiry svp:purge_expired svp:inbound_queue_drain svp:backup; do
-    grep -q "$job" /tmp/svp-schedule.txt && echo "OK schedule: $job" || echo "MISSING schedule: $job"
+  for job in svp:backup svp:purge_expired svp:broadcast svp:users_bulk svp:panel_online \
+    svp:panel_service_sync svp:inbound_clients_cache svp:expiry svp:autorenew svp:idle_offers \
+    svp:marketing svp:admin_alerts svp:panel_economics_renewal svp:inbound_queue_drain; do
+    grep -q "$job" /tmp/svp-schedule.txt && echo "OK schedule: $job" || echo "SKIP/MISSING schedule: $job"
   done
   echo "== ops scripts executable =="
   for s in import-run.sh import-verify.sh post-import-ops.sh staging-cutover-runbook.sh soak-24h.sh; do

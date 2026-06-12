@@ -34,6 +34,8 @@ class GroupAcceptanceExtendedTest extends TestCase
         $this->assertIsArray($res);
         $this->assertArrayHasKey('users_total', $res);
         $this->assertGreaterThanOrEqual(1, (int) ($res['users_total'] ?? 0));
+        $this->assertArrayHasKey('panels_total', $res);
+        $this->assertArrayHasKey('receipts_pending', $res);
     }
 
     public function test_refresh_panel_health_query_accepted(): void
@@ -171,7 +173,7 @@ class GroupAcceptanceExtendedTest extends TestCase
     public function test_audit_filter_event_type(): void
     {
         $this->actingAsAdmin();
-        $this->getJson('/api/v1/admin/audit?domain=mutate&event_type=impersonation_start&limit=5')
+        $this->getJson('/api/v1/admin/audit?domain=mutate&event_type=impersonation.start&limit=5')
             ->assertOk()
             ->assertJsonStructure(['rows', 'pagination']);
     }

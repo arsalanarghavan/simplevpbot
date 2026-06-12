@@ -28,6 +28,8 @@ class WebhookRateLimitTest extends TestCase
         $payload = ['update_id' => 1, 'message' => ['from' => ['id' => 1], 'chat' => ['id' => 1]]];
         $this->postJson('/api/v1/webhook/telegram/sec', $payload)->assertOk();
         $this->postJson('/api/v1/webhook/telegram/sec', $payload)->assertOk();
-        $this->postJson('/api/v1/webhook/telegram/sec', $payload)->assertStatus(429);
+        $this->postJson('/api/v1/webhook/telegram/sec', $payload)
+            ->assertStatus(429)
+            ->assertJsonPath('message', 'rate_limited');
     }
 }

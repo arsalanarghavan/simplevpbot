@@ -36,7 +36,7 @@ class LoginRateLimitTest extends TestCase
         $this->postJson('/api/v1/auth/login', [
             'username' => 'wrong',
             'password' => 'wrong',
-        ])->assertStatus(429)->assertJson(['code' => 'rate_limited']);
+        ])->assertStatus(429)->assertJsonPath('message', 'rate_limited');
     }
 
     public function test_successful_login_not_blocked_after_failures_below_limit(): void

@@ -23,7 +23,7 @@ class RelayModuleGateTest extends TestCase
         $this->disableRelay();
         $this->actingAsAdmin()->postJson('/api/v1/admin/mutate', [
             'op' => 'telegram_relay_test',
-        ])->assertForbidden()->assertJsonPath('message', 'module_missing');
+        ])->assertForbidden()->assertJsonPath('message', 'module_disabled');
     }
 
     protected function actingAsAdmin(): static
