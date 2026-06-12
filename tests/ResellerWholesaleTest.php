@@ -95,7 +95,7 @@ class ResellerWholesaleTest extends TestCase {
 	 * Plans admin shows wholesale ladder for reseller mode.
 	 */
 	public function test_plans_admin_wholesale_ladder(): void {
-		$code = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-plans-admin.tsx' );
+		$code = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-plans-admin.tsx' );
 		$this->assertStringContainsString( 'wholesaleLadderTitle', $code );
 	}
 
@@ -103,7 +103,7 @@ class ResellerWholesaleTest extends TestCase {
 	 * Plan form sends optional wholesale_line_id for accrual wiring.
 	 */
 	public function test_plans_admin_wholesale_line_picker(): void {
-		$code = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-plans-admin.tsx' );
+		$code = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-plans-admin.tsx' );
 		$this->assertStringContainsString( 'wholesale_line_id', $code );
 		$this->assertStringContainsString( 'wholesaleLine', $code );
 		$this->assertStringContainsString( 'wholesaleLinesForPanel', $code );
@@ -156,7 +156,7 @@ class ResellerWholesaleTest extends TestCase {
 	 * Plan form validates wholesale line when multiple lines on panel.
 	 */
 	public function test_plans_admin_wholesale_line_validation(): void {
-		$code = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-plans-admin.tsx' );
+		$code = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-plans-admin.tsx' );
 		$this->assertStringContainsString( 'wholesaleLinesOnPanel > 1', $code );
 		$this->assertStringContainsString( 'validationWholesaleLine', $code );
 	}
@@ -191,9 +191,9 @@ class ResellerWholesaleTest extends TestCase {
 	 * Plans UI maps wholesale_line_required and mutate errors i18n (Round 3).
 	 */
 	public function test_round3_ui_i18n_wiring(): void {
-		$plans = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-plans-admin.tsx' );
-		$mut   = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/lib/dash-admin-mutate.ts' );
-		$loc   = (string) file_get_contents( dirname( __DIR__ ) . '/shared/locales/dashboard.ts' );
+		$plans = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-plans-admin.tsx' );
+		$mut   = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/lib/dash-admin-mutate.ts' );
+		$loc   = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/shared/locales/dashboard.ts' );
 		$this->assertStringContainsString( 'errorCode_wholesale_line_required', $plans );
 		$this->assertStringContainsString( 'wholesaleLadderPerGb', $plans );
 		$this->assertStringContainsString( 'forbidden_op', $mut );
@@ -222,8 +222,8 @@ class ResellerWholesaleTest extends TestCase {
 		$this->assertStringContainsString( "'renew_same'", $code );
 		$this->assertStringContainsString( 'SimpleVPBot_Model_Plan::is_per_gb( $plan )', $code );
 		$this->assertStringContainsString( 'return;', $code );
-		$plans = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-plans-admin.tsx' );
-		$loc   = (string) file_get_contents( dirname( __DIR__ ) . '/shared/locales/dashboard.ts' );
+		$plans = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-plans-admin.tsx' );
+		$loc   = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/shared/locales/dashboard.ts' );
 		$this->assertStringContainsString( 'wholesaleLadderRenewNote', $plans );
 		$this->assertStringContainsString( 'wholesaleLadderRenewNote', $loc );
 	}
@@ -257,7 +257,7 @@ class ResellerWholesaleTest extends TestCase {
 	 * Client tab fallback includes reseller_settings (Round 5).
 	 */
 	public function test_app_reseller_settings_fallback(): void {
-		$app = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/App.tsx' );
+		$app = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/App.tsx' );
 		$this->assertStringContainsString( 'reseller_settings: null', $app );
 	}
 
@@ -265,7 +265,7 @@ class ResellerWholesaleTest extends TestCase {
 	 * Client tab fallback includes reseller_reports for permitted resellers.
 	 */
 	public function test_app_reseller_reports_fallback(): void {
-		$app = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/App.tsx' );
+		$app = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/App.tsx' );
 		$this->assertStringContainsString( 'reseller_reports: "users.manage"', $app );
 	}
 
@@ -273,7 +273,7 @@ class ResellerWholesaleTest extends TestCase {
 	 * Reseller nav injects reseller_reports when tab is allowed (not admin-only hidden).
 	 */
 	public function test_reseller_reports_nav_injection_contract(): void {
-		$nav = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/config/admin-nav.ts' );
+		$nav = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/config/admin-nav.ts' );
 		$this->assertDoesNotMatchRegularExpression(
 			'/ADMIN_ONLY_TAB_KEYS[\s\S]*"reseller_reports"/',
 			$nav

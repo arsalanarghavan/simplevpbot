@@ -64,10 +64,10 @@ class CardRotationTest extends TestCase {
 	 */
 	public function test_dashboard_ui_random_mode(): void {
 		$root = dirname( __DIR__ );
-		$tsx  = (string) file_get_contents( $root . '/dashboard-ui/src/components/dashboard-cards-admin.tsx' );
+		$tsx  = (string) file_get_contents( $root . '/frontend/src/components/dashboard-cards-admin.tsx' );
 		$this->assertStringContainsString( 'value="random"', $tsx );
 		$this->assertStringContainsString( 'parseCardsDisplayMode', $tsx );
-		$wl = (string) file_get_contents( $root . '/dashboard-ui/src/components/site-settings/site-settings-whitelabel-tab.tsx' );
+		$wl = (string) file_get_contents( $root . '/frontend/src/components/site-settings/site-settings-whitelabel-tab.tsx' );
 		$this->assertStringContainsString( 'value="random"', $wl );
 	}
 

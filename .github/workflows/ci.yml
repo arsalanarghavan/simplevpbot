@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: dom, mbstring, pdo_sqlite, xml, xmlwriter
+          coverage: none
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
+      - name: Run PHPUnit
+        run: php artisan test
+      - name: Smoke soak (short)
+        run: |
+          php artisan serve --host=127.0.0.1 --port=8099 &
+          sleep 2
+          SVP_BASE_URL=http://127.0.0.1:8099 SVP_SOAK_DURATION_SEC=30 SVP_SOAK_INTERVAL_SEC=5 \
+            bash scripts/ops/soak-24h.sh
+          kill %1 || true
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker compose config validate
+        run: docker compose -f backend/docker-compose.yml config >/dev/null
+      - name: Portal assets sync check
+        run: diff -q assets/portal.js backend/public/portal/portal.js
+      - name: Docker compose up health smoke
+        run: |
+          cd backend
+          cp .env.example .env
+          docker compose run --rm app php artisan key:generate --force
+          docker compose up -d mysql redis app web
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health/ready >/dev/null 2>&1; then
+              echo "health/ready OK"
+              docker compose down
+              exit 0
+            fi
+            sleep 5
+          done
+          docker compose logs
+          docker compose down
+          exit 1
+
+  relay:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: relay-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npm test
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install npm dependencies
+        run: npm ci
+      - name: Build dashboard SPA
+        run: npm run build
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist

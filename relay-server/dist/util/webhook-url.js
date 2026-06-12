@@ -1,6 +1,13 @@
 export function normalizePublicBase(url) {
     return String(url || "").replace(/\/$/, "");
 }
+/** Laravel API base for webhook forward (laravel_base_url with wp_base_url fallback). */
+export function laravelForwardBase(tenant) {
+    const laravel = normalizePublicBase(tenant.laravel_base_url || "");
+    if (laravel)
+        return laravel;
+    return normalizePublicBase(tenant.wp_base_url || "");
+}
 export function publicBaseForReseller(tenant, prof) {
     const u = prof.relay_public_url || tenant.default_public_url;
     return normalizePublicBase(u);

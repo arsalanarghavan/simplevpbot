@@ -48,7 +48,7 @@ class BotDiagnosticsTest extends TestCase {
 	}
 
 	public function test_dashboard_ui_diagnostics_dialog_contract(): void {
-		$code = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-bot-diagnostics-dialog.tsx' );
+		$code = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-bot-diagnostics-dialog.tsx' );
 		$this->assertStringContainsString( 'bot_diagnostics', $code );
 		$this->assertStringContainsString( 'reveal_token', $code );
 		$this->assertStringContainsString( 'pending_update_count', $code );

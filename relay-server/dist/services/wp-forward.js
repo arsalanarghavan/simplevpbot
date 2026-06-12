@@ -71,3 +71,7 @@ export function enqueueForward(url, body, headers) {
 export function forwardQueueDepth() {
     return queue.length;
 }
+/** @internal test helper */
+export function peekForwardQueueUrls() {
+    return queue.map((j) => j.url);
+}

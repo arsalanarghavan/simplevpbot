@@ -1,6 +1,6 @@
 <?php
 /**
- * Loads shared JSON locale files (same source as dashboard-ui export).
+ * Loads shared JSON locale files (same source as frontend export).
  *
  * @package SimpleVPBot
  */
@@ -43,7 +43,7 @@ class SimpleVPBot_Shared_Catalog {
 		if ( isset( self::$trees[ $locale ] ) ) {
 			return self::$trees[ $locale ];
 		}
-		$path = SIMPLEVPBOT_PLUGIN_DIR . 'shared/locales/' . $locale . '.json';
+		$path = SIMPLEVPBOT_PLUGIN_DIR . 'frontend/shared/locales/' . $locale . '.json';
 		if ( ! is_readable( $path ) ) {
 			self::$trees[ $locale ] = array();
 			return self::$trees[ $locale ];

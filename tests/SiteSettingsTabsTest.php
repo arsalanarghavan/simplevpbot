@@ -69,7 +69,7 @@ class SiteSettingsTabsTest extends TestCase {
 	 * Dashboard UI hub component and subtabs exist.
 	 */
 	public function test_dashboard_ui_files(): void {
-		$root = dirname( __DIR__ ) . '/dashboard-ui/src';
+		$root = dirname( __DIR__ ) . '/frontend/src';
 		$this->assertFileExists( $root . '/components/dashboard-site-settings-admin.tsx' );
 		foreach (
 			array(

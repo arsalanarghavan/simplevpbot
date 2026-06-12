@@ -8,9 +8,9 @@ export function wpSetupGuide(showSecret: boolean): string {
   const relayUrl = `https://${primary.replace(/^https?:\/\//, "").split("/")[0]}`
   const tenant = listTenants()[0]
   const lines = [
-    "── WordPress relay setup ──",
+    "── Laravel relay setup ──",
     "",
-    "1. WordPress admin → Site settings → Telegram relay",
+    "1. Dashboard → Site settings → Telegram relay",
     "2. Enable relay and set Relay public URL:",
     `   ${relayUrl}`,
     "3. Set Shared secret to the master secret below (must match VPS .env)",
@@ -26,14 +26,14 @@ export function wpSetupGuide(showSecret: boolean): string {
 
   lines.push(
     "",
-    "4. Save settings, then click **Sync config** (stores tenant_id on WP)",
-    "5. Click **Sync domains** on WP, then add domains on VPS if needed",
+    "4. Save settings, then click **Sync config** (stores tenant_id on Laravel)",
+    "5. Click **Sync domains** on Laravel, then add domains on VPS if needed",
     "6. Click **Register webhook via relay** for main bot",
     "7. Resellers: optional per-bot relay URL → sync → set webhook",
     "",
     `Install dir: ${resolveInstallRoot()}`,
-    `Tenant on relay: ${tenant?.tenant_id || "(none — sync from WP first)"}`,
-    `WP URL: ${tenant?.wp_base_url || "n/a"}`,
+    `Tenant on relay: ${tenant?.tenant_id || "(none — sync from Laravel first)"}`,
+    `Laravel URL: ${tenant?.laravel_base_url || tenant?.wp_base_url || "n/a"}`,
     `Webhook path example: ${relayUrl}/webhook/telegram/<secret>`,
   )
   return lines.join("\n")

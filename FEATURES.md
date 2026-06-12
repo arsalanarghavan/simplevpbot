@@ -85,4 +85,4 @@
 
 ## پوشش بررسی
 
-`dashboard-ui/*`, `includes/api/*`, `includes/admin/*`, `includes/bot/*`, `includes/models/*`, `includes/helpers/class-bot-reseller-scope.php`, `class-user-notify.php`, `class-reseller-backfill.php`
+`frontend/*`, `includes/api/*`, `includes/admin/*`, `includes/bot/*`, `includes/models/*`, `includes/helpers/class-bot-reseller-scope.php`, `class-user-notify.php`, `class-reseller-backfill.php`

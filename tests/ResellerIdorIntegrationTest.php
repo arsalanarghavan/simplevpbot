@@ -111,7 +111,7 @@ class ResellerIdorIntegrationTest extends TestCase {
 	 * N-3: user detail SPA gates mutations by actor permissions.
 	 */
 	public function test_user_detail_permission_gates_in_spa(): void {
-		$view = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-user-detail-admin.tsx' );
+		$view = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-user-detail-admin.tsx' );
 		$this->assertStringContainsString( 'canManageUsers', $view );
 		$this->assertStringContainsString( 'canManageServices', $view );
 		$this->assertStringContainsString( 'actorPermissions', $view );
@@ -121,7 +121,7 @@ class ResellerIdorIntegrationTest extends TestCase {
 	 * L-1: notifications/logs hidden from reseller nav.
 	 */
 	public function test_admin_nav_blocks_notifications_logs(): void {
-		$nav = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/config/admin-nav.ts' );
+		$nav = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/config/admin-nav.ts' );
 		$this->assertMatchesRegularExpression(
 			'/ADMIN_ONLY_TAB_KEYS[\s\S]*"notifications"[\s\S]*"logs"/',
 			$nav

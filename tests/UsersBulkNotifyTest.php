@@ -41,7 +41,7 @@ class UsersBulkNotifyTest extends TestCase {
 	 */
 	public function test_dashboard_bulk_notify_ui(): void {
 		$ui = (string) file_get_contents(
-			dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-users-bulk-admin.tsx'
+			dirname( __DIR__ ) . '/frontend/src/components/dashboard-users-bulk-admin.tsx'
 		);
 		$this->assertStringContainsString( 'notifyMessage', $ui );
 		$this->assertStringContainsString( 'notify_message', $ui );

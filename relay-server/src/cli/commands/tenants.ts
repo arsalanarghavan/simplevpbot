@@ -2,10 +2,10 @@ import { getTenantById, listTenants, migrateLegacyConfigIfNeeded, tenantSummary 
 
 export function tenantsListText(): string {
   migrateLegacyConfigIfNeeded()
-  const lines: string[] = ["tenant_id\twp_base_url\tdomains"]
+  const lines: string[] = ["tenant_id\tlaravel_base_url\tdomains"]
   for (const t of listTenants()) {
     const s = tenantSummary(t)
-    lines.push(`${s.tenant_id}\t${s.wp_base_url}\t${s.domains.join(",")}`)
+    lines.push(`${s.tenant_id}\t${s.laravel_base_url}\t${s.domains.join(",")}`)
   }
   return lines.join("\n")
 }
@@ -22,7 +22,8 @@ export function tenantShowText(id: string): string | null {
   if (!data) return null
   const lines = [
     `Tenant: ${data.tenant_id}`,
-    `WP URL: ${data.wp_base_url}`,
+    `Laravel URL: ${(data.laravel_base_url as string) || data.wp_base_url}`,
+    `WP URL (deprecated): ${data.wp_base_url}`,
     `Public URL: ${data.default_public_url || "(default)"}`,
     `Config version: ${data.config_version}`,
     `Updated: ${data.updated_at || "n/a"}`,
@@ -37,6 +38,6 @@ export function tenantChoices(): { name: string; value: string }[] {
   migrateLegacyConfigIfNeeded()
   return listTenants().map((t) => {
     const s = tenantSummary(t)
-    return { name: `${s.tenant_id} (${s.wp_base_url})`, value: s.tenant_id }
+    return { name: `${s.tenant_id} (${s.laravel_base_url})`, value: s.tenant_id }
   })
 }

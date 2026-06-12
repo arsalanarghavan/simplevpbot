@@ -172,7 +172,7 @@ class BackupRestoreDashboardTest extends TestCase {
 	 * Dashboard UI calls restore endpoints.
 	 */
 	public function test_dashboard_backup_ui_contract(): void {
-		$code = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-backup-admin.tsx' );
+		$code = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-backup-admin.tsx' );
 		$this->assertStringContainsString( '/dashboard/admin/backups', $code );
 		$this->assertStringContainsString( '/dashboard/admin/backup/status', $code );
 		$this->assertStringContainsString( 'pollManualBackupUntilDone', $code );

@@ -412,13 +412,13 @@ sudo systemctl restart svp-relay
 بعد از تغییر PHP یا داشبورد relay در repo:
 
 1. فایل‌های پلاگین را روی `goatvps.ir` آپلود کنید
-2. `assets/dashboard/dist/` build جدید داشبورد را deploy کنید
+2. `frontend/dist/` build جدید داشبورد را deploy کنید
 3. migration دیتابیس خودکار با نسخه پلاگین اجرا می‌شود (`telegram_relay_*` settings، `telegram_relay_public_url` برای reseller)
 
 ```bash
 # در ماشین توسعه
-cd dashboard-ui && npm run build
-# خروجی را در assets/dashboard/dist/ کپی کنید
+cd frontend && npm run build
+# خروجی در frontend/dist/
 ```
 
 ---

@@ -72,26 +72,26 @@ class PurgeExpiredServicesTest extends TestCase {
 	}
 
 	public function test_dashboard_purge_tab_contract(): void {
-		$code = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/site-settings/site-settings-purge-tab.tsx' );
+		$code = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/site-settings/site-settings-purge-tab.tsx' );
 		$this->assertStringContainsString( 'purge_expired_run_cron', $code );
 		$this->assertStringContainsString( 'purge_expired_purge_ready', $code );
 		$this->assertStringContainsString( 'configs_delete_expired_linked', $code );
 	}
 
 	public function test_notifications_tab_no_purge_card(): void {
-		$code = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/site-settings/site-settings-notifications-tab.tsx' );
+		$code = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/site-settings/site-settings-notifications-tab.tsx' );
 		$this->assertStringNotContainsString( 'purgeTitle', $code );
 		$this->assertStringNotContainsString( 'purge_expired_enabled', $code );
 	}
 
 	public function test_configs_no_delete_expired_ui(): void {
-		$code = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-configs-admin.tsx' );
+		$code = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-configs-admin.tsx' );
 		$this->assertStringNotContainsString( 'runDeleteExpired', $code );
 		$this->assertStringContainsString( 'purgeMovedLink', $code );
 	}
 
 	public function test_audit_format_purge_event_contract(): void {
-		$code = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/lib/format-audit-log.ts' );
+		$code = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/lib/format-audit-log.ts' );
 		$this->assertStringContainsString( 'service.purge_expired', $code );
 		$this->assertStringContainsString( 'summary_service_purge_expired', $code );
 	}

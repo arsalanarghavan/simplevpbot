@@ -86,7 +86,7 @@ class MarketingLifecycleTest extends TestCase {
 		$rest = (string) file_get_contents( dirname( __DIR__ ) . '/includes/api/class-rest-dashboard.php' );
 		$this->assertStringContainsString( 'marketingRuleStats', $rest );
 		$this->assertStringContainsString( 'resolve_rule_for_segment', $rest );
-		$ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-marketing-lifecycle-admin.tsx' );
+		$ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-marketing-lifecycle-admin.tsx' );
 		$this->assertStringContainsString( 'DashSheetContent', $ui );
 		$this->assertStringContainsString( 'viewSegmentUsersFullList', $ui );
 	}

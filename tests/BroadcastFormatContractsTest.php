@@ -58,7 +58,7 @@ class BroadcastFormatContractsTest extends TestCase {
 	 * UI exposes dual Telegram/Bale previews.
 	 */
 	public function test_dashboard_dual_preview(): void {
-		$file = dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-broadcast-admin.tsx';
+		$file = dirname( __DIR__ ) . '/frontend/src/components/dashboard-broadcast-admin.tsx';
 		$code = (string) file_get_contents( $file );
 		$this->assertStringContainsString( 'BroadcastBalePreview', $code );
 		$this->assertStringContainsString( 'previewTelegram', $code );

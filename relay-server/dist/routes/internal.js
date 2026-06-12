@@ -18,6 +18,7 @@ internalRouter.get("/internal/health", (req, res) => {
         tenant_id: tenant?.tenant_id || null,
         config_version: tenant?.config_version || "",
         wp_base_url: tenant?.wp_base_url || "",
+        laravel_base_url: tenant?.laravel_base_url || tenant?.wp_base_url || "",
         relay_public_url: tenant?.default_public_url || "",
         updated_at: tenant?.updated_at || null,
     });
@@ -46,6 +47,7 @@ internalRouter.get("/internal/status", (req, res) => {
         tenant_id: tenant.tenant_id,
         config_version: tenant.config_version,
         wp_base_url: tenant.wp_base_url,
+        laravel_base_url: tenant.laravel_base_url || tenant.wp_base_url,
         default_public_url: tenant.default_public_url,
         domains: tenant.domains,
         updated_at: tenant.updated_at || null,
@@ -194,6 +196,7 @@ internalRouter.post("/internal/diagnostics", async (req, res) => {
         relay_health: {
             forward_queue_depth: forwardQueueDepth(),
             wp_base_url: cfg.wp_base_url,
+            laravel_base_url: cfg.laravel_base_url || cfg.wp_base_url,
             domains: cfg.domains,
         },
     });

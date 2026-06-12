@@ -28,6 +28,7 @@ async function seedTenant() {
   upsertTenantFromPayload("test-secret-32-chars-minimum-ok!!", {
     tenant_id: "test",
     config_version: "1",
+    laravel_base_url: "https://laravel.example.com",
     wp_base_url: "https://wp.example.com",
     relay_public_url: "https://relay.example.com",
     main: {
@@ -41,6 +42,17 @@ async function seedTenant() {
     resellers: [],
   })
 }
+
+describe("laravelForwardBase", () => {
+  it("prefers laravel_base_url over wp_base_url", async () => {
+    await seedTenant()
+    const { getTenantById } = await import("../dist/store.js")
+    const { laravelForwardBase } = await import("../dist/util/webhook-url.js")
+    const t = getTenantById("test")
+    assert.ok(t)
+    assert.equal(laravelForwardBase(t), "https://laravel.example.com")
+  })
+})
 
 describe("webhook ingress", () => {
   it("acks quickly with ok:true for valid secret", async () => {

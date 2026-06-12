@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express"
 import { findMainWebhook, findResellerWebhook } from "../store.js"
 import { enqueueForward } from "../services/wp-forward.js"
-import { hostFromUrl, publicBaseForReseller } from "../util/webhook-url.js"
+import { hostFromUrl, laravelForwardBase, publicBaseForReseller } from "../util/webhook-url.js"
 
 export const webhookRouter = Router()
 
@@ -38,14 +38,14 @@ webhookRouter.post("/webhook/telegram/:secret", (req: Request, res: Response) =>
     res.status(403).json({ ok: false })
     return
   }
-  const base = String(tenant.wp_base_url || "").replace(/\/$/, "")
+  const base = laravelForwardBase(tenant)
   if (!base) {
     res.status(503).json({ ok: false })
     return
   }
   warnHostMismatch(req, tenant.default_public_url)
   const body = typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {})
-  const url = `${base}/wp-json/simplevpbot/v1/webhook/telegram/${encodeURIComponent(secret)}`
+  const url = `${base}/api/v1/webhook/telegram/${encodeURIComponent(secret)}`
   enqueueForward(url, body, pickForwardHeaders(req))
   res.status(200).json({ ok: true })
 })
@@ -65,14 +65,14 @@ webhookRouter.post("/webhook/telegram/reseller/:rid/:secret", (req: Request, res
     res.status(403).json({ ok: false })
     return
   }
-  const base = String(tenant.wp_base_url || "").replace(/\/$/, "")
+  const base = laravelForwardBase(tenant)
   if (!base) {
     res.status(503).json({ ok: false })
     return
   }
   warnHostMismatch(req, publicBaseForReseller(tenant, prof))
   const body = typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {})
-  const url = `${base}/wp-json/simplevpbot/v1/webhook/telegram/reseller/${rid}/${encodeURIComponent(secret)}`
+  const url = `${base}/api/v1/webhook/telegram/reseller/${rid}/${encodeURIComponent(secret)}`
   enqueueForward(url, body, pickForwardHeaders(req))
   res.status(200).json({ ok: true })
 })

@@ -39,7 +39,7 @@ class SecurityHardeningContractsTest extends TestCase {
 	 * Frontend must include reseller tab guard map.
 	 */
 	public function test_frontend_has_reseller_permission_tab_guard(): void {
-		$file = dirname( __DIR__ ) . '/dashboard-ui/src/App.tsx';
+		$file = dirname( __DIR__ ) . '/frontend/src/App.tsx';
 		$code = (string) file_get_contents( $file );
 		$this->assertStringContainsString( 'RESELLER_ALLOWED_BY_PERMISSION', $code );
 		$this->assertStringContainsString( 'safeResellerTab', $code );

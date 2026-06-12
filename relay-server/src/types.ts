@@ -24,7 +24,9 @@ export type TenantConfig = {
   tenant_id: string
   shared_secret: string
   shared_secret_fingerprint: string
+  /** @deprecated Use laravel_base_url — kept for backward compatibility */
   wp_base_url: string
+  laravel_base_url: string
   default_public_url: string
   domains: string[]
   main: RelayMainBot
@@ -38,7 +40,9 @@ export type TenantConfigPayload = {
   tenant_id?: string
   domains?: string[]
   config_version: string
-  wp_base_url: string
+  /** @deprecated Use laravel_base_url */
+  wp_base_url?: string
+  laravel_base_url?: string
   relay_public_url: string
   main: RelayMainBot
   resellers: RelayResellerBot[]

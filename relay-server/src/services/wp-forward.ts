@@ -73,3 +73,8 @@ export function enqueueForward(url: string, body: string, headers: Record<string
 export function forwardQueueDepth(): number {
   return queue.length
 }
+
+/** @internal test helper */
+export function peekForwardQueueUrls(): string[] {
+  return queue.map((j) => j.url)
+}

@@ -622,7 +622,7 @@ export هست؛ manifest لیست نمی‌کند؛ restore بدون فایل si
 - `includes/bot/class-bot-runtime.php`
 - `includes/helpers/class-service-reseller-wholesale-pricing.php`
 - `includes/helpers/class-admin-reseller-reports.php`
-- `dashboard-ui/src/App.tsx`
-- `dashboard-ui/src/config/admin-nav.ts`
-- `dashboard-ui/src/components/dashboard-admin-view.tsx`
+- `frontend/src/App.tsx`
+- `frontend/src/config/admin-nav.ts`
+- `frontend/src/components/dashboard-admin-view.tsx`
 - `tests/Reseller*.php`, `tests/integration/Reseller*.php`

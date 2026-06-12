@@ -1,6 +1,6 @@
 <?php
 /**
- * Bot admin panel navigation — mirrors dashboard-ui admin-nav.ts (5 sections).
+ * Bot admin panel navigation — mirrors frontend admin-nav.ts (5 sections).
  *
  * @package SimpleVPBot
  */

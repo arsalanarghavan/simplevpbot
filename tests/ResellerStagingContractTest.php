@@ -107,7 +107,7 @@ class ResellerStagingContractTest extends TestCase {
 	 * Marketing rule sheet save gated for resellers (N-4).
 	 */
 	public function test_marketing_rule_sheet_save_gated(): void {
-		$view = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-marketing-lifecycle-admin.tsx' );
+		$view = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-marketing-lifecycle-admin.tsx' );
 		$this->assertMatchesRegularExpression(
 			'/canMutate\s*\?[\s\S]*saveRule/',
 			$view

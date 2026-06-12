@@ -65,7 +65,7 @@ class ResellerIsolationTest extends TestCase {
 	 * Resellers admin UI must not post manual wholesale prices for site admin.
 	 */
 	public function test_resellers_admin_access_only_save_payload(): void {
-		$code = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-resellers-admin.tsx' );
+		$code = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-resellers-admin.tsx' );
 		$this->assertStringContainsString( 'panel_access: true', $code );
 		$this->assertStringContainsString( 'wholesaleCatalogByPanel', $code );
 		$this->assertStringContainsString( 'panelPricesCatalogWholesale', $code );
@@ -77,7 +77,7 @@ class ResellerIsolationTest extends TestCase {
 	 * Site settings reseller permissions include marketing lifecycle.
 	 */
 	public function test_site_settings_reseller_permissions_complete(): void {
-		$code = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/site-settings/site-settings-resellers-tab.tsx' );
+		$code = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/site-settings/site-settings-resellers-tab.tsx' );
 		$this->assertStringContainsString( 'marketing.lifecycle', $code );
 	}
 
@@ -126,7 +126,7 @@ class ResellerIsolationTest extends TestCase {
 		$this->assertStringContainsString( 'reseller_plan_category_blocked_by_foreign_plans', $catalog );
 		$this->assertStringContainsString( "'code' => 'category_foreign_plans'", $catalog );
 		$this->assertStringContainsString( 'owner_svp_user_id <> %d', $catalog );
-		$ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-plan-cats-admin.tsx' );
+		$ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-plan-cats-admin.tsx' );
 		$this->assertStringContainsString( 'category_foreign_plans', $ui );
 		$this->assertStringContainsString( 'adminMutateErrorText', $ui );
 	}
@@ -239,14 +239,14 @@ class ResellerIsolationTest extends TestCase {
 		$this->assertStringContainsString( 'build_daily_series_for_resellers', $reports );
 		$this->assertStringContainsString( 'daily_scoped', $reports );
 
-		$charge = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-reseller-charge-admin.tsx' );
+		$charge = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-reseller-charge-admin.tsx' );
 		$this->assertStringContainsString( 'onCustomerChargesPerPageChange', $charge );
 
-		$overview = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-overview.tsx' );
+		$overview = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-overview.tsx' );
 		$this->assertStringContainsString( 'resellerOverviewMetrics', $overview );
 		$this->assertStringContainsString( 'onOverviewMetricsWindowChange', $overview );
 
-		$reports_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-reseller-reports-admin.tsx' );
+		$reports_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-reseller-reports-admin.tsx' );
 		$this->assertStringContainsString( 'chartSubtitleFiltered', $reports_ui );
 		$this->assertStringContainsString( 'daily_scoped', $reports_ui );
 	}
@@ -259,12 +259,12 @@ class ResellerIsolationTest extends TestCase {
 		$this->assertStringContainsString( 'effective_moderatable_user_ids', $scope );
 		$this->assertStringContainsString( 'plan_visible_for_reseller', $scope );
 
-		$overview = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-overview.tsx' );
+		$overview = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-overview.tsx' );
 		$this->assertStringContainsString( 'resellerFocused', $overview );
 		$this->assertStringContainsString( 'onStatsDayChange', $overview );
 		$this->assertStringContainsString( 'perfReceipts', $overview );
 
-		$resellers_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-resellers-admin.tsx' );
+		$resellers_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-resellers-admin.tsx' );
 		$this->assertStringContainsString( 'resellerBotMap', $resellers_ui );
 		$this->assertStringContainsString( 'colBot', $resellers_ui );
 	}
@@ -300,7 +300,7 @@ class ResellerIsolationTest extends TestCase {
 		$this->assertStringContainsString( 'aggregate_maps( $since, array( $actor_uid ) )', $reports );
 		$this->assertStringContainsString( '$aggregate_maps_cache', $reports );
 
-		$reports_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-reseller-reports-admin.tsx' );
+		$reports_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-reseller-reports-admin.tsx' );
 		$this->assertStringContainsString( 'openBackup', $reports_ui );
 	}
 
@@ -332,7 +332,7 @@ class ResellerIsolationTest extends TestCase {
 		$this->assertStringContainsString( 'applyPortalI18n', $portal_js );
 		$this->assertStringContainsString( 'receipts_page', $portal_js );
 
-		$resellers_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-resellers-admin.tsx' );
+		$resellers_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-resellers-admin.tsx' );
 		$this->assertStringContainsString( 'canViewResellerControls', $resellers_ui );
 		$this->assertStringContainsString( 'canManagePanelPriceForReseller', $resellers_ui );
 		$this->assertStringContainsString( 'reseller_wp_provision', $resellers_ui );
@@ -363,17 +363,17 @@ class ResellerIsolationTest extends TestCase {
 		$reports = (string) file_get_contents( dirname( __DIR__ ) . '/includes/helpers/class-admin-reseller-reports.php' );
 		$this->assertStringContainsString( 'rank_reseller_ids_by_metric', $reports );
 
-		$app = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/App.tsx' );
+		$app = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/App.tsx' );
 		$this->assertStringContainsString( 'resellers_q', $app );
 
-		$resellers_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-resellers-admin.tsx' );
+		$resellers_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-resellers-admin.tsx' );
 		$this->assertStringContainsString( 'permissionsReadOnlyHint', $resellers_ui );
 		$this->assertStringContainsString( 'openUserDetail', $resellers_ui );
 
-		$app_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/App.tsx' );
+		$app_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/App.tsx' );
 		$this->assertStringContainsString( 'customerChargesDateTo', $app_ui );
 
-		$reports_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-reseller-reports-admin.tsx' );
+		$reports_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-reseller-reports-admin.tsx' );
 		$this->assertStringContainsString( 'searchDraft', $reports_ui );
 	}
 
@@ -416,11 +416,11 @@ class ResellerIsolationTest extends TestCase {
 		$reports = (string) file_get_contents( dirname( __DIR__ ) . '/includes/helpers/class-admin-reseller-reports.php' );
 		$this->assertStringContainsString( 'billing_reseller_id_sql_expr', $reports );
 
-		$app = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/App.tsx' );
+		$app = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/App.tsx' );
 		$this->assertStringContainsString( 'resellersSearchQuery={listQuery.resellers_q ?? ""}', $app );
 		$this->assertStringNotContainsString( 'resellers_q ?? listQuery.users_q', $app );
 
-		$resellers_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-resellers-admin.tsx' );
+		$resellers_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-resellers-admin.tsx' );
 		$this->assertStringNotContainsString( 'default_service_type', $resellers_ui );
 		$this->assertStringNotContainsString( 'default_inbound_id', $resellers_ui );
 	}
@@ -455,15 +455,15 @@ class ResellerIsolationTest extends TestCase {
 		$cron = (string) file_get_contents( dirname( __DIR__ ) . '/includes/cron/class-cron-users-bulk.php' );
 		$this->assertStringContainsString( 'forbidden_scope', $cron );
 
-		$discounts_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-discounts-admin.tsx' );
+		$discounts_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-discounts-admin.tsx' );
 		$this->assertStringContainsString( 'readOnlySettings', $discounts_ui );
 		$this->assertStringContainsString( 'readOnlyResellerHint', $discounts_ui );
 
-		$mkt_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-marketing-lifecycle-admin.tsx' );
+		$mkt_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-marketing-lifecycle-admin.tsx' );
 		$this->assertStringContainsString( 'canMutate', $mkt_ui );
 		$this->assertStringContainsString( 'readOnlySettings', $mkt_ui );
 
-		$admin_view = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-admin-view.tsx' );
+		$admin_view = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-admin-view.tsx' );
 		$this->assertStringContainsString( 'readOnlySettings={isReseller}', $admin_view );
 	}
 
@@ -499,15 +499,15 @@ class ResellerIsolationTest extends TestCase {
 		$this->assertStringContainsString( '$summary_maps = self::aggregate_maps', $reports );
 		$this->assertStringContainsString( '$page_maps = self::aggregate_maps', $reports );
 
-		$broadcast_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-broadcast-admin.tsx' );
+		$broadcast_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-broadcast-admin.tsx' );
 		$this->assertStringContainsString( 'scopedResellerHint', $broadcast_ui );
 		$this->assertStringContainsString( 'isReseller', $broadcast_ui );
 
-		$monitor_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-monitoring.tsx' );
+		$monitor_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-monitoring.tsx' );
 		$this->assertStringContainsString( 'scopedResellerHint', $monitor_ui );
 		$this->assertStringContainsString( 'isReseller', $monitor_ui );
 
-		$admin_view = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-admin-view.tsx' );
+		$admin_view = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-admin-view.tsx' );
 		$this->assertStringContainsString( 'isReseller={isReseller}', $admin_view );
 	}
 
@@ -536,10 +536,10 @@ class ResellerIsolationTest extends TestCase {
 		$this->assertStringContainsString( 'build_summary_sql', $reports );
 		$this->assertStringContainsString( 'fetch_scoped_daily_maps', $reports );
 
-		$resellers_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-resellers-admin.tsx' );
+		$resellers_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-resellers-admin.tsx' );
 		$this->assertStringContainsString( 'canManageResellerControls ?', $resellers_ui );
 
-		$referral_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-referral-admin.tsx' );
+		$referral_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-referral-admin.tsx' );
 		$this->assertStringContainsString( 'settingsReadOnlyHint', $referral_ui );
 	}
 
@@ -584,11 +584,11 @@ class ResellerIsolationTest extends TestCase {
 		$this->assertStringContainsString( 'discount_allow_new', $portal_js );
 		$this->assertStringContainsString( 'discountPlanIds', $portal_js );
 
-		$discounts_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-discounts-admin.tsx' );
+		$discounts_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-discounts-admin.tsx' );
 		$this->assertStringContainsString( 'portalAdminUrl', $discounts_ui );
 		$this->assertStringContainsString( 'portalManageLink', $discounts_ui );
 
-		$admin_view = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-admin-view.tsx' );
+		$admin_view = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-admin-view.tsx' );
 		$this->assertStringContainsString( 'portalAdminUrl={', $admin_view );
 	}
 
@@ -622,12 +622,12 @@ class ResellerIsolationTest extends TestCase {
 			$rest
 		);
 
-		$resellers_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-resellers-admin.tsx' );
+		$resellers_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-resellers-admin.tsx' );
 		$this->assertStringContainsString( 'canCreateSubReseller', $resellers_ui );
 		$this->assertStringContainsString( 'canWpProvisionForReseller', $resellers_ui );
 		$this->assertStringContainsString( 'subResellerCreateHint', $resellers_ui );
 
-		$reports_ui = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-reseller-reports-admin.tsx' );
+		$reports_ui = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-reseller-reports-admin.tsx' );
 		$this->assertStringContainsString( 'readOnlyAdminActions', $reports_ui );
 		$this->assertStringContainsString( 'downlineReportsHint', $reports_ui );
 

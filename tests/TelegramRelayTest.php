@@ -92,7 +92,7 @@ class TelegramRelayTest extends TestCase {
 	 * Dashboard relay tab UI exists.
 	 */
 	public function test_relay_dashboard_ui(): void {
-		$root = dirname( __DIR__ ) . '/dashboard-ui/src';
+		$root = dirname( __DIR__ ) . '/frontend/src';
 		$this->assertFileExists( $root . '/components/site-settings/relay-control-center.tsx' );
 		$this->assertFileExists( $root . '/components/site-settings/site-settings-relay-tab.tsx' );
 		$admin = (string) file_get_contents( $root . '/components/dashboard-site-settings-admin.tsx' );

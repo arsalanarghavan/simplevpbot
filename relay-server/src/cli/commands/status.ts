@@ -100,7 +100,7 @@ export function formatStatusSnapshot(s: StatusSnapshot): string {
   if (s.tenants.length) {
     lines.push("", "Tenants:")
     for (const t of s.tenants) {
-      lines.push(`  ${t.tenant_id}  ${t.wp_base_url}  domains=${t.domains.join(",") || "-"}`)
+      lines.push(`  ${t.tenant_id}  ${t.laravel_base_url || t.wp_base_url}  domains=${t.domains.join(",") || "-"}`)
     }
   }
   return lines.join("\n")

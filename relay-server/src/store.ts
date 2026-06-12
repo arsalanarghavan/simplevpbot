@@ -35,8 +35,12 @@ function readTenantFile(tenantId: string): TenantConfig | null {
   if (!existsSync(p)) return null
   try {
     const raw = JSON.parse(readFileSync(p, "utf8")) as TenantConfig
+    const wpBase = String(raw.wp_base_url || "").replace(/\/$/, "")
+    const laravelBase = String(raw.laravel_base_url || wpBase).replace(/\/$/, "")
     return {
       ...raw,
+      wp_base_url: wpBase,
+      laravel_base_url: laravelBase,
       main: { ...emptyMain(), ...raw.main },
       resellers: Array.isArray(raw.resellers) ? raw.resellers : [],
       domains: Array.isArray(raw.domains) ? raw.domains : [],
@@ -94,6 +98,7 @@ export function migrateLegacyConfigIfNeeded(): boolean {
       shared_secret: secret,
       shared_secret_fingerprint: secretFingerprint(secret),
       wp_base_url: parsed.wp_base_url || "",
+      laravel_base_url: String(parsed.laravel_base_url || parsed.wp_base_url || "").replace(/\/$/, ""),
       default_public_url: normalizePublicBase(parsed.relay_public_url || ""),
       domains: collectDomainsFromPayload(parsed.relay_public_url || "", parsed.resellers || []),
       main: { ...emptyMain(), ...parsed.main },
@@ -145,11 +150,14 @@ export function upsertTenantFromPayload(secret: string, body: TenantConfigPayloa
     body.resellers || [],
     body.domains || tenant?.domains || []
   )
+  const wpBase = String(body.wp_base_url || body.laravel_base_url || "").replace(/\/$/, "")
+  const laravelBase = String(body.laravel_base_url || body.wp_base_url || "").replace(/\/$/, "")
   const next: TenantConfig = {
     tenant_id: tenantId,
     shared_secret: secret,
     shared_secret_fingerprint: secretFingerprint(secret),
-    wp_base_url: String(body.wp_base_url || "").replace(/\/$/, ""),
+    wp_base_url: wpBase,
+    laravel_base_url: laravelBase,
     default_public_url: defaultPublic,
     domains,
     main: { ...emptyMain(), ...body.main },
@@ -234,6 +242,7 @@ export function getConfig(): TenantConfig {
     shared_secret: "",
     shared_secret_fingerprint: "",
     wp_base_url: "",
+    laravel_base_url: "",
     default_public_url: "",
     domains: [],
     main: emptyMain(),
@@ -259,6 +268,7 @@ export function tenantSummary(t: TenantConfig) {
   return {
     tenant_id: t.tenant_id,
     wp_base_url: t.wp_base_url,
+    laravel_base_url: t.laravel_base_url || t.wp_base_url,
     default_public_url: t.default_public_url,
     domains: t.domains,
     config_version: t.config_version,

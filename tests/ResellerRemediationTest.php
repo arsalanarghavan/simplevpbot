@@ -62,7 +62,7 @@ class ResellerRemediationTest extends TestCase {
 	 * N-1: reseller_xui_panels admin tab hidden from reseller SPA router.
 	 */
 	public function test_reseller_xui_panels_admin_only_in_spa(): void {
-		$view = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/components/dashboard-admin-view.tsx' );
+		$view = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/components/dashboard-admin-view.tsx' );
 		$this->assertStringContainsString( 'activeTab === "reseller_xui_panels" && !isReseller', $view );
 	}
 

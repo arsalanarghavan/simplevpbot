@@ -128,7 +128,7 @@ class ResellerBotScopeTest extends TestCase {
 		$this->assertStringContainsString( 'get_text_override', $texts );
 		$this->assertStringContainsString( 'get_in_bot_context', $texts );
 
-		$app = (string) file_get_contents( dirname( __DIR__ ) . '/dashboard-ui/src/App.tsx' );
+		$app = (string) file_get_contents( dirname( __DIR__ ) . '/frontend/src/App.tsx' );
 		$this->assertStringContainsString( 'receipts: "receipts.review"', $app );
 	}
 }

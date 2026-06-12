@@ -1,0 +1,12 @@
+<?php
+
+return [
+    'backup_interval_minutes' => max(5, (int) env('SVP_BACKUP_INTERVAL_MINUTES', 60)),
+    'health_deep_token' => env('SVP_HEALTH_DEEP_TOKEN', ''),
+    'admin_state_rate_limit_per_min' => max(1, (int) env('SVP_ADMIN_STATE_RATE_LIMIT', 60)),
+    'admin_mutate_rate_limit_per_min' => max(1, (int) env('SVP_ADMIN_MUTATE_RATE_LIMIT', 300)),
+    'login_rate_limit_per_min' => max(1, (int) env('SVP_LOGIN_RATE_LIMIT', 10)),
+    'inbound_queue_alert_threshold' => max(100, (int) env('SVP_INBOUND_QUEUE_ALERT_THRESHOLD', 1000)),
+    'relay_alert_fail_threshold' => max(1, (int) env('SVP_RELAY_ALERT_FAIL_THRESHOLD', 3)),
+    'rate_limit_trust_forwarded_for' => filter_var(env('SVP_RATE_LIMIT_TRUST_FORWARDED_FOR', false), FILTER_VALIDATE_BOOL),
+];

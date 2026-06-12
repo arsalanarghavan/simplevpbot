@@ -40,7 +40,7 @@ foreach (
 		$root . '/includes/helpers/class-telegram-relay.php',
 		$root . '/includes/models/class-model-log.php',
 		$root . '/includes/frontend/class-portal-admin.php',
-		$root . '/dashboard-ui/src/components/dashboard-site-settings-admin.tsx',
+		$root . '/frontend/src/components/dashboard-site-settings-admin.tsx',
 	) as $f
 ) {
 	if ( ! is_file( $f ) ) {
@@ -157,7 +157,7 @@ if ( ! is_file( $root . '/includes/helpers/class-audit-log.php' ) ) {
 if ( ! is_file( $root . '/includes/helpers/class-branding-resolver.php' ) ) {
 	$fail( 'missing class-branding-resolver.php' );
 }
-if ( ! is_file( $root . '/dashboard-ui/src/components/dashboard-audit-admin.tsx' ) ) {
+if ( ! is_file( $root . '/frontend/src/components/dashboard-audit-admin.tsx' ) ) {
 	$fail( 'missing dashboard-audit-admin.tsx' );
 }
 $rest_backup = (string) file_get_contents( $root . '/includes/api/class-rest-dashboard.php' );
@@ -177,7 +177,7 @@ if ( false === strpos( (string) file_get_contents( $root . '/includes/helpers/cl
 if ( false === strpos( (string) file_get_contents( $root . '/includes/helpers/class-service-renew.php' ), 'sync_service_row_to_panel' ) ) {
 	$fail( 'Service_Renew missing sync_service_row_to_panel' );
 }
-$backup_ui = (string) file_get_contents( $root . '/dashboard-ui/src/components/dashboard-backup-admin.tsx' );
+$backup_ui = (string) file_get_contents( $root . '/frontend/src/components/dashboard-backup-admin.tsx' );
 if ( false === strpos( $backup_ui, 'rebuild-from-db' ) ) {
 	$fail( 'dashboard-backup-admin missing panel rebuild UI' );
 }
@@ -212,7 +212,7 @@ $merge = (string) file_get_contents( $root . '/includes/helpers/class-backup-mer
 if ( false === strpos( $merge, 'find_by_telegram' ) || false === strpos( $merge, 'ambiguous_identity' ) ) {
 	$fail( 'Backup_Merge_Restore missing tg/bale/wp user match' );
 }
-if ( ! is_file( $root . '/dashboard-ui/src/components/dashboard-backup-admin.tsx' ) ) {
+if ( ! is_file( $root . '/frontend/src/components/dashboard-backup-admin.tsx' ) ) {
 	$fail( 'missing dashboard-backup-admin.tsx' );
 }
 $actions = (string) file_get_contents( $root . '/includes/admin/class-admin-actions.php' );
@@ -323,7 +323,7 @@ if ( false === strpos( $mut_bulk, 'users_bulk_resolve_panel_targets' ) ) {
 if ( false === strpos( $cron_bulk, 'run_one_panel_item' ) ) {
 	$fail( 'Cron_Users_Bulk missing run_one_panel_item' );
 }
-$bulk_ui = (string) file_get_contents( $root . '/dashboard-ui/src/components/dashboard-users-bulk-admin.tsx' );
+$bulk_ui = (string) file_get_contents( $root . '/frontend/src/components/dashboard-users-bulk-admin.tsx' );
 if ( false === strpos( $bulk_ui, 'panel_active_clients' ) ) {
 	$fail( 'dashboard-users-bulk-admin missing panel_active_clients scope' );
 }
@@ -342,7 +342,7 @@ $settings_cards = (string) file_get_contents( $root . '/includes/class-settings.
 if ( false === strpos( $settings_cards, 'cards_rotation_cursors' ) ) {
 	$fail( 'settings missing cards_rotation_cursors default' );
 }
-$cards_ui = (string) file_get_contents( $root . '/dashboard-ui/src/components/dashboard-cards-admin.tsx' );
+$cards_ui = (string) file_get_contents( $root . '/frontend/src/components/dashboard-cards-admin.tsx' );
 if ( false === strpos( $cards_ui, '"random"' ) || false === strpos( $cards_ui, 'displayModeRandom' ) ) {
 	$fail( 'dashboard-cards-admin missing random display mode' );
 }
@@ -350,7 +350,7 @@ $rbp = (string) file_get_contents( $root . '/includes/models/class-model-reselle
 if ( false === strpos( $rbp, 'public static function upsert_tokens' ) ) {
 	$fail( 'Reseller_Bot_Profile missing upsert_tokens method' );
 }
-$plans_ui = (string) file_get_contents( $root . '/dashboard-ui/src/components/dashboard-plans-admin.tsx' );
+$plans_ui = (string) file_get_contents( $root . '/frontend/src/components/dashboard-plans-admin.tsx' );
 if ( false === strpos( $plans_ui, 'formatPlanMutateError' ) || false === strpos( $plans_ui, 'validationCategory' ) ) {
 	$fail( 'dashboard-plans-admin missing plan validation error helpers' );
 }
@@ -360,22 +360,22 @@ if ( ! is_file( $root . '/includes/helpers/class-support-contacts.php' ) ) {
 if ( false === strpos( $settings, "'support_info'" ) || false === strpos( $actions, "'support_telegram_username'" ) ) {
 	$fail( 'support settings keys or whitelabel save missing' );
 }
-$whitelabel_ui = (string) file_get_contents( $root . '/dashboard-ui/src/components/site-settings/site-settings-whitelabel-tab.tsx' );
+$whitelabel_ui = (string) file_get_contents( $root . '/frontend/src/components/site-settings/site-settings-whitelabel-tab.tsx' );
 if ( false === strpos( $whitelabel_ui, 'whitelabel-support' ) || false === strpos( $whitelabel_ui, 'ImageUrlField' ) ) {
 	$fail( 'whitelabel tab missing support section or image upload' );
 }
-$sidebar_ui = (string) file_get_contents( $root . '/dashboard-ui/src/components/app-sidebar.tsx' );
+$sidebar_ui = (string) file_get_contents( $root . '/frontend/src/components/app-sidebar.tsx' );
 if ( false === strpos( $sidebar_ui, 'whitelabel-support' ) ) {
 	$fail( 'app-sidebar support link not wired to whitelabel section' );
 }
-$dt_picker = (string) file_get_contents( $root . '/dashboard-ui/src/components/dashboard-datetime-picker.tsx' );
+$dt_picker = (string) file_get_contents( $root . '/frontend/src/components/dashboard-datetime-picker.tsx' );
 if ( false !== strpos( $dt_picker, 'JalaliDateTimeFields' ) || false !== strpos( $dt_picker, 'datetime-local' ) ) {
 	$fail( 'dashboard-datetime-picker still uses legacy dropdown/datetime-local' );
 }
-if ( ! is_file( $root . '/dashboard-ui/src/components/ui/calendar.tsx' ) || ! is_file( $root . '/dashboard-ui/src/components/ui/popover.tsx' ) ) {
+if ( ! is_file( $root . '/frontend/src/components/ui/calendar.tsx' ) || ! is_file( $root . '/frontend/src/components/ui/popover.tsx' ) ) {
 	$fail( 'missing shadcn calendar or popover' );
 }
-$configs_ui = (string) file_get_contents( $root . '/dashboard-ui/src/components/dashboard-configs-admin.tsx' );
+$configs_ui = (string) file_get_contents( $root . '/frontend/src/components/dashboard-configs-admin.tsx' );
 if ( false !== strpos( $configs_ui, 'ConfigJalaliExpiryFields' ) || false !== strpos( $configs_ui, 'datetime-local' ) ) {
 	$fail( 'configs-admin still uses legacy jalali dropdown or datetime-local' );
 }
@@ -406,8 +406,8 @@ if ( false === strpos( $receipt_cb, 'admin_feedback_text' ) || false === strpos(
 if ( ! is_file( $root . '/tests/ReceiptDeliveryContractsTest.php' ) ) {
 	$fail( 'missing ReceiptDeliveryContractsTest.php' );
 }
-$receipts_ui = (string) file_get_contents( $root . '/dashboard-ui/src/components/dashboard-receipts-admin.tsx' );
-$receipts_list = (string) file_get_contents( $root . '/dashboard-ui/src/components/dashboard-receipts-list.tsx' );
+$receipts_ui = (string) file_get_contents( $root . '/frontend/src/components/dashboard-receipts-admin.tsx' );
+$receipts_list = (string) file_get_contents( $root . '/frontend/src/components/dashboard-receipts-list.tsx' );
 $receipts_src = $receipts_ui . $receipts_list;
 if ( false === strpos( $receipts_src, 'setPreviewReceipt' ) || false === strpos( $receipts_src, 'clickToEnlarge' ) ) {
 	$fail( 'dashboard receipts missing thumbnail preview popup' );
@@ -430,11 +430,11 @@ if ( preg_match( '/function receipt_image[\s\S]*Settings::get\(\s*\$is_bale\s*\?
 if ( false === strpos( $export, 'redact_plugin_settings_for_export' ) ) {
 	$fail( 'Backup_Export missing plugin settings redaction (S-5)' );
 }
-$admin_nav = (string) file_get_contents( $root . '/dashboard-ui/src/config/admin-nav.ts' );
+$admin_nav = (string) file_get_contents( $root . '/frontend/src/config/admin-nav.ts' );
 if ( false === strpos( $admin_nav, '"notifications"' ) || false === strpos( $admin_nav, '"logs"' ) ) {
 	$fail( 'admin-nav missing notifications/logs in ADMIN_ONLY_TAB_KEYS (L-1)' );
 }
-$user_detail = (string) file_get_contents( $root . '/dashboard-ui/src/components/dashboard-user-detail-admin.tsx' );
+$user_detail = (string) file_get_contents( $root . '/frontend/src/components/dashboard-user-detail-admin.tsx' );
 if ( false === strpos( $user_detail, 'canManageUsers' ) || false === strpos( $user_detail, 'actorPermissions' ) ) {
 	$fail( 'user detail missing permission gates (N-3)' );
 }
@@ -473,7 +473,7 @@ $profile = (string) file_get_contents( $root . '/includes/models/class-model-res
 if ( false === strpos( $profile, 'webhook_secret_plaintext' ) ) {
 	$fail( 'reseller bot profile missing webhook secret encryption (E-3)' );
 }
-$mkt = (string) file_get_contents( $root . '/dashboard-ui/src/components/dashboard-marketing-lifecycle-admin.tsx' );
+$mkt = (string) file_get_contents( $root . '/frontend/src/components/dashboard-marketing-lifecycle-admin.tsx' );
 if ( ! preg_match( '/canMutate\s*\?[\s\S]*saveRule/', $mkt ) ) {
 	$fail( 'marketing lifecycle saveRule not gated (N-4)' );
 }
@@ -845,7 +845,7 @@ if ( preg_match( "/'cf' === \\\$act[\s\S]*?schedule_deferred_purchase_checkout/"
 	|| preg_match( "/'pm' === \\\$act[\s\S]*?schedule_deferred_c2c_invoice/", $buy ) ) {
 	$fail( 'Handler_Buy buy:cf/buy:pm must run checkout/c2c inline (no defer)' );
 }
-$format_locale = (string) file_get_contents( $root . '/dashboard-ui/src/lib/format-locale.ts' );
+$format_locale = (string) file_get_contents( $root . '/frontend/src/lib/format-locale.ts' );
 if ( false === strpos( $format_locale, 'parseMysqlDatetimeInSiteZone' ) ) {
 	$fail( 'format-locale missing site-timezone MySQL parse' );
 }
