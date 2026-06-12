@@ -71,16 +71,29 @@ class AuditLogService
      */
     protected function redact(array $payload): array
     {
-        $keys = ['password', 'token', 'secret', 'api_key', 'panel_password', 'panel_api_token'];
-        $out = $payload;
-        foreach ($out as $k => $v) {
-            foreach ($keys as $sensitive) {
-                if (stripos((string) $k, $sensitive) !== false) {
-                    $out[$k] = '[redacted]';
-                }
+        $out = [];
+        foreach ($payload as $k => $v) {
+            if (is_array($v)) {
+                $out[$k] = $this->redact($v);
+            } elseif ($this->isSensitiveKey((string) $k)) {
+                $out[$k] = '[redacted]';
+            } else {
+                $out[$k] = $v;
             }
         }
 
         return $out;
+    }
+
+    protected function isSensitiveKey(string $key): bool
+    {
+        $k = strtolower($key);
+        foreach (['password', 'token', 'secret', 'api_key', 'panel_password', 'panel_api_token', 'authorization'] as $needle) {
+            if (str_contains($k, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

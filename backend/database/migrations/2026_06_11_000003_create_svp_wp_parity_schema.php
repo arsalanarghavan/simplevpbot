@@ -38,6 +38,7 @@ return new class extends Migration
             'svp_audit_log', 'svp_unit_economics_config', 'svp_unit_economics_servers', 'svp_panel_economics_lines',
             'svp_reseller_wholesale_lines', 'svp_reseller_wholesale_tiers', 'svp_reseller_wholesale_line_assignments',
             'svp_reseller_wholesale_accruals',
+            'svp_settings',
         ];
 
         DB::statement('SET FOREIGN_KEY_CHECKS=0');

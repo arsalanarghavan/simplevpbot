@@ -28,6 +28,19 @@ SVP_BASE_URL=https://your-host SVP_LOAD_REQUESTS=100 backend/scripts/ops/load-sm
 
 Nightly soak artifact: `.github/workflows/nightly-soak.yml` (۵ دقیقه؛ production ۲۴h با `SVP_SOAK_DURATION_SEC=86400`).
 
+## TLS (production nginx)
+
+نمونه SSL در [`backend/docker/nginx/ssl.example.conf`](../backend/docker/nginx/ssl.example.conf). برای staging/production:
+
+```bash
+# certbot (host nginx یا mount به container web)
+certbot certonly --nginx -d api.example.com
+# wire ssl_certificate + ssl_certificate_key در nginx conf
+curl -sSI https://api.example.com/health | head -5
+```
+
+Evidence: `docs/evidence/network-webhook-checklist-v17.md` (#14 HTTPS curl).
+
 ## Health checks
 
 | URL | معنی |

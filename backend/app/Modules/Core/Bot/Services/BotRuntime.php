@@ -19,9 +19,13 @@ class BotRuntime
             return null;
         }
 
-        return $ctx->platform === 'bale'
-            ? new BaleApiClient($token)
-            : new TelegramApiClient($token);
+        if ($ctx->platform === 'bale') {
+            return new BaleApiClient($token);
+        }
+
+        $proxy = trim((string) $this->settings->get('telegram_http_proxy', ''));
+
+        return new TelegramApiClient($token, $proxy !== '' ? $proxy : null);
     }
 
     public function sendMessage(BotContext $ctx, int $chatId, string $text, array $extra = []): ?array

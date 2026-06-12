@@ -36,6 +36,33 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        $this->hydrateBotTokensFromEnv();
+    }
+
+    /** Seed empty DB settings from SVP_*_BOT_TOKEN env on boot (spec §9). */
+    protected function hydrateBotTokensFromEnv(): void
+    {
+        if ($this->app->runningUnitTests()) {
+            return;
+        }
+
+        try {
+            $settings = $this->app->make(SettingsStore::class);
+            foreach ([
+                'SVP_TELEGRAM_BOT_TOKEN' => 'telegram_bot_token',
+                'SVP_BALE_BOT_TOKEN' => 'bale_token',
+            ] as $envKey => $settingKey) {
+                $fromEnv = trim((string) env($envKey, ''));
+                if ($fromEnv === '') {
+                    continue;
+                }
+                if (trim((string) $settings->get($settingKey, '')) !== '') {
+                    continue;
+                }
+                $settings->set($settingKey, $fromEnv);
+            }
+        } catch (\Throwable) {
+            // DB may be unavailable during early bootstrap / migrate.
+        }
     }
 }

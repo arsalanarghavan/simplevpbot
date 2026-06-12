@@ -6,7 +6,10 @@ use Illuminate\Support\Facades\Http;
 
 abstract class AbstractPlatformClient
 {
-    public function __construct(protected string $token) {}
+    public function __construct(
+        protected string $token,
+        protected ?string $httpProxy = null,
+    ) {}
 
     abstract protected function baseUrl(): string;
 
@@ -71,7 +74,12 @@ abstract class AbstractPlatformClient
         }
 
         try {
-            $response = Http::timeout(30)->post($this->baseUrl().$method, $params);
+            $pending = Http::timeout(30);
+            $proxy = trim((string) ($this->httpProxy ?? ''));
+            if ($proxy !== '') {
+                $pending = $pending->withOptions(['proxy' => $proxy]);
+            }
+            $response = $pending->post($this->baseUrl().$method, $params);
 
             return $response->json();
         } catch (\Throwable) {
