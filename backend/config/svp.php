@@ -9,4 +9,5 @@ return [
     'inbound_queue_alert_threshold' => max(100, (int) env('SVP_INBOUND_QUEUE_ALERT_THRESHOLD', 1000)),
     'relay_alert_fail_threshold' => max(1, (int) env('SVP_RELAY_ALERT_FAIL_THRESHOLD', 3)),
     'rate_limit_trust_forwarded_for' => filter_var(env('SVP_RATE_LIMIT_TRUST_FORWARDED_FOR', false), FILTER_VALIDATE_BOOL),
+    'queue_drain_key' => env('SVP_QUEUE_DRAIN_KEY', ''),
 ];

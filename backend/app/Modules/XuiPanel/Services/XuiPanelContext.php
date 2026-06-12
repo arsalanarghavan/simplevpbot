@@ -2,6 +2,7 @@
 
 namespace App\Modules\XuiPanel\Services;
 
+use App\Services\PanelSecretCipher;
 use Illuminate\Support\Facades\DB;
 
 class XuiPanelContext
@@ -60,13 +61,15 @@ class XuiPanelContext
         $norm = fn ($raw) => self::normalizePanelUrl((string) $raw);
         $root = $norm((string) ($this->panel['panel_url'] ?? ''));
 
+        $cipher = app(PanelSecretCipher::class);
+
         return [
             'panel_url' => $root !== '' ? $root.'/' : '',
             'panel_username' => (string) ($this->panel['panel_username'] ?? ''),
-            'panel_password' => (string) ($this->panel['panel_password'] ?? ''),
+            'panel_password' => $cipher->decrypt($this->panel['panel_password'] ?? null),
             'panel_api_base' => (string) ($this->panel['panel_api_base'] ?? 'panel/api'),
-            'panel_login_secret' => (string) ($this->panel['panel_login_secret'] ?? ''),
-            'panel_api_token' => (string) ($this->panel['panel_api_token'] ?? ''),
+            'panel_login_secret' => $cipher->decrypt($this->panel['panel_login_secret'] ?? null),
+            'panel_api_token' => $cipher->decrypt($this->panel['panel_api_token'] ?? null),
             'panel_api_flavor' => (string) ($this->panel['panel_api_flavor'] ?? self::FLAVOR_UNKNOWN),
             'subscription_public_base' => (string) ($this->panel['subscription_public_base'] ?? ''),
         ];

@@ -60,7 +60,7 @@ class XuiPanelMutations
     public function panelXp(array $payload, ?Authenticatable $actor): array
     {
         $id = (int) ($payload['id'] ?? 0);
-        $data = collect($payload)->except(['op', 'id'])->all();
+        $data = $this->encryptPanelSecrets(collect($payload)->except(['op', 'id'])->all());
         if ($id > 0) {
             DB::table('svp_panels')->where('id', $id)->update($data);
 
@@ -338,9 +338,14 @@ class XuiPanelMutations
     /** @param  array<string, mixed>  $payload */
     public function purgeExpiredRunCron(array $payload, ?Authenticatable $actor): array
     {
-        \App\Modules\XuiPanel\Jobs\PurgeExpiredJob::dispatchSync();
+        $stats = app(\App\Modules\XuiPanel\Services\PurgeExpiredService::class)
+            ->runBatch(
+                max(1, min(100, (int) ($payload['limit'] ?? \App\Modules\XuiPanel\Services\PurgeExpiredService::BATCH_LIMIT))),
+                'manual',
+                ! empty($payload['force'])
+            );
 
-        return svp_ok();
+        return svp_ok(['data' => $stats]);
     }
 
     /** @param  array<string, mixed>  $payload */
@@ -350,16 +355,9 @@ class XuiPanelMutations
             return svp_err('confirm_required');
         }
         $limit = max(1, min(100, (int) ($payload['limit'] ?? 50)));
-        for ($i = 0; $i < $limit; ++$i) {
-            \App\Modules\XuiPanel\Jobs\PurgeExpiredJob::dispatchSync();
-        }
-        $ready = DB::table('svp_services')
-            ->whereNotNull('expires_at')
-            ->where('expires_at', '<', now())
-            ->whereNull('deleted_at')
-            ->count();
+        $stats = app(\App\Modules\XuiPanel\Services\PurgeExpiredService::class)->purgeReadyBatch($limit);
 
-        return svp_ok(['data' => ['purged' => $limit, 'failed' => 0, 'ready' => $ready]]);
+        return svp_ok(['data' => $stats]);
     }
 
     /** @param  array<string, mixed>  $payload */
@@ -409,5 +407,25 @@ class XuiPanelMutations
     public function unitEconomicsConfigSave(array $payload, ?Authenticatable $actor): array
     {
         return $this->economics->saveUnitEconomicsConfig($payload);
+    }
+
+    /** @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    protected function encryptPanelSecrets(array $data): array
+    {
+        $cipher = app(\App\Services\PanelSecretCipher::class);
+        foreach (['panel_password', 'panel_login_secret', 'panel_api_token'] as $key) {
+            if (! array_key_exists($key, $data)) {
+                continue;
+            }
+            $plain = trim((string) $data[$key]);
+            if ($plain === '') {
+                continue;
+            }
+            $data[$key] = $cipher->encrypt($plain);
+        }
+
+        return $data;
     }
 }

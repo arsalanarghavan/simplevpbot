@@ -3,6 +3,7 @@
 namespace App\Modules\Core\Http;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Reseller\Services\ResellerBotProfileService;
 use App\Services\Bot\InboundQueueService;
 use App\Services\SettingsStore;
 use App\Support\Metrics\SvpMetrics;
@@ -17,6 +18,7 @@ class WebhookController extends Controller
     public function __construct(
         protected SettingsStore $settings,
         protected InboundQueueService $queue,
+        protected ResellerBotProfileService $resellerProfiles,
     ) {}
 
     public function platform(Request $request, string $platform, string $secret): JsonResponse
@@ -73,7 +75,7 @@ class WebhookController extends Controller
             ? DB::table('svp_reseller_bot_profiles')->where('reseller_svp_user_id', $resellerId)->first()
             : null;
 
-        $webhookSecret = trim((string) ($profile->webhook_secret ?? $profile->secret ?? ''));
+        $webhookSecret = $this->resellerProfiles->webhookSecretPlaintext($profile);
         if (! $profile || $webhookSecret === '' || ! hash_equals($webhookSecret, $candidate)) {
             return response()->json(['ok' => false], 403);
         }

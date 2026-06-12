@@ -7,6 +7,7 @@ use App\Modules\Marketing\Jobs\BroadcastWorkerJob;
 use App\Modules\Marketing\Services\BroadcastQueueService;
 use App\Modules\Marketing\Services\BroadcastWorkerService;
 use App\Modules\Marketing\Services\MarketingAutomationService;
+use App\Services\ResellerModuleGuard;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\DB;
 
@@ -16,6 +17,7 @@ class MarketingMutations
         protected BroadcastQueueService $broadcastQueue,
         protected BroadcastWorkerService $broadcastWorker,
         protected MarketingAutomationService $marketing,
+        protected ResellerModuleGuard $resellerModule,
     ) {}
 
     /** @return array<string, array{0: class-string, 1: string}> */
@@ -91,7 +93,7 @@ class MarketingMutations
 
         $owner = $actor instanceof DashboardUser && $actor->role === 'reseller'
             ? (int) ($actor->svp_user_id ?? 0)
-            : (int) ($payload['owner_svp_user_id'] ?? 0);
+            : $this->resellerModule->normalizeOwnerId((int) ($payload['owner_svp_user_id'] ?? 0));
 
         $newId = DB::table('svp_marketing_rules')->insertGetId(array_merge($data, [
             'owner_svp_user_id' => $owner,

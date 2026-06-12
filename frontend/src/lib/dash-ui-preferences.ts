@@ -9,19 +9,19 @@ export type UiPreferencesPatch = {
   ui_sidebar?: UiSidebar
 }
 
-export function saveUiPreferences(
+import { apiHeaders, ensureCsrfCookie, normalizeAdminApiPath } from "@/lib/api-base"
+
+export async function saveUiPreferences(
   patch: UiPreferencesPatch,
-  opts: { restUrl: string; nonce: string }
+  opts: { restUrl: string }
 ): Promise<void> {
   const base = String(opts.restUrl || "").replace(/\/$/, "")
-  if (!base || !opts.nonce) return Promise.resolve()
-  return fetch(`${base}/dashboard/ui-preferences`, {
+  if (!base) return
+  await ensureCsrfCookie()
+  await fetch(`${base}${normalizeAdminApiPath("/dashboard/ui-preferences")}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-WP-Nonce": opts.nonce,
-    },
+    headers: apiHeaders(),
     credentials: "include",
     body: JSON.stringify(patch),
-  }).then(() => {})
+  })
 }

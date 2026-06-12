@@ -22,6 +22,7 @@ import {
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
 import { useDashLocale } from "@/lib/dash-locale-context"
 import { cn } from "@/lib/utils"
+import type { DashboardFeatures } from "@/config/admin-nav"
 
 const siteSettingsTabTriggerClass =
   "flex-none shrink-0 grow-0 justify-start px-3"
@@ -37,9 +38,11 @@ export function DashboardSiteSettingsAdmin({
   resellers,
   resellerPermissionsMap,
   dashboardBaseUrl,
+  features,
   onMutateSuccess,
 }: {
   settings: DashRecord | undefined
+  features?: DashboardFeatures | null
   wpPages: WpPage[]
   plans: DashRecord[]
   panels?: DashRecord[]
@@ -72,6 +75,22 @@ export function DashboardSiteSettingsAdmin({
 
   const pages = wpPages ?? []
   const resellerMap = resellerPermissionsMap ?? {}
+  const relayOn = features?.relay === true && features?.telegram === true
+  const telegramOn = features?.telegram === true
+  const resellerOn = features?.reseller === true
+  const xuiOn = features?.xui_panel === true
+
+  useEffect(() => {
+    if (!relayOn && subtab === "relay") {
+      setSubtab("whitelabel")
+      writeSiteSubtabToUrl("whitelabel")
+    }
+    if (!telegramOn && subtab === "proxy") {
+      setSubtab("whitelabel")
+      writeSiteSubtabToUrl("whitelabel")
+    }
+  }, [relayOn, telegramOn, subtab])
+
   const panelRows = useMemo(
     () =>
       (panels ?? [])
@@ -100,27 +119,35 @@ export function DashboardSiteSettingsAdmin({
           <TabsTrigger value="service_naming" className={siteSettingsTabTriggerClass}>
             {tp("tabServiceNaming")}
           </TabsTrigger>
-          <TabsTrigger value="proxy" className={siteSettingsTabTriggerClass}>
-            {tp("tabProxy")}
-          </TabsTrigger>
-          <TabsTrigger value="relay" className={siteSettingsTabTriggerClass}>
-            {tp("tabRelay")}
-          </TabsTrigger>
+          {telegramOn ? (
+            <TabsTrigger value="proxy" className={siteSettingsTabTriggerClass}>
+              {tp("tabProxy")}
+            </TabsTrigger>
+          ) : null}
+          {relayOn ? (
+            <TabsTrigger value="relay" className={siteSettingsTabTriggerClass}>
+              {tp("tabRelay")}
+            </TabsTrigger>
+          ) : null}
           <TabsTrigger value="notifications" className={siteSettingsTabTriggerClass}>
             {tp("tabNotifications")}
           </TabsTrigger>
-          <TabsTrigger value="purge_expired" className={siteSettingsTabTriggerClass}>
-            {tp("tabPurgeExpired")}
-          </TabsTrigger>
+          {xuiOn ? (
+            <TabsTrigger value="purge_expired" className={siteSettingsTabTriggerClass}>
+              {tp("tabPurgeExpired")}
+            </TabsTrigger>
+          ) : null}
           <TabsTrigger value="finance" className={siteSettingsTabTriggerClass}>
             {tp("tabFinance")}
           </TabsTrigger>
           <TabsTrigger value="logs" className={siteSettingsTabTriggerClass}>
             {tp("tabLogs")}
           </TabsTrigger>
-          <TabsTrigger value="resellers" className={siteSettingsTabTriggerClass}>
-            {tp("tabResellers")}
-          </TabsTrigger>
+          {resellerOn ? (
+            <TabsTrigger value="resellers" className={siteSettingsTabTriggerClass}>
+              {tp("tabResellers")}
+            </TabsTrigger>
+          ) : null}
         </TabsList>
 
         <TabsContent value="whitelabel" className="mt-4 text-start">
@@ -138,21 +165,28 @@ export function DashboardSiteSettingsAdmin({
             onMutateSuccess={onMutateSuccess}
           />
         </TabsContent>
-        <TabsContent value="proxy" className="mt-4 text-start">
-          <SiteSettingsProxyTab settings={settings} onMutateSuccess={onMutateSuccess} />
-        </TabsContent>
-        <TabsContent value="relay" className="mt-4 text-start">
-          <SiteSettingsRelayTab settings={settings} onMutateSuccess={onMutateSuccess} />
-        </TabsContent>
+        {telegramOn ? (
+          <TabsContent value="proxy" className="mt-4 text-start">
+            <SiteSettingsProxyTab settings={settings} onMutateSuccess={onMutateSuccess} />
+          </TabsContent>
+        ) : null}
+        {relayOn ? (
+          <TabsContent value="relay" className="mt-4 text-start">
+            <SiteSettingsRelayTab settings={settings} onMutateSuccess={onMutateSuccess} />
+          </TabsContent>
+        ) : null}
         <TabsContent value="notifications" className="mt-4 text-start">
           <SiteSettingsNotificationsTab settings={settings} onMutateSuccess={onMutateSuccess} />
         </TabsContent>
-        <TabsContent value="purge_expired" className="mt-4 text-start">
-          <SiteSettingsPurgeTab settings={settings} panels={panelRows} onMutateSuccess={onMutateSuccess} />
-        </TabsContent>
+        {xuiOn ? (
+          <TabsContent value="purge_expired" className="mt-4 text-start">
+            <SiteSettingsPurgeTab settings={settings} panels={panelRows} onMutateSuccess={onMutateSuccess} />
+          </TabsContent>
+        ) : null}
         <TabsContent value="finance" className="mt-4 text-start">
           <SiteSettingsFinanceTab
             settings={settings}
+            features={features}
             dashboardBaseUrl={dashboardBaseUrl}
             onMutateSuccess={onMutateSuccess}
           />
@@ -160,14 +194,16 @@ export function DashboardSiteSettingsAdmin({
         <TabsContent value="logs" className="mt-4 text-start">
           <SiteSettingsLogsTab />
         </TabsContent>
-        <TabsContent value="resellers" className="mt-4 text-start">
-          <SiteSettingsResellersTab
-            settings={settings}
-            resellers={resellers}
-            resellerPermissionsMap={resellerMap}
-            onMutateSuccess={onMutateSuccess}
-          />
-        </TabsContent>
+        {resellerOn ? (
+          <TabsContent value="resellers" className="mt-4 text-start">
+            <SiteSettingsResellersTab
+              settings={settings}
+              resellers={resellers}
+              resellerPermissionsMap={resellerMap}
+              onMutateSuccess={onMutateSuccess}
+            />
+          </TabsContent>
+        ) : null}
       </Tabs>
     </DashPage>
   )

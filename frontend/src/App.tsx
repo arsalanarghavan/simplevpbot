@@ -5,6 +5,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { DashboardHeaderToolbar } from "@/components/dashboard-header-toolbar"
 import { DashboardSearch } from "@/components/sidebar-search"
 import { DashboardAdminView } from "@/components/dashboard-admin-view"
+import { DashboardUserPortal } from "@/components/dashboard-user-portal"
 import type { ReceiptsListFilters } from "@/components/dashboard-receipts-admin"
 import type { UsersListFilters } from "@/components/dashboard-users-admin"
 import { ImpersonationBanner } from "@/components/impersonation-banner"
@@ -41,7 +42,7 @@ import {
 import { saveUiPreferences, type UiTheme } from "@/lib/dash-ui-preferences"
 import type { DashLang } from "@/lib/dash-locale"
 import { DashLocaleProvider } from "@/lib/dash-locale-context"
-import { apiBase, apiHeaders } from "@/lib/api-base"
+import { apiBase, apiHeaders, ensureCsrfCookie } from "@/lib/api-base"
 import { cn } from "@/lib/utils"
 
 type DashData = {
@@ -115,6 +116,24 @@ function App() {
     return availablePersonas[0] ?? "user"
   }, [boot.activePersona, availablePersonas])
   const [data, setData] = useState<DashData | null>(null)
+
+  useEffect(() => {
+    const st = data?.settings as Record<string, unknown> | undefined
+    const wl = st?.whitelabel
+    const vars =
+      wl && typeof wl === "object"
+        ? ((wl as Record<string, unknown>).cssVariables as Record<string, string> | undefined)
+        : undefined
+    if (!vars || typeof vars !== "object") return
+    const root = document.documentElement
+    const skipAccentVars = uiAccent !== "default"
+    for (const [key, val] of Object.entries(vars)) {
+      if (!val) continue
+      if (skipAccentVars && ACCENT_BRANDING_VAR_KEYS.has(key)) continue
+      root.style.setProperty(key, val)
+    }
+  }, [data?.settings, uiAccent])
+
   const dashStateAbortRef = useRef<AbortController | null>(null)
   /** Query params for GET admin/state list pagination (e.g. users_page). */
   const [listQuery, setListQuery] = useState<Record<string, string>>({})
@@ -196,8 +215,12 @@ function App() {
     boot.lang === "fa" || boot.lang === "en" ? boot.lang : "fa"
   )
   const prefsRest = String(boot.restUrl ?? "")
-  const prefsNonce = String(boot.nonce ?? "")
   const sidebarDefaultOpen = boot.uiSidebar !== "collapsed"
+
+  useEffect(() => {
+    if (!isOperator || !prefsRest) return
+    void ensureCsrfCookie()
+  }, [isOperator, prefsRest])
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [activeTab, setActiveTab] = useState(() => {
     const b = window.__SIMPLEVPBOT_DASH__ || {}
@@ -308,7 +331,7 @@ function App() {
       const r = await fetch(`${restBase}/impersonate/start`, {
         method: "POST",
         credentials: "include",
-        headers: apiHeaders(boot as Record<string, unknown>),
+        headers: apiHeaders(),
         body: JSON.stringify({ targetSvpUserId: svpUserId }),
       })
       if (r.ok) window.location.reload()
@@ -330,7 +353,7 @@ function App() {
       if (!isLoggedIn) return
       const restBase = apiBase(boot as Record<string, unknown>)
       if (!restBase) return
-      const headers = apiHeaders(boot as Record<string, unknown>)
+      const headers = apiHeaders()
       const handleAuthResponse = (r: Response) => {
         if (r.status === 401 || r.status === 403) {
           redirectToDashboardLogin()
@@ -529,35 +552,35 @@ function App() {
 
   const themeSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
-    if (!theme || !prefsRest || !prefsNonce) return
+    if (!theme || !prefsRest) return
     const t = theme as UiTheme
     if (t !== "light" && t !== "dark" && t !== "system") return
     if (themeSaveRef.current) clearTimeout(themeSaveRef.current)
     themeSaveRef.current = setTimeout(() => {
-      void saveUiPreferences({ ui_theme: t }, { restUrl: prefsRest, nonce: prefsNonce })
+      void saveUiPreferences({ ui_theme: t }, { restUrl: prefsRest })
     }, 400)
     return () => {
       if (themeSaveRef.current) clearTimeout(themeSaveRef.current)
     }
-  }, [theme, prefsRest, prefsNonce])
+  }, [theme, prefsRest])
 
   const toggleLang = useCallback(() => {
     const next: "fa" | "en" = lang === "fa" ? "en" : "fa"
     setLang(next)
-    if (prefsRest && prefsNonce) {
-      void saveUiPreferences({ ui_lang: next }, { restUrl: prefsRest, nonce: prefsNonce })
+    if (prefsRest) {
+      void saveUiPreferences({ ui_lang: next }, { restUrl: prefsRest })
     }
-  }, [lang, prefsRest, prefsNonce])
+  }, [lang, prefsRest])
 
   const onSidebarOpenChange = useCallback(
     (open: boolean) => {
-      if (!prefsRest || !prefsNonce) return
+      if (!prefsRest) return
       void saveUiPreferences(
         { ui_sidebar: open ? "expanded" : "collapsed" },
-        { restUrl: prefsRest, nonce: prefsNonce }
+        { restUrl: prefsRest }
       )
     },
-    [prefsRest, prefsNonce]
+    [prefsRest]
   )
 
   useEffect(() => {
@@ -711,7 +734,6 @@ function App() {
       activePersona={activePersona}
       availablePersonas={availablePersonas}
       personaRestUrl={String(boot.restUrl ?? "")}
-      personaNonce={String(boot.nonce ?? "")}
       personaSwitchBlocked={impersonating}
       mobileHeaderToolbar={mobileHeaderToolbar}
     />
@@ -956,10 +978,10 @@ function App() {
             onAdminMutateSuccess={() => fetchDashState()}
             onImpersonateReseller={isAdmin && !impersonating ? onImpersonateReseller : undefined}
           />
+        ) : Number(boot.svpUserId) > 0 ? (
+          <DashboardUserPortal restUrl={String(boot.restUrl ?? "")} />
         ) : (
-          <p className="text-sm text-muted-foreground">
-            {Number(boot.svpUserId) > 0 ? t("layout.userPortalSoon") : t("noLinkedUser")}
-          </p>
+          <p className="text-sm text-muted-foreground">{t("noLinkedUser")}</p>
         )}
       </div>
     </SidebarInset>
@@ -987,7 +1009,6 @@ function App() {
           <ImpersonationBanner
             targetLabel={impersonationTargetLabel}
             restBase={String(boot.restUrl ?? "")}
-            nonce={String(boot.nonce ?? "")}
             dashboardBaseUrl={dashboardBaseUrl}
           />
         ) : null}

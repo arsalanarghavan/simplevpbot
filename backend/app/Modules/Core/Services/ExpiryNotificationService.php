@@ -4,6 +4,7 @@ namespace App\Modules\Core\Services;
 
 use App\Models\SvpUser;
 use App\Modules\L2tp\Services\L2tpProvisionerService;
+use App\Modules\XuiPanel\Services\PurgeExpiredService;
 use App\Services\NotifySettings;
 use App\Services\ServiceAlertsHelper;
 use App\Services\SettingsStore;
@@ -22,6 +23,7 @@ class ExpiryNotificationService
         protected UserBotNotifyService $notifyUser,
         protected L2tpProvisionerService $l2tp,
         protected ServiceAlertsHelper $alerts,
+        protected PurgeExpiredService $purge,
     ) {}
 
     public function run(): void
@@ -251,9 +253,12 @@ class ExpiryNotificationService
         if ($exp === false || $exp >= time()) {
             return false;
         }
-        $grace = max(0, (int) $this->settings->get('purge_expired_grace_hours', 24));
+        if (! $this->purge->isEnabled()) {
+            return false;
+        }
+        $graceDays = $this->purge->effectiveGraceDays();
 
-        return (time() - $exp) > ($grace * 3600);
+        return (time() - $exp) > ($graceDays * 86400);
     }
 
     protected function claimBucket(string $key): bool

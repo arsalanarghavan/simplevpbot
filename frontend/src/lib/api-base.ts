@@ -14,18 +14,38 @@ export function normalizeAdminApiPath(path: string): string {
   if (p.startsWith("/dashboard/admin/")) {
     return p.replace("/dashboard/admin/", "/admin/")
   }
+  if (p.startsWith("/dashboard/")) {
+    return p.replace("/dashboard/", "/")
+  }
   return p
 }
 
-export function apiHeaders(boot?: Record<string, unknown>): HeadersInit {
-  const b = boot ?? window.__SIMPLEVPBOT_DASH__ ?? {}
-  const nonce = String((b as { nonce?: string }).nonce || "")
+/** Read Sanctum CSRF token from cookie (decoded). */
+export function readCsrfToken(): string {
+  if (typeof document === "undefined") return ""
+  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)
+  if (!match?.[1]) return ""
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return match[1]
+  }
+}
+
+/** Fetch CSRF cookie before state-changing requests. */
+export async function ensureCsrfCookie(): Promise<void> {
+  const base = apiBase()
+  await fetch(`${base}/sanctum/csrf-cookie`, { credentials: "include" })
+}
+
+export function apiHeaders(): HeadersInit {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
   }
-  if (nonce) {
-    headers["X-WP-Nonce"] = nonce
+  const csrf = readCsrfToken()
+  if (csrf) {
+    headers["X-XSRF-TOKEN"] = csrf
   }
   return headers
 }

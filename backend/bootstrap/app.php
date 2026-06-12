@@ -17,6 +17,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'dashboard.enabled' => \App\Http\Middleware\EnsureDashboardEnabled::class,
             'reseller.scope' => \App\Http\Middleware\ResellerScopeMiddleware::class,
+            'relay.module' => \App\Http\Middleware\EnsureRelayModule::class,
+        ]);
+        $middleware->api(append: [
+            \App\Http\Middleware\RedactSecretsInLogs::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

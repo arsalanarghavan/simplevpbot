@@ -6,11 +6,13 @@ use App\Models\SvpReceipt;
 use App\Models\SvpService;
 use App\Models\SvpUser;
 use App\Modules\Reseller\Services\ResellerScopeService;
+use App\Services\ResellerModuleGuard;
 
 class MutateScopeGuard
 {
     public function __construct(
         protected ResellerScopeService $scope,
+        protected ResellerModuleGuard $resellerModule,
     ) {}
 
     /**
@@ -76,6 +78,10 @@ class MutateScopeGuard
 
         if ($ctx->resellerContextId > 0) {
             $payload['reseller_context_svp_user_id'] = $ctx->resellerContextId;
+        }
+
+        if (array_key_exists('owner_svp_user_id', $payload)) {
+            $payload['owner_svp_user_id'] = $this->resellerModule->normalizeOwnerId((int) $payload['owner_svp_user_id']);
         }
 
         return $payload;

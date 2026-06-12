@@ -216,15 +216,39 @@ export function DashboardAdminView({
         (Array.isArray(data.botsList) ? (data.botsList[0] as Record<string, unknown>) : undefined)
       )
     : mainEnabledPlatforms(settings)
-  const l2tpEnabled = useMemo(() => {
+  const dashboardFeatures = useMemo(() => {
     const f = settings?.features
-    return !!(f && typeof f === "object" && (f as Record<string, unknown>).l2tp === true)
+    return f && typeof f === "object" ? (f as Record<string, boolean>) : null
   }, [settings?.features])
+  const l2tpEnabled = dashboardFeatures?.l2tp === true
+  const featureTabAllowed = useCallback(
+    (tabKey: string): boolean => {
+      const f = dashboardFeatures
+      if (!f) return true
+      if (tabKey === "l2tp_servers") return f.l2tp === true
+      if (tabKey === "backup") return f.backup === true
+      if (tabKey === "xui_panels" || tabKey === "configs") return f.xui_panel === true
+      if (tabKey === "marketing_lifecycle") return f.marketing === true
+      if (
+        tabKey === "resellers" ||
+        tabKey === "reseller_bots" ||
+        tabKey === "reseller_reports" ||
+        tabKey === "reseller_settings" ||
+        tabKey === "reseller_charge" ||
+        tabKey === "reseller_workspace"
+      ) {
+        return f.reseller === true
+      }
+      if (tabKey === "cards") return f.crypto === true
+      return true
+    },
+    [dashboardFeatures]
+  )
   useEffect(() => {
-    if (activeTab === "l2tp_servers" && !l2tpEnabled) {
+    if (!featureTabAllowed(activeTab)) {
       onSelectTab("dashboard")
     }
-  }, [activeTab, l2tpEnabled, onSelectTab])
+  }, [activeTab, featureTabAllowed, onSelectTab])
   const panels = asRecordArray(data.panels)
   const plans = asRecordArray(data.plans)
   const planCategories = asRecordArray(data.planCategories)
@@ -317,6 +341,10 @@ export function DashboardAdminView({
       data.resellerPermissionsMap && typeof data.resellerPermissionsMap === "object"
         ? (data.resellerPermissionsMap as Record<string, Record<string, boolean>>)
         : {}
+    const siteFeatures =
+      settings?.features && typeof settings.features === "object"
+        ? (settings.features as import("@/config/admin-nav").DashboardFeatures)
+        : null
     return (
       <DashboardSiteSettingsAdmin
         settings={settings}
@@ -326,6 +354,7 @@ export function DashboardAdminView({
         resellers={resellers}
         resellerPermissionsMap={permMap}
         dashboardBaseUrl={dashboardBaseUrl}
+        features={siteFeatures}
         onMutateSuccess={onAdminMutateSuccess}
       />
     )

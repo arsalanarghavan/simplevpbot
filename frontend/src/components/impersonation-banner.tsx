@@ -3,16 +3,15 @@ import { useTranslation } from "react-i18next"
 import { ChevronsUpDown } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { apiHeaders, ensureCsrfCookie, normalizeAdminApiPath } from "@/lib/api-base"
 
 export function ImpersonationBanner({
   targetLabel,
   restBase,
-  nonce,
   dashboardBaseUrl,
 }: {
   targetLabel: string
   restBase: string
-  nonce: string
   dashboardBaseUrl: string
 }) {
   const { t } = useTranslation()
@@ -22,13 +21,12 @@ export function ImpersonationBanner({
     if (busy || !restBase) return
     setBusy(true)
     try {
-      const r = await fetch(`${restBase.replace(/\/$/, "")}/dashboard/impersonate/stop`, {
+      await ensureCsrfCookie()
+      const base = restBase.replace(/\/$/, "")
+      const r = await fetch(`${base}${normalizeAdminApiPath("/dashboard/impersonate/stop")}`, {
         method: "POST",
         credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          "X-WP-Nonce": nonce,
-        },
+        headers: apiHeaders(),
       })
       if (r.ok) {
         const base = dashboardBaseUrl.replace(/\/?$/, "")

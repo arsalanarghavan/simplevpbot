@@ -18,6 +18,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { apiHeaders, normalizeAdminApiPath } from "@/lib/api-base"
 import { Button } from "@/components/ui/button"
 import { ADMIN_NAV_SECTIONS, flattenNavForSearch, type AdminNavSection } from "@/config/admin-nav"
 import { formatPlainLatinInt } from "@/lib/format-locale"
@@ -127,9 +128,9 @@ export function DashboardSearch({
     const timer = window.setTimeout(() => {
       const sp = new URLSearchParams()
       sp.set("q", q)
-      void fetch(`${base}/dashboard/admin/user-search?${sp.toString()}`, {
+      void fetch(`${base}${normalizeAdminApiPath("/dashboard/admin/user-search")}?${sp.toString()}`, {
         credentials: "include",
-        headers: { "X-WP-Nonce": String(nonce) },
+        headers: apiHeaders(),
         signal: ctrl.signal,
       })
         .then((r) => r.json() as Promise<{ users?: DashRecord[] }>)

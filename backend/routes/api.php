@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\LogsController;
 use App\Http\Controllers\Api\V1\MediaController;
 use App\Http\Controllers\Api\V1\MutateController;
 use App\Http\Controllers\Api\V1\PurgeExpiredController;
+use App\Http\Controllers\Api\V1\UserPortalController;
 use App\Http\Controllers\Api\V1\UsersBulkController;
 use App\Http\Middleware\AdminDashboardRateLimit;
 use App\Http\Middleware\EnsureAdmin;
@@ -30,6 +31,7 @@ Route::prefix('v1')->group(function () {
     Route::middleware(['web', 'auth:sanctum', 'dashboard.enabled', 'reseller.scope'])->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::get('me/state', [DashboardSessionController::class, 'meState']);
+        Route::get('me/portal', UserPortalController::class);
         Route::post('dashboard/persona', [DashboardSessionController::class, 'setPersona']);
         Route::post('dashboard/ui-preferences', [DashboardSessionController::class, 'uiPreferences']);
         Route::get('admin/state', AdminStateController::class)->middleware([EnsureAdminOrReseller::class, AdminDashboardRateLimit::class.':state']);

@@ -4,6 +4,7 @@ import { Check, LayoutDashboard, LifeBuoy, MessageSquareQuote, UserRoundCog } fr
 import type { MouseEvent, ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 
+import { apiHeaders, ensureCsrfCookie, normalizeAdminApiPath } from "@/lib/api-base"
 import { NavGrouped } from "@/components/nav-grouped"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
@@ -119,13 +120,11 @@ function RoleSwitcher({
   activePersona,
   availablePersonas,
   restUrl,
-  nonce,
   personaSwitchBlocked,
 }: {
   activePersona: "admin" | "reseller" | "user"
   availablePersonas: Array<"admin" | "reseller" | "user">
   restUrl: string
-  nonce: string
   /** True while impersonating a reseller — persona API returns 403 until stopped. */
   personaSwitchBlocked?: boolean
 }) {
@@ -141,20 +140,17 @@ function RoleSwitcher({
   const setPersona = (persona: "admin" | "reseller" | "user") => {
     if (persona === activePersona) return
     const base = restUrl.replace(/\/$/, "")
-    void fetch(`${base}/dashboard/persona`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-WP-Nonce": nonce,
-      },
-      credentials: "include",
-      body: JSON.stringify({ persona }),
-    })
-      .then(async (r) => {
-        const json = (await r.json()) as { ok?: boolean; code?: string }
-        if (r.ok && json?.ok) window.location.reload()
+    void (async () => {
+      await ensureCsrfCookie()
+      const r = await fetch(`${base}${normalizeAdminApiPath("/dashboard/persona")}`, {
+        method: "POST",
+        headers: apiHeaders(),
+        credentials: "include",
+        body: JSON.stringify({ persona }),
       })
-      .catch(() => {})
+      const json = (await r.json()) as { ok?: boolean; code?: string }
+      if (r.ok && json?.ok) window.location.reload()
+    })().catch(() => {})
   }
 
   if (personaSwitchBlocked) {
@@ -267,7 +263,6 @@ export function AppSidebar({
   activePersona,
   availablePersonas,
   personaRestUrl,
-  personaNonce,
   personaSwitchBlocked = false,
   mobileHeaderToolbar,
 }: {
@@ -290,7 +285,6 @@ export function AppSidebar({
   activePersona?: "admin" | "reseller" | "user"
   availablePersonas?: Array<"admin" | "reseller" | "user">
   personaRestUrl?: string
-  personaNonce?: string
   personaSwitchBlocked?: boolean
   mobileHeaderToolbar?: ReactNode
 }) {
@@ -304,8 +298,7 @@ export function AppSidebar({
     activePersona ?? (isAdmin ? "admin" : variant === "reseller" ? "reseller" : "user")
   const personas = availablePersonas ?? [persona]
   const showRoleSwitcher =
-    Boolean(personaRestUrl && personaNonce) &&
-    (personas.length > 1 || personaSwitchBlocked)
+    Boolean(personaRestUrl) && (personas.length > 1 || personaSwitchBlocked)
 
   const userMainItems = [
     {
@@ -389,7 +382,6 @@ export function AppSidebar({
                   activePersona={persona}
                   availablePersonas={personas}
                   restUrl={personaRestUrl!}
-                  nonce={personaNonce!}
                   personaSwitchBlocked={personaSwitchBlocked}
                 />
               ) : null}
@@ -400,7 +392,6 @@ export function AppSidebar({
                   activePersona={persona}
                   availablePersonas={personas}
                   restUrl={personaRestUrl!}
-                  nonce={personaNonce!}
                   personaSwitchBlocked={personaSwitchBlocked}
                 />
               </div>

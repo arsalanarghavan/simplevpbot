@@ -10,7 +10,7 @@ export async function postDashboardMediaUpload(file: File): Promise<MediaUploadR
   }
   const fd = new FormData()
   fd.append("file", file)
-  const headers = apiHeaders(boot as Record<string, unknown>) as Record<string, string>
+  const headers = apiHeaders() as Record<string, string>
   delete headers["Content-Type"]
   const res = await fetch(`${restBase}/admin/media`, {
     method: "POST",

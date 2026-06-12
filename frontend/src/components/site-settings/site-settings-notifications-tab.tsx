@@ -61,6 +61,7 @@ export function SiteSettingsNotificationsTab({
       alert_ip_warn_min_distinct: String(Math.max(1, num(s.alert_ip_warn_min_distinct) || 3)),
       alert_ip_warn_hysteresis: bool(s.alert_ip_warn_hysteresis ?? true),
       alert_ip_warn_cooldown_minutes: String(Math.max(0, num(s.alert_ip_warn_cooldown_minutes) || 0)),
+      traffic_stale_days: String(Math.max(1, num(s.traffic_stale_days) || 7)),
     }),
     [s]
   )
@@ -98,6 +99,7 @@ export function SiteSettingsNotificationsTab({
         alert_ip_warn_min_distinct: Math.max(1, num(form.alert_ip_warn_min_distinct)),
         alert_ip_warn_hysteresis: form.alert_ip_warn_hysteresis ? 1 : 0,
         alert_ip_warn_cooldown_minutes: Math.max(0, num(form.alert_ip_warn_cooldown_minutes)),
+        traffic_stale_days: Math.max(1, num(form.traffic_stale_days)),
       })
   }, [form, saveSettingsTab])
 
@@ -232,6 +234,16 @@ export function SiteSettingsNotificationsTab({
               min={0}
               value={form.alert_ip_warn_cooldown_minutes}
               onChange={(e) => setForm((f) => ({ ...f, alert_ip_warn_cooldown_minutes: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="traffic_stale">{tn("trafficStaleDays")}</Label>
+            <Input
+              id="traffic_stale"
+              type="number"
+              min={1}
+              value={form.traffic_stale_days}
+              onChange={(e) => setForm((f) => ({ ...f, traffic_stale_days: e.target.value }))}
             />
           </div>
         </CardContent>

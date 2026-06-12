@@ -7,6 +7,7 @@ use App\Models\SvpService;
 use App\Services\Commerce\ReceiptActionService;
 use App\Services\Commerce\ServiceProvisioner;
 use App\Services\Commerce\ServiceProvisionService;
+use App\Services\ResellerModuleGuard;
 use App\Services\SettingsStore;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,7 @@ class CommerceMutations
         protected ServiceProvisioner $serviceProvisioner,
         protected ReceiptActionService $receipts,
         protected SettingsStore $settings,
+        protected ResellerModuleGuard $resellerModule,
     ) {}
     /** @return array<string, array{0: class-string, 1: string}> */
     public function handlers(): array
@@ -96,7 +98,7 @@ class CommerceMutations
     public function cardAdd(array $payload, ?Authenticatable $actor): array
     {
         $id = DB::table('svp_cards')->insertGetId([
-            'owner_svp_user_id' => (int) ($payload['owner_svp_user_id'] ?? 0),
+            'owner_svp_user_id' => $this->resellerModule->normalizeOwnerId((int) ($payload['owner_svp_user_id'] ?? 0)),
             'card_number' => (string) ($payload['card_number'] ?? ''),
             'holder_name' => (string) ($payload['holder_name'] ?? ''),
             'bank_name' => (string) ($payload['bank_name'] ?? ''),
@@ -181,6 +183,9 @@ class CommerceMutations
     {
         $id = (int) ($payload['id'] ?? 0);
         $data = collect($payload)->except(['op', 'id'])->all();
+        if (array_key_exists('owner_svp_user_id', $data)) {
+            $data['owner_svp_user_id'] = $this->resellerModule->normalizeOwnerId((int) $data['owner_svp_user_id']);
+        }
         if ($id > 0) {
             DB::table('svp_discount_codes')->where('id', $id)->update($data);
 

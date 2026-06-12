@@ -123,6 +123,11 @@ class InboundQueueService
 
     public function internalQueueKey(): string
     {
+        $envKey = trim((string) config('svp.queue_drain_key', ''));
+        if ($envKey !== '') {
+            return $envKey;
+        }
+
         $settings = app(\App\Services\SettingsStore::class);
         $sec = (string) $settings->get('telegram_webhook_secret', '');
         if ($sec === '') {

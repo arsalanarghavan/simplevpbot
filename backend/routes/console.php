@@ -2,6 +2,7 @@
 
 use App\Modules\Backup\Jobs\BackupJob;
 use App\Modules\Core\Jobs\AdminAlertsJob;
+use App\Modules\Core\Jobs\InboundQueueDrainJob;
 use App\Modules\Core\Jobs\AutorenewJob;
 use App\Modules\Core\Jobs\ExpiryJob;
 use App\Modules\Core\Jobs\UsersBulkWorkerJob;
@@ -30,7 +31,9 @@ if (svp_modules()->isEnabled('backup')) {
     }
     Schedule::job(new BackupJob)->cron("*/{$backupInterval} * * * *")->name('svp:backup');
 }
-Schedule::job(new PurgeExpiredJob)->hourly()->name('svp:purge_expired');
+if (svp_modules()->isEnabled('xui_panel')) {
+    Schedule::job(new PurgeExpiredJob)->hourly()->name('svp:purge_expired');
+}
 Schedule::job(new BroadcastWorkerJob)->everyMinute()->name('svp:broadcast');
 Schedule::job(new UsersBulkWorkerJob)->everyMinute()->name('svp:users_bulk');
 if (svp_modules()->isEnabled('xui_panel')) {
@@ -48,6 +51,4 @@ Schedule::job(new AdminAlertsJob)->everyTenMinutes()->name('svp:admin_alerts');
 if (svp_modules()->isEnabled('xui_panel')) {
     Schedule::job(new PanelEconomicsRenewalJob)->hourly()->name('svp:panel_economics_renewal');
 }
-Schedule::call(fn () => CronTimer::run('svp:inbound_queue_drain', fn () => app(\App\Services\Bot\InboundQueueService::class)->drainBatch()))
-    ->everyMinute()
-    ->name('svp:inbound_queue_drain');
+Schedule::job(new InboundQueueDrainJob)->everyMinute()->name('svp:inbound_queue_drain');

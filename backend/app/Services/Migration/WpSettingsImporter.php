@@ -48,8 +48,7 @@ class WpSettingsImporter
         if ($dryRun) {
             return 1;
         }
-        $encoded = $this->sensitive->encodeValue($key, $value);
-        $this->settings->set($key, $encoded);
+        $this->settings->set($key, $value);
 
         return 1;
     }

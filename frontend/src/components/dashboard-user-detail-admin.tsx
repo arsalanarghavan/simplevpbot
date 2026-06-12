@@ -27,6 +27,7 @@ import {
   ServiceActionDialog,
   type ServiceActionDlg,
 } from "@/components/dashboard-user-service-card"
+import { apiHeaders, normalizeAdminApiPath } from "@/lib/api-base"
 import { DashPage } from "@/components/dash-page"
 import { DashboardPageHeader } from "@/components/dashboard-page-header"
 
@@ -366,10 +367,13 @@ export function DashboardUserDetailAdmin({
       if (rcptFilters.amountMin.trim()) sp.set("receipts_amount_min", rcptFilters.amountMin.trim())
       if (rcptFilters.amountMax.trim()) sp.set("receipts_amount_max", rcptFilters.amountMax.trim())
       sp.set("lang", isFa ? "fa" : "en")
-      const r = await fetch(`${restBase}/dashboard/admin/user/${userId}?${sp.toString()}`, {
-        headers: { "X-WP-Nonce": nonce },
-        credentials: "include",
-      })
+      const r = await fetch(
+        `${restBase}${normalizeAdminApiPath(`/dashboard/admin/user/${userId}`)}?${sp.toString()}`,
+        {
+          headers: apiHeaders(),
+          credentials: "include",
+        }
+      )
       const json = (await r.json()) as Record<string, unknown>
       if (!r.ok || !json.ok) {
         setErr(String(json.message || "not_found"))
@@ -474,10 +478,13 @@ export function DashboardUserDetailAdmin({
     }
     const q = referrerQuery.trim()
     const t = window.setTimeout(() => {
-      void fetch(`${restBase}/dashboard/admin/user-search?q=${encodeURIComponent(q)}`, {
-        headers: { "X-WP-Nonce": nonce },
-        credentials: "include",
-      })
+      void fetch(
+        `${restBase}${normalizeAdminApiPath("/dashboard/admin/user-search")}?q=${encodeURIComponent(q)}`,
+        {
+          headers: apiHeaders(),
+          credentials: "include",
+        }
+      )
         .then((r) => r.json())
         .then((json) => {
           const rows = Array.isArray((json as Record<string, unknown>).users)

@@ -12,8 +12,10 @@ class NavTabsBuilder
             ['key' => 'dashboard', 'label' => 'پیشخوان'],
             ['key' => 'monitoring', 'label' => 'مانیتورینگ'],
             ['key' => 'site_settings', 'label' => 'تنظیمات سایت'],
-            ['key' => 'bots', 'label' => 'ربات‌ها'],
         ];
+        if ($modules->isEnabled('telegram') || $modules->isEnabled('bale')) {
+            $tabs[] = ['key' => 'bots', 'label' => 'ربات‌ها'];
+        }
         if ($modules->isEnabled('xui_panel')) {
             $tabs[] = ['key' => 'xui_panels', 'label' => 'پنل‌های 3x-ui'];
             $tabs[] = ['key' => 'configs', 'label' => 'کانفیگ‌ها'];
@@ -21,8 +23,10 @@ class NavTabsBuilder
         $tabs = array_merge($tabs, [
             ['key' => 'plan_cats', 'label' => 'دسته‌های خرید'],
             ['key' => 'plans', 'label' => 'پلن‌ها'],
-            ['key' => 'cards', 'label' => 'کارت‌ها'],
         ]);
+        if ($modules->isEnabled('crypto')) {
+            $tabs[] = ['key' => 'cards', 'label' => 'کارت‌ها'];
+        }
 
         if ($l2tpEnabled && $modules->isEnabled('l2tp')) {
             $tabs[] = ['key' => 'l2tp_servers', 'label' => 'سرورهای L2TP'];
@@ -38,7 +42,6 @@ class NavTabsBuilder
             $tabs[] = ['key' => 'backup', 'label' => 'بکاپ'];
         }
         $tabs = array_merge($tabs, [
-            ['key' => 'notifications', 'label' => 'نوتیفیکیشن'],
             ['key' => 'referral', 'label' => 'ریفرال و لینک ربات'],
             ['key' => 'referral_reports', 'label' => 'گزارشات رفرال'],
             ['key' => 'reseller_reports', 'label' => 'گزارشات نمایندگان'],
@@ -46,10 +49,7 @@ class NavTabsBuilder
         if ($modules->isEnabled('marketing')) {
             $tabs[] = ['key' => 'marketing_lifecycle', 'label' => 'بازگشت مشتری'];
         }
-        $tabs = array_merge($tabs, [
-            ['key' => 'discounts', 'label' => 'کدهای تخفیف'],
-            ['key' => 'logs', 'label' => 'لاگ‌ها'],
-        ]);
+        $tabs[] = ['key' => 'discounts', 'label' => 'کدهای تخفیف'];
         if ($modules->isEnabled('reseller')) {
             $tabs[] = ['key' => 'resellers', 'label' => 'نمایندگان'];
             $tabs[] = ['key' => 'reseller_bots', 'label' => 'ربات‌های نماینده'];

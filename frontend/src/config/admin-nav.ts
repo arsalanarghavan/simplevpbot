@@ -347,19 +347,26 @@ export type DashboardFeatures = {
   l2tp?: boolean
   relay?: boolean
   telegram?: boolean
+  bale?: boolean
+  crypto?: boolean
 }
 
 const FEATURE_TAB_MAP: Record<string, keyof DashboardFeatures> = {
   xui_panels: "xui_panel",
   configs: "xui_panel",
-  reseller_xui_panels: "xui_panel",
   backup: "backup",
   marketing_lifecycle: "marketing",
   resellers: "reseller",
   reseller_reports: "reseller",
   reseller_bots: "reseller",
+  reseller_settings: "reseller",
+  reseller_charge: "reseller",
   l2tp_servers: "l2tp",
+  proxy: "telegram",
+  cards: "crypto",
 }
+
+const BOT_PLATFORM_TABS = new Set(["bots", "bot_ui", "texts", "plan_cats"])
 
 /** Hide nav entries when the corresponding backend module is disabled. */
 export function filterAdminNavByFeatures(
@@ -368,6 +375,12 @@ export function filterAdminNavByFeatures(
 ): AdminNavSection[] {
   if (!features || typeof features !== "object") return sections
   const isOn = (tabKey: string): boolean => {
+    if (tabKey === "reseller_xui_panels") {
+      return features.reseller === true && features.xui_panel === true
+    }
+    if (BOT_PLATFORM_TABS.has(tabKey)) {
+      return features.telegram === true || features.bale === true
+    }
     const feat = FEATURE_TAB_MAP[tabKey]
     if (!feat) return true
     return (features as Record<string, unknown>)[feat] === true

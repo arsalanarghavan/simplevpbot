@@ -136,7 +136,7 @@ export async function postAdminMutate(
   }
   const res = await fetch(`${restBase}/admin/mutate`, {
     method: "POST",
-    headers: apiHeaders(boot as Record<string, unknown>),
+    headers: apiHeaders(),
     credentials: "include",
     body: JSON.stringify(payload),
   })
@@ -181,7 +181,7 @@ export async function downloadAdminBackupFile(filename: string): Promise<{ ok: b
   const url = `${restBase}${normalizeAdminApiPath("/dashboard/admin/backup/download")}?${q.toString()}`
   const res = await fetch(url, {
     method: "GET",
-    headers: apiHeaders(boot as Record<string, unknown>),
+    headers: apiHeaders(),
     credentials: "include",
   })
   if (!res.ok) {
@@ -219,7 +219,7 @@ export async function getAdminJson(path: string, query: Record<string, string | 
   const url = `${restBase}${p}?${q.toString()}`
   const res = await fetch(url, {
     method: "GET",
-    headers: apiHeaders(boot as Record<string, unknown>),
+    headers: apiHeaders(),
     credentials: "include",
   })
   return parseAdminRestJson(res)
@@ -240,7 +240,7 @@ export async function postAdminJson(
   const p = normalizeAdminApiPath(path)
   const res = await fetch(`${restBase}${p}`, {
     method: "POST",
-    headers: apiHeaders(boot as Record<string, unknown>),
+    headers: apiHeaders(),
     credentials: "include",
     body: JSON.stringify(body),
   })
@@ -260,7 +260,7 @@ export async function postAdminFormData(
     return { ok: false, message: "no_rest" }
   }
   const p = normalizeAdminApiPath(path)
-  const headers = apiHeaders(boot as Record<string, unknown>) as Record<string, string>
+  const headers = apiHeaders() as Record<string, string>
   delete headers["Content-Type"]
   const res = await fetch(`${restBase}${p}`, {
     method: "POST",

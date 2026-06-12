@@ -1,6 +1,17 @@
-# Panel Parity Audit (WP → Laravel)
+# Panel Parity Audit (WP → Laravel) — v5
 
 مبنا: `includes/admin/services/class-service-admin-ops.php` vs Laravel panel services.
+
+## PurgeExpiredService (v5)
+
+| WP `class-cron-purge-expired.php` | Laravel | وضعیت |
+|-----------------------------------|---------|--------|
+| `purge_expired_enabled` gate | `PurgeExpiredService::isEnabled()` | OK |
+| `purge_expired_grace_days` | `effectiveGraceDays()` (+ hours fallback) | OK |
+| warn days `[7,3,1,0]` + notify | `maybeNotifyPurge` + dedup cache | OK |
+| skip L2TP | `L2tpProvisionerService::isL2tp` | OK |
+| batch 30 + stats | `BATCH_LIMIT=30`, `purged/warned/failed` | OK |
+| `purge_ready_batch` | `purgeReadyBatch()` | OK |
 
 ## PanelRebuildService
 

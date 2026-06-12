@@ -23,13 +23,25 @@ jobs:
       - name: Run PHPUnit
         run: php artisan test
       - name: Schedule list smoke
-        run: php artisan schedule:list | tee /tmp/schedule-list.txt && grep -q svp:expiry /tmp/schedule-list.txt
+        run: |
+          php artisan schedule:list | tee /tmp/schedule-list.txt
+          grep -q svp:expiry /tmp/schedule-list.txt
+          grep -q svp:purge_expired /tmp/schedule-list.txt
+          grep -q svp:inbound_queue_drain /tmp/schedule-list.txt
+      - name: Cutover preflight smoke
+        run: bash scripts/ops/cutover-preflight.sh
       - name: Smoke soak (short)
         run: |
           php artisan serve --host=127.0.0.1 --port=8099 &
           sleep 2
           SVP_BASE_URL=http://127.0.0.1:8099 SVP_SOAK_DURATION_SEC=30 SVP_SOAK_INTERVAL_SEC=5 \
             bash scripts/ops/soak-24h.sh
+          kill %1 || true
+      - name: Load smoke
+        run: |
+          php artisan serve --host=127.0.0.1 --port=8098 &
+          sleep 2
+          SVP_BASE_URL=http://127.0.0.1:8098 SVP_LOAD_REQUESTS=20 bash scripts/ops/load-smoke.sh
           kill %1 || true
 
   docker-smoke:
@@ -45,7 +57,8 @@ jobs:
           cd backend
           cp .env.example .env
           docker compose run --rm app php artisan key:generate --force
-          docker compose up -d mysql redis app web
+          docker compose --profile workers up -d mysql redis app web scheduler queue-worker
+          docker compose exec -T scheduler php artisan schedule:list | grep -q svp:expiry
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8080/health/ready >/dev/null 2>&1; then
               echo "health/ready OK"

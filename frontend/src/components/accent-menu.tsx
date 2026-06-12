@@ -23,7 +23,7 @@ type AccentMenuProps = {
   nonce?: string
 }
 
-export function AccentMenu({ initialAccent, restUrl, nonce }: AccentMenuProps) {
+export function AccentMenu({ initialAccent, restUrl }: AccentMenuProps) {
   const { t, i18n } = useTranslation()
   const dir = i18n.dir()
 
@@ -37,10 +37,10 @@ export function AccentMenu({ initialAccent, restUrl, nonce }: AccentMenuProps) {
     (value: AccentPreset) => {
       setAccent(value)
       document.documentElement.setAttribute("data-accent", value)
-      if (!restUrl || !nonce) return
-      void saveUiPreferences({ ui_accent: value }, { restUrl, nonce })
+      if (!restUrl) return
+      void saveUiPreferences({ ui_accent: value }, { restUrl })
     },
-    [restUrl, nonce]
+    [restUrl]
   )
 
   return (

@@ -52,7 +52,9 @@ export function RelayControlCenter({
       telegram_relay_vps_ip: String(s.telegram_relay_vps_ip ?? ""),
       telegram_relay_admin_url: String(s.telegram_relay_admin_url ?? s.telegram_relay_base_url ?? ""),
       telegram_relay_public_url: String(s.telegram_relay_public_url ?? ""),
-      telegram_relay_wp_forward_url: String(s.telegram_relay_wp_forward_url ?? ""),
+      telegram_relay_laravel_forward_url: String(
+        s.telegram_relay_laravel_forward_url ?? s.telegram_relay_wp_forward_url ?? "",
+      ),
       telegram_relay_allowed_ips: String(s.telegram_relay_allowed_ips ?? ""),
       telegram_relay_admin_ssl_verify: bool(s.telegram_relay_admin_ssl_verify),
       telegram_relay_shared_secret: "",
@@ -123,7 +125,7 @@ export function RelayControlCenter({
       telegram_relay_admin_url: adminUrl,
       telegram_relay_base_url: adminUrl,
       telegram_relay_public_url: form.telegram_relay_public_url,
-      telegram_relay_wp_forward_url: form.telegram_relay_wp_forward_url,
+      telegram_relay_laravel_forward_url: form.telegram_relay_laravel_forward_url,
       telegram_relay_allowed_ips: form.telegram_relay_allowed_ips,
       telegram_relay_admin_ssl_verify: form.telegram_relay_admin_ssl_verify ? 1 : 0,
     }
@@ -244,6 +246,18 @@ export function RelayControlCenter({
         </TabsContent>
 
         <TabsContent value="telegram" className="space-y-4 pt-4">
+          <div className="space-y-2">
+            <Label>{tr("laravelForwardUrl", "Laravel forward URL")}</Label>
+            <Input
+              value={form.telegram_relay_laravel_forward_url}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, telegram_relay_laravel_forward_url: e.target.value }))
+              }
+              placeholder="https://api.example.com"
+              dir="ltr"
+              className={ltrCell("font-mono")}
+            />
+          </div>
           <div className="space-y-2">
             <Label>{tr("publicUrl", "Telegram public URL (domain)")}</Label>
             <Input

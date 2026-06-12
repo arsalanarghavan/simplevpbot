@@ -347,6 +347,22 @@ onMutateSuccess?: () => void
   const [savingPaymentMethods, setSavingPaymentMethods] = useState(false)
   const [orderedCards, setOrderedCards] = useState<DashRecord[]>(cards)
   const [reordering, setReordering] = useState(false)
+  const cryptoOn = useMemo(() => {
+    const f = settings?.features
+    return !!(f && typeof f === "object" && (f as Record<string, unknown>).crypto === true)
+  }, [settings?.features])
+  const cardPaymentMethodKeys = useMemo(
+    () =>
+      CARD_PAYMENT_METHOD_KEYS.filter((key) => {
+        if (key === "crypto" || key === "crypto_auto") return cryptoOn
+        return true
+      }),
+    [cryptoOn]
+  )
+  const formMethodKeys = useMemo(
+    () => METHOD_KEYS.filter((key) => (key === "crypto" || key === "crypto_auto" ? cryptoOn : true)),
+    [cryptoOn]
+  )
   const walletPaymentMethodKeys = WALLET_PAYMENT_METHOD_KEYS.filter(
     (key) => key !== "bale_wallet" || mainEnabledPlatforms(settings).includes("bale")
   )
@@ -789,7 +805,7 @@ onMutateSuccess?: () => void
                 <CardContent className="space-y-4 pt-0">
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-muted-foreground">{tp("paymentMethodsGroup_cards")}</p>
-                    {CARD_PAYMENT_METHOD_KEYS.map((key) => renderPaymentMethodToggle(key))}
+                    {cardPaymentMethodKeys.map((key) => renderPaymentMethodToggle(key))}
                   </div>
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-muted-foreground">{tp("paymentMethodsGroup_wallet")}</p>
@@ -827,7 +843,7 @@ onMutateSuccess?: () => void
                     method_key: (v as (typeof METHOD_KEYS)[number]) || "c2c",
                   }))
                 }
-                options={METHOD_KEYS.map((k) => ({ value: k, label: methodLabel(k) }))}
+                options={formMethodKeys.map((k) => ({ value: k, label: methodLabel(k) }))}
               />
             </div>
             {formLabels.cryptoAutoHint ? (

@@ -62,4 +62,13 @@ class GroupDBotSettingsAcceptanceTest extends TestCase
             'surfaces' => [],
         ])->assertOk();
     }
+
+    public function test_bot_ui_layout_save_forbidden_for_reseller(): void
+    {
+        $this->actingAsReseller()->postJson('/api/v1/admin/mutate', [
+            'op' => 'bot_ui_layout_save',
+            'version' => 1,
+            'surfaces' => [],
+        ])->assertForbidden();
+    }
 }

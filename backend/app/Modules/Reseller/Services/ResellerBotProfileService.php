@@ -96,7 +96,15 @@ class ResellerBotProfileService
 
     public function webhookSecretPlaintext(object $profile): string
     {
-        return trim((string) ($profile->webhook_secret ?? $profile->secret ?? ''));
+        $stored = trim((string) ($profile->webhook_secret ?? $profile->secret ?? ''));
+        if ($stored === '') {
+            return '';
+        }
+        try {
+            return Crypt::decryptString($stored);
+        } catch (\Throwable) {
+            return $stored;
+        }
     }
 
     public function ensureWebhookSecret(int $resellerId): string
@@ -117,7 +125,7 @@ class ResellerBotProfileService
         DB::table('svp_reseller_bot_profiles')
             ->where('reseller_svp_user_id', $resellerId)
             ->update([
-                'webhook_secret' => $secret,
+                'webhook_secret' => Crypt::encryptString($secret),
                 'updated_at' => now(),
             ]);
 

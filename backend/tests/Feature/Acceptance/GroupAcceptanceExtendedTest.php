@@ -188,4 +188,47 @@ class GroupAcceptanceExtendedTest extends TestCase
             'op' => 'telegram_relay_admin_doctor',
         ])->assertOk();
     }
+
+    public function test_settings_tab_rejects_unknown_tab(): void
+    {
+        $this->actingAsAdmin()->postJson('/api/v1/admin/mutate', [
+            'op' => 'settings_tab',
+            'tab' => 'not_a_real_tab',
+            'foo' => 'bar',
+        ])->assertOk()->assertJsonPath('ok', false);
+    }
+
+    public function test_purge_expired_run_cron_returns_stats(): void
+    {
+        app(SettingsStore::class)->merge([
+            'enabled' => true,
+            'purge_expired_enabled' => false,
+        ]);
+        $this->actingAsAdmin()->postJson('/api/v1/admin/mutate', [
+            'op' => 'purge_expired_run_cron',
+            'force' => true,
+        ])->assertOk()->assertJsonStructure(['data' => ['purged', 'warned', 'failed', 'grace']]);
+    }
+
+    public function test_health_deep_endpoint(): void
+    {
+        $this->getJson('/health/deep')->assertOk();
+    }
+
+    public function test_settings_tab_bots_allowed(): void
+    {
+        $this->actingAsAdmin()->postJson('/api/v1/admin/mutate', [
+            'op' => 'settings_tab',
+            'tab' => 'bots',
+            'enabled' => true,
+        ])->assertOk()->assertJsonPath('ok', true);
+    }
+
+    public function test_reseller_overview_metrics_scoped(): void
+    {
+        $this->actingAsReseller();
+        $overview = $this->getJson('/api/v1/admin/state?tab=dashboard')->assertOk()->json('overview');
+        $this->assertIsArray($overview);
+        $this->assertArrayHasKey('users_total', $overview);
+    }
 }

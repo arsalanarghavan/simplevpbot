@@ -1,0 +1,34 @@
+name: Nightly soak
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: dom, mbstring, pdo_sqlite, xml, xmlwriter
+      - run: composer install --no-interaction --prefer-dist
+      - name: Short soak against artisan serve
+        run: |
+          php artisan serve --host=127.0.0.1 --port=8097 &
+          sleep 2
+          SVP_BASE_URL=http://127.0.0.1:8097 \
+            SVP_SOAK_DURATION_SEC=300 \
+            SVP_SOAK_INTERVAL_SEC=30 \
+            SVP_SOAK_LOG=../docs/evidence/soak-nightly-$(date +%F).log \
+            bash scripts/ops/soak-24h.sh
+          kill %1 || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: soak-log
+          path: docs/evidence/soak-nightly-*.log

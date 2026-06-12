@@ -93,7 +93,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    command: sh -c "while true; do php artisan schedule:run --verbose --no-interaction; sleep 60; done"
+    command: php artisan schedule:work
     volumes:
       - .:/var/www/html
     environment:

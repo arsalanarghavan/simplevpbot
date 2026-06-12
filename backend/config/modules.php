@@ -39,13 +39,13 @@ return [
             'provider' => \App\Modules\Relay\RelayServiceProvider::class,
         ],
         'crypto' => [
-            'enabled' => env('SVP_MODULE_CRYPTO', true),
+            'enabled' => env('SVP_MODULE_CRYPTO', false),
             'label' => 'Crypto (NOWPayments)',
             'depends' => ['core'],
             'provider' => \App\Modules\Crypto\CryptoServiceProvider::class,
         ],
         'l2tp' => [
-            'enabled' => env('SVP_MODULE_L2TP', true),
+            'enabled' => env('SVP_MODULE_L2TP', false),
             'label' => 'L2TP',
             'depends' => ['core'],
             'provider' => \App\Modules\L2tp\L2tpServiceProvider::class,

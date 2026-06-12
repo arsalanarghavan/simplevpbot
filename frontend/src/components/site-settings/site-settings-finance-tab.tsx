@@ -8,7 +8,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
+import { postAdminMutate } from "@/lib/dash-admin-mutate"
 import { useSiteSettingsSave } from "@/lib/use-site-settings-save"
+import type { DashboardFeatures } from "@/config/admin-nav"
 import { SiteSettingsSaveFeedback } from "@/components/site-settings/site-settings-save-feedback"
 import { useDashLocale } from "@/lib/dash-locale-context"
 import { cn } from "@/lib/utils"
@@ -22,10 +24,12 @@ function bool(v: unknown): boolean {
 export function SiteSettingsFinanceTab({
   settings,
   dashboardBaseUrl,
+  features,
   onMutateSuccess,
 }: {
   settings: DashRecord | undefined
   dashboardBaseUrl: string
+  features?: DashboardFeatures | null
   onMutateSuccess?: () => void
 }) {
   const { t } = useTranslation()
@@ -34,7 +38,6 @@ export function SiteSettingsFinanceTab({
 
   const initial = useMemo(
     () => ({
-      notify_panel_cost_expiry: bool(settings?.notify_panel_cost_expiry ?? true),
       panel_cost_reminder_days: String(settings?.panel_cost_reminder_days ?? "7,1,0"),
       panel_cost_extend_days_on_paid: String(settings?.panel_cost_extend_days_on_paid ?? 30),
     }),
@@ -42,12 +45,27 @@ export function SiteSettingsFinanceTab({
   )
 
   const [form, setForm] = useState(initial)
+  const [cryptoForm, setCryptoForm] = useState({
+    crypto_enabled: bool(settings?.crypto_enabled ?? false),
+    crypto_nowpayments_api_key: "",
+    crypto_nowpayments_ipn_secret: "",
+    crypto_nowpayments_pay_currency: String(settings?.crypto_nowpayments_pay_currency ?? "usdttrc20"),
+  })
   useEffect(() => setForm(initial), [initial])
+  useEffect(() => {
+    setCryptoForm((prev) => ({
+      ...prev,
+      crypto_enabled: bool(settings?.crypto_enabled ?? false),
+      crypto_nowpayments_pay_currency: String(settings?.crypto_nowpayments_pay_currency ?? "usdttrc20"),
+    }))
+  }, [settings])
   const { saving, error, okMsg, saveSettingsTab } = useSiteSettingsSave(onMutateSuccess)
+  const cryptoOn = features?.crypto === true
+  const apiKeySet = bool(settings?.crypto_nowpayments_api_key_set)
+  const ipnSecretSet = bool(settings?.crypto_nowpayments_ipn_secret_set)
 
   const onSave = useCallback(async () => {
     await saveSettingsTab("finance", {
-        notify_panel_cost_expiry: form.notify_panel_cost_expiry ? 1 : 0,
         panel_cost_reminder_days: form.panel_cost_reminder_days.trim(),
         panel_cost_extend_days_on_paid: Math.max(1, Number(form.panel_cost_extend_days_on_paid) || 30),
       })
@@ -63,17 +81,6 @@ export function SiteSettingsFinanceTab({
           <CardDescription>{tf("desc")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="size-4 rounded border-input"
-              checked={form.notify_panel_cost_expiry}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, notify_panel_cost_expiry: e.target.checked }))
-              }
-            />
-            {tf("notifyEnabled")}
-          </label>
           <div className="space-y-2">
             <Label htmlFor="pc_days">{tf("reminderDays")}</Label>
             <Input
@@ -112,6 +119,92 @@ export function SiteSettingsFinanceTab({
       <Button type="button" disabled={saving} onClick={() => void onSave()}>
         {tf("save")}
       </Button>
+
+      {cryptoOn ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{tf("cryptoTitle")}</CardTitle>
+            <CardDescription>{tf("cryptoDesc")}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4 rounded border-input"
+                checked={cryptoForm.crypto_enabled}
+                onChange={(e) =>
+                  setCryptoForm((f) => ({ ...f, crypto_enabled: e.target.checked }))
+                }
+              />
+              {tf("cryptoEnabled")}
+            </label>
+            <div className="space-y-2">
+              <Label htmlFor="np_api">{tf("cryptoApiKey")}</Label>
+              <Input
+                id="np_api"
+                type="password"
+                value={cryptoForm.crypto_nowpayments_api_key}
+                onChange={(e) =>
+                  setCryptoForm((f) => ({ ...f, crypto_nowpayments_api_key: e.target.value }))
+                }
+                placeholder={apiKeySet ? "••••••••" : ""}
+                dir="ltr"
+                className={ltrCell("font-mono")}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="np_ipn">{tf("cryptoIpnSecret")}</Label>
+              <Input
+                id="np_ipn"
+                type="password"
+                value={cryptoForm.crypto_nowpayments_ipn_secret}
+                onChange={(e) =>
+                  setCryptoForm((f) => ({ ...f, crypto_nowpayments_ipn_secret: e.target.value }))
+                }
+                placeholder={ipnSecretSet ? "••••••••" : ""}
+                dir="ltr"
+                className={ltrCell("font-mono")}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="np_cur">{tf("cryptoPayCurrency")}</Label>
+              <Input
+                id="np_cur"
+                value={cryptoForm.crypto_nowpayments_pay_currency}
+                onChange={(e) =>
+                  setCryptoForm((f) => ({ ...f, crypto_nowpayments_pay_currency: e.target.value }))
+                }
+                dir="ltr"
+                className={ltrCell("font-mono")}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={saving}
+              onClick={() => {
+                void (async () => {
+                  const payload: Record<string, unknown> = {
+                    crypto_enabled: cryptoForm.crypto_enabled ? 1 : 0,
+                    crypto_nowpayments_pay_currency: cryptoForm.crypto_nowpayments_pay_currency.trim(),
+                  }
+                  if (cryptoForm.crypto_nowpayments_api_key.trim()) {
+                    payload.crypto_nowpayments_api_key = cryptoForm.crypto_nowpayments_api_key.trim()
+                  }
+                  if (cryptoForm.crypto_nowpayments_ipn_secret.trim()) {
+                    payload.crypto_nowpayments_ipn_secret =
+                      cryptoForm.crypto_nowpayments_ipn_secret.trim()
+                  }
+                  const res = await postAdminMutate("crypto_settings", payload)
+                  if (res.ok) onMutateSuccess?.()
+                })()
+              }}
+            >
+              {tf("cryptoSave")}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   )
 }

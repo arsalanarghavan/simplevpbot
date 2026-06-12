@@ -1,4 +1,4 @@
-# انحراف‌های زمان‌بندی Cron (v4)
+# انحراف‌های زمان‌بندی Cron (v5)
 
 مبنا: `docs/LARAVEL-BACKEND-SPEC-FA.md` §12
 
@@ -12,7 +12,7 @@
 | Marketing | hourly (if module) | hourly |
 | AdminAlerts | every 10 minutes | every 10 minutes |
 | IdleOffers | hourly (if module) | hourly |
-| PurgeExpired | hourly | hourly |
+| PurgeExpired | hourly (if `xui_panel`) | hourly |
 
 ## Intervalهای عمدی متفاوت
 
@@ -29,7 +29,18 @@
 | `svp:backup` | `backup` module |
 | `svp:marketing`, `svp:idle_offers` | `marketing` module |
 | `svp:panel_online`, `svp:panel_service_sync`, `svp:inbound_clients_cache`, `svp:panel_economics_renewal` | `xui_panel` module |
-| `svp:purge_expired` | بدون gate (spec: core؛ کد در `XuiPanel\Jobs`) |
+| `svp:purge_expired` | `xui_panel` module — [`PurgeExpiredService.php`](../backend/app/Modules/XuiPanel/Services/PurgeExpiredService.php) |
+| `svp:inbound_queue_drain` | core — [`InboundQueueDrainJob`](../backend/app/Modules/Core/Jobs/InboundQueueDrainJob.php) |
+
+## Purge expired parity (v5)
+
+| قابلیت | Laravel | WP |
+|--------|---------|-----|
+| enabled gate | `purge_expired_enabled` (default false) | همان |
+| grace days | `effectiveGraceDays()` | `effective_grace_days()` |
+| warn + notify | `maybeNotifyPurge` + dedup | `maybe_notify_purge` |
+| skip L2TP | `L2tpProvisionerService::isL2tp` | `is_l2tp` |
+| stats | `purged/warned/failed/grace` | همان |
 
 ## Notify / Expiry parity (v4)
 
